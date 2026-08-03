@@ -1,0 +1,11 @@
+# ==========================================
+# MOONSHIELD | VARIÁVEIS DE AMBIENTE LOCAIS
+# ==========================================
+
+SECRET_KEY=sua-chave-secreta-forte-aqui
+
+DEBUG=True
+
+ALLOWED_HOSTS=*
+
+MAPBOX_ACCESS_TOKEN=sua-chave-mapbox-aqui

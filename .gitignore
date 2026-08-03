@@ -1,0 +1,46 @@
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Django
+*.sqlite3
+MoonShield/media/
+MoonShield/staticfiles/
+
+# MoonShield Agent
+MoonShield-Agent/config.json
+MoonShield-Agent/rede/dados/ms_rede.json
+MoonShield-Agent/logs/
+MoonShield-Agent/*.log
+
+# Repositórios Git internos
+MoonShield/.git/
+MoonShield-Agent/.git/
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux e macOS
+.DS_Store

@@ -1,0 +1,347 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Incidente #{{ incidente_id }} — MoonShield{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
+<link rel="stylesheet" href="{% static 'css/incidentes/incidente-detalhe.css' %}">
+{% endblock %}
+
+{% block conteudo %}
+
+{# ══════════════════════ TOPBAR ══════════════════════ #}
+<div class="id-topbar">
+    <div class="id-topbar__left">
+        <a href="{% url 'incidentes:painel' %}" class="id-back">
+            <i class="bi bi-arrow-left"></i><span>Incidentes</span>
+        </a>
+        <span class="id-sep">/</span>
+        <span class="id-breadcrumb" id="topbarTitulo">Carregando…</span>
+    </div>
+    <div class="id-topbar__right">
+        <span class="id-inc-id">#{{ incidente_id }}</span>
+        <button class="id-btn id-btn--ghost" id="btnRefresh">
+            <i class="bi bi-arrow-clockwise" id="refreshIcon"></i> Atualizar
+        </button>
+        <div class="id-actions-wrap">
+            <button class="id-btn id-btn--primary" id="btnAcoes">
+                <i class="bi bi-lightning-fill"></i> Ações <i class="bi bi-chevron-down id-chevron"></i>
+            </button>
+            <div class="id-actions-dropdown" id="acoesDropdown">
+                <button class="id-action-opt" id="optInvestigar">
+                    <span class="id-action-ico id-action-ico--info"><i class="bi bi-search"></i></span>
+                    <div>
+                        <div class="id-action-name">Investigar IP</div>
+                        <div class="id-action-desc">Dossiê completo do atacante</div>
+                    </div>
+                </button>
+                <button class="id-action-opt" id="optCopiarIp">
+                    <span class="id-action-ico id-action-ico--dim"><i class="bi bi-clipboard"></i></span>
+                    <div>
+                        <div class="id-action-name">Copiar IP de origem</div>
+                        <div class="id-action-desc">Copiar para área de transferência</div>
+                    </div>
+                </button>
+                <button class="id-action-opt" id="optExportar">
+                    <span class="id-action-ico id-action-ico--info"><i class="bi bi-download"></i></span>
+                    <div>
+                        <div class="id-action-name">Exportar JSON</div>
+                        <div class="id-action-desc">Baixar evidências brutas</div>
+                    </div>
+                </button>
+                <div class="id-action-sep"></div>
+                <button class="id-action-opt" id="optSupressao">
+                    <span class="id-action-ico id-action-ico--warn"><i class="bi bi-slash-circle-fill"></i></span>
+                    <div>
+                        <div class="id-action-name">Criar supressão</div>
+                        <div class="id-action-desc">Silenciar alertas deste IP/SID</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ══════════════════════ HERO ══════════════════════ #}
+<div class="id-hero" id="heroSection">
+    <div class="id-hero__loading" id="heroLoading">
+        <div class="id-spinner"></div> Carregando incidente…
+    </div>
+    <div class="id-hero__content" id="heroContent" style="display:none">
+        <div class="id-hero__accent" id="heroAccent"></div>
+
+        <div class="id-hero__left">
+            <div class="id-hero__badges">
+                <span class="id-badge" id="heroBadgeSev">—</span>
+                <span class="id-badge id-badge--cat" id="heroBadgeCat">—</span>
+                <span class="id-badge id-badge--ids"><i class="bi bi-shield-fill"></i> IDS</span>
+                <span class="id-status" id="heroStatus" data-status="novo">
+                    <span class="id-status__dot"></span>
+                    <span id="heroStatusLabel">Novo</span>
+                </span>
+            </div>
+            <h1 class="id-hero__titulo" id="heroTitulo">—</h1>
+            <p class="id-hero__resumo" id="heroResumo"></p>
+            <div class="id-hero__evidencia" id="heroEvidencia" style="display:none">
+                <i class="bi bi-reception-4"></i>
+                <code id="heroEvidenciaText"></code>
+            </div>
+            <div class="id-hero__meta">
+                <span id="heroSensor" class="id-meta-pill"><i class="bi bi-hdd-rack-fill"></i> —</span>
+                <span id="heroTime" class="id-meta-pill"><i class="bi bi-clock"></i> —</span>
+                <span id="heroOcorrencias" class="id-meta-pill id-meta-pill--warn" style="display:none">
+                    <i class="bi bi-layers-fill"></i> <span></span>×
+                </span>
+                <span id="heroJanela" class="id-meta-pill" style="display:none">
+                    <i class="bi bi-calendar-range"></i> <span></span>
+                </span>
+            </div>
+        </div>
+
+        <div class="id-hero__right">
+            <div class="id-risk-widget">
+                <svg class="id-risk-ring" viewBox="0 0 72 72">
+                    <circle class="id-risk-ring__track" cx="36" cy="36" r="28" />
+                    <circle class="id-risk-ring__arc" cx="36" cy="36" r="28" id="riskArc" />
+                </svg>
+                <div class="id-risk-widget__inner">
+                    <div class="id-risk-val" id="riskVal">—</div>
+                    <div class="id-risk-lbl">RISK</div>
+                </div>
+                <div class="id-risk-tag" id="riskTag">—</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ══════════════════════ STATUS BAR ══════════════════════ #}
+<div class="id-status-bar" id="statusBar" style="display:none">
+    <span class="id-status-bar__lbl"><i class="bi bi-pencil-square"></i> Status:</span>
+    <div class="id-status-actions">
+        <button class="id-status-btn id-status-btn--novo" data-status="novo"><i class="bi bi-circle"></i> Novo</button>
+        <button class="id-status-btn id-status-btn--inv" data-status="investigando"><i class="bi bi-search"></i>
+            Investigando</button>
+        <button class="id-status-btn id-status-btn--ok" data-status="resolvido"><i class="bi bi-check-lg"></i>
+            Resolvido</button>
+        <button class="id-status-btn id-status-btn--fp" data-status="falso"><i class="bi bi-slash-circle"></i> Falso
+            Positivo</button>
+    </div>
+    <div class="id-status-bar__right">
+        <a class="id-btn id-btn--inv-link" id="btnInvestigarIp" href="#" target="_blank">
+            <i class="bi bi-box-arrow-up-right"></i> Investigar IP
+        </a>
+    </div>
+</div>
+
+{# ══════════════════════ MAIN GRID ══════════════════════ #}
+<div class="id-main">
+
+    <div class="id-col-main">
+
+        {# Fluxo de rede #}
+        <div class="id-card" id="cardFluxo" style="display:none">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-arrow-left-right"></i> Fluxo de Rede</div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <span class="id-proto-tag" id="fluxoProto">—</span>
+                    <span class="id-dir-badge" id="fluxoDirBadge" style="display:none"></span>
+                </div>
+            </div>
+            <div class="id-flow">
+                <div class="id-flow__block">
+                    <div class="id-flow__role">ORIGEM</div>
+                    <div class="id-flow__ip" id="fluxoSrcIp">—</div>
+                    <div id="fluxoSrcFlag" class="id-flow__flag"></div>
+                    <div class="id-flow__country" id="fluxoSrcCountry"></div>
+                    <div class="id-flow__asn" id="fluxoSrcAsn"></div>
+                    <button class="id-copy-btn" id="copySrcIp"><i class="bi bi-clipboard"></i> Copiar IP</button>
+                </div>
+                <div class="id-flow__mid">
+                    <div class="id-flow__track">
+                        <div class="id-flow__pulse"></div>
+                    </div>
+                    <i class="bi bi-caret-right-fill id-flow__caret"></i>
+                    <span class="id-flow__proto" id="fluxoProtoPill">—</span>
+                </div>
+                <div class="id-flow__block id-flow__block--right">
+                    <div class="id-flow__role">DESTINO</div>
+                    <div class="id-flow__ip" id="fluxoDstIp">—</div>
+                    <div class="id-flow__port" id="fluxoDstPort"></div>
+                    <div class="id-flow__country" id="fluxoDstCountry"></div>
+                </div>
+            </div>
+        </div>
+
+        {# Recomendações #}
+        <div class="id-card" id="cardRecom" style="display:none">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-shield-check"></i> O que fazer</div>
+                <div class="id-tags" id="recomTags"></div>
+            </div>
+            <div class="id-recom-list" id="recomList"></div>
+        </div>
+
+        {# Correlações #}
+        <div class="id-card">
+            <div class="id-card__header">
+                <div class="id-card__title">
+                    <i class="bi bi-link-45deg"></i> Correlações
+                    <span class="id-card__sub">±10 min</span>
+                </div>
+                <div class="id-tab-group" id="corrTabs">
+                    <button class="id-tab-btn id-tab-btn--active" data-tab="dns">
+                        <i class="bi bi-globe2"></i> DNS
+                        <span class="id-tab-badge" id="corrDnsCount">0</span>
+                    </button>
+                    <button class="id-tab-btn" data-tab="http">
+                        <i class="bi bi-arrow-left-right"></i> HTTP
+                        <span class="id-tab-badge" id="corrHttpCount">0</span>
+                    </button>
+                    <button class="id-tab-btn" data-tab="tls">
+                        <i class="bi bi-lock-fill"></i> TLS
+                        <span class="id-tab-badge" id="corrTlsCount">0</span>
+                    </button>
+                </div>
+            </div>
+            <div class="id-loading" id="corrLoading">
+                <div class="id-spinner"></div> Carregando correlações…
+            </div>
+            <div id="corrContent" style="display:none">
+                <div id="corrPanelDns" class="id-corr-panel"></div>
+                <div id="corrPanelHttp" class="id-corr-panel" style="display:none"></div>
+                <div id="corrPanelTls" class="id-corr-panel" style="display:none"></div>
+            </div>
+        </div>
+
+        {# Técnico #}
+        <div class="id-card">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-cpu"></i> Técnico — Suricata</div>
+                <button class="id-expand-btn" id="tecToggle"><i class="bi bi-chevron-down"></i> Expandir</button>
+            </div>
+            <div class="id-collapsible" id="tecWrap">
+                <div class="id-tec-grid" id="tecGrid"></div>
+                <div class="id-raw-block">
+                    <div class="id-raw-header">
+                        <span class="id-raw-title"><i class="bi bi-braces"></i> Raw JSON</span>
+                        <button class="id-expand-btn" id="rawToggle"><i class="bi bi-chevron-down"></i>
+                            Expandir</button>
+                    </div>
+                    <div class="id-collapsible id-collapsible--raw" id="rawWrap">
+                        <pre class="id-raw" id="rawJson">—</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Nota interna #}
+        <div class="id-card">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-pencil-fill"></i> Nota interna</div>
+                <button class="id-btn id-btn--ghost id-btn--sm" id="btnSalvarNota">
+                    <i class="bi bi-floppy-fill"></i> Salvar
+                </button>
+            </div>
+            <textarea class="id-nota" id="notaTextarea"
+                placeholder="Adicione observações, contexto ou conclusões sobre este incidente…" rows="4"></textarea>
+        </div>
+
+    </div>
+
+    {# ── Sidebar ── #}
+    <div class="id-sidebar">
+
+        <div class="id-card">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-geo-alt-fill"></i> GeoIP &amp; Rede</div>
+            </div>
+            <div class="id-loading id-loading--sm" id="geoLoading">
+                <div class="id-spinner id-spinner--sm"></div>
+            </div>
+            <div id="geoContent" style="display:none"></div>
+        </div>
+
+        <div class="id-card" id="riskDetailCard" style="display:none">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-speedometer2"></i> Risk — contexto IP</div>
+            </div>
+            <div id="riskDetailContent"></div>
+        </div>
+
+        <div class="id-card">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-clock-history"></i> Histórico</div>
+            </div>
+            <div class="id-tl-mini" id="historicoList">
+                <div class="id-tl-mini-item">
+                    <div class="id-tl-mini-dot id-tl-mini-dot--new"></div>
+                    <div>
+                        <div class="id-tl-mini-title">Incidente criado</div>
+                        <div class="id-tl-mini-time" id="histoCriado">—</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="id-card">
+            <div class="id-card__header">
+                <div class="id-card__title"><i class="bi bi-fire"></i> Mesmo IP</div>
+                <a href="#" class="id-card__link" id="linkVerTodos">Ver todos <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="id-loading id-loading--sm" id="relLoading">
+                <div class="id-spinner id-spinner--sm"></div>
+            </div>
+            <div id="relList" style="display:none"></div>
+        </div>
+
+    </div>
+</div>
+
+{# ══════════════════════ MODAL SUPRESSÃO ══════════════════════ #}
+<div class="id-modal-overlay" id="modalOverlay">
+    <div class="id-modal">
+        <div class="id-modal__header">
+            <div class="id-modal__title"><i class="bi bi-slash-circle-fill"></i> Criar Supressão</div>
+            <button class="id-modal__close" id="modalClose"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="id-modal__body">
+            <div class="id-form-group">
+                <label class="id-label">Tipo</label>
+                <select class="id-select" id="supTipo">
+                    <option value="ip_src">Por IP de origem</option>
+                    <option value="sid">Por SID (regra)</option>
+                    <option value="dominio">Por domínio</option>
+                </select>
+            </div>
+            <div class="id-form-group" id="supSidGroup" style="display:none">
+                <label class="id-label">SID</label>
+                <input class="id-input" type="text" id="supSidVal" placeholder="ex: 2100498">
+            </div>
+            <div class="id-form-group">
+                <label class="id-label">Motivo</label>
+                <textarea class="id-textarea" id="supMotivo" rows="3"
+                    placeholder="Ex: IP interno, falso positivo confirmado…"></textarea>
+            </div>
+            <div class="id-form-group">
+                <label class="id-label">Expiração <span class="id-label-opt">(opcional)</span></label>
+                <input class="id-input" type="datetime-local" id="supExpira">
+            </div>
+        </div>
+        <div class="id-modal__footer">
+            <button class="id-btn id-btn--ghost" id="modalCancel">Cancelar</button>
+            <button class="id-btn id-btn--danger" id="modalConfirm">
+                <i class="bi bi-slash-circle-fill"></i> Criar Supressão
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="id-toast" id="toast"></div>
+<script>window.INC_ID = {{ incidente_id }};</script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/incidentes/incidente-detalhe-page.js' %}"></script>
+{% endblock %}

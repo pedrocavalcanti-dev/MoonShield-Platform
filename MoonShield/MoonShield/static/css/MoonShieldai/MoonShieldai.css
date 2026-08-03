@@ -1,0 +1,1573 @@
+/* ============================================================
+   MOONSHIELD — JARVISAI.CSS  v1
+   Cinematográfico · Estado: .is-text / .is-voice
+   Voice states: .v-idle .v-listening .v-thinking .v-speaking .v-error
+   ============================================================ */
+
+/* ══════════════════════════════════════════════════════════
+   VARIÁVEIS LOCAIS
+══════════════════════════════════════════════════════════ */
+:root {
+    --jar-blue: #3b7fff;
+    --jar-cyan: #5cd3ff;
+    --jar-deep: #0a0e1f;
+    --jar-blue-bg: rgba(59, 127, 255, .10);
+    --jar-blue-bd: rgba(59, 127, 255, .25);
+    --jar-cyan-bg: rgba(92, 211, 255, .08);
+    --jar-cyan-bd: rgba(92, 211, 255, .20);
+    --jar-red: #ef4444;
+    --jar-orange: #f97316;
+    --jar-green: #22c55e;
+    --jar-red-bg: rgba(239, 68, 68, .10);
+    --jar-red-bd: rgba(239, 68, 68, .25);
+    --jar-green-bg: rgba(34, 197, 94, .10);
+    --jar-green-bd: rgba(34, 197, 94, .25);
+    --jar-orange-bg: rgba(249, 115, 22, .10);
+    --jar-orange-bd: rgba(249, 115, 22, .25);
+    --jar-ring-glow: 0 0 60px rgba(59, 127, 255, .55), 0 0 120px rgba(59, 127, 255, .25);
+    --jar-dur: .3s;
+}
+
+/* ══════════════════════════════════════════════════════════
+   WRAPPER PRINCIPAL
+══════════════════════════════════════════════════════════ */
+.jar-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--topbar-h, 56px) - var(--page-padding, 32px) * 2);
+    min-height: 600px;
+    gap: 0;
+    animation: jarIn .4s var(--ease) both;
+}
+
+@keyframes jarIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════
+   TOPBAR INTERNA
+══════════════════════════════════════════════════════════ */
+.jar-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: var(--sp-md);
+    flex-wrap: wrap;
+}
+
+.jar-topbar__left,
+.jar-topbar__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Live indicator */
+.jar-live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    background: var(--jar-green-bg);
+    border: 1px solid var(--jar-green-bd);
+}
+
+.jar-live__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--jar-green);
+    box-shadow: 0 0 8px var(--jar-green);
+    animation: jarDot 2s ease-in-out infinite;
+}
+
+@keyframes jarDot {
+
+    0%,
+    100% {
+        opacity: 1
+    }
+
+    50% {
+        opacity: .2
+    }
+}
+
+.jar-live__label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--jar-green);
+}
+
+/* Mode indicator */
+.jar-mode-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 100px;
+    background: var(--jar-blue-bg);
+    border: 1px solid var(--jar-blue-bd);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--jar-blue);
+    letter-spacing: .05em;
+}
+
+.jar-topbar__time {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+/* Topbar buttons */
+.jar-topbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: var(--r-md);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    transition: all .15s;
+    white-space: nowrap;
+}
+
+.jar-topbar-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--jar-blue-bd);
+    background: var(--jar-blue-bg);
+}
+
+.jar-topbar-btn--danger {
+    color: var(--jar-red);
+}
+
+.jar-topbar-btn--danger:hover {
+    border-color: var(--jar-red-bd);
+    background: var(--jar-red-bg);
+    color: var(--jar-red);
+}
+
+/* ══════════════════════════════════════════════════════════
+   MAIN 3 COLUNAS
+══════════════════════════════════════════════════════════ */
+.jar-main {
+    display: grid;
+    grid-template-columns: 240px 1fr 280px;
+    gap: var(--sp-md);
+    flex: 1;
+    min-height: 0;
+    padding-top: var(--sp-md);
+}
+
+/* ══════════════════════════════════════════════════════════
+   COLUNA ESQUERDA — SIDEBAR
+══════════════════════════════════════════════════════════ */
+.jar-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-md);
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* Sections */
+.jar-sidebar__section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-md);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.jar-sidebar__section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.jar-sidebar__section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+/* Icon btn */
+.jar-icon-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    transition: all .15s;
+}
+
+.jar-icon-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--jar-blue-bd);
+    background: var(--jar-blue-bg);
+}
+
+/* Sessions */
+.jar-sessions {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.jar-session-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--r-md);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all .12s;
+}
+
+.jar-session-item:hover {
+    background: var(--bg-hover);
+}
+
+.jar-session-item--active {
+    background: var(--jar-blue-bg);
+    border-color: var(--jar-blue-bd);
+}
+
+.jar-session-item__info {
+    flex: 1;
+    min-width: 0;
+}
+
+.jar-session-item__name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jar-session-item__last {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jar-session-item__time {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+/* Quick prompts */
+.jar-quick-prompts {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.jar-qp-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    border-radius: var(--r-md);
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: all .13s;
+}
+
+.jar-qp-btn i {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.jar-qp-btn:hover {
+    background: var(--jar-blue-bg);
+    border-color: var(--jar-blue-bd);
+    color: var(--jar-blue);
+}
+
+.jar-qp-btn:hover i {
+    color: var(--jar-blue);
+}
+
+/* Config toggles */
+.jar-config-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.jar-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.jar-toggle-lbl {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.jar-toggle-sub {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 1px;
+}
+
+/* Toggle switch */
+.jar-toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
+.jar-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.jar-toggle__slider {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    cursor: pointer;
+    transition: all .2s;
+}
+
+.jar-toggle__slider::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: all .2s;
+}
+
+.jar-toggle input:checked+.jar-toggle__slider {
+    background: var(--jar-blue-bg);
+    border-color: var(--jar-blue);
+}
+
+.jar-toggle input:checked+.jar-toggle__slider::before {
+    left: 18px;
+    background: var(--jar-blue);
+}
+
+/* ══════════════════════════════════════════════════════════
+   CENTRO — MODO TEXTO
+══════════════════════════════════════════════════════════ */
+.jar-center {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+}
+
+/* TEXT panel */
+.jar-text-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.jar-voice-panel {
+    display: none;
+}
+
+/* Quando modo VOZ */
+.is-voice .jar-text-panel {
+    display: none;
+}
+
+.is-voice .jar-voice-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+/* ── CHAT ── */
+.jar-chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sp-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-md);
+    scroll-behavior: smooth;
+}
+
+/* Empty state */
+.jar-chat__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 14px;
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.jar-chat__empty-ring {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    background: linear-gradient(135deg, rgba(59, 127, 255, .3), rgba(92, 211, 255, .1)) border-box;
+    box-shadow: 0 0 40px rgba(59, 127, 255, .3), inset 0 0 30px rgba(59, 127, 255, .08);
+    animation: jarEmptyRing 4s ease-in-out infinite;
+}
+
+@keyframes jarEmptyRing {
+
+    0%,
+    100% {
+        box-shadow: 0 0 30px rgba(59, 127, 255, .25), inset 0 0 20px rgba(59, 127, 255, .06);
+    }
+
+    50% {
+        box-shadow: 0 0 60px rgba(59, 127, 255, .5), inset 0 0 40px rgba(59, 127, 255, .12);
+    }
+}
+
+.jar-chat__empty-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -.02em;
+}
+
+.jar-chat__empty-sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+}
+
+/* Messages */
+.jar-msg {
+    display: flex;
+    gap: 10px;
+    max-width: 90%;
+}
+
+.jar-msg--user {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+}
+
+.jar-msg__avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.jar-msg--ai .jar-msg__avatar {
+    background: var(--jar-blue-bg);
+    border: 1px solid var(--jar-blue-bd);
+    color: var(--jar-blue);
+}
+
+.jar-msg--user .jar-msg__avatar {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+}
+
+.jar-msg__content {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.jar-msg--user .jar-msg__content {
+    align-items: flex-end;
+}
+
+.jar-msg__bubble {
+    padding: 10px 14px;
+    border-radius: 16px;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text-primary);
+    max-width: 100%;
+}
+
+.jar-msg--ai .jar-msg__bubble {
+    background: var(--bg-mid);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px 16px 16px 16px;
+}
+
+.jar-msg--user .jar-msg__bubble {
+    background: var(--jar-blue-bg);
+    border: 1px solid var(--jar-blue-bd);
+    color: var(--text-primary);
+    border-radius: 16px 4px 16px 16px;
+}
+
+.jar-msg__bubble strong {
+    color: var(--jar-cyan);
+    font-weight: 600;
+}
+
+.jar-msg__bubble code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: rgba(92, 211, 255, .1);
+    border: 1px solid rgba(92, 211, 255, .2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--jar-cyan);
+}
+
+.jar-msg__bubble ul {
+    margin: 6px 0 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.jar-msg__bubble li {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.jar-msg__meta {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    padding: 0 4px;
+}
+
+/* ── TYPING ── */
+.jar-typing {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px var(--sp-lg);
+    background: var(--bg-mid);
+    border-top: 1px solid var(--border-soft);
+    flex-shrink: 0;
+}
+
+.jar-typing__dots {
+    display: flex;
+    gap: 4px;
+}
+
+.jar-typing__dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--jar-blue);
+    animation: jarDotBounce 1.2s ease-in-out infinite;
+}
+
+.jar-typing__dots span:nth-child(2) {
+    animation-delay: .2s;
+}
+
+.jar-typing__dots span:nth-child(3) {
+    animation-delay: .4s;
+}
+
+@keyframes jarDotBounce {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(.6);
+        opacity: .4;
+    }
+
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.jar-typing__label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+/* ── COMPOSER ── */
+.jar-composer {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 12px var(--sp-md);
+    border-top: 1px solid var(--border);
+    background: var(--bg-card);
+    flex-shrink: 0;
+}
+
+.jar-composer__input {
+    flex: 1;
+    min-height: 40px;
+    max-height: 160px;
+    resize: none;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    transition: border-color .15s, box-shadow .15s;
+    font-family: inherit;
+}
+
+.jar-composer__input::placeholder {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.jar-composer__input:focus {
+    outline: none;
+    border-color: var(--jar-blue);
+    box-shadow: 0 0 0 3px rgba(59, 127, 255, .12);
+}
+
+.jar-composer__btn {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    transition: all .13s;
+    flex-shrink: 0;
+}
+
+.jar-composer__btn:hover {
+    color: var(--text-primary);
+    border-color: var(--jar-blue-bd);
+    background: var(--jar-blue-bg);
+}
+
+.jar-composer__send {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r-md);
+    border: none;
+    background: var(--jar-blue);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+    transition: all .15s;
+    box-shadow: 0 0 20px rgba(59, 127, 255, .4);
+}
+
+.jar-composer__send:hover {
+    background: #4d90ff;
+    box-shadow: 0 0 30px rgba(59, 127, 255, .6);
+    transform: scale(1.05);
+}
+
+/* ══════════════════════════════════════════════════════════
+   MODO VOZ — CENTRO
+══════════════════════════════════════════════════════════ */
+.jar-voice-panel {
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    padding: 32px 20px 24px;
+    background: var(--bg-card);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Fundo estilo Siri (gradiente escuro azulado) */
+.jar-voice-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% 100%, rgba(20, 40, 120, .55) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 50% 50%, rgba(10, 14, 31, .8) 0%, transparent 80%);
+    pointer-events: none;
+}
+
+/* ── ANEL ── */
+.jar-ring-wrap {
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+}
+
+.jar-ring {
+    position: relative;
+    width: 260px;
+    height: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#jarRingCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 260px;
+    height: 260px;
+}
+
+.jar-ring__inner {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    pointer-events: none;
+}
+
+.jar-voice__hi {
+    font-size: 42px;
+    font-weight: 200;
+    letter-spacing: .05em;
+    color: rgba(255, 255, 255, .92);
+    font-family: var(--font-display, inherit);
+    line-height: 1;
+    transition: all .3s;
+}
+
+.jar-voice__title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: rgba(92, 211, 255, .6);
+    transition: all .3s;
+}
+
+/* Glow do anel por estado */
+.is-voice.v-idle .jar-ring {
+    filter: none;
+}
+
+.is-voice.v-listening .jar-ring {
+    filter: drop-shadow(0 0 30px rgba(59, 127, 255, .6));
+}
+
+.is-voice.v-thinking .jar-ring {
+    filter: drop-shadow(0 0 20px rgba(168, 85, 247, .5));
+}
+
+.is-voice.v-speaking .jar-ring {
+    filter: drop-shadow(0 0 40px rgba(92, 211, 255, .7));
+}
+
+.is-voice.v-error .jar-ring {
+    filter: drop-shadow(0 0 20px rgba(239, 68, 68, .4));
+}
+
+/* ── WAVEFORM ── */
+.jar-wave-wrap {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 600px;
+    flex-shrink: 0;
+}
+
+#jarWave {
+    width: 100%;
+    height: 100px;
+    display: block;
+}
+
+/* ── STATUS TEXT ── */
+.jar-voice__status {
+    font-size: 16px;
+    font-weight: 300;
+    color: rgba(255, 255, 255, .75);
+    letter-spacing: .03em;
+    text-align: center;
+    z-index: 2;
+    position: relative;
+    transition: color .3s;
+}
+
+.is-voice.v-listening .jar-voice__status {
+    color: var(--jar-cyan);
+}
+
+.is-voice.v-thinking .jar-voice__status {
+    color: rgba(168, 85, 247, .9);
+}
+
+.is-voice.v-speaking .jar-voice__status {
+    color: rgba(92, 211, 255, .95);
+}
+
+.is-voice.v-error .jar-voice__status {
+    color: var(--jar-red);
+}
+
+/* ── TRANSCRIPT ── */
+.jar-transcript {
+    background: rgba(0, 0, 0, .35);
+    border: 1px solid rgba(92, 211, 255, .15);
+    border-radius: var(--r-lg);
+    padding: 14px 20px;
+    max-width: 520px;
+    width: 100%;
+    z-index: 2;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    backdrop-filter: blur(8px);
+}
+
+.jar-transcript__user {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.jar-transcript__ai {
+    font-size: 13px;
+    color: rgba(255, 255, 255, .85);
+    line-height: 1.6;
+}
+
+/* ── MIC PERMISSION ── */
+.jar-mic-perm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--jar-red-bg);
+    border: 1px solid var(--jar-red-bd);
+    border-radius: var(--r-md);
+    font-size: 12px;
+    color: var(--jar-red);
+    z-index: 2;
+    position: relative;
+}
+
+.jar-mic-perm button {
+    margin-left: auto;
+    padding: 4px 10px;
+    background: var(--jar-red);
+    color: #fff;
+    border: none;
+    border-radius: var(--r-sm);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* ── CONTROLES DE VOZ ── */
+.jar-voice-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 2;
+    position: relative;
+}
+
+.jar-voice-btn {
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    transition: all .18s;
+    flex-shrink: 0;
+}
+
+.jar-voice-btn--secondary {
+    width: 48px;
+    height: 48px;
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .12);
+    color: rgba(255, 255, 255, .55);
+}
+
+.jar-voice-btn--secondary:hover {
+    background: rgba(255, 255, 255, .1);
+    color: rgba(255, 255, 255, .9);
+}
+
+/* Botão mic principal — grande e brilhante */
+.jar-voice-btn--mic {
+    width: 76px;
+    height: 76px;
+    background: linear-gradient(135deg, #3b7fff, #5cd3ff);
+    color: #fff;
+    box-shadow:
+        0 0 30px rgba(59, 127, 255, .6),
+        0 0 60px rgba(59, 127, 255, .3),
+        0 8px 24px rgba(0, 0, 0, .4);
+    font-size: 26px;
+}
+
+.jar-voice-btn--mic:hover {
+    transform: scale(1.08);
+    box-shadow:
+        0 0 45px rgba(59, 127, 255, .9),
+        0 0 90px rgba(59, 127, 255, .4),
+        0 12px 32px rgba(0, 0, 0, .5);
+}
+
+/* Quando está ouvindo */
+.is-voice.v-listening .jar-voice-btn--mic {
+    background: linear-gradient(135deg, #ef4444, #f97316);
+    box-shadow:
+        0 0 30px rgba(239, 68, 68, .6),
+        0 0 60px rgba(239, 68, 68, .25),
+        0 8px 24px rgba(0, 0, 0, .4);
+    animation: jarMicPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes jarMicPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 30px rgba(239, 68, 68, .6), 0 0 60px rgba(239, 68, 68, .25), 0 8px 24px rgba(0, 0, 0, .4);
+    }
+
+    50% {
+        transform: scale(1.06);
+        box-shadow: 0 0 50px rgba(239, 68, 68, .9), 0 0 100px rgba(239, 68, 68, .4), 0 8px 24px rgba(0, 0, 0, .4);
+    }
+}
+
+/* Hint de teclado */
+.jar-voice-hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: rgba(255, 255, 255, .3);
+    text-align: center;
+    z-index: 2;
+    position: relative;
+}
+
+.jar-voice-hint kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    background: rgba(255, 255, 255, .08);
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 3px;
+    font-size: 9px;
+}
+
+/* ══════════════════════════════════════════════════════════
+   COLUNA DIREITA — CONTEXTO
+══════════════════════════════════════════════════════════ */
+.jar-context {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-sm);
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.jar-ctx-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--sp-md);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.jar-ctx-card--console {
+    flex: 1;
+    min-height: 0;
+}
+
+.jar-ctx-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+/* Context items */
+.jar-ctx-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.jar-ctx-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.jar-ctx-lbl {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+.jar-ctx-val {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.jar-ctx-val--ok {
+    color: var(--jar-green);
+}
+
+.jar-ctx-val--warn {
+    color: var(--jar-orange);
+}
+
+.jar-ctx-val--bad {
+    color: var(--jar-red);
+}
+
+/* Alerts */
+.jar-alerts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.jar-alert-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    background: var(--bg-mid);
+    border-left: 3px solid var(--border);
+}
+
+.jar-alert-item--critical {
+    border-left-color: var(--jar-red);
+    background: var(--jar-red-bg);
+}
+
+.jar-alert-item--high {
+    border-left-color: #f97316;
+    background: rgba(249, 115, 22, .08);
+}
+
+.jar-alert-item--medium {
+    border-left-color: #eab308;
+    background: rgba(234, 179, 8, .08);
+}
+
+.jar-alert-item--low {
+    border-left-color: var(--jar-green);
+}
+
+.jar-alert-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+    margin-top: 4px;
+}
+
+.jar-alert-item--critical .jar-alert-dot {
+    color: var(--jar-red);
+}
+
+.jar-alert-item--high .jar-alert-dot {
+    color: #f97316;
+}
+
+.jar-alert-item--medium .jar-alert-dot {
+    color: #eab308;
+}
+
+.jar-alert-item--low .jar-alert-dot {
+    color: var(--jar-green);
+}
+
+.jar-alert-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.jar-alert-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.jar-alert-time {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+/* Suggested actions */
+.jar-suggested {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+
+.jar-sug-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 8px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all .12s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jar-sug-btn i {
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.jar-sug-btn:hover {
+    background: var(--jar-blue-bg);
+    border-color: var(--jar-blue-bd);
+    color: var(--jar-blue);
+}
+
+/* Console */
+.jar-console {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-family: var(--font-mono);
+    max-height: 200px;
+}
+
+.jar-console-line {
+    display: flex;
+    gap: 8px;
+    font-size: 10px;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.jar-console-time {
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.jar-console-msg {
+    color: var(--text-muted);
+}
+
+.jar-console-line--system .jar-console-msg {
+    color: var(--jar-cyan);
+}
+
+.jar-console-line--info .jar-console-msg {
+    color: var(--text-muted);
+}
+
+.jar-console-line--warn .jar-console-msg {
+    color: var(--jar-orange);
+}
+
+.jar-console-line--error .jar-console-msg {
+    color: var(--jar-red);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SETTINGS DRAWER
+══════════════════════════════════════════════════════════ */
+.jar-drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-bg);
+    z-index: 300;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease);
+    backdrop-filter: blur(3px);
+}
+
+.jar-drawer-overlay.open {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.jar-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 400px;
+    max-width: 96vw;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    z-index: 400;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform var(--dur-slow) var(--ease);
+    box-shadow: -8px 0 48px rgba(0, 0, 0, .6);
+}
+
+.jar-drawer.open {
+    transform: translateX(0);
+}
+
+.jar-drawer__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px var(--sp-lg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.jar-drawer__title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.jar-drawer__close {
+    width: 30px;
+    height: 30px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    transition: all .15s;
+}
+
+.jar-drawer__close:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.jar-drawer__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--sp-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-lg);
+}
+
+/* Settings groups */
+.jar-settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.jar-settings-group__title {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+.jar-settings-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.jar-settings-item--toggle {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.jar-settings-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.jar-settings-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+}
+
+.jar-settings-select {
+    padding: 7px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color .15s;
+}
+
+.jar-settings-select:focus {
+    outline: none;
+    border-color: var(--jar-blue);
+}
+
+/* Slider */
+.jar-slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.jar-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 4px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.jar-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--jar-blue);
+    box-shadow: 0 0 8px rgba(59, 127, 255, .5);
+    cursor: pointer;
+}
+
+.jar-slider-val {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--jar-blue);
+    min-width: 32px;
+    text-align: right;
+}
+
+/* ══════════════════════════════════════════════════════════
+   CINEMA MODE
+══════════════════════════════════════════════════════════ */
+.jar-wrapper.jar-cinema .jar-voice-panel::before {
+    background: radial-gradient(ellipse 100% 80% at 50% 100%, rgba(10, 30, 90, .8) 0%, transparent 70%),
+        radial-gradient(ellipse 80% 60% at 50% 50%, rgba(5, 7, 20, .95) 0%, transparent 80%);
+}
+
+/* ══════════════════════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════════════════════ */
+.jar-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 10px 20px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-popup);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    z-index: 999;
+    white-space: nowrap;
+}
+
+.jar-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ══════════════════════════════════════════════════════════
+   SIDEBAR — ITEM JARVIS AI ESPECIAL
+══════════════════════════════════════════════════════════ */
+.sidebar__item--ai {
+    position: relative;
+    overflow: visible;
+}
+
+.sidebar__item-ai-badge {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    padding: 1px 6px;
+    border-radius: 100px;
+    background: linear-gradient(135deg, #3b7fff, #5cd3ff);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(59, 127, 255, .6);
+    animation: jarAiBadge 3s ease-in-out infinite;
+}
+
+@keyframes jarAiBadge {
+
+    0%,
+    100% {
+        box-shadow: 0 0 8px rgba(59, 127, 255, .4);
+    }
+
+    50% {
+        box-shadow: 0 0 18px rgba(92, 211, 255, .8);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════
+   RESPONSIVO
+══════════════════════════════════════════════════════════ */
+@media (max-width: 1400px) {
+    .jar-main {
+        grid-template-columns: 200px 1fr 240px;
+    }
+}
+
+@media (max-width: 1100px) {
+    .jar-main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto;
+    }
+
+    .jar-sidebar {
+        display: none;
+    }
+
+    .jar-context {
+        display: none;
+    }
+
+    .jar-center {
+        min-height: 500px;
+    }
+}
+
+@media (max-width: 700px) {
+    .jar-voice-panel {
+        padding: 20px 12px 16px;
+        gap: 18px;
+    }
+
+    .jar-ring {
+        width: 200px;
+        height: 200px;
+    }
+
+    #jarRingCanvas {
+        width: 200px;
+        height: 200px;
+    }
+
+    .jar-voice__hi {
+        font-size: 32px;
+    }
+}

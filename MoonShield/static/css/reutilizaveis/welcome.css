@@ -1,0 +1,329 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   static/css/reutilizaveis/welcome.css
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#msWelcomeOverlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    background: #06080f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    animation: msOvIn .4s ease forwards;
+}
+
+@keyframes msOvIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+#msWelcomeOverlay.ms-exit {
+    animation: msWarpOut .7s cubic-bezier(.4, 0, 1, 1) forwards;
+}
+
+@keyframes msWarpOut {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+        filter: blur(0px);
+    }
+
+    35% {
+        transform: scale(1.04);
+        opacity: 1;
+        filter: blur(0px);
+    }
+
+    100% {
+        transform: scale(4.2);
+        opacity: 0;
+        filter: blur(24px);
+    }
+}
+
+#msStarsCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* ── Glows ── */
+.ms-ov-glow {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.ms-ov-glow--blue {
+    width: 800px;
+    height: 800px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(59, 130, 246, .09) 0%, transparent 65%);
+    animation: msGlowPulse 2.4s ease-in-out infinite alternate;
+}
+
+.ms-ov-glow--purple {
+    width: 500px;
+    height: 500px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(168, 85, 247, .06) 0%, transparent 65%);
+    animation: msGlowPulse 3s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes msGlowPulse {
+    from {
+        opacity: .4;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* ── Corpo ── */
+.ms-ov-body {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0;
+    animation: msBodyIn .8s cubic-bezier(.16, 1, .3, 1) .2s both;
+}
+
+@keyframes msBodyIn {
+    from {
+        opacity: 0;
+        transform: translateY(28px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ── Eyebrow ── */
+.ms-ov-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: rgba(59, 130, 246, .7);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: msEyeIn .7s ease .55s both;
+}
+
+@keyframes msEyeIn {
+    from {
+        opacity: 0;
+        letter-spacing: .4em;
+    }
+
+    to {
+        opacity: 1;
+        letter-spacing: .22em;
+    }
+}
+
+.ms-ov-line {
+    width: 32px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59, 130, 246, .5));
+}
+
+.ms-ov-line--r {
+    background: linear-gradient(270deg, transparent, rgba(59, 130, 246, .5));
+}
+
+/* ── Saudação ── */
+.ms-ov-greeting {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(16px, 2.5vw, 26px);
+    font-weight: 300;
+    letter-spacing: -.01em;
+    color: rgba(238, 242, 255, .5);
+    margin: 0 0 8px;
+    line-height: 1;
+    animation: msGreetIn .6s ease .7s both;
+}
+
+@keyframes msGreetIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ── Nome ── */
+.ms-ov-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: clamp(42px, 8vw, 96px);
+    font-weight: 800;
+    letter-spacing: -.04em;
+    line-height: .95;
+    margin: 0 0 24px;
+    background: linear-gradient(135deg, #e0eaff 0%, #93c5fd 40%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: msNameIn .8s cubic-bezier(.16, 1, .3, 1) .85s both;
+}
+
+@keyframes msNameIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(.96);
+        filter: blur(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+        filter: blur(0);
+    }
+}
+
+/* ── Linha divisória ── */
+.ms-ov-divider {
+    width: 48px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(148, 163, 184, .3), transparent);
+    margin: 0 auto 20px;
+    animation: msSubIn .5s ease 1.2s both;
+}
+
+/* ── Sub ── */
+.ms-ov-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgba(100, 116, 139, .9);
+    letter-spacing: .06em;
+    margin: 0;
+    animation: msSubIn .5s ease 1.3s both;
+}
+
+@keyframes msSubIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* ── Barra de progresso ── */
+.ms-ov-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    width: 0%;
+    background: linear-gradient(90deg, transparent, #3b82f6, #a855f7, transparent);
+    animation: msProgress 5s linear .3s forwards;
+}
+
+@keyframes msProgress {
+    from {
+        width: 0%;
+    }
+
+    to {
+        width: 100%;
+    }
+}
+
+/* ── Status dot ── */
+.ms-ov-status {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    animation: msSubIn .5s ease 1.5s both;
+}
+
+.ms-ov-status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px #22c55e;
+    animation: msStatusPulse 2s ease-in-out infinite;
+}
+
+@keyframes msStatusPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .25;
+    }
+}
+
+.ms-ov-status-txt {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: rgba(34, 197, 94, .55);
+    letter-spacing: .06em;
+    white-space: nowrap;
+}
+
+/* ── Fade in do dashboard após overlay sair ── */
+@keyframes msDashReveal {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.ms-dashboard-reveal>* {
+    animation: msDashReveal .5s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+/* ══════════════════════════════════════════════════════════
+   LOGOS DOS PROVIDERS
+══════════════════════════════════════════════════════════ */
+.cfg-connector__logo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}

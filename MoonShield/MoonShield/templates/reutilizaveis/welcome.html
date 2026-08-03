@@ -1,0 +1,34 @@
+{# templates/reutilizaveis/welcome.html #}
+{% if mostrar_boasvindas %}
+<div id="msWelcomeOverlay">
+  <canvas id="msStarsCanvas"></canvas>
+  <div class="ms-ov-glow ms-ov-glow--blue"></div>
+  <div class="ms-ov-glow ms-ov-glow--purple"></div>
+
+  <div class="ms-ov-body">
+    <div class="ms-ov-eyebrow">
+      <span class="ms-ov-line"></span>
+      MOONSHIELD
+      <span class="ms-ov-line ms-ov-line--r"></span>
+    </div>
+
+    {% if mostrar_boasvindas == "onboarding" %}
+      <p class="ms-ov-greeting">bem-vindo ao MoonShield,</p>
+      <p class="ms-ov-name">{{ request.user.profile.get_display_name }}</p>
+      <div class="ms-ov-divider"></div>
+      <p class="ms-ov-sub">conta configurada &nbsp;·&nbsp; sistemas operacionais</p>
+    {% else %}
+      <p class="ms-ov-greeting">bem-vindo de volta,</p>
+      <p class="ms-ov-name">{{ request.user.profile.get_display_name }}</p>
+      <div class="ms-ov-divider"></div>
+      <p class="ms-ov-sub">sessão iniciada &nbsp;·&nbsp; sistemas operacionais</p>
+    {% endif %}
+  </div>
+
+  <div class="ms-ov-status">
+    <span class="ms-ov-status-dot"></span>
+    <span class="ms-ov-status-txt">ALL SYSTEMS NOMINAL</span>
+  </div>
+  <div class="ms-ov-progress"></div>
+</div>
+{% endif %}

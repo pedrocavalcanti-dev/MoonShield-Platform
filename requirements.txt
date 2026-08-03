@@ -1,0 +1,21 @@
+# MoonShield Platform
+# Dependências do painel Django e do agente Linux
+
+# Django / painel web
+Django==5.0.3
+asgiref==3.11.1
+django-environ==0.13.0
+pillow==12.1.1
+psutil==7.2.2
+sqlparse==0.5.5
+tzdata==2025.3
+
+# Comunicação HTTP
+requests>=2.28.0
+
+# Interface do agente
+colorama>=0.4.6
+
+# Agente HTTP local
+flask>=3.0.0
+werkzeug>=3.0.0

@@ -1,0 +1,65 @@
+/* ============================================================
+   MOONSHIELD — FOOTER.CSS
+   ============================================================ */
+
+.footer {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-lg);
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-card);
+  flex-shrink: 0;
+  gap: var(--sp-md);
+}
+
+.footer__left,
+.footer__right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.footer__center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.footer__brand {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  opacity: 0.5;
+}
+
+.footer__credit { color: var(--text-dim); }
+
+.footer__sep { opacity: 0.3; }
+
+.footer__uptime {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.footer__build { letter-spacing: 0.06em; }
+
+.footer__time {
+  color: var(--accent);
+  opacity: 0.5;
+  letter-spacing: 0.06em;
+}
+
+@media (max-width: 600px) {
+  .footer__center { display: none; }
+  .footer__credit { display: none; }
+}

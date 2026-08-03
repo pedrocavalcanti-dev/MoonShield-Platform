@@ -1,0 +1,538 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Dashboard Geral — MoonShield{% endblock %}
+
+{% block breadcrumb %}
+<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
+  Dashboard Geral
+</span>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+<link rel="stylesheet" href="{% static 'css/painel/dashboard.css' %}" />
+{% if mostrar_boasvindas %}<link rel="stylesheet" href="{% static 'css/reutilizaveis/welcome.css' %}">{% endif %}
+{% endblock %}
+
+{% block conteudo %}
+
+{% include 'reutilizaveis/welcome.html' %}
+
+<!-- ── BANNER ── -->
+<div class="dash-banner" id="dashBanner" style="display:none">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <span id="dashBannerMsg">Aviso do sistema</span>
+  <button class="dash-banner__close" onclick="this.parentElement.style.display='none'">
+    <i class="bi bi-x"></i>
+  </button>
+</div>
+
+<!-- ── CONTROLES ── -->
+<div class="dash-controls">
+  <div class="dash-controls__left">
+    <div style="display:flex;align-items:center;gap:10px">
+      <p class="dash-controls__title">Visão Geral do Sistema</p>
+      <span class="dash-mode-badge" id="modeBadge"
+        style="font-size:9px;font-family:var(--font-mono);border:1px solid;border-radius:4px;padding:2px 7px;letter-spacing:.08em">
+        DEMO
+      </span>
+    </div>
+    <p class="dash-controls__sub">
+      <span id="dashNodeName" style="color:var(--text-muted)">—</span>
+      · <span id="dashNodeCidr" style="font-family:var(--font-mono)">—</span>
+      · Atualizado <span id="lastUpdate">agora</span>
+    </p>
+  </div>
+  <div class="dash-controls__right">
+    <div class="dash-period" id="dashPeriod">
+      <button class="dash-period__btn" data-p="1h">1h</button>
+      <button class="dash-period__btn dash-period__btn--active" data-p="24h">24h</button>
+      <button class="dash-period__btn" data-p="7d">7d</button>
+      <button class="dash-period__btn" data-p="30d">30d</button>
+    </div>
+    <div class="dash-sev" id="dashSev">
+      <button class="dash-sev__btn dash-sev__btn--active" data-s="all">Todos</button>
+      <button class="dash-sev__btn dash-sev__btn--crit" data-s="crit">Crítico</button>
+      <button class="dash-sev__btn dash-sev__btn--high" data-s="high">Alto</button>
+      <button class="dash-sev__btn dash-sev__btn--med" data-s="med">Médio</button>
+    </div>
+    <button class="dash-btn dash-btn--ghost" id="btnRefresh">
+      <i class="bi bi-arrow-clockwise" id="refreshIcon"></i> Atualizar
+    </button>
+    <button class="dash-btn dash-btn--primary" id="btnExport">
+      <i class="bi bi-download"></i> Exportar
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     S1 — 4 KPIs
+════════════════════════════════════════ -->
+<section class="dash-kpis">
+
+  <div class="kpi-card" data-type="danger">
+    <div class="kpi-card__glow kpi-card__glow--red"></div>
+    <div class="kpi-card__top">
+      <div class="kpi-card__icon-wrap" data-color="red">
+        <i class="bi bi-shield-fill-exclamation" style="font-size:18px"></i>
+      </div>
+      <span class="kpi-card__label">Ameaças Hoje</span>
+      <span class="kpi-card__live-badge">LIVE</span>
+    </div>
+    <p class="kpi-card__value" id="kpiAmeacas">—</p>
+    <div class="kpi-card__trend kpi-card__trend--red">
+      <i class="bi bi-arrow-up-short"></i> Alertas IDS (24h)
+    </div>
+    <p class="kpi-card__sub">Eventos Suricata</p>
+    <canvas class="kpi-sparkline" id="sparkAmeacas"></canvas>
+  </div>
+
+  <div class="kpi-card" data-type="info">
+    <div class="kpi-card__glow kpi-card__glow--blue"></div>
+    <div class="kpi-card__top">
+      <div class="kpi-card__icon-wrap" data-color="blue">
+        <i class="bi bi-globe2" style="font-size:18px"></i>
+      </div>
+      <span class="kpi-card__label">DNS Queries</span>
+      <span class="kpi-card__live-badge kpi-card__live-badge--blue">24H</span>
+    </div>
+    <p class="kpi-card__value" id="kpiDns">—</p>
+    <div class="kpi-card__trend kpi-card__trend--blue">
+      <i class="bi bi-dash"></i> Consultas DNS (24h)
+    </div>
+    <p class="kpi-card__sub">AdGuard Home</p>
+    <canvas class="kpi-sparkline" id="sparkDns"></canvas>
+  </div>
+
+  <div class="kpi-card" data-type="warn">
+    <div class="kpi-card__glow kpi-card__glow--yellow"></div>
+    <div class="kpi-card__top">
+      <div class="kpi-card__icon-wrap" data-color="yellow">
+        <i class="bi bi-slash-circle-fill" style="font-size:18px"></i>
+      </div>
+      <span class="kpi-card__label">Bloqueios DNS</span>
+      <span class="kpi-card__live-badge kpi-card__live-badge--yellow" id="kpiBloqPct">—</span>
+    </div>
+    <p class="kpi-card__value" id="kpiBloq">—</p>
+    <div class="kpi-card__trend kpi-card__trend--yellow">
+      <i class="bi bi-arrow-up-short"></i> do total
+    </div>
+    <p class="kpi-card__sub">Domínios bloqueados</p>
+    <canvas class="kpi-sparkline" id="sparkBloq"></canvas>
+  </div>
+
+  <div class="kpi-card kpi-card--radar" data-type="ok">
+    <div class="kpi-card__glow kpi-card__glow--green"></div>
+    <div class="kpi-card__top">
+      <div class="kpi-card__icon-wrap" data-color="green">
+        <i class="bi bi-check-circle-fill" style="font-size:18px"></i>
+      </div>
+      <span class="kpi-card__label">Uptime Sensores</span>
+      <span class="kpi-card__live-badge kpi-card__live-badge--green">OK</span>
+    </div>
+    <div class="kpi-radar-wrap">
+      <canvas class="kpi-radar-canvas" id="radarSensores"></canvas>
+      <div class="kpi-radar-center">
+        <p class="kpi-radar-val" id="radarLabel">—</p>
+        <p class="kpi-radar-lbl">online</p>
+      </div>
+    </div>
+    <div class="kpi-card__sensors">
+      <div class="sensor-row"><span class="sensor-dot sensor-dot--ok"></span>IDS (Suricata)</div>
+      <div class="sensor-row"><span class="sensor-dot sensor-dot--ok"></span>DNS (AdGuard)</div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ════════════════════════════════════════
+     S2 — 2 Gráficos
+════════════════════════════════════════ -->
+<section class="dash-charts-row">
+
+  <div class="chart-card">
+    <div class="chart-card__header">
+      <div class="chart-card__title-group">
+        <span class="chart-card__dot chart-card__dot--pulse"
+          style="background:#ef4444;box-shadow:0 0 8px #ef4444"></span>
+        <div>
+          <p class="chart-card__title">Ataques por Hora</p>
+          <p class="chart-card__sub">Eventos IDS · últimas 24h</p>
+        </div>
+      </div>
+      <div class="chart-card__legend">
+        <span class="legend-pill legend-pill--red">Crítico</span>
+        <span class="legend-pill legend-pill--orange">Alto</span>
+        <span class="legend-pill legend-pill--muted">Médio</span>
+      </div>
+    </div>
+    <div class="chart-card__canvas-wrap">
+      <canvas id="chartAtaques"></canvas>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-card__header">
+      <div class="chart-card__title-group">
+        <span class="chart-card__dot chart-card__dot--pulse"
+          style="background:#3b82f6;box-shadow:0 0 8px #3b82f6"></span>
+        <div>
+          <p class="chart-card__title">DNS por Hora</p>
+          <p class="chart-card__sub">Consultas e bloqueios · últimas 24h</p>
+        </div>
+      </div>
+      <div class="chart-card__legend">
+        <span class="legend-pill legend-pill--blue">Consultas</span>
+        <span class="legend-pill legend-pill--red">Bloqueios</span>
+      </div>
+    </div>
+    <div class="chart-card__canvas-wrap">
+      <canvas id="chartDns"></canvas>
+    </div>
+  </div>
+
+</section>
+
+<!-- ════════════════════════════════════════
+     S3 — Live Feed
+════════════════════════════════════════ -->
+<section class="dash-feed-section">
+  <div class="feed-header">
+    <div class="feed-header__left">
+      <span class="feed-live-dot"></span>
+      <p class="feed-header__title">Live Feed</p>
+      <span class="feed-header__badge" id="feedCount">0</span>
+    </div>
+    <div class="feed-header__right">
+      <div class="feed-filters">
+        <button class="feed-filter-btn feed-filter-btn--active" data-ft="all">Todos</button>
+        <button class="feed-filter-btn feed-filter-btn--ids" data-ft="IDS">IDS</button>
+        <button class="feed-filter-btn feed-filter-btn--dns" data-ft="DNS">DNS</button>
+        <button class="feed-filter-btn feed-filter-btn--fw" data-ft="FW">FW</button>
+      </div>
+      <button class="feed-footer__btn" id="feedPauseBtn">
+        <svg id="feedPauseIcon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <rect x="6" y="4" width="4" height="16" />
+          <rect x="14" y="4" width="4" height="16" />
+        </svg>
+        <span id="feedPauseLbl">Pausar</span>
+      </button>
+      <button class="feed-footer__btn" id="feedClearBtn">
+        <i class="bi bi-trash3"></i> Limpar
+      </button>
+    </div>
+  </div>
+  <div class="feed-scroll" id="feedList"></div>
+</section>
+
+<!-- ════════════════════════════════════════
+     S4 — Inteligência Operacional SOC
+════════════════════════════════════════ -->
+<section class="dash-soc">
+
+  <div class="soc-section-header">
+    <div class="soc-section-header__left">
+      <div class="soc-section-icon">
+        <i class="bi bi-cpu-fill"></i>
+      </div>
+      <div>
+        <p class="soc-section-title">Inteligência Operacional</p>
+        <p class="soc-section-sub">Análise em tempo real · Centro de Operações de Segurança</p>
+      </div>
+    </div>
+    <span class="soc-section-badge">
+      <span class="feed-live-dot" style="width:6px;height:6px"></span>
+      SOC LIVE
+    </span>
+  </div>
+
+  <div class="soc-grid">
+
+    <div class="soc-card soc-card--timeline">
+      <div class="soc-card__header">
+        <div class="soc-card__title-group">
+          <span class="chart-card__dot chart-card__dot--pulse"
+            style="background:#ef4444;box-shadow:0 0 8px #ef4444;flex-shrink:0"></span>
+          <div>
+            <p class="soc-card__title">Timeline de Ataques</p>
+            <p class="soc-card__sub">Eventos por minuto · últimos 60 min</p>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+          <span class="legend-pill legend-pill--red">Crítico</span>
+          <span class="legend-pill legend-pill--orange">Alto</span>
+          <span class="legend-pill legend-pill--muted">Médio</span>
+        </div>
+      </div>
+      <div class="soc-canvas-wrap">
+        <canvas id="chartTimeline"></canvas>
+      </div>
+    </div>
+
+    <div class="soc-card soc-card--ips">
+      <div class="soc-card__header">
+        <div class="soc-card__title-group">
+          <div class="soc-icon soc-icon--red"><i class="bi bi-crosshair2"></i></div>
+          <div>
+            <p class="soc-card__title">Top IPs Atacantes</p>
+            <p class="soc-card__sub">Origens mais ativas · 24h</p>
+          </div>
+        </div>
+        <span class="intel-badge">ao vivo</span>
+      </div>
+      <div class="soc-ip-list" id="socTopIPs">
+        <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando…</p>
+      </div>
+    </div>
+
+    <div class="soc-card soc-card--dist">
+      <div class="soc-card__header">
+        <div class="soc-card__title-group">
+          <div class="soc-icon soc-icon--purple"><i class="bi bi-pie-chart-fill"></i></div>
+          <div>
+            <p class="soc-card__title">Tipos de Ataque</p>
+            <p class="soc-card__sub">Distribuição por categoria</p>
+          </div>
+        </div>
+      </div>
+      <div class="soc-dist-area">
+        <div class="soc-donut-wrap">
+          <canvas id="chartCategorias" width="150" height="150"></canvas>
+          <div class="soc-donut-center">
+            <p class="soc-donut-val" id="catTotal">—</p>
+            <p class="soc-donut-lbl">eventos</p>
+          </div>
+        </div>
+        <div class="soc-cat-list" id="catLegend">
+          <p style="color:var(--text-dim);font-size:11px">Carregando…</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="soc-card soc-card--health">
+      <div class="soc-card__header">
+        <div class="soc-card__title-group">
+          <div class="soc-icon soc-icon--green"><i class="bi bi-heart-pulse-fill"></i></div>
+          <div>
+            <p class="soc-card__title">Saúde do Sistema</p>
+            <p class="soc-card__sub">Estado dos componentes · tempo real</p>
+          </div>
+        </div>
+        <span class="soc-overall-pill" id="healthOverall">
+          <span class="sensor-dot sensor-dot--ok"></span>
+          Operacional
+        </span>
+      </div>
+      <div class="soc-health-grid" id="socHealthGrid"></div>
+      <div class="soc-metrics-row" id="socMetrics"></div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════
+     S5 — Top Origens + Top Ataques
+════════════════════════════════════════ -->
+<section class="dash-row-2">
+
+  <div class="intel-card">
+    <div class="intel-card__header">
+      <div class="intel-card__title-group">
+        <div class="intel-card__icon intel-card__icon--orange">
+          <i class="bi bi-send-fill" style="font-size:13px"></i>
+        </div>
+        <div>
+          <p class="intel-card__title">Top Origens</p>
+          <p class="intel-card__sub">Países com mais ataques</p>
+        </div>
+      </div>
+      <span class="intel-badge">últimas 24h</span>
+    </div>
+    <div class="intel-list" id="intelOrigens">
+      <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando…</p>
+    </div>
+  </div>
+
+  <div class="intel-card">
+    <div class="intel-card__header">
+      <div class="intel-card__title-group">
+        <div class="intel-card__icon intel-card__icon--red">
+          <i class="bi bi-exclamation-triangle-fill" style="font-size:13px"></i>
+        </div>
+        <div>
+          <p class="intel-card__title">Top Ataques</p>
+          <p class="intel-card__sub">Assinaturas mais frequentes</p>
+        </div>
+      </div>
+      <span class="intel-badge">por frequência</span>
+    </div>
+    <div class="intel-list" id="intelAtaques">
+      <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando…</p>
+    </div>
+  </div>
+
+</section>
+
+<!-- ════════════════════════════════════════
+     S6 — Infra 3 cards
+════════════════════════════════════════ -->
+<section class="dash-infra">
+
+  <div class="infra-card">
+    <div class="infra-card__header">
+      <div class="infra-card__title-group">
+        <div class="infra-card__icon" style="--ic:#22c55e;--ic-bg:rgba(34,197,94,.12);--ic-bd:rgba(34,197,94,.25)">
+          <i class="bi bi-display-fill"></i>
+        </div>
+        <div>
+          <p class="infra-card__title">Dispositivos</p>
+          <p class="infra-card__sub">Rede local monitorada</p>
+        </div>
+      </div>
+      <a href="#" class="infra-link">Ver todos <i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="infra-stats-row">
+      <div class="infra-stat-item infra-stat-item--green">
+        <p class="infra-stat-item__val" id="infraDevOnline">—</p>
+        <p class="infra-stat-item__lbl">Online</p>
+      </div>
+      <div class="infra-stat-sep"></div>
+      <div class="infra-stat-item">
+        <p class="infra-stat-item__val" id="infraDevOffline">—</p>
+        <p class="infra-stat-item__lbl">Offline</p>
+      </div>
+      <div class="infra-stat-sep"></div>
+      <div class="infra-stat-item infra-stat-item--blue">
+        <p class="infra-stat-item__val" id="infraDevNovo">—</p>
+        <p class="infra-stat-item__lbl">Novo hoje</p>
+      </div>
+    </div>
+    <div class="infra-ring-area">
+      <div class="infra-ring-wrap">
+        <canvas id="ringDispositivos" width="100" height="100"></canvas>
+        <div class="infra-ring-center">
+          <span class="infra-ring-val infra-ring-val--green" id="infraDevPct">—</span>
+          <span class="infra-ring-lbl">online</span>
+        </div>
+      </div>
+      <div class="infra-ring-legend">
+        <div class="infra-ring-legend-row"><span class="infra-ring-legend-dot" style="background:#22c55e"></span><span>Ativos</span><span id="infraDevOnline2" style="margin-left:auto;color:var(--text-primary);font-weight:600">—</span></div>
+        <div class="infra-ring-legend-row"><span class="infra-ring-legend-dot" style="background:rgba(255,255,255,.12)"></span><span>Offline</span><span id="infraDevOffline2" style="margin-left:auto">—</span></div>
+        <div class="infra-ring-legend-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)">
+          <span style="color:var(--text-dim);font-size:9.5px">Novo hoje</span>
+          <span id="infraDevNovo2" style="margin-left:auto;color:#3b82f6;font-weight:600">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="infra-card">
+    <div class="infra-card__header">
+      <div class="infra-card__title-group">
+        <div class="infra-card__icon" style="--ic:#ef4444;--ic-bg:rgba(239,68,68,.12);--ic-bd:rgba(239,68,68,.25)">
+          <i class="bi bi-fire"></i>
+        </div>
+        <div>
+          <p class="infra-card__title">Firewall</p>
+          <p class="infra-card__sub">Regras e bloqueios ativos</p>
+        </div>
+      </div>
+      <a href="#" class="infra-link">Ver logs <i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="infra-stats-row">
+      <div class="infra-stat-item infra-stat-item--red">
+        <p class="infra-stat-item__val" id="infraFwDrops">—</p>
+        <p class="infra-stat-item__lbl">Drops</p>
+      </div>
+      <div class="infra-stat-sep"></div>
+      <div class="infra-stat-item">
+        <p class="infra-stat-item__val" id="infraFwPorta">—</p>
+        <p class="infra-stat-item__lbl">Top Porta</p>
+      </div>
+      <div class="infra-stat-sep"></div>
+      <div class="infra-stat-item infra-stat-item--orange">
+        <p class="infra-stat-item__val" id="infraFwBlocks">—</p>
+        <p class="infra-stat-item__lbl">Blocks</p>
+      </div>
+    </div>
+    <div class="infra-ring-area">
+      <div class="infra-ring-wrap">
+        <canvas id="ringFirewall" width="100" height="100"></canvas>
+        <div class="infra-ring-center">
+          <span class="infra-ring-val infra-ring-val--red" id="infraFwPct">—</span>
+          <span class="infra-ring-lbl">acima média</span>
+        </div>
+      </div>
+      <div class="infra-ring-legend">
+        <div class="infra-ring-legend-row"><span class="infra-ring-legend-dot" style="background:#ef4444"></span><span>Drops/h</span><span id="infraFwDrops2" style="margin-left:auto;color:var(--text-primary);font-weight:600">—</span></div>
+        <div class="infra-ring-legend-row"><span class="infra-ring-legend-dot" style="background:#f97316"></span><span>Blocks/h</span><span id="infraFwBlocks2" style="margin-left:auto;color:var(--text-primary);font-weight:600">—</span></div>
+        <div class="infra-ring-legend-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)">
+          <span style="color:var(--text-dim);font-size:9.5px">Porta mais atacada</span>
+          <span id="infraFwPorta2" style="margin-left:auto;color:#ef4444;font-weight:700;font-family:var(--font-mono)">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="infra-card">
+    <div class="infra-card__header">
+      <div class="infra-card__title-group">
+        <div class="infra-card__icon" style="--ic:#3b82f6;--ic-bg:rgba(59,130,246,.12);--ic-bd:rgba(59,130,246,.25)">
+          <i class="bi bi-globe-americas"></i>
+        </div>
+        <div>
+          <p class="infra-card__title">DNS</p>
+          <p class="infra-card__sub">AdGuard Home</p>
+        </div>
+      </div>
+      <a href="#" class="infra-link">AdGuard <i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="infra-stats-row">
+      <div class="infra-stat-item infra-stat-item--yellow">
+        <p class="infra-stat-item__val" id="infraDnsPct">—</p>
+        <p class="infra-stat-item__lbl">Bloqueio</p>
+      </div>
+      <div class="infra-stat-sep"></div>
+      <div class="infra-stat-item">
+        <p class="infra-stat-item__val" id="infraDnsClientes">—</p>
+        <p class="infra-stat-item__lbl">Clientes</p>
+      </div>
+      <div class="infra-stat-sep"></div>
+      <div class="infra-stat-item infra-stat-item--red">
+        <p class="infra-stat-item__val" id="infraDnsAmeacas">—</p>
+        <p class="infra-stat-item__lbl">Ameaças</p>
+      </div>
+    </div>
+    <div class="infra-ring-area">
+      <div class="infra-ring-wrap">
+        <canvas id="ringDns" width="100" height="100"></canvas>
+        <div class="infra-ring-center">
+          <span class="infra-ring-val infra-ring-val--yellow" id="infraDnsRingPct">—</span>
+          <span class="infra-ring-lbl">blocked</span>
+        </div>
+      </div>
+      <div class="infra-ring-legend">
+        <div class="infra-ring-legend-row"><span class="infra-ring-legend-dot" style="background:#eab308"></span><span>Bloqueados</span><span id="infraDnsBloq2" style="margin-left:auto;color:var(--text-primary);font-weight:600">—</span></div>
+        <div class="infra-ring-legend-row"><span class="infra-ring-legend-dot" style="background:rgba(255,255,255,.12)"></span><span>Permitidos</span><span id="infraDnsPerm2" style="margin-left:auto">—</span></div>
+        <div class="infra-ring-legend-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)">
+          <span style="color:var(--text-dim);font-size:9.5px">Clientes ativos</span>
+          <span id="infraDnsClientes2" style="margin-left:auto;color:#3b82f6;font-weight:600">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{% static 'js/painel/dashboard.js' %}"></script>
+
+{# ── Overlay boas-vindas — só aparece na primeira carga após login ── #}
+{% if mostrar_boasvindas %}
+<script src="{% static 'js/reutilizaveis/welcome.js' %}"></script>
+{% endif %}
+{% endblock %}

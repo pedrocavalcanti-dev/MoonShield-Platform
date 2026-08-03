@@ -1,0 +1,79 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR"
+      data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.tema|default:'dark' }}{% else %}dark{% endif %}"
+      data-sidebar="{% if sidebar_collapsed %}collapsed{% endif %}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}MoonShield{% endblock %} — SOC Dashboard</title>
+
+  <link rel="icon" type="image/png" sizes="512x512" href="{% static 'favicon/android-chrome-512x512.png' %}">
+  <link rel="icon" type="image/png" sizes="32x32"  href="{% static 'favicon/favicon-32x32.png' %}">
+  <link rel="icon" type="image/png" sizes="16x16"  href="{% static 'favicon/favicon-16x16.png' %}">
+  <link rel="shortcut icon"                         href="{% static 'favicon/favicon.ico' %}">
+  <link rel="apple-touch-icon" sizes="180x180"      href="{% static 'favicon/apple-touch-icon.png' %}">
+  <link rel="manifest"                              href="{% static 'favicon/site.webmanifest' %}">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="{% static 'css/base.css' %}" />
+  <link rel="stylesheet" href="{% static 'css/reutilizaveis/sidebar.css' %}" />
+  <link rel="stylesheet" href="{% static 'css/reutilizaveis/topbar.css' %}" />
+  <link rel="stylesheet" href="{% static 'css/reutilizaveis/notificacoes.css' %}" />
+  <link rel="stylesheet" href="{% static 'css/reutilizaveis/footer.css' %}" />
+
+  {% block extra_css %}{% endblock %}
+
+  {# ── Bloqueia TODAS as transições durante o carregamento inicial ── #}
+  {# Remove a classe .no-transition assim que o primeiro frame renderizar #}
+  <style>
+    .no-transition,
+    .no-transition *,
+    .no-transition *::before,
+    .no-transition *::after {
+      transition: none !important;
+      animation: none !important;
+    }
+  </style>
+  <script>
+    // Adiciona ANTES do body renderizar — sem esperar DOMContentLoaded
+    document.documentElement.classList.add('no-transition');
+  </script>
+</head>
+<body>
+
+  <div class="app-layout">
+
+    {% include "reutilizaveis/sidebar.html" %}
+
+    <div class="app-main" id="appMain">
+
+      {% include "reutilizaveis/topbar.html" %}
+
+      <main class="app-content" id="appContent">
+        {% block conteudo %}{% endblock %}
+      </main>
+
+      {% include "reutilizaveis/footer.html" %}
+
+    </div>
+
+  </div>
+
+  {% include "reutilizaveis/notificacoes.html" %}
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <script src="{% static 'js/base.js' %}"></script>
+  <script src="{% static 'js/reutilizaveis/sidebar.js' %}"></script>
+  <script src="{% static 'js/reutilizaveis/topbar.js' %}"></script>
+  <script src="{% static 'js/reutilizaveis/notificacoes.js' %}"></script>
+  <script src="{% static 'js/reutilizaveis/footer.js' %}"></script>
+
+  {% block extra_js %}{% endblock %}
+
+</body>
+</html>

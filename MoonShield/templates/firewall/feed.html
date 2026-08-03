@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Firewall — Live Feed{% endblock %}
+
+{% block breadcrumb %}
+<a href="{% url 'firewall:painel' %}" class="topbar__breadcrumb-item topbar__breadcrumb-link">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+    Firewall
+</a>
+<span class="topbar__breadcrumb-sep">/</span>
+<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
+    <i class="bi bi-broadcast" style="font-size:13px"></i>
+    Live Feed
+</span>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+<link rel="stylesheet" href="{% static 'css/firewall/feed.css' %}" />
+{% endblock %}
+
+{% block conteudo %}
+
+<!-- ══ TOPBAR ══ -->
+<div class="fwf-topbar">
+    <div class="fwf-topbar__left">
+        <div class="fwf-live">
+            <span class="fwf-live__dot" id="fwfLiveDot"></span>
+            <span class="fwf-live__label">LIVE</span>
+            <span class="fwf-live__count" id="fwfLiveCount">0 eventos</span>
+        </div>
+        <span class="fwf-mode-badge" id="fwfModeBadge" style="display:none"></span>
+        <div class="fwf-chips">
+            <button class="fwf-chip fwf-chip--active" data-action="all">Todos</button>
+            <button class="fwf-chip fwf-chip--drop" data-action="DROP">DROP</button>
+            <button class="fwf-chip fwf-chip--deny" data-action="DENY">DENY</button>
+            <button class="fwf-chip fwf-chip--allow" data-action="ALLOW">ALLOW</button>
+        </div>
+        <select class="fwf-select" id="fwfFilterIface">
+            <option value="all">Interface: Todas</option>
+        </select>
+        <select class="fwf-select" id="fwfFilterProto">
+            <option value="all">Proto: Todos</option>
+            <option value="TCP">TCP</option>
+            <option value="UDP">UDP</option>
+            <option value="ICMP">ICMP</option>
+        </select>
+        <!-- Agrupamento toggle -->
+        <label class="fwf-group-toggle" title="Agrupar IPs repetidos">
+            <input type="checkbox" id="fwfGroupToggle" checked />
+            <span class="fwf-group-track"><span class="fwf-group-thumb"></span></span>
+            <span class="fwf-group-lbl">Agrupar</span>
+        </label>
+    </div>
+    <div class="fwf-topbar__right">
+        <div class="fwf-search-wrap">
+            <i class="bi bi-search fwf-search__icon"></i>
+            <input class="fwf-search" id="fwfSearch" type="text" placeholder="IP, porta, proto…" />
+            <button class="fwf-search__clear" id="fwfSearchClear">✕</button>
+        </div>
+        <button class="fwf-btn" id="fwfPauseBtn">
+            <i class="bi bi-pause-fill" id="fwfPauseIcon"></i>
+            <span id="fwfPauseLabel">Pausar</span>
+        </button>
+        <button class="fwf-btn" id="fwfClearBtn">
+            <i class="bi bi-trash3"></i> Limpar
+        </button>
+        <button class="fwf-btn fwf-btn--primary" id="fwfExportBtn">
+            <i class="bi bi-download"></i> CSV
+        </button>
+    </div>
+</div>
+
+<!-- ══ KPI BAR ══ -->
+<div class="fwf-kpi-bar">
+    <div class="fwf-kpi">
+        <p class="fwf-kpi__val fwf-kpi__val--red" id="kpiDrops">0</p>
+        <p class="fwf-kpi__lbl">Drops</p>
+    </div>
+    <div class="fwf-kpi-sep"></div>
+    <div class="fwf-kpi">
+        <p class="fwf-kpi__val fwf-kpi__val--orange" id="kpiDenies">0</p>
+        <p class="fwf-kpi__lbl">Denies</p>
+    </div>
+    <div class="fwf-kpi-sep"></div>
+    <div class="fwf-kpi">
+        <p class="fwf-kpi__val fwf-kpi__val--green" id="kpiAllows">0</p>
+        <p class="fwf-kpi__lbl">Allows</p>
+    </div>
+    <div class="fwf-kpi-sep"></div>
+    <div class="fwf-kpi">
+        <p class="fwf-kpi__val fwf-kpi__val--blue" id="kpiTotal">0</p>
+        <p class="fwf-kpi__lbl">Total</p>
+    </div>
+    <div class="fwf-kpi-sep"></div>
+    <!-- Top Origens Bloqueadas (top 3) -->
+    <div class="fwf-kpi fwf-kpi--wide">
+        <div class="fwf-kpi__label-row">
+            <p class="fwf-kpi__lbl">Top Origens Bloqueadas</p>
+        </div>
+        <div class="fwf-top-srcs" id="kpiTopSrcs">
+            <span class="fwf-top-src-empty">—</span>
+        </div>
+    </div>
+    <div class="fwf-kpi-sep"></div>
+    <!-- Porta mais visada -->
+    <div class="fwf-kpi">
+        <p class="fwf-kpi__val fwf-kpi__val--purple" id="kpiTopPort">—</p>
+        <p class="fwf-kpi__lbl">Porta + visada</p>
+    </div>
+    <div class="fwf-kpi-sep"></div>
+    <!-- Taxa (eventos/min) -->
+    <div class="fwf-kpi">
+        <p class="fwf-kpi__val fwf-kpi__val--yellow" id="kpiRate">0<span style="font-size:12px;opacity:.6">/m</span></p>
+        <p class="fwf-kpi__lbl">Taxa atual</p>
+    </div>
+</div>
+
+<!-- ══ TABELA ══ -->
+<div class="fwf-table-wrap">
+    <div class="fwf-table-header">
+        <span class="fwf-col">Hora</span>
+        <span class="fwf-col">Ação</span>
+        <span class="fwf-col">Interface</span>
+        <span class="fwf-col">Src IP</span>
+        <span class="fwf-col fwf-col--geo">País</span>
+        <span class="fwf-col">→ Dst IP:Porta</span>
+        <span class="fwf-col">Proto</span>
+        <span class="fwf-col">Hits</span>
+        <span class="fwf-col">Ações</span>
+    </div>
+    <div class="fwf-table-body" id="fwfTableBody">
+        <div class="fwf-empty">
+            <i class="bi bi-broadcast" style="font-size:28px;opacity:.3"></i>
+            <span>Aguardando eventos do sensor nftables…</span>
+        </div>
+    </div>
+    <div class="fwf-footer">
+        <div class="fwf-footer__left">
+            <span class="fwf-footer__count" id="fwfFooterCount">0 eventos visíveis</span>
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">
+                Atualiza a cada <strong>2</strong>s
+            </span>
+        </div>
+        <div class="fwf-footer__right">
+            <label class="fwf-autoscroll">
+                <input type="checkbox" id="fwfAutoScroll" checked />
+                <span class="fwf-toggle-track"><span class="fwf-toggle-thumb"></span></span>
+                Auto-scroll
+            </label>
+        </div>
+    </div>
+</div>
+
+<!-- ══ DRAWER: DETALHE ══ -->
+<div class="fwf-drawer-overlay" id="fwfDrawerOverlay"></div>
+<div class="fwf-drawer" id="fwfDrawer">
+    <div class="fwf-drawer__header">
+        <div style="display:flex;align-items:center;gap:10px">
+            <span id="fwfDrawerBadge" class="fwf-action-badge">—</span>
+            <p class="fwf-drawer__title">Detalhe do Evento</p>
+        </div>
+        <button class="fwf-drawer__close" id="fwfDrawerClose"><i class="bi bi-x-lg"></i></button>
+    </div>
+    <div class="fwf-drawer__body">
+        <!-- Geo banner -->
+        <div class="fwf-geo-banner" id="fwfGeoBanner" style="display:none">
+            <span id="fwfGeoFlag" style="font-size:20px"></span>
+            <div>
+                <p id="fwfGeoCountry" style="font-size:12px;font-weight:600;color:var(--text-primary)">—</p>
+                <p id="fwfGeoOrg" style="font-size:10px;color:var(--text-dim);font-family:var(--font-mono)">—</p>
+            </div>
+            <span id="fwfGeoRisk" class="fwf-geo-risk"></span>
+        </div>
+
+        <!-- Hits badge se agrupado -->
+        <div class="fwf-hits-banner" id="fwfHitsBanner" style="display:none">
+            <i class="bi bi-arrow-repeat"></i>
+            <span id="fwfHitsCount">—</span> ocorrências nos últimos eventos
+        </div>
+
+        <!-- Flow -->
+        <div class="fwf-flow">
+            <div class="fwf-flow__ip">
+                <p class="fwf-flow__ip-label">ORIGEM</p>
+                <p class="fwf-flow__ip-val" id="fwfDetailSrc">—</p>
+                <p class="fwf-flow__ip-meta" id="fwfDetailSrcMeta">—</p>
+            </div>
+            <div class="fwf-flow__arrow">
+                <svg width="48" height="14" viewBox="0 0 48 14" fill="none">
+                    <line x1="0" y1="7" x2="40" y2="7" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+                    <polyline points="36,3 44,7 36,11" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+                <p class="fwf-flow__proto" id="fwfDetailProtoArrow">—</p>
+            </div>
+            <div class="fwf-flow__ip">
+                <p class="fwf-flow__ip-label">DESTINO</p>
+                <p class="fwf-flow__ip-val" id="fwfDetailDst">—</p>
+                <p class="fwf-flow__ip-meta" id="fwfDetailDstMeta">—</p>
+            </div>
+        </div>
+
+        <!-- Detail grid -->
+        <div class="fwf-detail-grid">
+            <div class="fwf-detail-item">
+                <p class="fwf-detail-lbl">Hora</p>
+                <p class="fwf-detail-val" id="fwfDetailTime">—</p>
+            </div>
+            <div class="fwf-detail-item">
+                <p class="fwf-detail-lbl">Interface</p>
+                <p class="fwf-detail-val" id="fwfDetailIface">—</p>
+            </div>
+            <div class="fwf-detail-item">
+                <p class="fwf-detail-lbl">Protocolo</p>
+                <p class="fwf-detail-val" id="fwfDetailProto">—</p>
+            </div>
+            <div class="fwf-detail-item">
+                <p class="fwf-detail-lbl">Bytes</p>
+                <p class="fwf-detail-val" id="fwfDetailBytes">—</p>
+            </div>
+            <div class="fwf-detail-item">
+                <p class="fwf-detail-lbl">Flags TCP</p>
+                <p class="fwf-detail-val" id="fwfDetailFlags">—</p>
+            </div>
+            <div class="fwf-detail-item">
+                <p class="fwf-detail-lbl">Chain</p>
+                <p class="fwf-detail-val" id="fwfDetailChain">—</p>
+            </div>
+        </div>
+
+        <div class="fwf-raw-section">
+            <p class="fwf-raw-title">Raw Log</p>
+            <pre class="fwf-raw" id="fwfDetailRaw"></pre>
+        </div>
+    </div>
+    <div class="fwf-drawer__footer">
+        <button class="fwf-action-btn" id="fwfDrawerCopyIoc">
+            <i class="bi bi-clipboard"></i> Copiar IOC
+        </button>
+        <button class="fwf-action-btn fwf-action-btn--block" id="fwfDrawerBlock">
+            <i class="bi bi-ban"></i> Bloquear IP
+        </button>
+        <button class="fwf-action-btn fwf-action-btn--allow" id="fwfDrawerAllow">
+            <i class="bi bi-check2-circle"></i> Liberar IP
+        </button>
+        <button class="fwf-action-btn" id="fwfDrawerRule">
+            <i class="bi bi-plus-circle"></i> Criar Regra
+        </button>
+    </div>
+</div>
+
+<div class="fwf-toast" id="fwfToast"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/firewall/feed.js' %}"></script>
+{% endblock %}

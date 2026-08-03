@@ -1,0 +1,62 @@
+{% load static %}
+
+<!-- Painel lateral de notificações (slide-in da direita) -->
+<div class="notif-panel" id="notifPanel" role="dialog" aria-label="Notificações" aria-hidden="true">
+
+  <div class="notif-panel__header">
+    <div class="notif-panel__title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span>Alertas Críticos</span>
+      <span class="notif-panel__count" id="notifPanelCount">0</span>
+    </div>
+    <div class="notif-panel__actions">
+      <button class="notif-panel__mark-btn" id="notifMarkAll" title="Marcar todos como lidos">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        Limpar
+      </button>
+      <button class="notif-panel__close" id="notifPanelClose" aria-label="Fechar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Filtro rápido -->
+  <div class="notif-panel__filter">
+    <button class="notif-filter-btn notif-filter-btn--active" data-filter="all">Todos</button>
+    <button class="notif-filter-btn" data-filter="critico">Críticos</button>
+    <button class="notif-filter-btn" data-filter="alto">Alto</button>
+    <button class="notif-filter-btn" data-filter="medio">Médio</button>
+  </div>
+
+  <!-- Lista de notificações -->
+  <div class="notif-panel__list" id="notifList">
+
+    <!-- Estado vazio -->
+    <div class="notif-empty" id="notifEmpty">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <p>Nenhum alerta ativo</p>
+      <span>Rede operando normalmente</span>
+    </div>
+
+    <!-- Os itens são injetados via JS -->
+
+  </div>
+
+  <!-- Rodapé -->
+  <div class="notif-panel__footer">
+    <a href="#" class="notif-panel__footer-link">
+      Ver todos os incidentes
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+    </a>
+  </div>
+
+</div>
+
+<!-- Overlay do painel -->
+<div class="notif-overlay" id="notifOverlay"></div>

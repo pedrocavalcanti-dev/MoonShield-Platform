@@ -1,0 +1,566 @@
+/* ============================================================
+   MOONSHIELD — SIDEBAR.CSS  v5
+   Collapsed = só ícones · Badges restaurados · Tema toggle
+   ============================================================ */
+
+/* ══════════════════════════════════════════════════════════
+   ESTRUTURA BASE
+══════════════════════════════════════════════════════════ */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0;
+  width: var(--sidebar-w);
+  height: 100dvh;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-mid);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  transition: width var(--dur-slow) var(--ease);
+  will-change: width;
+}
+.sidebar.collapsed { width: var(--sidebar-collapsed); }
+
+/* ══════════════════════════════════════════════════════════
+   LOGO
+══════════════════════════════════════════════════════════ */
+.sidebar__logo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--sidebar-logo-h, 56px);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.sidebar__logo-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.sidebar__logo-img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  /* Fallback se imagem não carregar */
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+}
+
+.sidebar__logo-wordmark {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  white-space: nowrap;
+  transition: opacity var(--dur-base) var(--ease), width var(--dur-base) var(--ease);
+  overflow: hidden;
+}
+
+/* Botão collapse */
+.sidebar__collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+.sidebar__collapse-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+  background: var(--bg-hover);
+}
+.sidebar__collapse-btn svg {
+  transition: transform var(--dur-slow) var(--ease);
+}
+
+/* ══════════════════════════════════════════════════════════
+   BUSCA
+══════════════════════════════════════════════════════════ */
+.sidebar__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 6px 4px;
+  padding: 7px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  flex-shrink: 0;
+  cursor: text;
+  transition: border-color var(--dur-fast), padding var(--dur-slow) var(--ease);
+  overflow: hidden;
+}
+.sidebar__search:focus-within { border-color: var(--border-focus); }
+.sidebar__search svg { color: var(--text-dim); flex-shrink: 0; }
+
+.sidebar__search-input {
+  flex: 1; font-size: 12px; color: var(--text-primary);
+  background: transparent; min-width: 0;
+  transition: opacity var(--dur-fast), width var(--dur-slow) var(--ease);
+}
+.sidebar__search-input::placeholder { color: var(--text-dim); }
+
+.sidebar__search-kbd {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+  background: var(--bg-hover); border: 1px solid var(--border);
+  border-radius: 3px; padding: 1px 4px; flex-shrink: 0; white-space: nowrap;
+  transition: opacity var(--dur-fast);
+}
+
+/* ══════════════════════════════════════════════════════════
+   NAV
+══════════════════════════════════════════════════════════ */
+.sidebar__nav {
+  flex: 1;
+  padding: 4px 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.sidebar__nav::-webkit-scrollbar { display: none; }
+
+/* Grupo */
+.sidebar__group { margin-top: var(--sidebar-group-mt, 18px); }
+
+.sidebar__group-label {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-dim);
+  padding: 0 var(--sidebar-group-label-px, 10px);
+  margin-bottom: 4px; white-space: nowrap; overflow: hidden;
+  transition: opacity var(--dur-fast) var(--ease), max-height var(--dur-slow) var(--ease);
+  max-height: 20px;
+}
+
+/* Item */
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--sidebar-item-py, 8px) var(--sidebar-item-px, 10px);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+  overflow: hidden;
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    padding var(--dur-slow) var(--ease), justify-content var(--dur-slow) var(--ease);
+}
+.sidebar__item:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.sidebar__item--active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sidebar__item--active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 20%; height: 60%; width: 2px;
+  background: var(--text-primary);
+  border-radius: 0 2px 2px 0;
+}
+
+/* Ícone */
+.sidebar__item-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: var(--sidebar-item-icon-w, 20px);
+  flex-shrink: 0;
+}
+
+/* Label */
+.sidebar__item-label {
+  font-size: 13px; font-weight: 500;
+  flex: 1; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* ── Badge contador (números como 0, 8, IA) ── */
+.sidebar__item-badge {
+  font-family: var(--font-mono);
+  font-size: 9px; font-weight: 700;
+  line-height: 1;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  display: none;                 /* JS mostra quando count > 0 */
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity var(--dur-fast);
+}
+.sidebar__item-badge--danger {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+  display: inline-flex;          /* sempre visível quando ativo */
+}
+.sidebar__item-badge--warn {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  border-color: var(--border);
+  display: inline-flex;
+}
+
+/* Badge IA */
+.sidebar__item-ai-badge {
+  font-family: var(--font-mono);
+  font-size: 8px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  transition: opacity var(--dur-fast);
+}
+
+/* Tooltip — só aparece no collapsed */
+.sidebar__item[data-tooltip] { position: relative; }
+.sidebar__item[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%; transform: translateY(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 12px; font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--r-md);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: var(--shadow-popup);
+  transition: opacity var(--dur-fast) var(--ease);
+  z-index: 300;
+}
+
+/* ══════════════════════════════════════════════════════════
+   FOOTER
+══════════════════════════════════════════════════════════ */
+.sidebar__footer {
+  flex-shrink: 0;
+  padding: var(--sidebar-footer-pt, 8px) var(--sidebar-footer-px, 6px);
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+
+/* ── Theme toggle row ── */
+.sidebar__theme-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  color: var(--text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.sidebar__theme-row:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+.sidebar__theme-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; flex-shrink: 0;
+}
+.sidebar__theme-icon .icon-moon { display: block; }
+.sidebar__theme-icon .icon-sun  { display: none; }
+[data-theme="light"] .sidebar__theme-icon .icon-moon { display: none; }
+[data-theme="light"] .sidebar__theme-icon .icon-sun  { display: block; }
+
+.sidebar__theme-label {
+  font-size: 13px; font-weight: 500; flex: 1;
+  overflow: hidden; text-overflow: ellipsis;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+/* Tooltip theme row no collapsed */
+.sidebar__theme-row[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%; transform: translateY(-50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 12px; font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--r-md);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: var(--shadow-popup);
+  transition: opacity var(--dur-fast) var(--ease);
+  z-index: 300;
+}
+
+/* ── Usuário ── */
+.sidebar__user {
+  display: flex; align-items: center; gap: 10px;
+  padding: var(--sidebar-user-py, 8px) var(--sidebar-user-px, 10px);
+  border-radius: var(--r-md);
+  cursor: pointer; overflow: hidden; position: relative;
+  transition: background var(--dur-fast);
+}
+.sidebar__user:hover { background: var(--bg-hover); }
+
+.sidebar__user-avatar {
+  width: var(--sidebar-avatar-sz, 30px);
+  height: var(--sidebar-avatar-sz, 30px);
+  border-radius: 50%;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-size: 11px; font-weight: 700; color: var(--text-primary);
+  text-transform: uppercase;
+}
+.sidebar__user-avatar--lg {
+  width: var(--sidebar-avatar-sz-lg, 38px);
+  height: var(--sidebar-avatar-sz-lg, 38px);
+  font-size: 14px;
+}
+
+.sidebar__user-info {
+  flex: 1; min-width: 0; overflow: hidden;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.sidebar__user-name {
+  font-size: 12px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sidebar__user-role { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+
+.sidebar__user-menu-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--r-sm);
+  color: var(--text-dim); cursor: pointer; flex-shrink: 0;
+  transition: color var(--dur-fast), background var(--dur-fast), opacity var(--dur-fast);
+}
+.sidebar__user-menu-btn:hover { color: var(--text-primary); background: var(--bg-mid); }
+
+/* Popup usuário */
+.sidebar__user-popup {
+  position: absolute;
+  bottom: calc(100% + 6px); left: 6px; right: 6px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-popup);
+  overflow: hidden; z-index: 300;
+  opacity: 0; transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+}
+.sidebar__user-popup.open { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+.sidebar__user-popup-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px; border-bottom: 1px solid var(--border-soft);
+}
+.sidebar__user-popup-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.sidebar__user-popup-email { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+
+.sidebar__user-popup-items { padding: 6px; }
+.sidebar__user-popup-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  font-size: 13px; color: var(--text-muted); cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+  text-decoration: none;
+}
+.sidebar__user-popup-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar__user-popup-item--danger:hover { color: var(--text-primary); }
+.sidebar__user-popup-divider { height: 1px; background: var(--border-soft); margin: 0 6px; }
+
+/* ══════════════════════════════════════════════════════════
+   COLLAPSED — SÓ ÍCONES
+══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   COLLAPSED — SÓ ÍCONES
+   Substitua o bloco inteiro "COLLAPSED — SÓ ÍCONES" do
+   sidebar.css por este. Nenhuma outra parte muda.
+══════════════════════════════════════════════════════════ */
+
+/* Seta inverte */
+.sidebar.collapsed .sidebar__collapse-btn svg {
+  transform: rotate(180deg);
+}
+
+/* Oculta todos os textos e elementos extras */
+.sidebar.collapsed .sidebar__logo-wordmark,
+.sidebar.collapsed .sidebar__search-input,
+.sidebar.collapsed .sidebar__search-kbd,
+.sidebar.collapsed .sidebar__group-label,
+.sidebar.collapsed .sidebar__item-label,
+.sidebar.collapsed .sidebar__item-badge,
+.sidebar.collapsed .sidebar__item-ai-badge,
+.sidebar.collapsed .sidebar__theme-label,
+.sidebar.collapsed .sidebar__user-info,
+.sidebar.collapsed .sidebar__user-menu-btn {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 0 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* ── Forçar badges --danger e --warn a sumirem também ── */
+/* Mesmo os que têm display:inline-flex fixo no HTML */
+.sidebar.collapsed .sidebar__item-badge--danger,
+.sidebar.collapsed .sidebar__item-badge--warn,
+.sidebar.collapsed .sidebar__item-badge--info {
+  display: none !important;
+}
+
+/* Busca centralizada */
+.sidebar.collapsed .sidebar__search {
+  justify-content: center;
+  padding: 7px;
+  gap: 0;
+}
+
+/* ── Todos os itens de nav: tamanho fixo, ícone centrado ── */
+.sidebar.collapsed .sidebar__item {
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  gap: 0;
+  width: 100%;
+  height: 36px;          /* altura uniforme para todos */
+  min-height: 36px;
+}
+
+/* Ícone: tamanho fixo e centrado em todos os casos */
+.sidebar.collapsed .sidebar__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin: 0;
+  padding: 0;
+}
+
+/* Item active — rebarra fina à esquerda */
+.sidebar.collapsed .sidebar__item--active::before {
+  top: 15%;
+  height: 70%;
+}
+
+/* Theme row centralizado */
+.sidebar.collapsed .sidebar__theme-row {
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  gap: 0;
+  height: 36px;
+  min-height: 36px;
+}
+
+.sidebar.collapsed .sidebar__theme-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+/* Usuário — só avatar, centralizado */
+.sidebar.collapsed .sidebar__user {
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+  gap: 0;
+  height: 40px;
+  min-height: 40px;
+}
+
+/* Popup usuário no collapsed — aparece à direita */
+.sidebar.collapsed .sidebar__user-popup {
+  left: calc(var(--sidebar-collapsed) + 6px);
+  right: auto;
+  bottom: 6px;
+  width: 220px;
+}
+
+/* Tooltips no collapsed */
+.sidebar.collapsed .sidebar__item[data-tooltip]:hover::after,
+.sidebar.collapsed .sidebar__theme-row[data-tooltip]:hover::after {
+  opacity: 1;
+}
+/* ══════════════════════════════════════════════════════════
+   MOBILE
+══════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .sidebar {
+    transform: translateX(-100%);
+    width: var(--sidebar-w) !important;
+    transition: transform var(--dur-slow) var(--ease);
+    box-shadow: var(--shadow-popup);
+  }
+  .sidebar.mobile-open { transform: translateX(0); }
+
+  /* No mobile, sempre mostra tudo */
+  .sidebar.collapsed .sidebar__logo-wordmark,
+  .sidebar.collapsed .sidebar__search-input,
+  .sidebar.collapsed .sidebar__search-kbd,
+  .sidebar.collapsed .sidebar__group-label,
+  .sidebar.collapsed .sidebar__item-label,
+  .sidebar.collapsed .sidebar__item-badge,
+  .sidebar.collapsed .sidebar__item-ai-badge,
+  .sidebar.collapsed .sidebar__theme-label,
+  .sidebar.collapsed .sidebar__user-info,
+  .sidebar.collapsed .sidebar__user-menu-btn {
+    opacity: 1;
+    pointer-events: all;
+    max-width: none;
+    overflow: visible;
+    flex: unset;
+  }
+  .sidebar.collapsed .sidebar__item,
+  .sidebar.collapsed .sidebar__theme-row,
+  .sidebar.collapsed .sidebar__user,
+  .sidebar.collapsed .sidebar__search {
+    justify-content: flex-start;
+    padding: 8px 10px;
+    gap: 10px;
+  }
+  .sidebar.collapsed .sidebar__item-label { flex: 1; }
+  .sidebar.collapsed .sidebar__theme-label { flex: 1; }
+}

@@ -1,0 +1,250 @@
+{% load static %}
+
+<aside class="sidebar" id="sidebar">
+
+  <div class="sidebar__logo">
+    <a href="{% url 'painel:index' %}" class="sidebar__logo-link">
+      <img src="{% static 'favicon/android-chrome-512x512.png' %}" alt="JG" class="sidebar__logo-img" onerror="this.style.display='none'" />
+      <span class="sidebar__logo-wordmark">MoonShield</span>
+    </a>
+    <button class="sidebar__collapse-btn" id="sidebarCollapseBtn" aria-label="Recolher menu">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="sidebar__search">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input type="text" placeholder="Busca rápida..." class="sidebar__search-input" id="sidebarSearch" />
+    <kbd class="sidebar__search-kbd">⌘K</kbd>
+  </div>
+
+  <nav class="sidebar__nav">
+
+    <a href="{% url 'painel:index' %}"
+       class="sidebar__item {% if request.resolver_match.view_name == 'painel:index' %}sidebar__item--active{% endif %}"
+       data-tooltip="Dashboard" data-label="Dashboard">
+      <span class="sidebar__item-icon">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+          <rect x="3" y="14" width="7" height="7" rx="1"/>
+        </svg>
+      </span>
+      <span class="sidebar__item-label">Dashboard Geral</span>
+    </a>
+
+    <div class="sidebar__group">
+      <p class="sidebar__group-label">Inteligência</p>
+
+      <a href="{% url 'mapa_ameacas:mapa' %}"
+         class="sidebar__item {% if 'mapa_ameacas:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="Mapa de Ameaças" data-label="Mapa de Ameaças">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="2" y1="12" x2="22" y2="12"/>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Mapa de Ameaças</span>
+        <span class="sidebar__item-badge sidebar__item-badge--danger" id="badgeMapa"></span>
+      </a>
+
+      <!-- Incidentes: ativo em painel, detalhe, investigar -->
+      <a href="{% url 'incidentes:painel' %}"
+         class="sidebar__item {% if 'incidentes:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="Incidentes (SOC)" data-label="Incidentes">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Incidentes (SOC)</span>
+        <span class="sidebar__item-badge sidebar__item-badge--danger" id="badgeIncidentes"></span>
+      </a>
+    </div>
+
+    <div class="sidebar__group">
+      <p class="sidebar__group-label">Infraestrutura</p>
+
+      <!-- DNS: ativo em painel, feed e regras -->
+      <a href="{% url 'dns:painel' %}"
+         class="sidebar__item {% if 'dns:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="DNS & Rede" data-label="DNS">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">DNS & Rede</span>
+      </a>
+
+      <!-- Firewall: ativo em painel, feed e regras -->
+      <a href="{% url 'firewall:painel' %}"
+         class="sidebar__item {% if 'firewall:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="Firewall" data-label="Firewall">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Firewall</span>
+        <span class="sidebar__item-badge sidebar__item-badge--danger" id="badgeFirewall"></span>
+      </a>
+
+      <a href="{% url 'dispositivos:dispositivos_view' %}"
+         class="sidebar__item {% if 'dispositivos:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="Dispositivos" data-label="Dispositivos">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Dispositivos</span>
+      </a>
+    </div>
+
+    <div class="sidebar__group">
+      <p class="sidebar__group-label">Análise & Testes</p>
+
+      <a href="{% url 'relatorios:index' %}"
+         class="sidebar__item {% if request.resolver_match.view_name == 'relatorios:index' %}sidebar__item--active{% endif %}"
+         data-tooltip="Relatórios" data-label="Relatórios">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Relatórios Gerais</span>
+      </a>
+
+      <a href="{% url 'relatorios:diagnostico' %}"
+         class="sidebar__item {% if request.resolver_match.view_name == 'relatorios:diagnostico' %}sidebar__item--active{% endif %}"
+         data-tooltip="Diagnóstico & Testes" data-label="Diagnóstico">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Diagnóstico de Rede</span>
+      </a>
+    </div>
+
+    <div class="sidebar__group">
+      <p class="sidebar__group-label">Inteligência Artificial</p>
+
+      <a href="{% url 'MoonShield:painel' %}"
+         class="sidebar__item {% if 'MoonShield:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="Assistente AI" data-label="Moon AI">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a2 2 0 0 1 2 2c0 1.1-.9 2-2 2s-2-.9-2-2a2 2 0 0 1 2-2z"/>
+            <path d="M19 13v-2a7 7 0 0 0-14 0v2"/>
+            <path d="M12 22a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2z"/>
+            <path d="M12 17v-4"/>
+            <rect x="5" y="13" width="14" height="4" rx="1"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Moon AI</span>
+        <span class="sidebar__item-badge sidebar__item-badge--info">IA</span>
+      </a>
+    </div>
+  </nav>
+
+  <div class="sidebar__footer">
+
+    <a href="{% url 'configuracoes:index' %}"
+       class="sidebar__item {% if 'configuracoes:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+       data-tooltip="Configurações" data-label="Configurações">
+      <span class="sidebar__item-icon">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </span>
+      <span class="sidebar__item-label">Configurações</span>
+    </a>
+
+    <div class="sidebar__user" id="sidebarUser">
+      <div class="sidebar__user-avatar" id="navAvatar">
+        {% if user_profile and user_profile.avatar %}
+          <img src="{{ user_profile.avatar.url }}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
+        {% else %}
+          <span>{{ request.user.username|slice:":1"|upper }}</span>
+        {% endif %}
+      </div>
+      <div class="sidebar__user-info">
+        <p class="sidebar__user-name">{{ user_profile.display_name|default:request.user.get_full_name|default:request.user.username }}</p>
+        <p class="sidebar__user-role">{{ user_profile.cargo|default:"Operador" }}</p>
+      </div>
+      <button class="sidebar__user-menu-btn" id="userMenuBtn" aria-label="Menu do usuário">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="5" r="1"/>
+          <circle cx="12" cy="12" r="1"/>
+          <circle cx="12" cy="19" r="1"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="sidebar__user-popup" id="userMenuPopup">
+      <div class="sidebar__user-popup-header">
+        <div class="sidebar__user-avatar sidebar__user-avatar--lg" id="popupAvatar">
+          {% if user_profile and user_profile.avatar %}
+            <img src="{{ user_profile.avatar.url }}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
+          {% else %}
+            <span>{{ request.user.username|slice:":1"|upper }}</span>
+          {% endif %}
+        </div>
+        <div>
+          <p class="sidebar__user-popup-name">{{ user_profile.display_name|default:request.user.get_full_name|default:request.user.username }}</p>
+          <p class="sidebar__user-popup-email">{{ request.user.email }}</p>
+        </div>
+      </div>
+      <div class="sidebar__user-popup-items">
+        <a href="{% url 'autenticacao:perfil' %}" class="sidebar__user-popup-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="4"/>
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+          </svg>
+          Meu Perfil
+        </a>
+        <a href="{% url 'configuracoes:index' %}" class="sidebar__user-popup-item">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Configurações
+        </a>
+      </div>
+      <div class="sidebar__user-popup-divider"></div>
+      <div class="sidebar__user-popup-items">
+        <a href="{% url 'autenticacao:logout' %}" class="sidebar__user-popup-item sidebar__user-popup-item--danger">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Sair do Sistema
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+</aside>
+
+<div class="sidebar-overlay" id="sidebarOverlay"></div>

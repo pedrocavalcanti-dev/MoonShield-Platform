@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Regras de Filtragem — DNS{% endblock %}
+
+{% block breadcrumb %}
+<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+  </svg>
+  Regras de Filtragem
+</span>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/Adguard/regras.css' %}" />
+{% endblock %}
+
+{% block conteudo %}
+
+<!-- TOPBAR DA PÁGINA -->
+<div class="rg-topbar">
+  <div class="rg-topbar__left">
+    <a href="{% url 'dns:painel' %}" class="rg-back-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+      DNS & Rede
+    </a>
+    <div class="rg-title-group">
+      <h1 class="rg-title">Regras de Filtragem</h1>
+      <span class="rg-subtitle">Regras customizadas do AdGuard Home</span>
+    </div>
+  </div>
+  <div class="rg-topbar__right">
+    <button class="rg-btn rg-btn--ghost" id="rgRefreshBtn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+      </svg>
+      Atualizar
+    </button>
+    <button class="rg-btn rg-btn--danger" id="rgRemoveSelectedBtn" disabled>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14H6L5 6"/>
+      </svg>
+      Remover Selecionadas
+    </button>
+    <button class="rg-btn rg-btn--primary" id="rgAddBtn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      Nova Regra
+    </button>
+  </div>
+</div>
+
+<!-- STATS RÁPIDOS -->
+<div class="rg-stats">
+  <div class="rg-stat">
+    <span class="rg-stat__val" id="statTotal">—</span>
+    <span class="rg-stat__lbl">Total de regras</span>
+  </div>
+  <div class="rg-stat">
+    <span class="rg-stat__val rg-stat__val--red" id="statBlock">—</span>
+    <span class="rg-stat__lbl">Bloqueadas</span>
+  </div>
+  <div class="rg-stat">
+    <span class="rg-stat__val rg-stat__val--green" id="statAllow">—</span>
+    <span class="rg-stat__lbl">Permitidas</span>
+  </div>
+  <div class="rg-stat">
+    <span class="rg-stat__val rg-stat__val--muted" id="statOther">—</span>
+    <span class="rg-stat__lbl">Comentários / Outros</span>
+  </div>
+  <div class="rg-stat" id="statSelectedWrap" style="display:none">
+    <span class="rg-stat__val rg-stat__val--yellow" id="statSelected">0</span>
+    <span class="rg-stat__lbl">Selecionadas</span>
+  </div>
+</div>
+
+<!-- FILTROS E BUSCA -->
+<div class="rg-toolbar">
+  <div class="rg-filters">
+    <button class="rg-filter-btn rg-filter-btn--active" data-filter="all">Todas</button>
+    <button class="rg-filter-btn rg-filter-btn--red"   data-filter="block">
+      <span class="rg-dot rg-dot--red"></span>Bloqueadas
+    </button>
+    <button class="rg-filter-btn rg-filter-btn--green" data-filter="allow">
+      <span class="rg-dot rg-dot--green"></span>Permitidas
+    </button>
+    <button class="rg-filter-btn" data-filter="other">Outros</button>
+  </div>
+  <div class="rg-search-wrap">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input class="rg-search" id="rgSearch" type="text" placeholder="Buscar domínio ou regra…"/>
+    <button class="rg-search__clear" id="rgSearchClear" style="display:none">✕</button>
+  </div>
+</div>
+
+<!-- TABELA DE REGRAS -->
+<div class="rg-table-wrap">
+
+  <!-- Estado: carregando -->
+  <div class="rg-state rg-state--loading" id="rgStateLoading">
+    <div class="rg-spinner"></div>
+    <p>Carregando regras do AdGuard…</p>
+  </div>
+
+  <!-- Estado: modo demo -->
+  <div class="rg-state rg-state--demo" id="rgStateDemo" style="display:none">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    <p>Modo Demo</p>
+    <span>Configure o AdGuard Home em Configurações para gerenciar regras reais.</span>
+  </div>
+
+  <!-- Estado: vazio -->
+  <div class="rg-state rg-state--empty" id="rgStateEmpty" style="display:none">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+    </svg>
+    <p>Nenhuma regra customizada</p>
+    <span>Clique em "Nova Regra" para adicionar bloqueios ou exceções.</span>
+    <button class="rg-btn rg-btn--primary" style="margin-top:12px" onclick="document.getElementById('rgAddBtn').click()">
+      Adicionar primeira regra
+    </button>
+  </div>
+
+  <!-- Estado: sem resultado na busca -->
+  <div class="rg-state rg-state--empty" id="rgStateNoResults" style="display:none">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.35-4.35"/>
+    </svg>
+    <p>Nenhuma regra encontrada</p>
+    <span id="rgNoResultsHint">Tente outro termo de busca.</span>
+  </div>
+
+  <!-- Tabela real -->
+  <table class="rg-table" id="rgTable" style="display:none">
+    <thead>
+      <tr>
+        <th class="rg-th--check">
+          <label class="rg-checkbox">
+            <input type="checkbox" id="rgSelectAll"/>
+            <span class="rg-checkbox__box"></span>
+          </label>
+        </th>
+        <th>Tipo</th>
+        <th>Domínio / Regra</th>
+        <th>Formato</th>
+        <th class="rg-th--actions">Ações</th>
+      </tr>
+    </thead>
+    <tbody id="rgTableBody"></tbody>
+  </table>
+</div>
+
+<!-- PAGINAÇÃO -->
+<div class="rg-pagination" id="rgPagination" style="display:none">
+  <span class="rg-pag-info" id="rgPagInfo">—</span>
+  <div class="rg-pag-controls">
+    <button class="rg-pag-btn" id="rgPagPrev" disabled>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="15 18 9 12 15 6"/>
+      </svg>
+    </button>
+    <div id="rgPagNums" class="rg-pag-nums"></div>
+    <button class="rg-pag-btn" id="rgPagNext">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- ═══════ MODAL: ADICIONAR REGRA ═══════ -->
+<div class="rg-modal-overlay" id="rgModalOverlay">
+  <div class="rg-modal" id="rgModal">
+    <div class="rg-modal__header">
+      <p class="rg-modal__title" id="rgModalTitle">Nova Regra</p>
+      <button class="rg-modal__close" id="rgModalClose">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Tabs: Bloquear / Permitir / Avançado -->
+    <div class="rg-modal__tabs">
+      <button class="rg-tab rg-tab--active rg-tab--red" data-tab="block">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        </svg>
+        Bloquear
+      </button>
+      <button class="rg-tab rg-tab--green" data-tab="allow">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Permitir
+      </button>
+      <button class="rg-tab" data-tab="advanced">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="16 18 22 12 16 6"/>
+          <polyline points="8 6 2 12 8 18"/>
+        </svg>
+        Avançado
+      </button>
+    </div>
+
+    <div class="rg-modal__body">
+      <!-- Desc do modo -->
+      <p class="rg-modal__desc" id="rgModalDesc">
+        Digite um domínio por linha. O formato <code>||dominio^</code> será aplicado automaticamente.
+      </p>
+
+      <textarea
+        class="rg-modal__textarea"
+        id="rgModalInput"
+        placeholder="youtube.com.br&#10;uber.com.br&#10;ads.example.com"
+      ></textarea>
+
+      <!-- Preview -->
+      <div class="rg-modal__preview" id="rgModalPreview" style="display:none">
+        <p class="rg-modal__preview-title">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          Preview das regras
+        </p>
+        <div class="rg-modal__preview-list" id="rgModalPreviewList"></div>
+      </div>
+    </div>
+
+    <div class="rg-modal__footer">
+      <button class="rg-btn rg-btn--ghost" id="rgModalCancel">Cancelar</button>
+      <button class="rg-btn rg-btn--primary" id="rgModalConfirm">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="rg-toast" id="rgToast"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/Adguard/regras.js' %}"></script>
+{% endblock %}

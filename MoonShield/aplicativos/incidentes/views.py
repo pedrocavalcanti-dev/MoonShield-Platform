@@ -1,14 +1,18 @@
 # =============================================================================
-# incidentes/views.py  v11
+# incidentes/views.py  v12
 #
-# Mudanças v11:
-#   ✓ _get_modo_sistema() agora retorna 'prod' como padrão quando
-#     ConfigSistema não existe ou lança exceção — antes retornava 'demo',
-#     o que fazia o painel mostrar dados falsos mesmo com eventos reais no banco
-#   ✓ Sem mudanças na lógica de queries, serialização ou filtros
+# Mudanças v12:
+#   ✓ _get_modo_sistema() retorna 'prod' como padrão quando
+#     ConfigSistema não existe ou lança exceção
+#   ✓ adicionada integração de status do Suricata local
+#   ✓ adicionada view da página de sensores
+#   ✓ adicionada API autenticada de status do Suricata
+#   ✓ sensor local separado dos sensores remotos
+#   ✓ sem alteração na lógica de queries, serialização ou filtros existentes
 # =============================================================================
 
 import json
+import logging
 from datetime import timedelta
 
 from django.contrib.auth.decorators import login_required
@@ -25,24 +29,43 @@ from .demo import (
     get_demo_timeline,
     get_demo_totais,
 )
+
 from .models import (
-    EventoDNS, EventoHTTP, EventoTLS,
-    Incidente, RiskScore, Supressao,
-    SeveridadeJG, CategoriaJG,
+    CategoriaJG,
+    EventoDNS,
+    EventoHTTP,
+    EventoTLS,
+    Incidente,
+    RiskScore,
+    Sensor,
+    SeveridadeJG,
+    Supressao,
 )
-from .services.correlacionador import correlacionar_incidente, contexto_ip
+
 from .services.classificador import (
-    classificar_lista,
-    get_preset_ativo,
-    get_info_preset,
     PRESETS,
+    classificar_lista,
+    get_info_preset,
+    get_preset_ativo,
 )
+
+from .services.correlacionador import (
+    contexto_ip,
+    correlacionar_incidente,
+)
+
+from .services.status_suricata import (
+    obter_status_suricata_local,
+)
+
+
+logger = logging.getLogger(__name__)
+
 
 try:
     from configuracoes.models import ConfigSistema
 except ImportError:
     ConfigSistema = None
-
 
 # =============================================================================
 # HELPERS
@@ -714,3 +737,131 @@ def _serializar_tls(ev) -> dict:
         'ja3':       ev.ja3,
         'issuer':    ev.issuer,
     }
+
+# =============================================================================
+# API: GET /incidentes/api/status-suricata/
+# =============================================================================
+
+@login_required(login_url="autenticacao:login")
+@require_GET
+def api_status_suricata(request):
+    """
+    Endpoint JSON autenticado que retorna o status do Suricata,
+    worker local, eve.json, cursor, sensor e volume de eventos.
+    """
+    try:
+        dados = obter_status_suricata_local()
+        return JsonResponse(dados)
+
+    except Exception:
+        logger.exception(
+            "Erro ao consultar o status local do Suricata."
+        )
+
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": (
+                    "Erro interno do servidor ao consultar "
+                    "o status do Suricata."
+                ),
+            },
+            status=500,
+        )
+
+
+# =============================================================================
+# PÁGINA: GET /incidentes/sensores/
+# =============================================================================
+
+@login_required(login_url="autenticacao:login")
+def painel_sensores(request):
+    """
+    Página de gerenciamento do Suricata local e sensores remotos.
+
+    O sensor local criado pelo worker não aparece na lista de
+    sensores remotos via HTTP.
+    """
+    try:
+        status_local = obter_status_suricata_local()
+
+    except Exception:
+        logger.exception(
+            "Erro ao carregar o status local na página de sensores."
+        )
+
+        status_local = {
+            "ok": False,
+            "suricata": {
+                "ativo": False,
+                "estado": "desconhecido",
+                "subestado": "desconhecido",
+                "erro": "Falha ao consultar o serviço.",
+            },
+            "monitor": {
+                "ativo": False,
+                "estado": "desconhecido",
+                "subestado": "desconhecido",
+                "erro": "Falha ao consultar o worker.",
+            },
+            "eve": {
+                "existe": False,
+                "legivel": False,
+                "tamanho": 0,
+                "erro": "Falha ao consultar o eve.json.",
+            },
+            "cursor": {
+                "existe": False,
+                "valido": False,
+                "offset": 0,
+                "updated_at": None,
+                "erro": "Falha ao consultar o cursor.",
+            },
+            "sensor": {
+                "encontrado": False,
+                "nome": "",
+                "ip": "",
+                "ativo": False,
+                "last_seen": None,
+            },
+            "eventos": {
+                "incidentes": 0,
+                "eventos_brutos": 0,
+                "dns": 0,
+                "http": 0,
+                "tls": 0,
+            },
+            "saude": {
+                "nivel": "critical",
+                "mensagem": "Falha ao consultar o monitoramento local.",
+                "problemas": [
+                    "Não foi possível carregar o status local do Suricata."
+                ],
+            },
+            "consultado_em": timezone.now().isoformat(),
+        }
+
+    sensores_remotos = (
+        Sensor.objects
+        .exclude(nome__startswith="suricata-local-")
+        .order_by("-last_seen")
+    )
+
+    total_sensores = sensores_remotos.count()
+
+    sensores_online = sensores_remotos.filter(
+        ativo=True
+    ).count()
+
+    context = {
+        "status_local": status_local,
+        "sensores": sensores_remotos,
+        "total_sensores": total_sensores,
+        "sensores_online": sensores_online,
+    }
+
+    return render(
+        request,
+        "incidentes/sensores.html",
+        context,
+    )

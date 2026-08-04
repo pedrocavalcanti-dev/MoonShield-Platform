@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}MoonShield — Sensores IDS{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/incidentes/incidente.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+    <!-- Cabeçalho da Página -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold mb-1">Gerenciamento do IDS / Sensores</h3>
+            <p class="text-muted small mb-0">Monitoramento local integrado do Suricata e gestão de sensores remotos.</p>
+        </div>
+        <div>
+            <button id="btn-atualizar-status" class="btn btn-outline-primary btn-sm" onclick="atualizarStatusSuricata()">
+                <i class="fas fa-sync-alt me-1"></i> Atualizar Status
+            </button>
+        </div>
+    </div>
+
+    <!-- CARDS DA ARQUITETURA LOCAL INTEGRADA -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-transparent border-bottom d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold">
+                <i class="fas fa-server text-primary me-2"></i> Monitor Local Integrado
+            </h5>
+            <span id="local-saude-badge" class="badge bg-secondary">
+                {% if status_local.saude.nivel == 'ok' %}
+                    OK
+                {% elif status_local.saude.nivel == 'warning' %}
+                    ATENÇÃO
+                {% else %}
+                    CRÍTICO
+                {% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            
+            <!-- Linha de Serviços Systemd -->
+            <div class="row text-center g-3 mb-4">
+                <div class="col-md-3">
+                    <div class="p-3 border rounded">
+                        <span class="d-block text-muted small mb-1">Suricata Engine</span>
+                        <div id="local-suricata-status" class="fw-bold fs-6">
+                            {% if status_local.suricata.ativo %}
+                                <span class="text-success"><i class="fas fa-check-circle me-1"></i> Ativo</span>
+                            {% else %}
+                                <span class="text-danger"><i class="fas fa-times-circle me-1"></i> Inativo</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="p-3 border rounded">
+                        <span class="d-block text-muted small mb-1">Worker Local Django</span>
+                        <div id="local-monitor-status" class="fw-bold fs-6">
+                            {% if status_local.monitor.ativo %}
+                                <span class="text-success"><i class="fas fa-check-circle me-1"></i> Ativo</span>
+                            {% else %}
+                                <span class="text-danger"><i class="fas fa-times-circle me-1"></i> Inativo</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="p-3 border rounded">
+                        <span class="d-block text-muted small mb-1">Sensor Identificado</span>
+                        <div id="local-sensor-nome" class="fw-bold text-truncate fs-6">
+                            {{ status_local.sensor.nome|default:"Não registrado" }}
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="p-3 border rounded">
+                        <span class="d-block text-muted small mb-1">Última Leitura</span>
+                        <div id="local-last-seen" class="fw-bold fs-6">
+                            {{ status_local.sensor.last_seen|default:"-" }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detalhes do Pipeline e Arquivos -->
+            <div class="row g-3">
+                <div class="col-md-6 border-end">
+                    <h6 class="fw-bold mb-2">Fluxo de Ingestão do Sistema</h6>
+                    <p class="text-muted small mb-3">
+                        <code>suricata.service</code> ➔ <code>/var/log/suricata/eve.json</code> ➔ <code>Worker Local</code> ➔ <code>Pipeline Django</code>
+                    </p>
+                    <ul class="list-unstyled small mb-0">
+                        <li class="mb-1">
+                            <strong>Log eve.json:</strong> 
+                            <span id="local-eve-info">
+                                {% if status_local.eve.existe %}
+                                    Legível ({{ status_local.eve.tamanho|filesizeformat }})
+                                {% else %}
+                                    Inacessível / Ausente
+                                {% endif %}
+                            </span>
+                        </li>
+                        <li class="mb-1">
+                            <strong>Cursor de Leitura:</strong> 
+                            <span id="local-cursor-offset">Offset {{ status_local.cursor.offset }}</span>
+                        </li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="fw-bold mb-2">Volume de Dados Registrados</h6>
+                    <div class="row text-center g-2 mt-1">
+                        <div class="col-4">
+                            <div class="p-2 bg-light rounded">
+                                <span class="d-block text-muted extra-small">DNS</span>
+                                <strong id="count-dns">{{ status_local.eventos.dns }}</strong>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-2 bg-light rounded">
+                                <span class="d-block text-muted extra-small">HTTP</span>
+                                <strong id="count-http">{{ status_local.eventos.http }}</strong>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="p-2 bg-light rounded">
+                                <span class="d-block text-muted extra-small">TLS</span>
+                                <strong id="count-tls">{{ status_local.eventos.tls }}</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Box de Problemas / Warnings Sanitizado -->
+            <div id="box-problemas" class="alert alert-warning mt-3 mb-0 {% if not status_local.saude.problemas %}d-none{% endif %}">
+                <strong class="d-block mb-1"><i class="fas fa-exclamation-triangle me-1"></i> Diagnóstico do Sistema:</strong>
+                <ul id="lista-problemas" class="mb-0 ps-3 small">
+                    {% for problema in status_local.saude.problemas %}
+                        <li>{{ problema }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- SEÇÃO DE SENSORES REMOTOS FÍSICOS OU HTTP (MANTIDA) -->
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-transparent border-bottom">
+            <h5 class="mb-0 fw-bold">
+                <i class="fas fa-network-wired text-secondary me-2"></i> Sensores Remotos via HTTP (Agentes)
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if sensores %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                <th>IP</th>
+                                <th>Status</th>
+                                <th>Última Comunicação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sensor in sensores %}
+                            <tr>
+                                <td><strong>{{ sensor.nome }}</strong></td>
+                                <td><code>{{ sensor.ip }}</code></td>
+                                <td>
+                                    {% if sensor.ativo %}
+                                        <span class="badge bg-success">Ativo</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Inativo</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ sensor.last_seen|default:"N/A" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-muted mb-0 small">Nenhum sensor remoto cadastrado no momento.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/incidentes/incidentes-painel.js' %}"></script>
+{% endblock %}

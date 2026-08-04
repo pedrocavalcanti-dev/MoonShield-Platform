@@ -14,11 +14,16 @@ ARQUIVO_CONFIG = os.path.join(_BASE, "dados", "ms_rede.json")
 
 CONFIG_PADRAO: dict = {
     "trunk_interface": "enp0s9",
-    "wan_interface":   "enp0s8",
-    "dhcp_server":     "",
-    "vlans":           [],
+    "wan_interface": "enp0s3",
+    "dhcp_server": "",
+    "interfaces": {},
+    "roteamento_direto": {
+        "ativo": False,
+        "lan_interface": "",
+        "wan_interface": "",
+    },
+    "vlans": [],
 }
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Carregar / Salvar

@@ -5,7 +5,7 @@ Regras de negócio de modo:
 
   DEMO  → providers bloqueados no frontend. Testes de provider retornam mock.
 
-  PROD  → tudo liberado. Providers testam conexão real.
+  OPERACIONAL (valor interno: prod) → integrações reais liberadas.
 
 Quick Tests → SEMPRE reais (ping, DNS, internet) independente do modo.
 
@@ -43,6 +43,13 @@ def configuracoes_view(request):
     context = {
         "titulo_pagina": "Configurações — MoonShield",
         "modo_atual": cfg.modo,
+        "modo_demo": cfg.modo_demo,
+        "modo_operacional": cfg.modo_operacional,
+        "modo_label": (
+            "Modo Operacional"
+            if cfg.modo_operacional
+            else "Modo Demonstração"
+        ),
     }
     return render(request, "configuracoes/configuracoes.html", context)
 
@@ -71,9 +78,24 @@ def api_salvar_config(request):
     cfg = ConfigSistema.get_solo()
 
     # ── Modo Global ─────────────────────────────────────────────────────────
+    #
+    # Os valores internos continuam:
+    #   demo -> Modo Demonstração
+    #   prod -> Modo Operacional
+    #
+    # Mantemos "prod" para não quebrar integrações e códigos existentes.
     modo = data.get("modo", cfg.modo)
-    if modo in ("demo", "prod"):
-        cfg.modo = modo
+
+    if modo not in ("demo", "prod"):
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": "Modo inválido. Use 'demo' ou 'prod'.",
+            },
+            status=400,
+        )
+
+    cfg.modo = modo
 
     # ── Identidade do Node ──────────────────────────────────────────────────
     node = data.get("node", {})
@@ -110,45 +132,107 @@ def api_salvar_config(request):
     cfg.ret_incidents = int(ret.get("incidents", cfg.ret_incidents))
 
     # ── Providers ───────────────────────────────────────────────────────────
+    #
+    # Modo Demonstração:
+    #   - providers reais permanecem desativados;
+    #   - o modo interno de cada provider passa a ser "mock";
+    #   - credenciais/configurações já salvas não são apagadas.
+    #
+    # Modo Operacional:
+    #   - cada provider é habilitado individualmente pelo usuário;
+    #   - trocar o modo global não ativa DNS, IDS ou Firewall automaticamente.
     modo_final = cfg.modo
-    providers  = data.get("providers", {})
+    providers = data.get("providers", {})
 
-    # DNS / AdGuard
     dns = providers.get("dns", {})
-    cfg.dns_enabled   = bool(dns.get("active", cfg.dns_enabled))
-    cfg.adguard_https = bool(dns.get("https",  cfg.adguard_https))
+    ids = providers.get("ids", {})
+    fw = providers.get("fw", {})
 
     if modo_final == "demo":
+        cfg.dns_enabled = False
+        cfg.ids_enabled = False
+        cfg.fw_enabled = False
+
         cfg.adguard_mode = "mock"
+        cfg.suricata_mode = "mock"
+        cfg.fw_mode = "mock"
+
     else:
-        cfg.adguard_mode     = dns.get("mode",     cfg.adguard_mode)
-        cfg.adguard_url      = dns.get("url",      cfg.adguard_url)
-        cfg.adguard_user     = dns.get("user",     cfg.adguard_user)
-        cfg.adguard_interval = int(dns.get("interval", cfg.adguard_interval))
+        # DNS / AdGuard
+        cfg.dns_enabled = bool(
+            dns.get("active", cfg.dns_enabled)
+        )
+        cfg.adguard_mode = dns.get(
+            "mode",
+            cfg.adguard_mode if cfg.adguard_mode != "mock" else "real",
+        )
+        cfg.adguard_url = dns.get(
+            "url",
+            cfg.adguard_url,
+        )
+        cfg.adguard_user = dns.get(
+            "user",
+            cfg.adguard_user,
+        )
+        cfg.adguard_https = bool(
+            dns.get("https", cfg.adguard_https)
+        )
+        cfg.adguard_interval = int(
+            dns.get("interval", cfg.adguard_interval)
+        )
+
         if dns.get("pass"):
             cfg.adguard_pass = dns["pass"]
 
-    # IDS / Suricata
-    ids = providers.get("ids", {})
-    cfg.ids_enabled = bool(ids.get("active", cfg.ids_enabled))
+        # IDS / Suricata
+        #
+        # A instalação e o estado operacional do Suricata são controlados
+        # pelos models próprios do módulo Suricata. Aqui permanecem somente
+        # os campos de compatibilidade do provider geral.
+        cfg.ids_enabled = bool(
+            ids.get("active", cfg.ids_enabled)
+        )
+        cfg.suricata_mode = ids.get(
+            "mode",
+            cfg.suricata_mode if cfg.suricata_mode != "mock" else "eve",
+        )
+        cfg.suricata_eve_path = ids.get(
+            "evePath",
+            cfg.suricata_eve_path,
+        )
+        cfg.suricata_interval = int(
+            ids.get("interval", cfg.suricata_interval)
+        )
+        cfg.suricata_min_severity = int(
+            ids.get(
+                "minSeverity",
+                cfg.suricata_min_severity,
+            )
+        )
 
-    if modo_final == "demo":
-        cfg.suricata_mode = "mock"
-    else:
-        cfg.suricata_mode         = ids.get("mode",        cfg.suricata_mode)
-        cfg.suricata_interval     = int(ids.get("interval",    cfg.suricata_interval))
-        cfg.suricata_min_severity = int(ids.get("minSeverity", cfg.suricata_min_severity))
+        # Firewall
+        cfg.fw_enabled = bool(
+            fw.get("active", cfg.fw_enabled)
+        )
+        cfg.fw_mode = fw.get(
+            "mode",
+            cfg.fw_mode if cfg.fw_mode != "mock" else "nftables",
+        )
+        cfg.fw_target = fw.get(
+            "target",
+            cfg.fw_target,
+        )
+        cfg.fw_host = fw.get(
+            "host",
+            cfg.fw_host,
+        )
+        cfg.fw_agente_porta = int(
+            fw.get(
+                "agente_porta",
+                cfg.fw_agente_porta,
+            )
+        )
 
-    # Firewall
-    fw = providers.get("fw", {})
-    cfg.fw_enabled = bool(fw.get("active", cfg.fw_enabled))
-
-    if modo_final == "demo":
-        cfg.fw_mode = "mock"
-    else:
-        cfg.fw_mode   = fw.get("mode",   cfg.fw_mode)
-        cfg.fw_target = fw.get("target", cfg.fw_target)
-        cfg.fw_host   = fw.get("host",   cfg.fw_host)
         if fw.get("token"):
             cfg.fw_token = fw["token"]
 
@@ -164,12 +248,26 @@ def api_salvar_config(request):
 
     cfg.save()
 
-    return JsonResponse({
-        "ok":         True,
-        "modo":       cfg.modo,
-        "updated_at": cfg.updated_at.isoformat(),
-        "msg":        "Configurações salvas com sucesso.",
-    })
+    return JsonResponse(
+        {
+            "ok": True,
+            "modo": cfg.modo,
+            "modo_label": (
+                "Modo Operacional"
+                if cfg.modo_operacional
+                else "Modo Demonstração"
+            ),
+            "modo_demo": cfg.modo_demo,
+            "modo_operacional": cfg.modo_operacional,
+            "updated_at": cfg.updated_at.isoformat(),
+            "msg": (
+                "Modo Operacional salvo. Configure cada componente "
+                "real individualmente."
+                if cfg.modo_operacional
+                else "Modo Demonstração salvo. Integrações reais bloqueadas."
+            ),
+        }
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,6 +287,11 @@ def api_sysinfo(request):
 
     info = get_sysinfo_real(ip_local_principal=ip_local)
     info["modo"] = cfg.modo
+    info["modo_label"] = (
+        "Modo Operacional"
+        if cfg.modo_operacional
+        else "Modo Demonstração"
+    )
 
     cfg.detected_sysinfo = info
     cfg.detected_at      = timezone.now()
@@ -213,7 +316,18 @@ def api_interfaces(request):
     cfg.detected_interfaces = ifaces
     cfg.save(update_fields=["detected_interfaces"])
 
-    return JsonResponse({"ok": True, "interfaces": ifaces, "modo": cfg.modo})
+    return JsonResponse(
+        {
+            "ok": True,
+            "interfaces": ifaces,
+            "modo": cfg.modo,
+            "modo_label": (
+                "Modo Operacional"
+                if cfg.modo_operacional
+                else "Modo Demonstração"
+            ),
+        }
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,7 +365,7 @@ def api_testar_provider(request):
         return JsonResponse({
             "ok":     True,
             "status": "mock",
-            "msg":    f"{label} — Mock ativo (modo Demo). Mude para Produção para testar conexão real.",
+            "msg":    f"{label} — Mock ativo (modo Demo). Ative o Modo Operacional para testar a integração real.",
         })
 
     if provider == "dns":
@@ -411,7 +525,7 @@ def api_fw_sensor_status(request):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS INTERNOS — TESTE DE PROVIDERS (apenas modo PROD)
+# HELPERS INTERNOS — TESTE DE PROVIDERS (apenas Modo Operacional)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _testar_dns(cfg: ConfigSistema) -> dict:
@@ -420,7 +534,7 @@ def _testar_dns(cfg: ConfigSistema) -> dict:
         return {
             "ok":     True,
             "status": "mock",
-            "msg":    "Mock ativo — dados simulados. Configure o modo para 'AdGuard Real' para testar.",
+            "msg":    "Mock ativo — dados simulados. Ative o Modo Operacional e configure o AdGuard Real para testar.",
         }
     if not cfg.adguard_url:
         return {

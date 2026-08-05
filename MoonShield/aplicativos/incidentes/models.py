@@ -623,3 +623,407 @@ class EventoTLS(models.Model):
             models.Index(fields=['src_ip', 'timestamp'], name='idx_tls_srcip_ts'),
             models.Index(fields=['sni',    'timestamp'], name='idx_tls_sni_ts'),
         ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SURICATA LOCAL (MÓDULOS DE INTEGRAÇÃO & ORQUESTRAÇÃO)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class StatusTarefaSuricata(models.TextChoices):
+    PENDENTE   = "pendente",   "Pendente"
+    EXECUTANDO = "executando", "Executando"
+    SUCESSO    = "sucesso",    "Sucesso"
+    ERRO       = "erro",       "Erro"
+    CANCELADO  = "cancelado",  "Cancelado"
+    IGNORADO   = "ignorado",   "Ignorado"
+
+
+class TipoTarefaSuricataModel(models.TextChoices):
+    DIAGNOSTICO        = "diagnostico",        "Diagnóstico"
+    INSTALACAO         = "instalacao",         "Instalação"
+    CONFIGURACAO       = "configuracao",       "Configuração"
+    ATUALIZACAO_REGRAS = "atualizacao_regras", "Atualização de regras"
+    VALIDACAO          = "validacao",          "Validação"
+    REINICIO_SURICATA  = "reinicio_suricata",  "Reinício do Suricata"
+    REINICIO_MONITOR   = "reinicio_monitor",   "Reinício do monitor"
+
+
+class NivelLogSuricata(models.TextChoices):
+    INFO    = "info",    "Informação"
+    SUCESSO = "sucesso", "Sucesso"
+    AVISO   = "aviso",   "Aviso"
+    ERRO    = "erro",    "Erro"
+    DEBUG   = "debug",   "Debug"
+
+
+class ConfiguracaoSuricata(models.Model):
+    """
+    Persistência canônica do estado físico da infraestrutura do IDS no hospedeiro.
+    """
+    nome = models.CharField(max_length=100, default="Suricata Local")
+    ativo = models.BooleanField(default=True, db_index=True)
+
+    interface_wan = models.CharField(max_length=100, blank=True)
+    interface_lan = models.CharField(max_length=100, blank=True)
+    interface_mgmt = models.CharField(max_length=100, blank=True)
+
+    interfaces_monitoradas = models.JSONField(default=list, blank=True)
+    home_net = models.JSONField(default=list, blank=True)
+    dns_interno = models.GenericIPAddressField(null=True, blank=True, protocol="IPv4")
+
+    yaml_path = models.CharField(max_length=500, default="/etc/suricata/suricata.yaml")
+    eve_path = models.CharField(max_length=500, default="/var/log/suricata/eve.json")
+    cursor_path = models.CharField(max_length=500, default="var/cursors/suricata_eve.cursor")
+
+    modo_captura = models.CharField(
+        max_length=30,
+        choices=[
+            ("lan", "Somente LAN"),
+            ("lan_wan", "LAN + WAN"),
+            ("personalizado", "Personalizado"),
+        ],
+        default="lan_wan",
+    )
+
+    instalar_et_open = models.BooleanField(default=True)
+    instalar_regras_moonshield = models.BooleanField(default=True)
+    reiniciar_servicos = models.BooleanField(default=True)
+
+    suricata_instalado = models.BooleanField(default=False)
+    suricata_configurado = models.BooleanField(default=False)
+    instalacao_concluida = models.BooleanField(default=False, db_index=True)
+    onboarding_concluido = models.BooleanField(default=False, db_index=True)
+
+    versao_suricata = models.CharField(max_length=100, blank=True)
+    ultimo_diagnostico = models.JSONField(default=dict, blank=True)
+    ultimo_status = models.JSONField(default=dict, blank=True)
+    ultimo_erro = models.TextField(blank=True)
+
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        if self.pronto:
+            return f"{self.nome} — configurado"
+        return f"{self.nome} — pendente"
+
+    @property
+    def pronto(self) -> bool:
+        return bool(
+            self.ativo and
+            self.suricata_instalado and
+            self.suricata_configurado and
+            self.instalacao_concluida
+        )
+
+    def to_service_dict(self) -> dict:
+        """Exporta um payload compatível com ConfiguracaoSuricataDados do pacote de services."""
+        return {
+            "interface_wan": self.interface_wan,
+            "interface_lan": self.interface_lan,
+            "interface_mgmt": self.interface_mgmt,
+            "interfaces_monitoradas": self.interfaces_monitoradas,
+            "home_net": self.home_net,
+            "dns_interno": self.dns_interno,
+            "yaml_path": self.yaml_path,
+            "eve_path": self.eve_path,
+            "modo_captura": self.modo_captura,
+            "instalar_et_open": self.instalar_et_open,
+            "instalar_regras_moonshield": self.instalar_regras_moonshield,
+            "reiniciar_servicos": self.reiniciar_servicos,
+        }
+
+    def atualizar_status(
+        self,
+        status: dict | None = None,
+        diagnostico: dict | None = None,
+        erro: str = "",
+        salvar: bool = True,
+    ) -> None:
+        """Aplica snapshots de saude oriundos de workers background ou rotinas de healthcheck."""
+        campos_update = ["ultimo_erro", "atualizado_em"]
+        self.ultimo_erro = erro
+
+        if status is not None:
+            self.ultimo_status = status
+            campos_update.append("ultimo_status")
+
+        if diagnostico is not None:
+            self.ultimo_diagnostico = diagnostico
+            campos_update.append("ultimo_diagnostico")
+
+        if salvar:
+            self.save(update_fields=campos_update)
+
+    class Meta:
+        verbose_name = "Configuração Suricata"
+        verbose_name_plural = "Configurações Suricata"
+        ordering = ["-ativo", "-atualizado_em"]
+        indexes = [
+            models.Index(fields=["ativo"], name="idx_cfg_suricata_ativo"),
+            models.Index(fields=["onboarding_concluido"], name="idx_cfg_suri_onb_ok"),
+            models.Index(fields=["instalacao_concluida"], name="idx_cfg_suri_inst_ok"),
+        ]
+
+
+class TarefaSuricata(models.Model):
+    """
+    Rastreamento de execução e fila passiva das orquestrações de sistema (Helper Privilegiado).
+    """
+    id = models.CharField(primary_key=True, max_length=100, editable=False)
+
+    tipo = models.CharField(
+        max_length=40,
+        choices=TipoTarefaSuricataModel.choices,
+        db_index=True,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=StatusTarefaSuricata.choices,
+        default=StatusTarefaSuricata.PENDENTE,
+        db_index=True,
+    )
+
+    progresso = models.PositiveSmallIntegerField(default=0)
+    etapa_atual = models.CharField(max_length=100, blank=True)
+    mensagem = models.TextField(blank=True)
+
+    parametros = models.JSONField(default=dict, blank=True)
+    resultado = models.JSONField(default=dict, blank=True)
+    erro = models.TextField(blank=True)
+
+    cancelamento_solicitado = models.BooleanField(default=False, db_index=True)
+
+    criado_em = models.DateTimeField(auto_now_add=True, db_index=True)
+    iniciado_em = models.DateTimeField(null=True, blank=True)
+    finalizado_em = models.DateTimeField(null=True, blank=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    configuracao = models.ForeignKey(
+        ConfiguracaoSuricata,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tarefas",
+    )
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} — {self.get_status_display()} — {self.progresso}%"
+
+    @property
+    def finalizada(self) -> bool:
+        return self.status in {
+            StatusTarefaSuricata.SUCESSO,
+            StatusTarefaSuricata.ERRO,
+            StatusTarefaSuricata.CANCELADO,
+            StatusTarefaSuricata.IGNORADO,
+        }
+
+    @property
+    def executando(self) -> bool:
+        return self.status == StatusTarefaSuricata.EXECUTANDO
+
+    @property
+    def pode_cancelar(self) -> bool:
+        if self.cancelamento_solicitado:
+            return False
+        return self.status in {StatusTarefaSuricata.PENDENTE, StatusTarefaSuricata.EXECUTANDO}
+
+    @property
+    def duracao_segundos(self) -> float | None:
+        if not self.iniciado_em:
+            return None
+        fim = self.finalizado_em or timezone.now()
+        delta = (fim - self.iniciado_em).total_seconds()
+        return max(0.0, delta)
+
+    def atualizar_progresso(
+        self,
+        progresso: int,
+        etapa: str = "",
+        mensagem: str = "",
+        salvar: bool = True,
+    ) -> None:
+        self.progresso = max(0, min(100, progresso))
+        
+        if etapa:
+            self.etapa_atual = etapa
+        if mensagem:
+            self.mensagem = mensagem
+            
+        if self.status == StatusTarefaSuricata.PENDENTE:
+            self.status = StatusTarefaSuricata.EXECUTANDO
+            
+        if not self.iniciado_em:
+            self.iniciado_em = timezone.now()
+
+        if salvar:
+            self.save(update_fields=["progresso", "etapa_atual", "mensagem", "status", "iniciado_em", "atualizado_em"])
+
+    def marcar_sucesso(
+        self,
+        resultado: dict | None = None,
+        mensagem: str = "Tarefa concluída com sucesso.",
+        salvar: bool = True,
+    ) -> None:
+        self.status = StatusTarefaSuricata.SUCESSO
+        self.progresso = 100
+        self.mensagem = mensagem
+        self.erro = ""
+        self.finalizado_em = timezone.now()
+        
+        if not self.iniciado_em:
+            self.iniciado_em = self.finalizado_em
+            
+        if resultado is not None:
+            self.resultado = resultado
+
+        if salvar:
+            self.save(update_fields=["status", "progresso", "mensagem", "erro", "finalizado_em", "iniciado_em", "resultado", "atualizado_em"])
+
+    def marcar_erro(
+        self,
+        erro: str,
+        mensagem: str = "A tarefa falhou.",
+        resultado: dict | None = None,
+        salvar: bool = True,
+    ) -> None:
+        self.status = StatusTarefaSuricata.ERRO
+        self.mensagem = mensagem
+        self.erro = erro
+        self.finalizado_em = timezone.now()
+        
+        if not self.iniciado_em:
+            self.iniciado_em = self.finalizado_em
+            
+        if resultado is not None:
+            self.resultado = resultado
+
+        if salvar:
+            self.save(update_fields=["status", "mensagem", "erro", "finalizado_em", "iniciado_em", "resultado", "atualizado_em"])
+
+    def solicitar_cancelamento(
+        self,
+        mensagem: str = "Cancelamento solicitado.",
+        salvar: bool = True,
+    ) -> None:
+        if self.finalizada:
+            return
+            
+        self.cancelamento_solicitado = True
+        self.mensagem = mensagem
+        
+        if salvar:
+            self.save(update_fields=["cancelamento_solicitado", "mensagem", "atualizado_em"])
+
+    def marcar_cancelada(
+        self,
+        mensagem: str = "Tarefa cancelada.",
+        salvar: bool = True,
+    ) -> None:
+        self.status = StatusTarefaSuricata.CANCELADO
+        self.cancelamento_solicitado = True
+        self.mensagem = mensagem
+        self.finalizado_em = timezone.now()
+        
+        if not self.iniciado_em:
+            self.iniciado_em = self.finalizado_em
+
+        if salvar:
+            self.save(update_fields=["status", "cancelamento_solicitado", "mensagem", "finalizado_em", "iniciado_em", "atualizado_em"])
+
+    def to_dict(self, incluir_logs: bool = False) -> dict:
+        dados = {
+            "id": self.pk,
+            "tipo": self.tipo,
+            "status": self.status,
+            "progresso": self.progresso,
+            "etapa_atual": self.etapa_atual,
+            "mensagem": self.mensagem,
+            "parametros": self.parametros,
+            "resultado": self.resultado,
+            "erro": self.erro,
+            "cancelamento_solicitado": self.cancelamento_solicitado,
+            "finalizada": self.finalizada,
+            "executando": self.executando,
+            "pode_cancelar": self.pode_cancelar,
+            "duracao_segundos": self.duracao_segundos,
+            "criado_em": self.criado_em.isoformat() if self.criado_em else None,
+            "iniciado_em": self.iniciado_em.isoformat() if self.iniciado_em else None,
+            "finalizado_em": self.finalizado_em.isoformat() if self.finalizado_em else None,
+            "atualizado_em": self.atualizado_em.isoformat() if self.atualizado_em else None,
+        }
+
+        if incluir_logs:
+            dados["logs"] = [log.to_dict() for log in self.logs.order_by("sequencia", "id")]
+
+        return dados
+
+    def save(self, *args, **kwargs):
+        self.progresso = max(0, min(100, self.progresso))
+        super().save(*args, **kwargs)
+
+    class Meta:
+        verbose_name = "Tarefa Suricata"
+        verbose_name_plural = "Tarefas Suricata"
+        ordering = ["-criado_em"]
+        indexes = [
+            models.Index(fields=["tipo", "status"], name="idx_tarefa_tipo_status"),
+            models.Index(fields=["status", "criado_em"], name="idx_tarefa_status_criado"),
+            models.Index(fields=["cancelamento_solicitado", "status"], name="idx_tarefa_cancel_status"),
+            models.Index(fields=["configuracao", "criado_em"], name="idx_tarefa_cfg_criado"),
+        ]
+
+
+class LogTarefaSuricata(models.Model):
+    """
+    Linhas de output de eventos geradas durante o processamento (System Helper/Worker).
+    """
+    tarefa = models.ForeignKey(
+        TarefaSuricata,
+        on_delete=models.CASCADE,
+        related_name="logs",
+    )
+    sequencia = models.PositiveIntegerField(default=0)
+    nivel = models.CharField(
+        max_length=20,
+        choices=NivelLogSuricata.choices,
+        default=NivelLogSuricata.INFO,
+        db_index=True,
+    )
+    etapa = models.CharField(max_length=100, blank=True)
+    mensagem = models.TextField()
+    detalhes = models.JSONField(default=dict, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        resumo_msg = self.mensagem[:77] + "..." if len(self.mensagem) > 80 else self.mensagem
+        return f"{self.tarefa_id} [{self.nivel.upper()}] {resumo_msg}"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.pk,
+            "sequencia": self.sequencia,
+            "nivel": self.nivel,
+            "etapa": self.etapa,
+            "mensagem": self.mensagem,
+            "detalhes": self.detalhes,
+            "criado_em": self.criado_em.isoformat() if self.criado_em else None,
+        }
+
+    class Meta:
+        verbose_name = "Log de tarefa Suricata"
+        verbose_name_plural = "Logs de tarefas Suricata"
+        ordering = ["sequencia", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tarefa", "sequencia"],
+                name="uq_suricata_log_seq",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tarefa", "sequencia"], name="idx_suricata_log_ts"),
+            models.Index(fields=["tarefa", "criado_em"], name="idx_suricata_log_tc"),
+            models.Index(fields=["nivel", "criado_em"], name="idx_suricata_log_nc"),
+        ]

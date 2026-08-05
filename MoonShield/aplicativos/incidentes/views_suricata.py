@@ -1,6 +1,7 @@
 """
-Módulo dedicado a renderização de telas e APIs REST de controle do Suricata IDS Local.
-Encapsula o fluxo do Onboarding de primeira viagem e o Painel de operações do Sensor.
+Views e APIs focadas na experiência de Onboarding e gerenciamento do Suricata Local.
+Conectam o frontend ao cluster de backend sem expor diretamente o SO, roteando a 
+intenção de mutação via Helper DB Tasks de forma controlada.
 """
 
 import json
@@ -136,6 +137,26 @@ def _ler_json_request(request: HttpRequest) -> dict:
         raise ValueError("A raiz do payload JSON deve ser um objeto (Dicionário).")
 
     return dados
+
+
+def _tornar_json_serializavel(valor: Any) -> Any:
+    """Converte DTOs e estruturas aninhadas em tipos aceitos por JSONField."""
+    if isinstance(valor, ConfiguracaoSuricataDados):
+        return _tornar_json_serializavel(valor.to_dict())
+
+    if hasattr(valor, "value") and not isinstance(valor, (str, int, float, bool)):
+        return _tornar_json_serializavel(valor.value)
+
+    if isinstance(valor, dict):
+        return {
+            str(chave): _tornar_json_serializavel(conteudo)
+            for chave, conteudo in valor.items()
+        }
+
+    if isinstance(valor, (list, tuple, set)):
+        return [_tornar_json_serializavel(item) for item in valor]
+
+    return valor
 
 
 def _obter_configuracao_ativa(criar: bool = False) -> ConfiguracaoSuricata | None:
@@ -307,7 +328,7 @@ def painel_suricata(request):
     cfg = _obter_configuracao_ativa(criar=False)
     
     if not cfg or not cfg.onboarding_concluido:
-        # Nota: View futura que será criada em urls.py
+        # Nota: A view "suricata_onboarding" precisa estar mapeada no urls.py
         return redirect("incidentes:suricata_onboarding")
         
     dto_cfg = _configuracao_service(cfg)
@@ -346,7 +367,7 @@ def api_status_suricata(request):
     
     payload = obter_status_para_api(dto_cfg, incluir_diagnostico=inc_diag)
     if payload.get("ok"):
-        return _json_sucesso("Status obtido.", payload["dados"])
+        return _json_sucesso("Status obtido.", payload.get("dados"))
     
     return _json_erro(payload.get("mensagem", "Erro"), 500, dados=payload)
 
@@ -361,7 +382,6 @@ def api_onboarding_status(request):
     try:
         onb = obter_status_onboarding(dto_cfg)
         plano = obter_plano_instalacao(dto_cfg)
-        from .services.suricata.tarefas import obter_tipos_tarefa_disponiveis
         tipos_disp = obter_tipos_tarefa_disponiveis()
         
         return _json_sucesso("Status Onboarding lido.", {
@@ -584,12 +604,14 @@ def api_criar_tarefa(request):
             cfg = _obter_configuracao_ativa(criar=False)
             
             # Persiste estática de Task no banco PENDENTE para pickup do Helper Command (Cron/Cronjob/Daemon)
-            TarefaSuricata.objects.create(
+            parametros_json = _tornar_json_serializavel(p_ok)
+
+            tarefa = TarefaSuricata.objects.create(
                 id=novo_id,
                 tipo=t_tipo.value,
                 status=StatusTarefaSuricata.PENDENTE,
                 progresso=0,
-                parametros=p_ok,
+                parametros=parametros_json,
                 configuracao=cfg,
             )
             
@@ -597,6 +619,7 @@ def api_criar_tarefa(request):
         
         return _json_sucesso("Sinalizado com sucesso.", {
             "tarefa_id": novo_id,
+            "tarefa": tarefa.to_dict(incluir_logs=False),
             "comando_helper": cmd_indicativo
         }, status_http=201)
         

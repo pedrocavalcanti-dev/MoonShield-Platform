@@ -43,6 +43,7 @@ REGRAS_DEST_ETC_DIR = Path("/etc/suricata/rules/moonshield")
 REGRAS_DEST_ETC = REGRAS_DEST_ETC_DIR / "ms.rules"
 
 REGRAS_ET_OPEN = Path("/var/lib/suricata/rules/suricata.rules")
+REGRAS_ET_OPEN_ETC = Path("/etc/suricata/rules/suricata.rules")
 
 FONTES_SURICATA_UPDATE = ("et/open",)
 NOME_FONTE_ET_OPEN = "et/open"
@@ -65,12 +66,12 @@ def localizar_regras_moonshield_origem(caminho_preferido: str | Path | None = No
     base_dir = Path(__file__).resolve().parent
 
     candidatos = [
-    base_dir / "regras_ms.rules",
-    base_dir / "ms.rules",
-    base_dir / "rules" / "ms.rules",
-    base_dir / "assets" / "ms.rules",
-    base_dir.parent.parent.parent / "MoonShield-Agent" / "suricata" / "regras_ms.rules",
-]
+        base_dir / "regras_ms.rules",
+        base_dir / "ms.rules",
+        base_dir / "rules" / "ms.rules",
+        base_dir / "assets" / "ms.rules",
+        base_dir.parent.parent.parent / "MoonShield-Agent" / "suricata" / "regras_ms.rules",
+    ]
 
     for cand in candidatos:
         if cand.is_file():
@@ -539,38 +540,53 @@ def validar_regras_com_suricata(yaml_path: str | Path) -> ResultadoEtapa:
 
 
 def _copiar_arquivo_atomico(origem: Path, destino: Path) -> None:
-    """Realiza overwrite isolando falhas de FS usando temporários para evitar rules truncados."""
+    """
+    Copia um arquivo de regras de forma atômica e remove BOM UTF-8.
+
+    O Suricata pode interpretar o BOM no início do arquivo como parte de uma
+    assinatura e rejeitar até mesmo uma primeira linha comentada.
+    """
     if not origem.is_file():
         raise FileNotFoundError(f"Origem não existe ou não é arquivo: {origem}")
 
     destino.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = destino.with_suffix(".tmp")
-    
+    temp_path = destino.with_suffix(destino.suffix + ".tmp")
+
     try:
-        shutil.copy2(origem, temp_path)
+        dados = origem.read_bytes()
+
+        if dados.startswith(b"\xef\xbb\xbf"):
+            dados = dados[3:]
+            logger.warning(
+                "BOM UTF-8 removido automaticamente do arquivo de regras: %s",
+                origem,
+            )
+
+        temp_path.write_bytes(dados)
+
         if eh_linux():
             os.chmod(temp_path, PERMISSAO_PADRAO_REGRAS)
             try:
-                # Tenta unificar a identidade (Fallback seguro se root)
                 identidade = usuario_e_root()
                 if identidade.get("root"):
-                    import pwd, grp
+                    import pwd
+                    import grp
+
                     usr = pwd.getpwnam("root")
                     grp_info = grp.getgrnam("root")
                     os.chown(temp_path, usr.pw_uid, grp_info.gr_gid)
             except Exception as e:
                 logger.debug(f"Falha amena ao ajustar chown em {temp_path}: {e}")
 
-        # Atomica! Substitui o artefato ao inves de write chunked
         os.replace(temp_path, destino)
-    except Exception as e:
+
+    except Exception:
         if temp_path.exists():
             try:
                 temp_path.unlink()
             except OSError:
                 pass
-        raise e
-
+        raise
 
 def copiar_regras_moonshield(origem: str | Path | None = None, copiar_para_etc: bool = True) -> ResultadoEtapa:
     """Implementa o deploy persistente e seguro das assinaturas do backend base pro disco Linux."""
@@ -769,6 +785,80 @@ def habilitar_fonte_et_open() -> ResultadoEtapa:
     return res
 
 
+def garantir_link_regras_et_open() -> ResultadoEtapa:
+    """
+    Garante que o caminho usado pelo suricata.yaml encontre o ruleset gerado
+    pelo suricata-update em /var/lib/suricata/rules/suricata.rules.
+    """
+    etapa_id = "garantir_link_regras_et_open"
+    res = ResultadoEtapa(
+        etapa=etapa_id,
+        status=StatusEtapa.EXECUTANDO,
+        sucesso=False,
+        mensagem="Sincronizando caminho das regras ET Open.",
+        iniciado_em=datetime.now(),
+    )
+
+    if not REGRAS_ET_OPEN.is_file():
+        res.finalizar_erro(
+            "Arquivo principal da ET Open não foi encontrado.",
+            erro=str(REGRAS_ET_OPEN),
+        )
+        return res
+
+    if eh_linux() and not usuario_e_root().get("root"):
+        res.finalizar_erro(
+            "Requer privilégios administrativos para preparar o link das regras ET Open."
+        )
+        return res
+
+    try:
+        REGRAS_ET_OPEN_ETC.parent.mkdir(parents=True, exist_ok=True)
+
+        if REGRAS_ET_OPEN_ETC.is_symlink():
+            try:
+                if REGRAS_ET_OPEN_ETC.resolve() == REGRAS_ET_OPEN.resolve():
+                    res.dados = {
+                        "origem": str(REGRAS_ET_OPEN),
+                        "destino": str(REGRAS_ET_OPEN_ETC),
+                        "ja_existia": True,
+                    }
+                    res.finalizar_sucesso("Link das regras ET Open já estava correto.")
+                    return res
+            except OSError:
+                pass
+            REGRAS_ET_OPEN_ETC.unlink()
+        elif REGRAS_ET_OPEN_ETC.exists():
+            # Preserva um arquivo regular válido já existente.
+            if REGRAS_ET_OPEN_ETC.is_file() and arquivo_regras_valido(REGRAS_ET_OPEN_ETC)[0]:
+                res.dados = {
+                    "origem": str(REGRAS_ET_OPEN),
+                    "destino": str(REGRAS_ET_OPEN_ETC),
+                    "arquivo_regular_preservado": True,
+                }
+                res.finalizar_sucesso(
+                    "Arquivo regular de regras ET Open já existe no caminho esperado."
+                )
+                return res
+            REGRAS_ET_OPEN_ETC.unlink()
+
+        REGRAS_ET_OPEN_ETC.symlink_to(REGRAS_ET_OPEN)
+        res.dados = {
+            "origem": str(REGRAS_ET_OPEN),
+            "destino": str(REGRAS_ET_OPEN_ETC),
+            "ja_existia": False,
+        }
+        res.finalizar_sucesso("Link das regras ET Open criado com sucesso.")
+
+    except Exception as e:
+        res.finalizar_erro(
+            "Não foi possível preparar o caminho das regras ET Open.",
+            erro=str(e),
+        )
+
+    return res
+
+
 def atualizar_et_open(habilitar_fonte: bool = True) -> ResultadoEtapa:
     """Faz a puxada full do artefato ET Open atualizado (Sync das ~40k regras) sem reload do serviço."""
     etapa_id = "atualizar_et_open"
@@ -807,6 +897,15 @@ def atualizar_et_open(habilitar_fonte: bool = True) -> ResultadoEtapa:
             res.finalizar_erro("O utilitário retornou sucesso, mas o masterfile suricata.rules não subiu pro FS.")
             return res
 
+        resultado_link = garantir_link_regras_et_open()
+        if not resultado_link.sucesso:
+            res.finalizar_erro(
+                "As regras ET Open foram atualizadas, mas o caminho usado pelo Suricata não foi preparado.",
+                erro=resultado_link.erro,
+            )
+            return res
+
+        res.dados["link_etc"] = resultado_link.dados
         res.dados["arquivo"] = str(REGRAS_ET_OPEN)
         res.dados["tamanho"] = REGRAS_ET_OPEN.stat().st_size
         res.dados["quantidade_regras"] = contar_regras(REGRAS_ET_OPEN)

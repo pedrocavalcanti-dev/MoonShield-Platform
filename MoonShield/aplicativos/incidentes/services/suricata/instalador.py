@@ -593,7 +593,7 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
         "bloqueios": erros,
     }
 
-    if not eh_linux() or not verificar_privilegios().sucesso:
+    if not verificar_linux().sucesso or not verificar_privilegios().sucesso:
         plano["bloqueios"].append("A máquina requer privilégios totais (Root) de sistema operacional Linux (Debian) para ser transformada num IDS node.")
         
     gerenciador = detectar_gerenciador_pacotes()
@@ -626,7 +626,7 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
     path_yaml = cfg_pronta.yaml_path if cfg_pronta else "/etc/suricata/suricata.yaml"
     plano["arquivos_alterados"].extend([
         path_yaml,
-        f"{path_yaml}{BACKUP_SUFFIX}",
+        f"{path_yaml}.moonshield.bak",
         "/var/lib/suricata/rules/moonshield/ms.rules",
         "/etc/suricata/rules/moonshield/ms.rules",
     ])

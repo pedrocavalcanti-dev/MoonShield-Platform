@@ -1,4 +1,4 @@
-{% load static %}
+% load static %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -16,16 +16,38 @@
 </head>
 <body>
 
+{{ configuracao_suricata|json_script:"ms-suricata-configuracao" }}
+{{ status_onboarding|json_script:"ms-suricata-onboarding-status" }}
+{{ plano_instalacao|json_script:"ms-suricata-plano" }}
+
 <script>
+    const configuracaoSuricataEl = document.getElementById(
+        "ms-suricata-configuracao"
+    );
+
+    const statusOnboardingEl = document.getElementById(
+        "ms-suricata-onboarding-status"
+    );
+
+    const planoInstalacaoEl = document.getElementById(
+        "ms-suricata-plano"
+    );
+
     window.MS_SURICATA = {
         csrfToken: "{{ csrf_token }}",
         usuario: {
             username: "{{ request.user.username|escapejs }}",
             nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
         },
-        configuracao: {{ configuracao_suricata|default:"null"|safe }},
-        statusOnboarding: {{ status_onboarding|default:"{}"|safe }},
-        planoInstalacao: {{ plano_instalacao|default:"{}"|safe }},
+        configuracao: configuracaoSuricataEl
+            ? JSON.parse(configuracaoSuricataEl.textContent)
+            : null,
+        statusOnboarding: statusOnboardingEl
+            ? JSON.parse(statusOnboardingEl.textContent)
+            : {},
+        planoInstalacao: planoInstalacaoEl
+            ? JSON.parse(planoInstalacaoEl.textContent)
+            : {},
         urls: {
             painel: "{% url 'incidentes:suricata_painel' %}",
             status: "{% url 'incidentes:api_suricata_status' %}",

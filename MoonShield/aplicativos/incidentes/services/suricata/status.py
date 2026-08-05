@@ -525,7 +525,7 @@ def obter_resumo_cards(configuracao: ConfiguracaoSuricataDados | None = None) ->
 
 def obter_status_onboarding(configuracao: ConfiguracaoSuricataDados | None = None) -> dict[str, object]:
     """Workflow state machine: Decide que tela apresentar pro usario ao clicar para 'Instalar/Configurar'."""
-    st = obter_status_stack_completo(configuracao, incluir_diagnostico=True)
+    st = obter_status_stack_completo(configuracao, incluir_diagnostico=False)
     amb = st["ambiente"]
     suri = st["suricata"]
 
@@ -589,14 +589,50 @@ def obter_status_onboarding(configuracao: ConfiguracaoSuricataDados | None = Non
     else:
         return {"concluido": False, "etapa_atual": "iniciar_servicos", "etapas": etapas, "proxima_acao": "Bounce Cluster.", "bloqueios": [], "avisos": []}
 
-    # 7. Diagnóstico Final
-    falhas_crit = st.get("diagnostico", {}).get("total_criticos", 1)
+    # 7. Validação final
+    #
+    # O onboarding não executa o diagnóstico profundo durante o carregamento
+    # da página. A validação com `suricata -T` deve ocorrer por tarefa explícita,
+    # evitando bloquear a thread HTTP por vários minutos.
+    diagnostico = st.get("diagnostico") or {}
+    falhas_crit = diagnostico.get("total_criticos")
+
     if falhas_crit == 0:
         etapas["validar_instalacao"]["concluida"] = True
         etapas["validar_instalacao"]["status"] = STATUS_OK
-        return {"concluido": True, "etapa_atual": "concluido", "etapas": etapas, "proxima_acao": "Monitorar tráfego.", "bloqueios": [], "avisos": []}
-    else:
-        return {"concluido": False, "etapa_atual": "validar_instalacao", "etapas": etapas, "proxima_acao": "Corrigir Doctor Healthchecks.", "bloqueios": ["Existem anomalias na infraestrutura"], "avisos": []}
+        return {
+            "concluido": True,
+            "etapa_atual": "concluido",
+            "etapas": etapas,
+            "proxima_acao": "Monitorar tráfego.",
+            "bloqueios": [],
+            "avisos": [],
+        }
+
+    etapas["validar_instalacao"]["status"] = (
+        STATUS_DESCONHECIDO if falhas_crit is None else STATUS_ERRO
+    )
+
+    return {
+        "concluido": False,
+        "etapa_atual": "validar_instalacao",
+        "etapas": etapas,
+        "proxima_acao": (
+            "Executar a tarefa de validação final."
+            if falhas_crit is None
+            else "Corrigir Doctor Healthchecks."
+        ),
+        "bloqueios": (
+            []
+            if falhas_crit is None
+            else ["Existem anomalias na infraestrutura"]
+        ),
+        "avisos": (
+            ["A validação profunda ainda não foi executada nesta consulta."]
+            if falhas_crit is None
+            else []
+        ),
+    }
 
 
 def obter_status_para_api(

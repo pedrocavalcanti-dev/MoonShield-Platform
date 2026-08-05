@@ -65,11 +65,12 @@ def localizar_regras_moonshield_origem(caminho_preferido: str | Path | None = No
     base_dir = Path(__file__).resolve().parent
 
     candidatos = [
-        base_dir / "regras_ms.rules",
-        base_dir / "ms.rules",
-        base_dir / "assets" / "ms.rules",
-        base_dir.parent.parent.parent / "MoonShield-Agent" / "suricata" / "regras_ms.rules",
-    ]
+    base_dir / "regras_ms.rules",
+    base_dir / "ms.rules",
+    base_dir / "rules" / "ms.rules",
+    base_dir / "assets" / "ms.rules",
+    base_dir.parent.parent.parent / "MoonShield-Agent" / "suricata" / "regras_ms.rules",
+]
 
     for cand in candidatos:
         if cand.is_file():

@@ -7,6 +7,8 @@ tracking de logs em memória e sanitização de dados, independente do transport
 
 import uuid
 import logging
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
@@ -27,9 +29,6 @@ from .instalador import (
     executar_configuracao,
     executar_atualizacao_regras,
     executar_validacao,
-    executar_reparo,
-    cancelar_instalacao,
-    obter_resumo_instalacao,
 )
 
 from .diagnostico import (
@@ -37,23 +36,8 @@ from .diagnostico import (
     executar_diagnostico_resumido,
 )
 
-from .status import (
-    obter_status_para_api,
-    obter_status_stack_completo,
-)
-
-from .regras import (
-    atualizar_et_open,
-    copiar_regras_moonshield,
-)
-
-from .configurador import (
-    validar_configuracao,
-)
-
 from .servicos import (
     reiniciar_servico,
-    reiniciar_stack_suricata,
     SERVICO_SURICATA,
     SERVICO_MONITOR,
 )
@@ -562,6 +546,129 @@ def executar_tarefa_reinicio_monitor(progresso: ProgressoTarefa, parametros: dic
     return res_raw
 
 
+
+# ==============================================================================
+# OBSERVADOR DE PROGRESSO PARA WORKERS / BANCO
+# ==============================================================================
+
+CallbackProgresso = Callable[[ProgressoTarefa], None]
+CallbackCancelamento = Callable[[], bool]
+
+
+def _snapshot_progresso(progresso: ProgressoTarefa) -> tuple[object, ...]:
+    """
+    Cria uma assinatura leve do estado atual.
+
+    O instalador altera o mesmo objeto ProgressoTarefa durante as etapas. O
+    observador compara esta assinatura e chama o callback apenas quando alguma
+    informação relevante muda, evitando gravações desnecessárias no banco.
+    """
+    return (
+        getattr(getattr(progresso, "status", None), "value", getattr(progresso, "status", None)),
+        int(getattr(progresso, "progresso", 0) or 0),
+        str(getattr(progresso, "etapa_atual", "") or ""),
+        str(getattr(progresso, "mensagem", "") or ""),
+        str(getattr(progresso, "erro", "") or ""),
+        len(getattr(progresso, "logs", []) or []),
+        getattr(progresso, "iniciado_em", None),
+        getattr(progresso, "finalizado_em", None),
+    )
+
+
+def _notificar_progresso(
+    progresso: ProgressoTarefa,
+    callback: CallbackProgresso | None,
+) -> None:
+    """Executa o callback sem permitir que uma falha de persistência derrube a instalação."""
+    if callback is None:
+        return
+
+    try:
+        callback(progresso)
+    except Exception:
+        logger.exception(
+            "Falha ao persistir/notificar progresso da tarefa %s.",
+            getattr(progresso, "tarefa_id", "?"),
+        )
+
+
+class _ObservadorProgresso:
+    """
+    Observa alterações no tracker enquanto uma etapa longa está executando.
+
+    Isso resolve o problema em que a instalação trabalha por vários segundos,
+    porém a tarefa permanece visualmente em PENDENTE/0% até o comando terminar.
+    """
+
+    def __init__(
+        self,
+        progresso: ProgressoTarefa,
+        callback_progresso: CallbackProgresso | None,
+        callback_cancelamento: CallbackCancelamento | None,
+        intervalo: float,
+    ) -> None:
+        self.progresso = progresso
+        self.callback_progresso = callback_progresso
+        self.callback_cancelamento = callback_cancelamento
+        self.intervalo = max(float(intervalo), 0.20)
+        self._parar = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._ultimo_snapshot: tuple[object, ...] | None = None
+
+    def iniciar(self) -> None:
+        self._ultimo_snapshot = None
+        self._publicar_se_alterado(forcar=True)
+
+        if self.callback_progresso is None and self.callback_cancelamento is None:
+            return
+
+        self._thread = threading.Thread(
+            target=self._executar,
+            name=f"suricata-progress-{getattr(self.progresso, 'tarefa_id', 'task')}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def finalizar(self) -> None:
+        self._parar.set()
+
+        if self._thread is not None:
+            self._thread.join(timeout=max(self.intervalo * 3, 1.0))
+
+        self._publicar_se_alterado(forcar=True)
+
+    def _executar(self) -> None:
+        while not self._parar.wait(self.intervalo):
+            self._consultar_cancelamento()
+            self._publicar_se_alterado()
+
+    def _consultar_cancelamento(self) -> None:
+        if self.callback_cancelamento is None:
+            return
+
+        if self.progresso.status in STATUS_FINAIS:
+            return
+
+        try:
+            if self.callback_cancelamento():
+                solicitar_cancelamento(
+                    self.progresso,
+                    "Cancelamento solicitado pelo operador.",
+                )
+        except Exception:
+            logger.exception(
+                "Falha ao consultar cancelamento da tarefa %s.",
+                getattr(self.progresso, "tarefa_id", "?"),
+            )
+
+    def _publicar_se_alterado(self, forcar: bool = False) -> None:
+        atual = _snapshot_progresso(self.progresso)
+
+        if forcar or atual != self._ultimo_snapshot:
+            self._ultimo_snapshot = atual
+            _notificar_progresso(self.progresso, self.callback_progresso)
+
+
 # ==============================================================================
 # DISPATCHER CENTRAL E INTERFACES DE API
 # ==============================================================================
@@ -589,59 +696,152 @@ def executar_tarefa(
     parametros: dict[str, object] | None = None,
     tarefa_id: str | None = None,
     progresso: ProgressoTarefa | None = None,
+    callback_progresso: CallbackProgresso | None = None,
+    callback_cancelamento: CallbackCancelamento | None = None,
+    intervalo_callback: float = 0.5,
 ) -> tuple[ProgressoTarefa, ResultadoEtapa]:
-    """Controlador Padrão Global que amarra o log lifecycle, as tratativas e aciona o delegate."""
+    """
+    Executa uma tarefa do Suricata e acompanha seu ciclo de vida completo.
+
+    `callback_progresso` pode persistir o tracker no banco enquanto a rotina
+    ainda está executando. `callback_cancelamento` pode consultar a flag de
+    cancelamento no banco sem acoplar este módulo ao ORM do Django.
+    """
     try:
         t_tipo = converter_tipo_tarefa(tipo)
         if t_tipo not in TIPOS_TAREFA_SUPORTADOS:
-            raise ValueError("Tipo solicitado excluído da whitelist global de segurança.")
-            
+            raise ValueError(
+                "Tipo solicitado excluído da whitelist global de segurança."
+            )
+
         p_ok = validar_parametros_tarefa(t_tipo, parametros)
-    except Exception as e:
-        logger.warning(f"Rejeição de requisição inválida de tarefa: {e}")
-        prg = progresso or criar_progresso_tarefa(TipoTarefaSuricata.VALIDACAO, tarefa_id)
-        prg.falhar("Requisição corrompida.", str(e))
-        res = ResultadoEtapa("start", StatusEtapa.ERRO, False, "Erro de formato.", erro=str(e), iniciado_em=datetime.now())
+    except Exception as exc:
+        logger.warning("Rejeição de requisição inválida de tarefa: %s", exc)
+
+        tipo_fallback = (
+            tipo
+            if isinstance(tipo, TipoTarefaSuricata)
+            else TipoTarefaSuricata.VALIDACAO
+        )
+        prg = progresso or criar_progresso_tarefa(tipo_fallback, tarefa_id)
+        prg.falhar("Requisição corrompida.", str(exc))
+
+        res = ResultadoEtapa(
+            "start",
+            StatusEtapa.ERRO,
+            False,
+            "Erro de formato.",
+            erro=str(exc),
+            iniciado_em=datetime.now(),
+        )
+        _notificar_progresso(prg, callback_progresso)
         return prg, res
 
     prg = progresso or criar_progresso_tarefa(t_tipo, tarefa_id)
-    
+
     if prg.tipo != t_tipo:
-        logger.warning("Descompasso de tipo detectado. Tentando adequar via coerção.")
+        logger.warning(
+            "Descompasso de tipo detectado. Adequando tracker para %s.",
+            t_tipo.value,
+        )
         prg.tipo = t_tipo
 
     if tarefa_cancelada(prg):
-        res = ResultadoEtapa("start", StatusEtapa.CANCELADO, False, "Tarefa cancelada nativamente.", iniciado_em=datetime.now())
+        res = ResultadoEtapa(
+            "start",
+            StatusEtapa.CANCELADO,
+            False,
+            "Tarefa cancelada antes da execução.",
+            iniciado_em=datetime.now(),
+        )
+        if not prg.finalizado_em:
+            prg.finalizado_em = datetime.now()
+        _notificar_progresso(prg, callback_progresso)
         return prg, res
 
     prg.status = StatusEtapa.EXECUTANDO
+    prg.progresso = max(1, int(prg.progresso or 0))
+    prg.etapa_atual = prg.etapa_atual or "iniciando"
+    prg.mensagem = "Tarefa capturada pelo worker e execução iniciada."
+
     if not prg.iniciado_em:
         prg.iniciado_em = datetime.now()
 
+    _adicionar_log_progresso(
+        prg,
+        f"Iniciando tarefa '{t_tipo.value}'.",
+        NivelLog.INFO,
+        prg.etapa_atual,
+    )
+
+    observador = _ObservadorProgresso(
+        progresso=prg,
+        callback_progresso=callback_progresso,
+        callback_cancelamento=callback_cancelamento,
+        intervalo=intervalo_callback,
+    )
+    observador.iniciar()
+
     fn_exec = obter_executor_tarefa(t_tipo)
-    res_final = None
+    res_final: ResultadoEtapa | None = None
 
     try:
-        # Ponto de Invocação Polimórfico
         res_final = fn_exec(prg, p_ok)
-        
+
+        if res_final is None:
+            raise RuntimeError(
+                f"O executor '{t_tipo.value}' encerrou sem retornar ResultadoEtapa."
+            )
+
         prg.resultado = _serializar_resultado(res_final)
-        
+
         if res_final.status == StatusEtapa.CANCELADO:
             prg.status = StatusEtapa.CANCELADO
-            prg.mensagem = "Processo interrompido no meio."
+            prg.mensagem = (
+                res_final.mensagem or "Processo interrompido durante a execução."
+            )
         elif res_final.sucesso:
             prg.concluir()
         else:
-            prg.falhar(res_final.mensagem, res_final.erro)
-            
-    except Exception as e:
-        logger.exception(f"Catástrofe ao processar dispatcher (Tarefa: {t_tipo.value})")
-        prg.falhar("O serviço backend sofreu um colapso repentino.", str(e))
-        res_final = ResultadoEtapa("dispatcher", StatusEtapa.ERRO, False, "O serviço backend sofreu um colapso.", erro=str(e), iniciado_em=prg.iniciado_em)
+            prg.falhar(
+                res_final.mensagem or "A tarefa terminou com erro.",
+                res_final.erro or "",
+            )
 
-    if not prg.finalizado_em:
-        prg.finalizado_em = datetime.now()
+    except Exception as exc:
+        logger.exception(
+            "Falha crítica no dispatcher da tarefa %s.",
+            t_tipo.value,
+        )
+        prg.falhar(
+            "O serviço backend sofreu uma falha durante a execução.",
+            str(exc),
+        )
+        res_final = ResultadoEtapa(
+            "dispatcher",
+            StatusEtapa.ERRO,
+            False,
+            "O serviço backend sofreu uma falha.",
+            erro=str(exc),
+            iniciado_em=prg.iniciado_em,
+        )
+
+    finally:
+        if not prg.finalizado_em:
+            prg.finalizado_em = datetime.now()
+
+        if prg.status == StatusEtapa.SUCESSO:
+            prg.progresso = 100
+
+        observador.finalizar()
+
+    erros_estado = validar_estado_progresso(prg)
+    if erros_estado:
+        logger.warning(
+            "Tracker %s finalizado com inconsistências: %s",
+            prg.tarefa_id,
+            "; ".join(erros_estado),
+        )
 
     return prg, res_final
 

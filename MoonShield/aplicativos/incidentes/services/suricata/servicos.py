@@ -3,8 +3,10 @@ Módulo de controle estrito para serviços do sistema (Systemd) relacionados ao 
 Prove isolamento seguro validando nomes e ações via whitelist e garantindo sequenciamento de dependências.
 """
 
+import os
 import time
 import logging
+from pathlib import Path
 from datetime import datetime
 
 from .tipos import (
@@ -26,10 +28,12 @@ logger = logging.getLogger(__name__)
 
 SERVICO_SURICATA = "suricata"
 SERVICO_MONITOR = "moonshield-suricata-monitor"
+SERVICO_WORKER = "moonshield-suricata-worker"
 
 SERVICOS_PERMITIDOS = {
     SERVICO_SURICATA,
     SERVICO_MONITOR,
+    SERVICO_WORKER,
 }
 
 TIMEOUT_PADRAO_SYSTEMCTL = 60.0
@@ -37,6 +41,8 @@ TIMEOUT_REINICIO = 120.0
 INTERVALO_VERIFICACAO = 1.0
 
 MAX_LINHAS_LOG = 500
+DIRETORIO_UNITS_SYSTEMD = Path("/etc/systemd/system")
+MODO_UNIT_SYSTEMD = 0o644
 
 ESTADOS_ATIVOS_SYSTEMD = {
     "active",
@@ -240,6 +246,7 @@ def obter_status_servicos() -> dict[str, StatusServicoDados]:
     return {
         SERVICO_SURICATA: obter_status_servico(SERVICO_SURICATA),
         SERVICO_MONITOR: obter_status_servico(SERVICO_MONITOR),
+        SERVICO_WORKER: obter_status_servico(SERVICO_WORKER),
     }
 
 
@@ -543,6 +550,258 @@ def daemon_reload() -> ResultadoEtapa:
     return res
 
 
+
+# ==============================================================================
+# INSTALAÇÃO E ATUALIZAÇÃO DAS UNITS MOONSHIELD
+# ==============================================================================
+
+def _escapar_valor_systemd(valor: str | Path) -> str:
+    texto = str(valor).strip()
+    if not texto:
+        raise ValueError("Valor vazio não pode ser usado em uma unit systemd.")
+    if "\n" in texto or "\r" in texto or "\x00" in texto:
+        raise ValueError("Valor inválido para manifesto systemd.")
+    return texto
+
+
+def _escrever_unit_atomica(
+    nome_servico: str,
+    conteudo: str,
+    diretorio_units: str | Path = DIRETORIO_UNITS_SYSTEMD,
+) -> ResultadoEtapa:
+    """Grava uma unit systemd de forma atômica e idempotente."""
+    nome_seguro = validar_nome_servico(nome_servico)
+    res = ResultadoEtapa(
+        etapa="instalar_unit_systemd",
+        status=StatusEtapa.EXECUTANDO,
+        sucesso=False,
+        mensagem=f"Instalando unit {nome_seguro}.",
+        iniciado_em=datetime.now(),
+    )
+
+    if not systemd_disponivel():
+        res.finalizar_erro("Systemd indisponível.")
+        return res
+
+    if not verificar_privilegios().sucesso:
+        res.finalizar_erro("Privilégios root são obrigatórios.")
+        return res
+
+    destino_dir = Path(diretorio_units)
+    destino = destino_dir / f"{nome_seguro}.service"
+    temporario = destino_dir / (
+        f".{nome_seguro}.service.moonshield.{os.getpid()}.tmp"
+    )
+
+    try:
+        destino_dir.mkdir(parents=True, exist_ok=True)
+        conteudo_final = conteudo.strip() + "\n"
+
+        if destino.exists():
+            atual = destino.read_text(encoding="utf-8", errors="replace")
+            if atual == conteudo_final:
+                res.dados = {"caminho": str(destino), "alterado": False}
+                res.finalizar_sucesso(
+                    f"Unit {nome_seguro} já estava atualizada."
+                )
+                return res
+
+        with temporario.open("w", encoding="utf-8", newline="\n") as arquivo:
+            arquivo.write(conteudo_final)
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
+
+        os.chmod(temporario, MODO_UNIT_SYSTEMD)
+        os.replace(temporario, destino)
+
+        res.dados = {"caminho": str(destino), "alterado": True}
+        res.finalizar_sucesso(f"Unit {nome_seguro} instalada.")
+    except Exception as exc:
+        logger.exception("Falha ao instalar unit %s.", nome_seguro)
+        res.finalizar_erro(
+            f"Não foi possível instalar a unit {nome_seguro}.",
+            erro=str(exc),
+        )
+    finally:
+        try:
+            temporario.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return res
+
+
+def gerar_unit_monitor_suricata(
+    *,
+    base_dir: str | Path,
+    python_executavel: str | Path,
+    gerenciar_path: str | Path,
+    eve_path: str | Path,
+    cursor_path: str | Path,
+) -> str:
+    base = _escapar_valor_systemd(base_dir)
+    python = _escapar_valor_systemd(python_executavel)
+    gerenciar = _escapar_valor_systemd(gerenciar_path)
+    eve = _escapar_valor_systemd(eve_path)
+    cursor = _escapar_valor_systemd(cursor_path)
+
+    return f"""[Unit]
+Description=MoonShield Suricata Local Monitor
+After=network-online.target suricata.service
+Wants=network-online.target
+Requires=suricata.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={base}
+Environment=PYTHONUNBUFFERED=1
+ExecStart={python} {gerenciar} monitorar_suricata --arquivo {eve} --cursor {cursor}
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def gerar_unit_worker_tarefas(
+    *,
+    base_dir: str | Path,
+    python_executavel: str | Path,
+    gerenciar_path: str | Path,
+) -> str:
+    base = _escapar_valor_systemd(base_dir)
+    python = _escapar_valor_systemd(python_executavel)
+    gerenciar = _escapar_valor_systemd(gerenciar_path)
+
+    return f"""[Unit]
+Description=MoonShield Suricata Task Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={base}
+Environment=PYTHONUNBUFFERED=1
+ExecStart={python} {gerenciar} processar_tarefas_suricata
+Restart=always
+RestartSec=3
+TimeoutStopSec=60
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def instalar_units_moonshield(
+    *,
+    base_dir: str | Path,
+    python_executavel: str | Path,
+    gerenciar_path: str | Path,
+    eve_path: str | Path,
+    cursor_path: str | Path,
+    habilitar: bool = True,
+    iniciar_monitor: bool = False,
+    iniciar_worker: bool = False,
+) -> ResultadoEtapa:
+    """
+    Instala/atualiza monitor e worker, recarrega o systemd e habilita autostart.
+
+    O worker não é reiniciado por padrão porque esta função pode estar rodando
+    dentro do próprio worker durante uma instalação.
+    """
+    res = ResultadoEtapa(
+        etapa="instalar_units_moonshield",
+        status=StatusEtapa.EXECUTANDO,
+        sucesso=False,
+        mensagem="Instalando serviços auxiliares MoonShield.",
+        iniciado_em=datetime.now(),
+    )
+    resultados = {}
+
+    r_monitor = _escrever_unit_atomica(
+        SERVICO_MONITOR,
+        gerar_unit_monitor_suricata(
+            base_dir=base_dir,
+            python_executavel=python_executavel,
+            gerenciar_path=gerenciar_path,
+            eve_path=eve_path,
+            cursor_path=cursor_path,
+        ),
+    )
+    resultados["unit_monitor"] = r_monitor.to_dict()
+    if not r_monitor.sucesso:
+        res.dados = resultados
+        res.finalizar_erro("Falha ao instalar unit do monitor.", erro=r_monitor.erro)
+        return res
+
+    r_worker = _escrever_unit_atomica(
+        SERVICO_WORKER,
+        gerar_unit_worker_tarefas(
+            base_dir=base_dir,
+            python_executavel=python_executavel,
+            gerenciar_path=gerenciar_path,
+        ),
+    )
+    resultados["unit_worker"] = r_worker.to_dict()
+    if not r_worker.sucesso:
+        res.dados = resultados
+        res.finalizar_erro("Falha ao instalar unit do worker.", erro=r_worker.erro)
+        return res
+
+    r_reload = daemon_reload()
+    resultados["daemon_reload"] = r_reload.to_dict()
+    if not r_reload.sucesso:
+        res.dados = resultados
+        res.finalizar_erro("Daemon-reload falhou.", erro=r_reload.erro)
+        return res
+
+    if habilitar:
+        for nome in (SERVICO_MONITOR, SERVICO_WORKER):
+            r_enable = habilitar_servico(nome)
+            resultados[f"enable_{nome}"] = r_enable.to_dict()
+            if not r_enable.sucesso:
+                res.dados = resultados
+                res.finalizar_erro(
+                    f"Não foi possível habilitar {nome}.",
+                    erro=r_enable.erro,
+                )
+                return res
+
+    if iniciar_monitor:
+        r_start = iniciar_servico(SERVICO_MONITOR)
+        resultados["start_monitor"] = r_start.to_dict()
+        if not r_start.sucesso:
+            res.dados = resultados
+            res.finalizar_erro(
+                "Monitor não iniciou.",
+                erro=r_start.erro,
+            )
+            return res
+
+    if iniciar_worker:
+        r_start = iniciar_servico(SERVICO_WORKER)
+        resultados["start_worker"] = r_start.to_dict()
+        if not r_start.sucesso:
+            res.dados = resultados
+            res.finalizar_erro(
+                "Worker não iniciou.",
+                erro=r_start.erro,
+            )
+            return res
+
+    res.dados = resultados
+    res.finalizar_sucesso(
+        "Units do monitor e worker instaladas e habilitadas."
+    )
+    return res
+
+
 # ==============================================================================
 # ORQUESTRAÇÃO DE START/STOP DO STACK CONJUGADO
 # ==============================================================================
@@ -657,12 +916,6 @@ def verificar_dependencia_servicos() -> DiagnosticoItem:
         crit = True
         detalhe = "O Suricata está gerando dados, mas o Worker que salva no banco parou."
         acao = "Reinicie a unidade moonshield-suricata-monitor."
-    elif mon_up and not suri_up:
-        ok = False
-        crit = True
-        detalhe = "Inversão perigosa: Worker local está ativo gastando processamento à toa pois o núcleo Suricata está inativo."
-        acao = "Pare o worker ou reinicie o Suricata imediatamente."
-
     return DiagnosticoItem(
         id="dependencia_servicos",
         grupo="Serviços",
@@ -732,6 +985,39 @@ def gerar_checks_servicos() -> list[DiagnosticoItem]:
         critico=True,
     ))
 
+    # WORKER DE TAREFAS
+    s_worker = obter_status_servico(SERVICO_WORKER)
+
+    itens.append(DiagnosticoItem(
+        id="servico_worker_instalado",
+        grupo="Worker de Tarefas",
+        titulo="Executor Automático de Tarefas",
+        ok=s_worker.instalado,
+        detalhe="Unit presente." if s_worker.instalado else "Unit ausente.",
+        acao="Instale moonshield-suricata-worker.service" if not s_worker.instalado else "",
+        critico=True,
+    ))
+
+    itens.append(DiagnosticoItem(
+        id="servico_worker_habilitado",
+        grupo="Worker de Tarefas",
+        titulo="Inicialização Automática",
+        ok=s_worker.habilitado,
+        detalhe="Autostart ON." if s_worker.habilitado else "Autostart OFF.",
+        acao="Habilite moonshield-suricata-worker." if not s_worker.habilitado else "",
+        critico=False,
+    ))
+
+    itens.append(DiagnosticoItem(
+        id="servico_worker_ativo",
+        grupo="Worker de Tarefas",
+        titulo="Processamento Automático",
+        ok=s_worker.ativo,
+        detalhe=f"PID: {s_worker.pid}" if s_worker.ativo else f"Estado: {s_worker.estado.value}",
+        acao="Inicie o worker para processar tarefas pendentes." if not s_worker.ativo else "",
+        critico=True,
+    ))
+
     # Relação Produtor/Consumidor
     if s_suri.instalado and s_mon.instalado:
         itens.append(verificar_dependencia_servicos())
@@ -740,29 +1026,37 @@ def gerar_checks_servicos() -> list[DiagnosticoItem]:
 
 
 def obter_status_stack() -> dict[str, object]:
-    """Sumário panorâmico gerencial para as views web da Central MoonShield."""
+    """Sumário panorâmico da stack Suricata e dos workers MoonShield."""
     has_systemd = systemd_disponivel()
-    
+
     st_suri = obter_status_servico(SERVICO_SURICATA)
     st_mon = obter_status_servico(SERVICO_MONITOR)
-    
+    st_worker = obter_status_servico(SERVICO_WORKER)
+
     ativa = st_suri.ativo and st_mon.ativo
-    
-    # Considera pronta p/ uso passivo.
-    pronta = (st_suri.instalado and st_mon.instalado and ativa)
+    pronta = st_suri.instalado and st_mon.instalado and ativa
 
     avisos = []
     if not has_systemd and eh_linux():
-        avisos.append("Controles negados pois não há systemd/systemctl no hospedeiro.")
+        avisos.append(
+            "Controles negados pois não há systemd/systemctl no hospedeiro."
+        )
     if st_suri.instalado and not st_suri.ativo:
-        avisos.append("A engine de segurança core desarmou.")
+        avisos.append("A engine Suricata está parada.")
     if st_mon.instalado and not st_mon.ativo:
-        avisos.append("O gerador visual e ingress DB colapsou, não haverá novos alertas.")
+        avisos.append("O monitor de ingestão está parado.")
+    if not st_worker.instalado:
+        avisos.append("Worker automático de tarefas não está instalado.")
+    elif not st_worker.ativo:
+        avisos.append(
+            "Worker automático está parado; tarefas novas ficarão pendentes."
+        )
 
     return {
         "systemd_disponivel": has_systemd,
         "suricata": st_suri.to_dict(),
         "monitor": st_mon.to_dict(),
+        "worker_tarefas": st_worker.to_dict(),
         "stack_ativa": ativa,
         "stack_pronta": pronta,
         "dependencia_ok": verificar_dependencia_servicos().ok,

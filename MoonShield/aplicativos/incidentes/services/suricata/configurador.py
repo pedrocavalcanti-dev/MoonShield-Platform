@@ -37,6 +37,7 @@ MARCADOR_AF_PACKET = "# == MOONSHIELD: af-packet =="
 NOME_REGRA_MOONSHIELD = "moonshield/ms.rules"
 EVE_JSON_PADRAO = Path("/var/log/suricata/eve.json")
 PCAP_DESABILITADO = "none"
+TIPOS_EVE_OBRIGATORIOS = ("alert", "dns", "http", "tls", "flow")
 
 TAMANHO_MAXIMO_YAML = 10 * 1024 * 1024  # 10 MB
 BACKUP_SUFFIX = ".moonshield.bak"
@@ -126,27 +127,67 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
                 analise["pcap"]["interfaces"].append(m_iface.group(1).strip())
 
     # 5. eve-log
-    # Pega qualquer bloco que declare `- eve-log:` até a próxima saída top-level ou output novo
-    m_eve = re.search(r"^[ \t]+-\s+eve-log:\n(?:^[ \t]{4,}.*\n)*", conteudo, flags=re.MULTILINE)
+    # Prioriza o bloco gerenciado pelo MoonShield.
+    inicio_eve = conteudo.find(MARCADOR_EVE)
+    trecho_eve = conteudo[inicio_eve:] if inicio_eve >= 0 else conteudo
+    m_eve = re.search(
+        r"(?m)^([ \\t]*)-\\s+eve-log:\\s*$",
+        trecho_eve,
+    )
+
     if m_eve:
-        bloco_eve = m_eve.group(0)
+        indentacao = len(m_eve.group(1).expandtabs(2))
+        linhas_eve = trecho_eve[m_eve.start():].splitlines()
+        coletadas = []
+
+        for indice, linha in enumerate(linhas_eve):
+            if indice > 0 and linha.strip():
+                espacos = len(linha) - len(linha.lstrip(" \\t"))
+                nivel = len(linha[:espacos].expandtabs(2))
+                limpa = linha.lstrip(" \\t")
+
+                if nivel < indentacao:
+                    break
+                if nivel == indentacao and limpa.startswith("- "):
+                    break
+
+            coletadas.append(linha)
+
+        bloco_eve = "\\n".join(coletadas)
         analise["eve_log"]["presente"] = True
-        
-        m_enabled = re.search(r"^[ \t]+enabled:\s+(yes|no)", bloco_eve, flags=re.MULTILINE | re.IGNORECASE)
-        if m_enabled and m_enabled.group(1).lower() == "yes":
-            analise["eve_log"]["enabled"] = True
-            
-        m_file = re.search(r"^[ \t]+filename:\s+(.+)$", bloco_eve, flags=re.MULTILINE)
+
+        m_enabled = re.search(
+            r"(?m)^[ \\t]+enabled:\\s+(yes|no)",
+            bloco_eve,
+            flags=re.IGNORECASE,
+        )
+        analise["eve_log"]["enabled"] = bool(
+            m_enabled and m_enabled.group(1).lower() == "yes"
+        )
+
+        m_file = re.search(
+            r"(?m)^[ \\t]+filename:\\s+(.+)$",
+            bloco_eve,
+        )
         if m_file:
             analise["eve_log"]["filename"] = m_file.group(1).strip()
-            
-        # Tenta extrair tipos listados rudimentarmente
-        m_types = re.search(r"^[ \t]+types:\n((?:^[ \t]+-.*\n)*)", bloco_eve, flags=re.MULTILINE)
+
+        m_types = re.search(
+            r"(?m)^[ \\t]+types:\\s*$",
+            bloco_eve,
+        )
         if m_types:
-            for linha in m_types.group(1).splitlines():
-                m_t = re.match(r"^[ \t]+-\s+([a-zA-Z0-9_]+)", linha)
-                if m_t:
-                    analise["eve_log"]["tipos"].append(m_t.group(1).lower())
+            trecho_tipos = bloco_eve[m_types.end():]
+
+            for linha in trecho_tipos.splitlines():
+                m_tipo = re.match(
+                    r"^[ \\t]+-\\s+([a-zA-Z0-9_]+)",
+                    linha,
+                )
+                if m_tipo:
+                    tipo = m_tipo.group(1).lower()
+                    if tipo not in analise["eve_log"]["tipos"]:
+                        analise["eve_log"]["tipos"].append(tipo)
 
     # 6. Marcadores
     if MARCADOR_MOONSHIELD in conteudo:
@@ -290,42 +331,109 @@ def patch_rule_files(conteudo: str, regra: str = NOME_REGRA_MOONSHIELD) -> str:
     return conteudo + bloco_vazio
 
 
-def patch_eve_log(conteudo: str, eve_path: str | Path = EVE_JSON_PADRAO) -> str:
-    """Implementa o sink JSON padrão para que o worker do Django possa ingerir os alertas e fluxos."""
-    path_str = str(eve_path)
-    if MARCADOR_EVE in conteudo and path_str in conteudo:
-        # Se os marcadores existirem e o caminho bater, assume-se que está ok para manter idempotência simples
-        if "alert" in conteudo and "dns:" in conteudo and "http:" in conteudo and "tls:" in conteudo:
-            return conteudo
+def _remover_blocos_eve_log(conteudo: str) -> str:
+    """
+    Remove todos os blocos `eve-log` existentes dentro de `outputs`.
 
-    EVE_BLOCK = (
-        f"\n  {MARCADOR_EVE}\n"
-        "  - eve-log:\n"
-        "      enabled: yes\n"
-        "      filetype: regular\n"
-        f"      filename: {path_str}\n"
-        "      types:\n"
-        "        - alert\n"
-        "        - dns:\n"
-        "            query: yes\n"
-        "            answer: yes\n"
-        "        - http:\n"
-        "            extended: yes\n"
-        "        - tls:\n"
-        "            extended: yes\n"
+    Isso impede que o YAML padrão do Debian e o bloco MoonShield permaneçam
+    ativos ao mesmo tempo.
+    """
+    linhas = conteudo.splitlines(keepends=True)
+    saida: list[str] = []
+    indice = 0
+
+    while indice < len(linhas):
+        linha = linhas[indice]
+        match = re.match(
+            r"^([ \\t]*)-\\s+eve-log:\\s*(?:#.*)?(?:\\r?\\n)?$",
+            linha,
+        )
+
+        if not match:
+            saida.append(linha)
+            indice += 1
+            continue
+
+        indentacao = len(match.group(1).expandtabs(2))
+
+        if saida and MARCADOR_EVE in saida[-1]:
+            saida.pop()
+
+        indice += 1
+
+        while indice < len(linhas):
+            proxima = linhas[indice]
+            texto = proxima.rstrip("\\r\\n")
+
+            if not texto.strip():
+                indice += 1
+                continue
+
+            espacos = len(texto) - len(texto.lstrip(" \\t"))
+            nivel = len(texto[:espacos].expandtabs(2))
+            limpa = texto.lstrip(" \\t")
+
+            if nivel < indentacao:
+                break
+            if nivel == indentacao and limpa.startswith("- "):
+                break
+
+            indice += 1
+
+    resultado = "".join(saida)
+    return re.sub(
+        rf"(?m)^[ \\t]*{re.escape(MARCADOR_EVE)}[ \\t]*\\r?\\n?",
+        "",
+        resultado,
     )
 
-    if re.search(r"^outputs:", conteudo, flags=re.MULTILINE):
-        # Para evitar deletar fast.log/syslog, nós PREPEND no bloco de outputs
-        return re.sub(
-            r"(^outputs:\n)",
-            r"\g<1>" + EVE_BLOCK,
-            conteudo,
-            flags=re.MULTILINE,
-            count=1
-        )
-        
-    return conteudo + "\noutputs:" + EVE_BLOCK
+
+def _gerar_bloco_eve_log(eve_path: str | Path) -> str:
+    """Gera o único output EVE mantido pelo MoonShield."""
+    return (
+        f"  {MARCADOR_EVE}\\n"
+        "  - eve-log:\\n"
+        "      enabled: yes\\n"
+        "      filetype: regular\\n"
+        f"      filename: {eve_path}\\n"
+        "      community-id: true\\n"
+        "      types:\\n"
+        "        - alert\\n"
+        "        - dns:\\n"
+        "            query: yes\\n"
+        "            answer: yes\\n"
+        "        - http:\\n"
+        "            extended: yes\\n"
+        "        - tls:\\n"
+        "            extended: yes\\n"
+        "        - flow\\n"
+    )
+
+
+def patch_eve_log(
+    conteudo: str,
+    eve_path: str | Path = EVE_JSON_PADRAO,
+) -> str:
+    """
+    Mantém exatamente um bloco EVE ativo e completo.
+
+    A operação é idempotente: executar duas vezes com os mesmos parâmetros
+    produz o mesmo arquivo.
+    """
+    conteudo_limpo = _remover_blocos_eve_log(conteudo)
+    bloco = _gerar_bloco_eve_log(eve_path)
+
+    match_outputs = re.search(
+        r"(?m)^outputs:\\s*(?:#.*)?\\r?\\n",
+        conteudo_limpo,
+    )
+
+    if match_outputs:
+        posicao = match_outputs.end()
+        return conteudo_limpo[:posicao] + bloco + conteudo_limpo[posicao:]
+
+    separador = "" if conteudo_limpo.endswith("\\n") else "\\n"
+    return conteudo_limpo + separador + "outputs:\\n" + bloco
 
 
 def gerar_bloco_af_packet(interfaces: list[str]) -> str:
@@ -347,38 +455,77 @@ def gerar_bloco_af_packet(interfaces: list[str]) -> str:
     return "\n".join(linhas) + "\n"
 
 
+def _substituir_bloco_top_level(
+    conteudo: str,
+    chave: str,
+    novo_bloco: str,
+) -> str:
+    """
+    Substitui integralmente uma chave YAML de nível raiz.
+
+    O bloco termina na próxima chave top-level não comentada.
+    """
+    linhas = conteudo.splitlines(keepends=True)
+    inicio = None
+    fim = None
+    padrao_inicio = re.compile(
+        rf"^{re.escape(chave)}:\\s*(?:#.*)?(?:\\r?\\n)?$"
+    )
+
+    for indice, linha in enumerate(linhas):
+        if padrao_inicio.match(linha):
+            inicio = indice
+            break
+
+    if inicio is None:
+        separador = "" if conteudo.endswith("\\n") else "\\n"
+        return conteudo + separador + novo_bloco
+
+    fim = len(linhas)
+
+    for indice in range(inicio + 1, len(linhas)):
+        linha = linhas[indice]
+        texto = linha.rstrip("\\r\\n")
+
+        if not texto.strip() or texto.lstrip().startswith("#"):
+            continue
+
+        if texto == texto.lstrip(" \\t") and re.match(
+            r"^[A-Za-z0-9_.-]+:\\s*(?:#.*)?$",
+            texto,
+        ):
+            fim = indice
+            break
+
+    linhas[inicio:fim] = [novo_bloco]
+    return "".join(linhas)
+
+
 def patch_af_packet(conteudo: str, interfaces: list[str]) -> str:
-    """Sobrescreve a configuração de captura física mantendo outras diretivas intactas."""
+    """
+    Substitui todo o AF_PACKET pelas interfaces da configuração atual.
+
+    Interfaces antigas são removidas em vez de acumuladas.
+    """
     ifaces_norm = normalizar_interfaces(interfaces)
     novo_bloco = gerar_bloco_af_packet(ifaces_norm)
-    
-    # Substitui af-packet top-level até a próxima chave top-level ou o fim
-    if re.search(r"(?m)^af-packet:", conteudo):
-        conteudo = re.sub(
-            r"(?m)^af-packet:\n(?:^[ \t].*\n)*",
-            novo_bloco,
-            conteudo
-        )
-    else:
-        conteudo += f"\n{novo_bloco}"
-        
-    return conteudo
+
+    return _substituir_bloco_top_level(
+        conteudo,
+        "af-packet",
+        novo_bloco,
+    )
 
 
 def patch_pcap_desabilitado(conteudo: str) -> str:
-    """Desativa a captura PCAP fallback evitando conflitos com o Ring do AF-Packet."""
-    bloco_pcap = f"pcap:\n  - interface: {PCAP_DESABILITADO}\n"
-    
-    if re.search(r"(?m)^pcap:", conteudo):
-        conteudo = re.sub(
-            r"(?m)^pcap:\n(?:^[ \t].*\n)*",
-            bloco_pcap,
-            conteudo
-        )
-    else:
-        conteudo += f"\n{bloco_pcap}"
-        
-    return conteudo
+    """Desativa o PCAP para impedir captura duplicada com AF_PACKET."""
+    bloco_pcap = f"pcap:\\n  - interface: {PCAP_DESABILITADO}\\n"
+
+    return _substituir_bloco_top_level(
+        conteudo,
+        "pcap",
+        bloco_pcap,
+    )
 
 
 def gerar_yaml_configurado(
@@ -492,44 +639,65 @@ def restaurar_backup(caminho_original: str | Path, caminho_backup: str | Path) -
 
 
 def _escrever_yaml_atomico(caminho: Path, conteudo: str) -> None:
-    """Persiste as alterações textuais garantindo integridade e anti-corrupção FS."""
+    """Persiste o YAML atomicamente, preservando dono e permissões."""
     if not caminho.parent.exists():
-        raise FileNotFoundError(f"O diretório destino não existe: {caminho.parent}")
-        
-    temp_path = caminho.with_suffix(".writing.tmp")
-    
+        raise FileNotFoundError(
+            f"O diretório destino não existe: {caminho.parent}"
+        )
+
+    temp_path = caminho.parent / (
+        f".{caminho.name}.moonshield.{os.getpid()}.tmp"
+    )
+
+    modo_atual = None
+    uid_atual = None
+    gid_atual = None
+
+    if caminho.exists():
+        stat_info = caminho.stat()
+        modo_atual = stat_info.st_mode & 0o7777
+        uid_atual = stat_info.st_uid
+        gid_atual = stat_info.st_gid
+
     try:
-        # Prepara modo base em caso de novo arquivo
-        modo_atual = None
-        uid_atual = None
-        gid_atual = None
-        
-        if caminho.exists():
-            stat_info = caminho.stat()
-            modo_atual = stat_info.st_mode
-            uid_atual = stat_info.st_uid
-            gid_atual = stat_info.st_gid
+        with temp_path.open("w", encoding="utf-8", newline="\\n") as arquivo:
+            arquivo.write(conteudo)
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
 
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(conteudo)
-            f.flush()
-            os.fsync(f.fileno())
+        if modo_atual is not None:
+            os.chmod(temp_path, modo_atual)
 
-        if eh_linux() and modo_atual is not None:
+        if eh_linux() and uid_atual is not None and gid_atual is not None:
             try:
-                os.chmod(temp_path, modo_atual)
                 os.chown(temp_path, uid_atual, gid_atual)
-            except OSError:
-                pass
+            except PermissionError:
+                logger.warning(
+                    "Não foi possível preservar proprietário de %s.",
+                    caminho,
+                )
 
         os.replace(temp_path, caminho)
-    except Exception as e:
-        if temp_path.exists():
+
+        try:
+            fd_diretorio = os.open(str(caminho.parent), os.O_DIRECTORY)
             try:
-                temp_path.unlink()
-            except OSError:
-                pass
-        raise e
+                os.fsync(fd_diretorio)
+            finally:
+                os.close(fd_diretorio)
+        except OSError:
+            logger.debug(
+                "Filesystem não ofereceu fsync de diretório para %s.",
+                caminho.parent,
+            )
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Não foi possível remover temporário residual %s.",
+                temp_path,
+            )
 
 
 # ==============================================================================
@@ -649,7 +817,22 @@ def aplicar_configuracao(
     # 4. Idempotência
     if conteudo_novo == conteudo_original:
         res.dados["estado_final"] = estado_anterior
-        res.finalizar_sucesso("Configuração idêntica a existente. Nenhuma alteração aplicada.")
+
+        if validar_depois:
+            res_val = validar_configuracao(path_obj)
+            res.dados["validacao"] = res_val.dados
+
+            if not res_val.sucesso:
+                res.finalizar_erro(
+                    "A configuração existente está alinhada textualmente, "
+                    "mas foi rejeitada pelo suricata -T.",
+                    erro=res_val.erro,
+                )
+                return res
+
+        res.finalizar_sucesso(
+            "Configuração já alinhada e validada. Nenhuma alteração necessária."
+        )
         return res
 
     # 5. Backup Prévio
@@ -768,7 +951,7 @@ def obter_status_configuracao(yaml_path: str | Path | None = None) -> dict[str, 
     
     chk_tipos_eve = False
     tipos = an.get("eve_log", {}).get("tipos", [])
-    if "alert" in tipos and "dns" in tipos and "http" in tipos and "tls" in tipos:
+    if all(tipo in tipos for tipo in TIPOS_EVE_OBRIGATORIOS):
         chk_tipos_eve = True
 
     chk_af = an.get("af_packet", {}).get("presente") and len(an.get("af_packet", {}).get("interfaces", [])) > 0
@@ -857,11 +1040,11 @@ def gerar_checks_configuracao(
     ))
 
     tipos = eve_log.get("tipos", [])
-    ok_tipos = all(t in tipos for t in ("alert", "dns", "http", "tls"))
+    ok_tipos = all(t in tipos for t in TIPOS_EVE_OBRIGATORIOS)
     itens.append(DiagnosticoItem(
         id="eve_tipos_obrigatorios", grupo="EVE", titulo="Metadados de Rede Capturados",
         ok=ok_tipos, detalhe=f"Subprotocolos: {', '.join(tipos)}",
-        acao="O MoonShield requer ao menos os logs de alert, dns, http e tls habilitados no output.", critico=True
+        acao="O MoonShield requer alert, dns, http, tls e flow habilitados no output.", critico=True
     ))
 
     # 5. Captura (AF-Packet)

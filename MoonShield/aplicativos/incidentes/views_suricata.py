@@ -1,7 +1,9 @@
 """
-Views e APIs focadas na experiência de Onboarding e gerenciamento do Suricata Local.
-Conectam o frontend ao cluster de backend sem expor diretamente o SO, roteando a 
-intenção de mutação via Helper DB Tasks de forma controlada.
+Views e APIs focadas no onboarding e gerenciamento do Suricata Local.
+
+Operações de sistema são persistidas como tarefas no banco e processadas pelo
+worker automático `moonshield-suricata-worker`, mantendo a thread HTTP livre e
+sem exigir execução manual de comandos.
 """
 
 import json
@@ -580,59 +582,105 @@ def api_salvar_configuracao(request):
 @require_POST
 @csrf_protect
 def api_criar_tarefa(request):
-    """Delega pro Controller do BD a intenção de iniciar uma Orquestração de SO."""
+    """
+    Registra uma tarefa para processamento automático pelo worker local.
+
+    A view apenas valida e persiste a intenção. Nenhuma operação privilegiada
+    é executada dentro da requisição HTTP.
+    """
     try:
         payload = _ler_json_request(request)
-    except ValueError as e:
-        return _json_erro(str(e))
+    except ValueError as exc:
+        return _json_erro(str(exc))
 
-    tipo_str = payload.get("tipo", "")
-    params = payload.get("parametros", {})
+    tipo_str = str(payload.get("tipo", "")).strip()
+    parametros = payload.get("parametros", {})
 
     if tipo_str not in TIPOS_TAREFA_PERMITIDOS:
-        return _json_erro(f"Operação '{tipo_str}' não consta no diretório de tarefas habilitadas.")
+        return _json_erro(
+            f"Operação '{tipo_str}' não consta no diretório de tarefas "
+            "habilitadas."
+        )
+
+    if parametros is None:
+        parametros = {}
+
+    if not isinstance(parametros, dict):
+        return _json_erro(
+            "O campo 'parametros' precisa ser um objeto JSON."
+        )
 
     try:
-        t_tipo = converter_tipo_tarefa(tipo_str)
-        p_ok = validar_parametros_tarefa(t_tipo, params)
-    except ValueError as e:
-        return _json_erro("Configuração atrelada incorreta ou mal-formada.", erros=[str(e)])
+        tipo_tarefa = converter_tipo_tarefa(tipo_str)
+        parametros_validados = validar_parametros_tarefa(
+            tipo_tarefa,
+            parametros,
+        )
+    except ValueError as exc:
+        return _json_erro(
+            "Configuração atrelada incorreta ou malformada.",
+            erros=[str(exc)],
+        )
 
     try:
         with transaction.atomic():
-            novo_id = str(uuid.uuid4())
-            cfg = _obter_configuracao_ativa(criar=False)
-            
-            # Persiste estática de Task no banco PENDENTE para pickup do Helper Command (Cron/Cronjob/Daemon)
-            parametros_json = _tornar_json_serializavel(p_ok)
+            configuracao = _obter_configuracao_ativa(criar=False)
+            parametros_json = _tornar_json_serializavel(
+                parametros_validados
+            )
 
             tarefa = TarefaSuricata.objects.create(
-                id=novo_id,
-                tipo=t_tipo.value,
+                id=str(uuid.uuid4()),
+                tipo=tipo_tarefa.value,
                 status=StatusTarefaSuricata.PENDENTE,
                 progresso=0,
+                etapa_atual="aguardando_worker",
+                mensagem=(
+                    "Tarefa registrada e aguardando processamento "
+                    "automático."
+                ),
                 parametros=parametros_json,
-                configuracao=cfg,
+                configuracao=configuracao,
             )
-            
-        cmd_indicativo = f"python gerenciar.py executar_tarefa_suricata {t_tipo.value} --tarefa-id {novo_id} --formato json --nao-confirmar"
-        
-        return _json_sucesso("Sinalizado com sucesso.", {
-            "tarefa_id": novo_id,
-            "tarefa": tarefa.to_dict(incluir_logs=False),
-            "comando_helper": cmd_indicativo
-        }, status_http=201)
-        
-    except Exception as e:
-        logger.exception(f"Exception engatilhando task suricata: {tipo_str}")
-        return _json_erro("Inviabilidade na persistência da tarefa.", 500, [str(e)])
+
+        logger.info(
+            "Tarefa Suricata %s criada para processamento automático (%s).",
+            tarefa.pk,
+            tarefa.tipo,
+        )
+
+        return _json_sucesso(
+            "Tarefa criada e enviada ao processamento automático.",
+            {
+                "tarefa_id": str(tarefa.pk),
+                "tarefa": tarefa.to_dict(incluir_logs=False),
+                "processamento": {
+                    "modo": "worker_automatico",
+                    "servico": "moonshield-suricata-worker",
+                    "requer_comando_manual": False,
+                    "status_inicial": StatusTarefaSuricata.PENDENTE,
+                },
+            },
+            status_http=201,
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Falha ao registrar tarefa Suricata do tipo %s.",
+            tipo_str,
+        )
+        return _json_erro(
+            "Não foi possível registrar a tarefa para processamento.",
+            500,
+            [str(exc)],
+        )
 
 
 @login_required(login_url="autenticacao:login")
 @require_POST
 @csrf_protect
 def api_executar_tarefa_sincrona(request, tarefa_id: str):
-    """Impulsionador restrito de chamadas HTTP atrelando ao fluxo CLI - Apenas tasks inofensivas."""
+    """Executa somente tarefas de leitura consideradas seguras na própria requisição HTTP."""
     tarefa = get_object_or_404(TarefaSuricata, pk=tarefa_id)
 
     if tarefa.finalizada or tarefa.executando:
@@ -644,16 +692,16 @@ def api_executar_tarefa_sincrona(request, tarefa_id: str):
     }
     
     if tarefa.tipo not in tipos_inofensivos:
-        return _json_erro("Negado. Requisição HTTP é restrita a auditorias (read-only) como Validação e Checkup. Para mutações como INSTALL, o helper isolado é mandatário.", 403)
+        return _json_erro("Negado. Requisição HTTP é restrita a auditorias (read-only) como Validação e Checkup. Mutações como INSTALL são executadas exclusivamente pelo worker automático.", 403)
 
     try:
-        # A API roda na Thread web, se engasgar o proxy derruba
+        # Apenas operações read-only leves podem usar esta rota síncrona.
         from .services.suricata.tarefas import criar_progresso_tarefa
         
         prg = criar_progresso_tarefa(tarefa.tipo, str(tarefa.pk))
         _sincronizar_tarefa(tarefa, prg)
         
-        # Execução Pura e Síncrona
+        # Execução síncrona restrita a diagnóstico e validação.
         prg_fim, res_fim = executar_tarefa(
             tipo=tarefa.tipo,
             parametros=tarefa.parametros,
@@ -665,10 +713,10 @@ def api_executar_tarefa_sincrona(request, tarefa_id: str):
         _sincronizar_tarefa(tarefa, prg_fim, res_fim)
         _salvar_logs_progresso(tarefa, prg_fim)
 
-        return _json_sucesso("Fluxo processado instantaneamente (In-Band).", tarefa.to_dict(incluir_logs=False))
+        return _json_sucesso("Tarefa de leitura processada.", tarefa.to_dict(incluir_logs=False))
         
     except Exception as e:
-        logger.exception(f"A execução synchronous desabou na tarefa {tarefa_id}.")
+        logger.exception("Falha na execução síncrona da tarefa %s.", tarefa_id)
         return _json_erro("Crash interno.", 500, [str(e)])
 
 

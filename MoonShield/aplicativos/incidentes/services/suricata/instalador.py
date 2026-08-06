@@ -3,9 +3,14 @@ Orquestrador central de instalação, configuração e manutenção do ciclo de 
 Não contém lógicas de SO diretas, atua como coordenador de etapas dos módulos especialistas.
 """
 
+import json
 import logging
+import os
+import sys
 from pathlib import Path
 from datetime import datetime
+
+from django.conf import settings
 
 from .tipos import (
     ResultadoEtapa,
@@ -46,6 +51,7 @@ from .servicos import (
     reiniciar_servico,
     reiniciar_stack_suricata,
     iniciar_stack_suricata,
+    instalar_units_moonshield,
     obter_status_stack,
     SERVICO_SURICATA,
     SERVICO_MONITOR,
@@ -71,12 +77,16 @@ ETAPAS_INSTALACAO = (
     "copiar_regras_moonshield",
     "configurar_suricata",
     "validar_suricata",
+    "instalar_servicos_moonshield",
     "reiniciar_servicos",
     "validar_instalacao",
 )
 
 TIMEOUT_INSTALACAO_SURICATA = 900.0
 TIMEOUT_VALIDACAO_FINAL = 300.0
+TIMEOUT_ATUALIZAR_INDICES = 300.0
+MODO_DIRETORIO_RUNTIME = 0o755
+MODO_ARQUIVO_EVE = 0o644
 
 
 # ==============================================================================
@@ -101,13 +111,15 @@ def _atualizar_progresso(
     mensagem: str,
     nivel: NivelLog = NivelLog.INFO,
 ) -> None:
-    """Dispara a atualização de tracking no objeto central caso injetado pelo Worker."""
+    """Atualiza o tracker sem permitir regressão do percentual."""
     if progresso is None:
         return
     try:
-        progresso.atualizar(percentual, etapa, mensagem, nivel)
-    except Exception as e:
-        logger.debug(f"Falha amena ao atualizar tracker de progresso: {e}")
+        atual = int(getattr(progresso, "progresso", 0) or 0)
+        novo = max(atual, max(0, min(100, int(percentual))))
+        progresso.atualizar(novo, etapa, mensagem, nivel)
+    except Exception as exc:
+        logger.debug("Falha não crítica ao atualizar progresso: %s", exc)
 
 
 def _executar_etapa_segura(nome_etapa: str, funcao, *args, **kwargs) -> ResultadoEtapa:
@@ -165,6 +177,103 @@ def _consolidar_resultados(
     return res_final
 
 
+
+def _preparar_runtime_suricata(
+    configuracao: ConfiguracaoSuricataDados,
+) -> ResultadoEtapa:
+    """Prepara EVE, cursor e diretórios para instalação nova ou reexecução."""
+    res = _criar_resultado_etapa(
+        "preparar_runtime",
+        "Preparando arquivos de execução.",
+    )
+
+    try:
+        eve_path = Path(configuracao.eve_path).expanduser()
+        eve_path.parent.mkdir(parents=True, exist_ok=True)
+        if not eve_path.exists():
+            eve_path.touch()
+        os.chmod(eve_path.parent, MODO_DIRETORIO_RUNTIME)
+        os.chmod(eve_path, MODO_ARQUIVO_EVE)
+
+        cursor_raw = getattr(configuracao, "cursor_path", "") or (
+            "var/cursors/suricata_eve.cursor"
+        )
+        cursor_path = Path(cursor_raw).expanduser()
+        if not cursor_path.is_absolute():
+            cursor_path = Path.cwd() / cursor_path
+
+        cursor_path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(cursor_path.parent, MODO_DIRETORIO_RUNTIME)
+
+        removidos = []
+        for temp in cursor_path.parent.glob(f"{cursor_path.name}.tmp.*"):
+            try:
+                temp.unlink()
+                removidos.append(str(temp))
+            except OSError:
+                logger.warning("Não foi possível remover %s", temp)
+
+        cursor_resetado = False
+        if cursor_path.exists():
+            valido = False
+            try:
+                dados = json.loads(cursor_path.read_text(encoding="utf-8"))
+                valido = (
+                    isinstance(dados, dict)
+                    and isinstance(dados.get("offset"), int)
+                    and dados["offset"] >= 0
+                )
+            except Exception:
+                valido = False
+
+            if not valido:
+                cursor_path.unlink(missing_ok=True)
+                cursor_resetado = True
+
+        res.dados = {
+            "eve_path": str(eve_path),
+            "cursor_path": str(cursor_path),
+            "cursor_resetado": cursor_resetado,
+            "temporarios_removidos": removidos,
+        }
+        res.finalizar_sucesso("Runtime preparado com sucesso.")
+    except Exception as exc:
+        logger.exception("Falha ao preparar runtime do Suricata.")
+        res.finalizar_erro(
+            "Não foi possível preparar EVE e cursor.",
+            erro=str(exc),
+        )
+
+    return res
+
+
+def _atualizar_indices_apt() -> ResultadoEtapa:
+    """Atualiza os índices APT em uma instalação Debian nova."""
+    res = _criar_resultado_etapa(
+        "atualizar_indices_pacotes",
+        "Atualizando catálogo APT.",
+    )
+    cmd = executar_comando(
+        ["apt-get", "update"],
+        timeout=TIMEOUT_ATUALIZAR_INDICES,
+        env={
+            "DEBIAN_FRONTEND": "noninteractive",
+            "LC_ALL": "C",
+        },
+    )
+    res.dados["comando"] = cmd.to_dict()
+
+    if cmd.sucesso:
+        res.finalizar_sucesso("Catálogo APT atualizado.")
+    else:
+        res.finalizar_erro(
+            "Falha ao atualizar catálogo APT.",
+            erro=cmd.erro or cmd.saida,
+        )
+
+    return res
+
+
 # ==============================================================================
 # ORQUESTRAÇÕES DE INFRAESTRUTURA
 # ==============================================================================
@@ -205,11 +314,42 @@ def garantir_suricata_instalado(progresso: ProgressoTarefa | None = None) -> Res
         res.finalizar_erro("Impossível montar instrução de pacote segura.")
         return res
 
-    # 4. Execução do Deploy de Binário
-    _atualizar_progresso(progresso, 18, etapa_nome, f"Instalando via {gerenciador}...")
-    res.adicionar_log("Disparando comando local de package manager.", NivelLog.INFO)
-    
-    resultado_cmd = executar_comando(comando_base, timeout=TIMEOUT_INSTALACAO_SURICATA)
+    # 4. Preparação do gerenciador de pacotes.
+    if gerenciador in {"apt", "apt-get"}:
+        _atualizar_progresso(
+            progresso,
+            17,
+            "atualizar_indices_pacotes",
+            "Atualizando catálogo APT...",
+        )
+        res_indices = _atualizar_indices_apt()
+        res.dados["atualizar_indices"] = res_indices.to_dict()
+        if not res_indices.sucesso:
+            res.finalizar_erro(
+                "Não foi possível preparar o catálogo APT.",
+                erro=res_indices.erro,
+            )
+            return res
+
+    # 5. Instalação sem interação humana.
+    _atualizar_progresso(
+        progresso,
+        18,
+        etapa_nome,
+        f"Instalando via {gerenciador}...",
+    )
+    res.adicionar_log(
+        "Executando gerenciador de pacotes.",
+        NivelLog.INFO,
+    )
+    resultado_cmd = executar_comando(
+        comando_base,
+        timeout=TIMEOUT_INSTALACAO_SURICATA,
+        env={
+            "DEBIAN_FRONTEND": "noninteractive",
+            "LC_ALL": "C",
+        },
+    )
     res.dados["comando"] = resultado_cmd.to_dict()
 
     if not resultado_cmd.sucesso:
@@ -293,6 +433,87 @@ def validar_pre_requisitos(configuracao: ConfiguracaoSuricataDados) -> Resultado
     return res
 
 
+
+def _resolver_caminhos_servicos(
+    configuracao: ConfiguracaoSuricataDados,
+) -> dict[str, str]:
+    """
+    Resolve caminhos absolutos usados nas units systemd.
+
+    O cursor pode estar salvo como caminho relativo no banco. Nesse caso ele é
+    resolvido a partir do BASE_DIR do projeto Django.
+    """
+    base_dir = Path(settings.BASE_DIR).resolve()
+    gerenciar_path = base_dir / "gerenciar.py"
+    python_executavel = Path(sys.executable).resolve()
+
+    cursor_raw = getattr(
+        configuracao,
+        "cursor_path",
+        "",
+    ) or "var/cursors/suricata_eve.cursor"
+
+    cursor_path = Path(str(cursor_raw)).expanduser()
+    if not cursor_path.is_absolute():
+        cursor_path = base_dir / cursor_path
+
+    eve_path = Path(configuracao.eve_path).expanduser()
+    if not eve_path.is_absolute():
+        eve_path = base_dir / eve_path
+
+    if not gerenciar_path.is_file():
+        raise FileNotFoundError(
+            f"gerenciar.py não encontrado em {gerenciar_path}"
+        )
+
+    if not python_executavel.is_file():
+        raise FileNotFoundError(
+            f"Executável Python não encontrado em {python_executavel}"
+        )
+
+    return {
+        "base_dir": str(base_dir),
+        "python_executavel": str(python_executavel),
+        "gerenciar_path": str(gerenciar_path),
+        "eve_path": str(eve_path.resolve()),
+        "cursor_path": str(cursor_path.resolve()),
+    }
+
+
+def _instalar_servicos_auxiliares(
+    configuracao: ConfiguracaoSuricataDados,
+) -> ResultadoEtapa:
+    """
+    Cria e habilita monitor e worker.
+
+    O worker não é reiniciado durante esta etapa para evitar que ele encerre a
+    própria instalação que está executando.
+    """
+    try:
+        caminhos = _resolver_caminhos_servicos(configuracao)
+    except Exception as exc:
+        res = _criar_resultado_etapa(
+            "instalar_servicos_moonshield",
+            "Resolvendo caminhos das units systemd.",
+        )
+        res.finalizar_erro(
+            "Não foi possível preparar os caminhos dos serviços.",
+            erro=str(exc),
+        )
+        return res
+
+    return instalar_units_moonshield(
+        base_dir=caminhos["base_dir"],
+        python_executavel=caminhos["python_executavel"],
+        gerenciar_path=caminhos["gerenciar_path"],
+        eve_path=caminhos["eve_path"],
+        cursor_path=caminhos["cursor_path"],
+        habilitar=True,
+        iniciar_monitor=False,
+        iniciar_worker=False,
+    )
+
+
 # ==============================================================================
 # ENTRYPOINTS MESTRES / FLUXOS DE ORQUESTRAÇÃO
 # ==============================================================================
@@ -329,7 +550,29 @@ def executar_instalacao(
     if not res_pre.sucesso:
         return _consolidar_resultados("executar_instalacao", etapas_rodadas, "", "Deploy rejeitado nos Pré-requisitos", avisos_globais)
 
-    # 2. Infra Base IDS
+    # 2. Preparação de EVE e cursor.
+    _atualizar_progresso(
+        progresso,
+        10,
+        "preparar_runtime",
+        "Preparando EVE, cursor e diretórios...",
+    )
+    res_runtime = _executar_etapa_segura(
+        "preparar_runtime",
+        _preparar_runtime_suricata,
+        cfg_pronta,
+    )
+    etapas_rodadas["preparar_runtime"] = res_runtime
+    if not res_runtime.sucesso:
+        return _consolidar_resultados(
+            "executar_instalacao",
+            etapas_rodadas,
+            "",
+            "Falha ao preparar arquivos de execução.",
+            avisos_globais,
+        )
+
+    # 3. Infra Base IDS
     _atualizar_progresso(progresso, 15, "instalar_suricata", "Garantindo deploy do Suricata...")
     res_bin = _executar_etapa_segura("garantir_suricata_instalado", garantir_suricata_instalado, progresso)
     etapas_rodadas["instalar_suricata"] = res_bin
@@ -376,36 +619,86 @@ def executar_instalacao(
     if not res_val.sucesso:
         return _consolidar_resultados("executar_instalacao", etapas_rodadas, "", "Arquivo rejeitado internamente pelo Suricata. Rollback atuando se existir.", avisos_globais)
 
-    # 8. Service Control e Matriz Bounce
-    usar_bounce = reiniciar_servicos if reiniciar_servicos is not None else cfg_pronta.reiniciar_servicos
+    # 9. Instalação das units MoonShield.
+    _atualizar_progresso(
+        progresso,
+        86,
+        "instalar_servicos_moonshield",
+        "Criando monitor e worker automáticos no systemd...",
+    )
+    res_units = _executar_etapa_segura(
+        "instalar_servicos_moonshield",
+        _instalar_servicos_auxiliares,
+        cfg_pronta,
+    )
+    etapas_rodadas["instalar_servicos_moonshield"] = res_units
+
+    if not res_units.sucesso:
+        return _consolidar_resultados(
+            "executar_instalacao",
+            etapas_rodadas,
+            "",
+            "Não foi possível instalar os serviços automáticos.",
+            avisos_globais,
+        )
+
+    # 10. Inicialização da stack.
+    usar_bounce = (
+        reiniciar_servicos
+        if reiniciar_servicos is not None
+        else cfg_pronta.reiniciar_servicos
+    )
     if usar_bounce:
         _atualizar_progresso(progresso, 90, "reiniciar_servicos", "Iniciando processo de Restart/Deploy em RAM...")
         # O Helper fará o bounce do cluster completo
-        res_bounce = _executar_etapa_segura("iniciar_stack_suricata", iniciar_stack_suricata)
+        res_bounce = _executar_etapa_segura(
+            "iniciar_stack_suricata",
+            iniciar_stack_suricata,
+        )
         etapas_rodadas["reiniciar_servicos"] = res_bounce
+
         if not res_bounce.sucesso:
-            avisos_globais.append("A aplicação de base foi bem-sucedida, porém os serviços demoraram/falharam ao estabilizar seu bounce.")
+            avisos_globais.append(
+                "A configuração foi aplicada, mas Suricata ou monitor "
+                "não estabilizaram durante a inicialização."
+            )
 
     # 9. Consolidação Pós-Deploy e Inspeção (Health Check Full)
     _atualizar_progresso(progresso, 95, "validar_instalacao", "Acionando Doctor pra auditar deploy completo.")
     
-    st_final = obter_status_stack_completo(cfg_pronta)
+    st_final = {}
     res_diag = None
-    
+
+    try:
+        st_final = obter_status_stack_completo(cfg_pronta)
+    except Exception as exc:
+        logger.exception("Falha ao coletar status final.")
+        avisos_globais.append(f"Status final indisponível: {exc}")
+
     if executar_diagnostico_final:
-        diag = executar_diagnostico(cfg_pronta)
-        res_diag = diag.to_dict()
-        
-    _atualizar_progresso(progresso, 100, "concluido", "Processo transacional totalmente finalizado.", NivelLog.SUCESSO)
-    
+        try:
+            diag = executar_diagnostico(cfg_pronta)
+            res_diag = diag.to_dict()
+        except Exception as exc:
+            logger.exception("Falha no diagnóstico final.")
+            avisos_globais.append(f"Diagnóstico final indisponível: {exc}")
+
+    _atualizar_progresso(
+        progresso,
+        100,
+        "concluido",
+        "Processo transacional finalizado.",
+        NivelLog.SUCESSO,
+    )
+
     res_final = _consolidar_resultados(
         "executar_instalacao",
         etapas_rodadas,
         "Ambiente implantado de ponta a ponta.",
         "Falha macro no processo orquestrado.",
-        avisos_globais
+        avisos_globais,
     )
-    
+
     # Pendura os relatórios estáticos na ponta do wrapper
     res_final.dados["configuracao"] = cfg_pronta.to_dict()
     res_final.dados["status_final"] = st_final
@@ -426,6 +719,7 @@ def executar_configuracao(
     avisos_globais: list[str] = []
 
     res_pre = _executar_etapa_segura("validar_pre_requisitos", validar_pre_requisitos, configuracao)
+    etapas_rodadas["verificar_ambiente"] = res_pre
     if not res_pre.sucesso:
         return _consolidar_resultados("executar_configuracao", etapas_rodadas, "", "Falha em validacao previa.", avisos_globais)
         
@@ -450,8 +744,9 @@ def executar_configuracao(
     if not res_val.sucesso:
         return _consolidar_resultados("executar_configuracao", etapas_rodadas, "", "Rejeição engine C.", avisos_globais)
 
-    if reiniciar_servicos:
-        _atualizar_progresso(progresso, 90, "reiniciar_servicos", "Bounce.")
+    usar_reinicio = reiniciar_servicos if reiniciar_servicos is not None else configuracao.reiniciar_servicos
+    if usar_reinicio:
+        _atualizar_progresso(progresso, 90, "reiniciar_servicos", "Reiniciando stack Suricata...")
         res_b = _executar_etapa_segura("reiniciar_stack_suricata", reiniciar_stack_suricata)
         etapas_rodadas["reiniciar_servicos"] = res_b
 
@@ -614,6 +909,7 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
         {"id": "copiar_regras_moonshield", "titulo": "Aplica MS-Rules", "descricao": "Filtros custom MoonShield", "obrigatoria": True, "estimativa_segundos": 2},
         {"id": "configurar_suricata", "titulo": "Injetar Configuração", "descricao": "Manipulação atômica via PATCH yaml.", "obrigatoria": True, "estimativa_segundos": 5},
         {"id": "validar_suricata", "titulo": "Dry-Run Suricata", "descricao": "Validação cruzada de conformidade (Engine).", "obrigatoria": True, "estimativa_segundos": 20},
+        {"id": "instalar_servicos_moonshield", "titulo": "Instalar Workers", "descricao": "Criação das units do monitor e processador automático.", "obrigatoria": True, "estimativa_segundos": 5},
         {"id": "reiniciar_servicos", "titulo": "Deploy Memory-State", "descricao": "Daemon reload e Restart Service (Bounce)", "obrigatoria": True, "estimativa_segundos": 30},
     ])
 
@@ -629,6 +925,8 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
         f"{path_yaml}.moonshield.bak",
         "/var/lib/suricata/rules/moonshield/ms.rules",
         "/etc/suricata/rules/moonshield/ms.rules",
+        "/etc/systemd/system/moonshield-suricata-monitor.service",
+        "/etc/systemd/system/moonshield-suricata-worker.service",
     ])
     
     plano["servicos_afetados"].extend([SERVICO_SURICATA, SERVICO_MONITOR])

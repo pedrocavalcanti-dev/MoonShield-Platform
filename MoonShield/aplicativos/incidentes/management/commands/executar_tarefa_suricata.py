@@ -12,6 +12,16 @@ from datetime import datetime
 from enum import Enum
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import close_old_connections, transaction
+from django.utils import timezone as django_timezone
+
+from incidentes.models import (
+    ConfiguracaoSuricata,
+    LogTarefaSuricata,
+    NivelLogSuricata,
+    StatusTarefaSuricata,
+    TarefaSuricata,
+)
 
 from incidentes.services.suricata.tipos import (
     TipoTarefaSuricata,
@@ -21,6 +31,7 @@ from incidentes.services.suricata.tipos import (
 )
 
 from incidentes.services.suricata.tarefas import (
+    criar_progresso_tarefa,
     executar_tarefa,
     executar_tarefa_seca,
     obter_tipos_tarefa_disponiveis,
@@ -53,6 +64,11 @@ FORMATOS_SAIDA = {
     "texto",
     "json",
 }
+
+MAX_MENSAGEM_BANCO = 4000
+MAX_ERRO_BANCO = 8000
+MAX_LOG_MENSAGEM = 1000
+MAX_LOG_ETAPA = 100
 
 
 # ==============================================================================
@@ -94,6 +110,288 @@ def _sanitizar_para_saida(valor: object) -> object:
         return tuple(_sanitizar_para_saida(item) for item in valor)
         
     return valor
+
+
+
+# ==============================================================================
+# PERSISTÊNCIA ORM PARA EXECUÇÃO PELO WORKER
+# ==============================================================================
+
+def _campos_modelo(modelo) -> set[str]:
+    return {
+        campo.name
+        for campo in modelo._meta.get_fields()
+        if getattr(campo, "concrete", False)
+    }
+
+
+def _valor_enum(valor: object) -> str:
+    return str(getattr(valor, "value", valor) or "")
+
+
+def _status_modelo(status_core: object) -> str:
+    valor = _valor_enum(status_core)
+
+    if valor in StatusTarefaSuricata.values:
+        return valor
+
+    return StatusTarefaSuricata.ERRO
+
+
+def _configuracao_modelo_para_dto(
+    configuracao: ConfiguracaoSuricata | None,
+) -> ConfiguracaoSuricataDados | None:
+    if configuracao is None:
+        return None
+
+    return configuracao_de_dict(configuracao.to_service_dict())
+
+
+def _mesclar_configuracao_parametros(
+    parametros: dict[str, object],
+    tarefa: TarefaSuricata,
+) -> dict[str, object]:
+    """
+    Converte o JSON salvo no banco para os DTOs esperados pela camada service.
+
+    A configuração vinculada à tarefa prevalece sobre detecção automática,
+    garantindo que as interfaces escolhidas no painel sejam aplicadas no YAML.
+    """
+    parametros = dict(parametros or {})
+
+    if "configuracao" in parametros:
+        parametros["configuracao"] = configuracao_de_dict(
+            parametros.get("configuracao")
+        )
+    elif tarefa.configuracao_id:
+        parametros["configuracao"] = _configuracao_modelo_para_dto(
+            tarefa.configuracao
+        )
+
+    return parametros
+
+
+def _adquirir_tarefa_banco(
+    tarefa_id: str,
+    tipo_esperado: TipoTarefaSuricata,
+) -> TarefaSuricata:
+    """
+    Bloqueia e promove uma tarefa PENDENTE para EXECUTANDO.
+
+    O bloqueio impede que dois workers capturem a mesma tarefa.
+    """
+    with transaction.atomic():
+        tarefa = (
+            TarefaSuricata.objects
+            .select_for_update()
+            .select_related("configuracao")
+            .get(pk=tarefa_id)
+        )
+
+        if tarefa.tipo != tipo_esperado.value:
+            raise CommandError(
+                "O tipo informado na CLI não corresponde ao tipo salvo "
+                f"na tarefa: CLI={tipo_esperado.value}, banco={tarefa.tipo}."
+            )
+
+        if tarefa.status == StatusTarefaSuricata.EXECUTANDO:
+            raise CommandError(
+                "A tarefa já está sendo processada por outro executor."
+            )
+
+        if tarefa.status in {
+            StatusTarefaSuricata.SUCESSO,
+            StatusTarefaSuricata.ERRO,
+            StatusTarefaSuricata.CANCELADO,
+            StatusTarefaSuricata.IGNORADO,
+        }:
+            raise CommandError(
+                f"A tarefa já foi finalizada com status '{tarefa.status}'."
+            )
+
+        tarefa.status = StatusTarefaSuricata.EXECUTANDO
+        tarefa.progresso = max(1, int(tarefa.progresso or 0))
+        tarefa.etapa_atual = "iniciando"
+        tarefa.mensagem = "Tarefa capturada pelo worker automático."
+        tarefa.erro = ""
+        tarefa.iniciado_em = tarefa.iniciado_em or django_timezone.now()
+
+        campos = [
+            "status",
+            "progresso",
+            "etapa_atual",
+            "mensagem",
+            "erro",
+            "iniciado_em",
+        ]
+        if "atualizado_em" in _campos_modelo(TarefaSuricata):
+            campos.append("atualizado_em")
+
+        tarefa.save(update_fields=campos)
+        return tarefa
+
+
+def _salvar_logs_incrementais(
+    tarefa_id: str,
+    progresso,
+) -> None:
+    """Persiste apenas logs ainda não gravados, sem duplicar sequências."""
+    logs = list(getattr(progresso, "logs", []) or [])
+    if not logs:
+        return
+
+    close_old_connections()
+    tarefa = TarefaSuricata.objects.get(pk=tarefa_id)
+
+    ultima_sequencia = (
+        tarefa.logs.order_by("-sequencia")
+        .values_list("sequencia", flat=True)
+        .first()
+    )
+    proxima = int(ultima_sequencia) + 1 if ultima_sequencia is not None else 0
+
+    registros = []
+    for sequencia, log_core in enumerate(logs):
+        if sequencia < proxima:
+            continue
+
+        nivel_core = _valor_enum(getattr(log_core, "nivel", "info"))
+        nivel_modelo = (
+            nivel_core
+            if nivel_core in NivelLogSuricata.values
+            else NivelLogSuricata.INFO
+        )
+
+        detalhes = getattr(log_core, "detalhes", {}) or {}
+        if hasattr(log_core, "to_dict"):
+            try:
+                detalhes = log_core.to_dict().get("detalhes", detalhes)
+            except Exception:
+                pass
+
+        registros.append(
+            LogTarefaSuricata(
+                tarefa=tarefa,
+                sequencia=sequencia,
+                nivel=nivel_modelo,
+                etapa=str(getattr(log_core, "etapa", "") or "")[
+                    :MAX_LOG_ETAPA
+                ],
+                mensagem=str(
+                    getattr(log_core, "mensagem", "") or ""
+                )[:MAX_LOG_MENSAGEM],
+                detalhes=_sanitizar_para_saida(detalhes),
+                criado_em=getattr(
+                    log_core,
+                    "criado_em",
+                    django_timezone.now(),
+                ),
+            )
+        )
+
+    if registros:
+        LogTarefaSuricata.objects.bulk_create(
+            registros,
+            batch_size=200,
+            ignore_conflicts=True,
+        )
+
+
+def _persistir_progresso_banco(
+    tarefa_id: str,
+    progresso,
+    resultado=None,
+) -> None:
+    """Sincroniza tracker, resultado e logs com a tarefa ORM."""
+    close_old_connections()
+
+    campos_modelo = _campos_modelo(TarefaSuricata)
+    atualizacoes = {
+        "status": _status_modelo(getattr(progresso, "status", "")),
+        "progresso": max(
+            0,
+            min(100, int(getattr(progresso, "progresso", 0) or 0)),
+        ),
+        "etapa_atual": str(
+            getattr(progresso, "etapa_atual", "") or ""
+        )[:255],
+        "mensagem": str(
+            getattr(progresso, "mensagem", "") or ""
+        )[:MAX_MENSAGEM_BANCO],
+        "erro": str(
+            getattr(progresso, "erro", "") or ""
+        )[:MAX_ERRO_BANCO],
+    }
+
+    iniciado = getattr(progresso, "iniciado_em", None)
+    finalizado = getattr(progresso, "finalizado_em", None)
+
+    if iniciado:
+        atualizacoes["iniciado_em"] = iniciado
+    if finalizado:
+        atualizacoes["finalizado_em"] = finalizado
+    if resultado is not None:
+        atualizacoes["resultado"] = _sanitizar_para_saida(resultado)
+
+    atualizacoes = {
+        chave: valor
+        for chave, valor in atualizacoes.items()
+        if chave in campos_modelo
+    }
+
+    TarefaSuricata.objects.filter(pk=tarefa_id).update(**atualizacoes)
+    _salvar_logs_incrementais(tarefa_id, progresso)
+
+
+def _cancelamento_solicitado_banco(tarefa_id: str) -> bool:
+    """
+    Consulta cancelamento sem depender de um nome único de campo.
+
+    Compatível com os nomes mais comuns e com o status CANCELADO aplicado pelo
+    método `solicitar_cancelamento` do model.
+    """
+    close_old_connections()
+    tarefa = TarefaSuricata.objects.filter(pk=tarefa_id).first()
+    if tarefa is None:
+        return True
+
+    if tarefa.status == StatusTarefaSuricata.CANCELADO:
+        return True
+
+    candidatos = (
+        "cancelamento_solicitado",
+        "solicitou_cancelamento",
+        "cancelar_solicitado",
+        "cancelar",
+    )
+
+    for nome in candidatos:
+        if hasattr(tarefa, nome) and bool(getattr(tarefa, nome)):
+            return True
+
+    return False
+
+
+def _marcar_falha_executor(
+    tarefa_id: str,
+    mensagem: str,
+) -> None:
+    close_old_connections()
+    agora = django_timezone.now()
+
+    atualizacoes = {
+        "status": StatusTarefaSuricata.ERRO,
+        "erro": str(mensagem)[-MAX_ERRO_BANCO:],
+        "mensagem": "O executor encontrou uma falha inesperada.",
+        "finalizado_em": agora,
+    }
+    campos = _campos_modelo(TarefaSuricata)
+    atualizacoes = {
+        chave: valor
+        for chave, valor in atualizacoes.items()
+        if chave in campos
+    }
+    TarefaSuricata.objects.filter(pk=tarefa_id).update(**atualizacoes)
 
 
 # ==============================================================================
@@ -478,67 +776,218 @@ class Command(BaseCommand):
     # ==========================================================================
 
     def handle(self, *args, **options):
-        # Desempacota configs básicas de CLI
         tipo_str = options.get("tipo")
         formato = options.get("formato")
-        is_dry_run = options.get("dry_run")
-        nao_confirmar = options.get("nao_confirmar")
-        mostrar_logs = options.get("mostrar_logs")
+        is_dry_run = bool(options.get("dry_run"))
+        nao_confirmar = bool(options.get("nao_confirmar"))
+        mostrar_logs = bool(options.get("mostrar_logs"))
         nivel_detalhe = options.get("nivel_detalhe")
+        tarefa_id = str(options.get("tarefa_id") or "").strip()
+
+        tarefa_banco = None
 
         try:
-            # 1. Parsing semântico e construção de pacote
             tipo = converter_tipo_tarefa(tipo_str)
-            parametros = self._montar_parametros(tipo, options)
-            
-            # 2. Handler Seco
+
+            # Quando existe tarefa-id, o banco é a fonte de verdade. Isso evita
+            # perder parâmetros/configuração escolhidos pelo frontend.
+            if tarefa_id and not is_dry_run:
+                tarefa_banco = _adquirir_tarefa_banco(
+                    tarefa_id,
+                    tipo,
+                )
+                parametros = _mesclar_configuracao_parametros(
+                    tarefa_banco.parametros,
+                    tarefa_banco,
+                )
+                parametros = validar_parametros_tarefa(
+                    tipo,
+                    parametros,
+                )
+            else:
+                parametros = self._montar_parametros(tipo, options)
+
             if is_dry_run:
                 self._exibir_dry_run(tipo, parametros, formato)
                 return
 
-            # 3. Interceptação de TTYs desguarnecidos (Que previnem stall de deploy C.I/Pipelines)
             interativo = self._stdin_interativo()
-            is_privilegiado = (tipo in TIPOS_PRIVILEGIADOS)
-            
-            if is_privilegiado and not interativo and not nao_confirmar:
-                raise CommandError("Ambiente não-interativo bloqueou a tarefa. Para automatizações, utilize o argumento --nao-confirmar na CLI.")
+            privilegiado = tipo in TIPOS_PRIVILEGIADOS
 
-            # 4. Consentimento
-            if self._precisa_confirmacao(tipo, is_dry_run, nao_confirmar):
+            if privilegiado and not interativo and not nao_confirmar:
+                raise CommandError(
+                    "Ambiente não interativo bloqueou a tarefa. "
+                    "Use --nao-confirmar em automações."
+                )
+
+            if self._precisa_confirmacao(
+                tipo,
+                is_dry_run,
+                nao_confirmar,
+            ):
                 if not self._confirmar_execucao(tipo, parametros):
+                    if tarefa_banco is not None:
+                        TarefaSuricata.objects.filter(
+                            pk=tarefa_id
+                        ).update(
+                            status=StatusTarefaSuricata.CANCELADO,
+                            mensagem="Execução cancelada pelo operador.",
+                            finalizado_em=django_timezone.now(),
+                        )
+
                     if formato == "texto":
-                        self.stdout.write(self.style.WARNING("Abortado. Ação não foi confirmada pelo Operador."))
+                        self.stdout.write(
+                            self.style.WARNING(
+                                "Abortado. Ação não confirmada."
+                            )
+                        )
                     else:
-                        self.stdout.write(json.dumps({"ok": False, "erro": "Cancelado interativamente."}, ensure_ascii=False))
+                        self.stdout.write(
+                            json.dumps(
+                                {
+                                    "ok": False,
+                                    "erro": "Cancelado interativamente.",
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
                     return
 
-            # 5. Core Trigger
+            if tarefa_banco is not None:
+                progresso = criar_progresso_tarefa(
+                    tipo,
+                    tarefa_id,
+                )
+                progresso.status = StatusEtapa.EXECUTANDO
+                progresso.progresso = max(
+                    1,
+                    int(tarefa_banco.progresso or 0),
+                )
+                progresso.etapa_atual = (
+                    tarefa_banco.etapa_atual or "iniciando"
+                )
+                progresso.mensagem = (
+                    tarefa_banco.mensagem
+                    or "Execução iniciada pelo worker."
+                )
+                progresso.iniciado_em = (
+                    tarefa_banco.iniciado_em
+                    or django_timezone.now()
+                )
+
+                callback_progresso = lambda tracker: (
+                    _persistir_progresso_banco(
+                        tarefa_id,
+                        tracker,
+                    )
+                )
+                callback_cancelamento = lambda: (
+                    _cancelamento_solicitado_banco(tarefa_id)
+                )
+            else:
+                progresso = None
+                callback_progresso = None
+                callback_cancelamento = None
+
             progresso, resultado = executar_tarefa(
                 tipo=tipo,
                 parametros=parametros,
-                tarefa_id=options.get("tarefa_id"),
+                tarefa_id=tarefa_id or None,
+                progresso=progresso,
+                callback_progresso=callback_progresso,
+                callback_cancelamento=callback_cancelamento,
+                intervalo_callback=0.5,
             )
 
-            # 6. Renderização Positiva
+            if tarefa_banco is not None:
+                _persistir_progresso_banco(
+                    tarefa_id,
+                    progresso,
+                    resultado,
+                )
+
             if formato == "json":
                 self._exibir_json(progresso, resultado)
             else:
-                self._exibir_texto(progresso, resultado, mostrar_logs, nivel_detalhe)
+                self._exibir_texto(
+                    progresso,
+                    resultado,
+                    mostrar_logs,
+                    nivel_detalhe,
+                )
 
-            # 7. Dispara Non-Zero exitcode pro terminal em caso de crash (Ex: Ansible/Chef fail-fast)
             if resultado and not resultado.sucesso:
-                raise CommandError("O processo não obteve sucesso integral. Verifique a matriz de resultados exibida.")
+                raise CommandError(
+                    "O processo não obteve sucesso integral. "
+                    "Verifique a matriz de resultados."
+                )
 
-        except CommandError as ce:
-            # Devolve pro Django lidar (Ele renderiza em vermelho automaticamente no term e levanta Exit(1))
+        except CommandError as exc:
+            if tarefa_id:
+                try:
+                    tarefa = TarefaSuricata.objects.filter(
+                        pk=tarefa_id
+                    ).first()
+                    if (
+                        tarefa is not None
+                        and tarefa.status
+                        not in {
+                            StatusTarefaSuricata.SUCESSO,
+                            StatusTarefaSuricata.ERRO,
+                            StatusTarefaSuricata.CANCELADO,
+                            StatusTarefaSuricata.IGNORADO,
+                        }
+                    ):
+                        _marcar_falha_executor(tarefa_id, str(exc))
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar erro da tarefa %s.",
+                        tarefa_id,
+                    )
+
             if formato == "json":
-                self.stdout.write(json.dumps({"ok": False, "erro": str(ce)}, ensure_ascii=False))
-                sys.exit(1)
-            raise ce
-            
-        except Exception as e:
-            logger.exception(f"Erro colossal/catastrófico vazou do escopo da Tarefa {tipo_str}.")
+                self.stdout.write(
+                    json.dumps(
+                        {"ok": False, "erro": str(exc)},
+                        ensure_ascii=False,
+                    )
+                )
+                raise SystemExit(1)
+
+            raise
+
+        except Exception as exc:
+            logger.exception(
+                "Erro inesperado na tarefa Suricata %s (%s).",
+                tarefa_id or "sem-id",
+                tipo_str,
+            )
+
+            if tarefa_id:
+                try:
+                    _marcar_falha_executor(
+                        tarefa_id,
+                        str(exc),
+                    )
+                except Exception:
+                    logger.exception(
+                        "Falha ao persistir crash da tarefa %s.",
+                        tarefa_id,
+                    )
+
             if formato == "json":
-                self.stdout.write(json.dumps({"ok": False, "erro": "Crash severo do interpretador.", "detalhes": str(e)}, ensure_ascii=False))
-                sys.exit(1)
-            raise CommandError(f"Crash inesperado do interpretador de código: {str(e)}")
+                self.stdout.write(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "erro": "Crash severo do executor.",
+                            "detalhes": str(exc),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                raise SystemExit(1)
+
+            raise CommandError(
+                f"Crash inesperado do executor: {exc}"
+            ) from exc

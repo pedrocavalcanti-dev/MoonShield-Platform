@@ -14,6 +14,8 @@ from pathlib import Path
 from enum import Enum
 from typing import Any, Callable
 
+from django.utils import timezone as django_timezone
+
 from .tipos import (
     ProgressoTarefa,
     TipoTarefaSuricata,
@@ -103,6 +105,47 @@ MAX_TAMANHO_PARAMETRO_TEXTO = 4096
 
 
 # ==============================================================================
+# HELPERS DE DATA/HORA
+# ==============================================================================
+
+def _agora() -> datetime:
+    """Retorna datetime timezone-aware compatível com USE_TZ do Django."""
+    return django_timezone.now()
+
+
+def _normalizar_datetime(valor: datetime | None) -> datetime | None:
+    """
+    Normaliza datetimes legados/naive para o timezone atual do Django.
+
+    O projeto possuía DTOs antigos que ainda podiam produzir _agora()
+    sem timezone. Essa normalização impede mistura entre naive/aware no worker.
+    """
+    if valor is None:
+        return None
+
+    if django_timezone.is_naive(valor):
+        try:
+            return django_timezone.make_aware(
+                valor,
+                django_timezone.get_current_timezone(),
+            )
+        except Exception:
+            return django_timezone.make_aware(valor)
+
+    return valor
+
+
+def _normalizar_tempos_progresso(progresso: ProgressoTarefa) -> None:
+    """Normaliza os relógios do tracker antes de persistir/serializar/calcular."""
+    progresso.iniciado_em = _normalizar_datetime(
+        getattr(progresso, "iniciado_em", None)
+    )
+    progresso.finalizado_em = _normalizar_datetime(
+        getattr(progresso, "finalizado_em", None)
+    )
+
+
+# ==============================================================================
 # HELPERS DE HIGIENIZAÇÃO E SERIALIZAÇÃO PRIVADOS
 # ==============================================================================
 
@@ -134,10 +177,10 @@ def _serializar_resultado(valor: object) -> object:
     if isinstance(valor, datetime):
         return valor.isoformat()
     if hasattr(valor, "to_dict") and callable(getattr(valor, "to_dict")):
-        return valor.to_dict()
+        return _serializar_resultado(valor.to_dict())
     if hasattr(valor, "__dataclass_fields__"):
         import dataclasses
-        return dataclasses.asdict(valor)
+        return _serializar_resultado(dataclasses.asdict(valor))
     if isinstance(valor, set):
         return sorted(list(valor))
     if isinstance(valor, bytes):
@@ -344,7 +387,7 @@ def solicitar_cancelamento(progresso: ProgressoTarefa, mensagem: str = "Cancelam
         
     progresso.status = StatusEtapa.CANCELADO
     progresso.mensagem = mensagem[:MAX_TAMANHO_PARAMETRO_TEXTO]
-    progresso.finalizado_em = datetime.now()
+    progresso.finalizado_em = _agora()
     _adicionar_log_progresso(progresso, f"Sinal de interrupção: {mensagem}", NivelLog.AVISO, progresso.etapa_atual)
 
 
@@ -390,7 +433,7 @@ def executar_tarefa_diagnostico(progresso: ProgressoTarefa, parametros: dict[str
         )
     except Exception as e:
         logger.exception("Crash interno do pacote diagnostico.")
-        res_fail = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro crítico.", erro=str(e), iniciado_em=datetime.now())
+        res_fail = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro crítico.", erro=str(e), iniciado_em=_agora())
         res_fail.finalizar_erro(str(e))
         return res_fail
 
@@ -405,7 +448,7 @@ def executar_tarefa_diagnostico(progresso: ProgressoTarefa, parametros: dict[str
         status=StatusEtapa.SUCESSO if diag_bruto.pronto else StatusEtapa.ERRO,
         sucesso=diag_bruto.pronto,
         mensagem="Checkup operacional completo.",
-        iniciado_em=datetime.now()
+        iniciado_em=_agora()
     )
     
     res.dados = {
@@ -454,7 +497,7 @@ def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[st
     cfg = parametros.get("configuracao")
     
     if not cfg:
-        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Configuração nula", iniciado_em=datetime.now())
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Configuração nula", iniciado_em=_agora())
         res.finalizar_erro("A configuração da topologia IDS foi submetida em branco.")
         return res
         
@@ -584,6 +627,7 @@ def _notificar_progresso(
         return
 
     try:
+        _normalizar_tempos_progresso(progresso)
         callback(progresso)
     except Exception:
         logger.exception(
@@ -732,7 +776,7 @@ def executar_tarefa(
             False,
             "Erro de formato.",
             erro=str(exc),
-            iniciado_em=datetime.now(),
+            iniciado_em=_agora(),
         )
         _notificar_progresso(prg, callback_progresso)
         return prg, res
@@ -752,10 +796,10 @@ def executar_tarefa(
             StatusEtapa.CANCELADO,
             False,
             "Tarefa cancelada antes da execução.",
-            iniciado_em=datetime.now(),
+            iniciado_em=_agora(),
         )
         if not prg.finalizado_em:
-            prg.finalizado_em = datetime.now()
+            prg.finalizado_em = _agora()
         _notificar_progresso(prg, callback_progresso)
         return prg, res
 
@@ -765,7 +809,7 @@ def executar_tarefa(
     prg.mensagem = "Tarefa capturada pelo worker e execução iniciada."
 
     if not prg.iniciado_em:
-        prg.iniciado_em = datetime.now()
+        prg.iniciado_em = _agora()
 
     _adicionar_log_progresso(
         prg,
@@ -827,8 +871,12 @@ def executar_tarefa(
         )
 
     finally:
+        _normalizar_tempos_progresso(prg)
+
         if not prg.finalizado_em:
-            prg.finalizado_em = datetime.now()
+            prg.finalizado_em = _agora()
+
+        _normalizar_tempos_progresso(prg)
 
         if prg.status == StatusEtapa.SUCESSO:
             prg.progresso = 100
@@ -966,10 +1014,15 @@ def obter_tipos_tarefa_disponiveis() -> list[dict[str, object]]:
 
 def resumir_tarefa(progresso: ProgressoTarefa, resultado: ResultadoEtapa | None = None) -> dict[str, object]:
     """Exibe um card de relatório (Visão alta) de qualquer tarefa em andamento/finalizada."""
+    _normalizar_tempos_progresso(progresso)
+
     dur = 0.0
     if progresso.iniciado_em:
-        fim = progresso.finalizado_em or datetime.now()
-        dur = max(0.0, (fim - progresso.iniciado_em).total_seconds())
+        inicio = _normalizar_datetime(progresso.iniciado_em)
+        fim = _normalizar_datetime(progresso.finalizado_em) or _agora()
+
+        if inicio is not None:
+            dur = max(0.0, (fim - inicio).total_seconds())
 
     return {
         "id": progresso.tarefa_id,

@@ -1063,3 +1063,117 @@ def obter_status_stack() -> dict[str, object]:
         "avisos": avisos,
         "verificado_em": datetime.now().isoformat(),
     }
+
+def garantir_worker_tarefas(
+    *,
+    base_dir: str | Path,
+    python_executavel: str | Path,
+    gerenciar_path: str | Path,
+) -> dict[str, object]:
+    """
+    Garante que o worker automático de tarefas do Suricata exista,
+    esteja habilitado no boot e esteja ativo.
+
+    A operação é idempotente: pode ser executada toda vez que o Django
+    iniciar sem recriar a unit quando ela já estiver atualizada.
+    """
+    resultado: dict[str, object] = {
+        "sucesso": False,
+        "ignorado": False,
+        "servico": SERVICO_WORKER,
+    }
+
+    if not eh_linux():
+        resultado.update({
+            "ignorado": True,
+            "motivo": "Bootstrap do worker disponível apenas em Linux.",
+        })
+        return resultado
+
+    if not systemd_disponivel():
+        resultado.update({
+            "ignorado": True,
+            "motivo": "Systemd/systemctl não está disponível.",
+        })
+        return resultado
+
+    if not verificar_privilegios().sucesso:
+        resultado.update({
+            "ignorado": True,
+            "motivo": "Privilégios root são necessários para instalar a unit systemd.",
+        })
+        return resultado
+
+    base = Path(base_dir).resolve()
+    python = Path(python_executavel).resolve()
+    gerenciar = Path(gerenciar_path).resolve()
+
+    if not base.is_dir():
+        resultado["erro"] = f"Diretório base inexistente: {base}"
+        return resultado
+
+    if not python.is_file():
+        resultado["erro"] = f"Executável Python inexistente: {python}"
+        return resultado
+
+    if not gerenciar.is_file():
+        resultado["erro"] = f"gerenciar.py inexistente: {gerenciar}"
+        return resultado
+
+    conteudo = gerar_unit_worker_tarefas(
+        base_dir=base,
+        python_executavel=python,
+        gerenciar_path=gerenciar,
+    )
+
+    r_unit = _escrever_unit_atomica(SERVICO_WORKER, conteudo)
+    resultado["unit"] = r_unit.to_dict()
+    if not r_unit.sucesso:
+        resultado["erro"] = r_unit.erro or r_unit.mensagem
+        return resultado
+
+    alterado = bool((r_unit.dados or {}).get("alterado", False))
+    resultado["unit_alterada"] = alterado
+
+    # Quando a unit foi criada/alterada, o systemd precisa reler os manifests.
+    if alterado:
+        r_reload = daemon_reload()
+        resultado["daemon_reload"] = r_reload.to_dict()
+        if not r_reload.sucesso:
+            resultado["erro"] = r_reload.erro or r_reload.mensagem
+            return resultado
+
+    # Garante autostart no boot.
+    if not servico_habilitado(SERVICO_WORKER):
+        r_enable = habilitar_servico(SERVICO_WORKER)
+        resultado["enable"] = r_enable.to_dict()
+        if not r_enable.sucesso:
+            resultado["erro"] = r_enable.erro or r_enable.mensagem
+            return resultado
+    else:
+        resultado["enable"] = {"sucesso": True, "ja_habilitado": True}
+
+    # Garante execução imediata.
+    if obter_estado_bruto(SERVICO_WORKER) not in ESTADOS_ATIVOS_SYSTEMD:
+        r_start = iniciar_servico(SERVICO_WORKER)
+        resultado["start"] = r_start.to_dict()
+        if not r_start.sucesso:
+            resultado["erro"] = r_start.erro or r_start.mensagem
+            return resultado
+    else:
+        resultado["start"] = {"sucesso": True, "ja_ativo": True}
+
+    status = obter_status_servico(SERVICO_WORKER)
+    resultado.update({
+        "sucesso": bool(status.instalado and status.habilitado and status.ativo),
+        "instalado": status.instalado,
+        "habilitado": status.habilitado,
+        "ativo": status.ativo,
+        "pid": status.pid,
+        "unit_path": str(DIRETORIO_UNITS_SYSTEMD / f"{SERVICO_WORKER}.service"),
+    })
+
+    if not resultado["sucesso"]:
+        resultado["erro"] = "Worker não atingiu o estado instalado + habilitado + ativo."
+
+    return resultado

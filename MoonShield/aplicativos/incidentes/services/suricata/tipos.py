@@ -6,9 +6,14 @@ e foca apenas no transporte e padronização de dados.
 
 from enum import Enum
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any
+
+
+def _agora() -> datetime:
+    """Retorna data/hora UTC timezone-aware sem acoplar este módulo ao Django."""
+    return datetime.now(timezone.utc)
 
 
 def _serializar_valor(valor: Any) -> Any:
@@ -86,7 +91,7 @@ class LogExecucao:
     mensagem: str
     etapa: str = ""
     detalhes: dict[str, Any] = field(default_factory=dict)
-    criado_em: datetime = field(default_factory=datetime.now)
+    criado_em: datetime = field(default_factory=_agora)
 
     def to_dict(self) -> dict[str, Any]:
         """Converte o log em um dicionário serializável."""
@@ -157,7 +162,7 @@ class ResultadoEtapa:
             self.mensagem = mensagem
         if dados:
             self.dados.update(dados)
-        self.finalizado_em = datetime.now()
+        self.finalizado_em = _agora()
 
     def finalizar_erro(self, mensagem: str, erro: str = "", dados: dict[str, Any] | None = None) -> None:
         """Marca a etapa com falha."""
@@ -168,7 +173,7 @@ class ResultadoEtapa:
             self.erro = erro
         if dados:
             self.dados.update(dados)
-        self.finalizado_em = datetime.now()
+        self.finalizado_em = _agora()
 
     def to_dict(self) -> dict[str, Any]:
         """Converte o resultado da etapa em dicionário serializável."""
@@ -218,7 +223,7 @@ class TopologiaRede:
     lan_sugerida: str = ""
     interface_mgmt_sugerida: str = ""
     rota_padrao_encontrada: bool = False
-    detectada_em: datetime = field(default_factory=datetime.now)
+    detectada_em: datetime = field(default_factory=_agora)
     avisos: list[str] = field(default_factory=list)
 
     def obter_interface(self, nome: str) -> InterfaceRede | None:
@@ -264,7 +269,7 @@ class DiagnosticoItem:
 class ResultadoDiagnostico:
     """Estrutura completa e consolidada do diagnóstico da infraestrutura do IDS."""
     itens: list[DiagnosticoItem] = field(default_factory=list)
-    executado_em: datetime = field(default_factory=datetime.now)
+    executado_em: datetime = field(default_factory=_agora)
     duracao_segundos: float = 0.0
     erro_geral: str = ""
 
@@ -389,7 +394,7 @@ class StatusServicoDados:
     instalado: bool = False
     pid: int | None = None
     detalhes: str = ""
-    verificado_em: datetime = field(default_factory=datetime.now)
+    verificado_em: datetime = field(default_factory=_agora)
 
     def to_dict(self) -> dict[str, Any]:
         """Converte a representação do serviço para formato dicionário."""
@@ -422,7 +427,7 @@ class ProgressoTarefa:
             self.status = StatusEtapa.EXECUTANDO
         
         if self.iniciado_em is None:
-            self.iniciado_em = datetime.now()
+            self.iniciado_em = _agora()
             
         self.etapa_atual = etapa
         self.mensagem = mensagem
@@ -439,20 +444,20 @@ class ProgressoTarefa:
         self.mensagem = "Tarefa concluída com sucesso."
         if resultado:
             self.resultado.update(resultado)
-        self.finalizado_em = datetime.now()
+        self.finalizado_em = _agora()
 
     def falhar(self, mensagem: str, erro: str = "") -> None:
         """Encerra a tarefa prematuramente marcando falha severa."""
         self.status = StatusEtapa.ERRO
         self.mensagem = mensagem
         self.erro = erro
-        self.finalizado_em = datetime.now()
+        self.finalizado_em = _agora()
 
     def cancelar(self, mensagem: str = "Tarefa cancelada.") -> None:
         """Aborta a tarefa atual."""
         self.status = StatusEtapa.CANCELADO
         self.mensagem = mensagem
-        self.finalizado_em = datetime.now()
+        self.finalizado_em = _agora()
 
     def to_dict(self) -> dict[str, Any]:
         """Converte o estado do tracker para um formato dicionário padronizado para a web."""

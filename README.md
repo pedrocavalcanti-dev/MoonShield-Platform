@@ -120,7 +120,7 @@ MoonShield/
 │       │   ├── diagnostico.py     #    Doctor: 15 checks automáticos
 │       │   └── regras_ms.rules    #    MoonShield Ruleset v1 (50 regras)
 │       ├── firewall/        #    Conversor e motor de regras iptables/nftables
-│       └── rede/            #    Configuração de DNS, Gateway e VLANs
+│       └── rede/             #    Configuração de DNS, Gateway e VLANs
 │
 ├── 📁 config/               # 🧠  O Cérebro — settings.py e roteador mestre
 ├── 📁 media/                # 📎  Arquivos dinâmicos (avatars, uploads)
@@ -147,8 +147,11 @@ MoonShield/
 | **SO** | Linux (Ubuntu 20.04+ / Debian 11+ / CentOS 8+ / Arch) |
 | **Privilégios** | root (necessário para Suricata, firewall e leitura do `eve.json`) |
 | **RAM** | 4 GB mínimo |
+| **Disco** | 20 GB+ livres em `/var` (logs do Suricata + regras) |
 
-> O MoonShield agora roda inteiramente em Linux, na mesma máquina que atua como gateway — já que o sensor precisa de acesso direto ao Suricata e ao firewall do sistema.
+> O MoonShield roda inteiramente em Linux, na mesma máquina que atua como gateway — já que o sensor precisa de acesso direto ao Suricata e ao firewall do sistema.
+
+> ⚠️ **Rodando na rede do Senac (ou qualquer rede com proxy/inspeção HTTPS)?** Pule direto para a seção **[🔒 Rede do Senac / SSL Interceptado](#-rede-do-senac--ssl-interceptado-leia-antes-de-instalar)** antes do Passo 3 — sem isso o `pip install` falha com erro de certificado.
 
 ---
 
@@ -157,6 +160,7 @@ MoonShield/
 #### 1️⃣ Clonar o repositório
 
 ```bash
+cd /opt
 git clone https://github.com/pedrocavalcanti-dev/moonshield.git
 cd MoonShield
 ```
@@ -166,23 +170,45 @@ cd MoonShield
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+which python   # deve apontar para .venv/bin/python
 ```
 
 #### 3️⃣ Instalar as dependências
 
 ```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### 4️⃣ Aplicar as migrações
+> Se aparecer `SSLCertVerificationError: self-signed certificate in certificate chain`, você está numa rede com inspeção HTTPS (ex.: rede do Senac). Resolva primeiro com o passo **🔒 Rede do Senac / SSL Interceptado** abaixo e depois repita este comando.
+
+#### 4️⃣ Preparar o `.env`
+
+```bash
+cp env-example .env
+nano .env
+```
+
+```env
+SECRET_KEY=sua-chave-secreta-aqui
+DEBUG=True
+ALLOWED_HOSTS=127.0.0.1,localhost,SEU_IP_AQUI
+EVE_JSON_PATH=/var/log/suricata/eve.json
+SEVERIDADE_MINIMA=3
+```
+
+> ⚠️ **Nunca** versione o `.env` — já está no `.gitignore`.
+
+#### 5️⃣ Aplicar as migrações
 
 ```bash
 python gerenciar.py migrate
+python gerenciar.py check
 ```
 
 > ✅ O sistema cria automaticamente o usuário **moonshield** e exibe as credenciais no terminal. Use-as para fazer login.
 
-#### 5️⃣ Instalar/configurar o Suricata (uma vez, com root)
+#### 6️⃣ Instalar/configurar o Suricata (uma vez, com root)
 
 ```bash
 sudo .venv/bin/python3 gerenciar.py agente instalar
@@ -190,9 +216,11 @@ sudo .venv/bin/python3 gerenciar.py agente instalar
 
 O instalador detecta a topologia de rede (WAN/LAN/MGMT), aplica os patches no `suricata.yaml`, instala as regras Emerging Threats + MoonShield Ruleset e valida com `suricata -T`.
 
-> ⚠️ **Por que `sudo .venv/bin/python3`?** O `sudo python3` puro não enxerga o venv ativado pelo usuário comum. Sempre chame o Python do venv diretamente com `sudo`.
+Ou, se preferir fazer pela interface web (recomendado), pule este passo e use o assistente de instalação em `/incidentes/suricata/instalacao/` depois que o servidor estiver no ar (Passo 7).
 
-#### 6️⃣ Iniciar o MoonShield (painel + sensor juntos)
+> ⚠️ **Por que `sudo .venv/bin/python3`?** O `sudo python3` puro não enxerga o venv ativado pelo usuário comum. Sempre chame o Python do venv diretamente com `sudo`, ou entre como root e ative o venv (`sudo su` → `source .venv/bin/activate`).
+
+#### 7️⃣ Iniciar o MoonShield (painel + sensor juntos)
 
 ```bash
 sudo .venv/bin/python3 gerenciar.py runserver 0.0.0.0:8000
@@ -200,7 +228,100 @@ sudo .venv/bin/python3 gerenciar.py runserver 0.0.0.0:8000
 
 O sensor sobe automaticamente como parte do mesmo processo — sem passo extra, sem outra máquina, sem porta adicional.
 
-Acesse **[http://127.0.0.1:8000](http://127.0.0.1:8000)**, use as credenciais exibidas no terminal e está dentro. ✅
+Acesse **http://SEU_IP:8000**, use as credenciais exibidas no terminal e está dentro. ✅
+
+---
+
+## 🔒 Rede do Senac / SSL Interceptado (leia antes de instalar)
+
+Algumas redes institucionais — como a rede do **Senac** — fazem **inspeção HTTPS**: todo tráfego `https://` passa por um proxy que troca o certificado real do site por um certificado próprio (self-signed), assinado por uma CA interna (no caso do Senac, `CN = senac.check`).
+
+O sistema operacional confia nessa CA (por isso o navegador funciona normalmente), mas o **Python/pip não confia**, porque usa seu próprio *trust store*. O sintoma é sempre este erro ao rodar `pip install`:
+
+```
+WARNING: Retrying ... after connection broken by 'SSLError(SSLCertVerificationError(1,
+'[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain'))'
+```
+
+**Não resolva isso com `--trusted-host`** — isso desativa a validação em vez de corrigi-la. O jeito certo é instalar a CA da rede no *trust store* do sistema, uma única vez.
+
+### Passo 1 — Confirmar o diagnóstico
+
+```bash
+curl -Iv https://pypi.org 2>&1 | grep -Ei 'issuer|subject|certificate|SSL'
+```
+
+Se aparecer `self-signed certificate in certificate chain`, siga para o próximo passo.
+
+### Passo 2 — Extrair a cadeia de certificados apresentada
+
+```bash
+openssl s_client -connect pypi.org:443 -servername pypi.org -showcerts \
+  </dev/null 2>/dev/null > /tmp/pypi-chain.txt
+
+awk '
+/-----BEGIN CERTIFICATE-----/ {n++; file=sprintf("/tmp/cert-%02d.pem", n)}
+file {print > file}
+/-----END CERTIFICATE-----/ {close(file); file=""}
+' /tmp/pypi-chain.txt
+
+for f in /tmp/cert-*.pem; do
+    echo "===== $f ====="
+    openssl x509 -in "$f" -noout -subject -issuer
+done
+```
+
+Procure o certificado onde **subject e issuer são iguais** — esse é a CA raiz da rede (ex.: `subject=CN = senac.check` / `issuer=CN = senac.check`). **Não** use o certificado de `subject=CN = pypi.org` — esse é só o certificado falso do site, não a CA.
+
+### Passo 3 — Instalar a CA no sistema
+
+Substitua `/tmp/cert-02.pem` pelo arquivo identificado no passo anterior:
+
+```bash
+sudo cp /tmp/cert-02.pem /usr/local/share/ca-certificates/senac-check.crt
+sudo update-ca-certificates
+```
+
+Deve aparecer algo como `1 added, 0 removed`.
+
+### Passo 4 — Apontar Python/pip para o novo trust store
+
+```bash
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+```
+
+Para não precisar exportar isso toda sessão, adicione as duas linhas ao final do `~/.bashrc` (ou `/etc/environment` para valer também para `root`/`sudo`):
+
+```bash
+echo 'export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' >> ~/.bashrc
+echo 'export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt' >> ~/.bashrc
+```
+
+### Passo 5 — Confirmar que resolveu
+
+```bash
+python - <<'PY'
+import urllib.request
+r = urllib.request.urlopen("https://pypi.org", timeout=10)
+print("STATUS:", r.status)
+PY
+```
+
+Esperado: `STATUS: 200`. Também confirme com:
+
+```bash
+curl -I https://pypi.org
+```
+
+### Passo 6 — Continuar a instalação normalmente
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+> 💡 Esse ajuste é feito **uma única vez por máquina** — depois de instalar a CA, `pip`, `git`, `curl` e qualquer ferramenta que use o trust store do sistema voltam a funcionar normalmente dentro e fora da rede do Senac.
 
 ---
 
@@ -262,7 +383,7 @@ gerenciar.py agente severidade N    # Define severidade mínima (1 a 4)
 
 ## 🛠️ Instalador do Suricata
 
-Ao rodar `gerenciar.py agente instalar`, o instalador executa automaticamente:
+Ao rodar `gerenciar.py agente instalar` (ou pelo assistente na interface web), o instalador executa automaticamente:
 
 1. Verifica Linux + root
 2. Instala o Suricata via `apt` / `dnf` / `yum` / `pacman` (se não estiver instalado)
@@ -381,6 +502,8 @@ After=network.target suricata.service
 [Service]
 Type=simple
 User=root
+Environment="SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
+Environment="REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt"
 WorkingDirectory=/opt/MoonShield
 ExecStart=/opt/MoonShield/.venv/bin/python gerenciar.py runserver 0.0.0.0:8000
 Restart=on-failure
@@ -415,6 +538,12 @@ Não há mais necessidade de liberar comunicação entre "sensor" e "painel" —
 ---
 
 ## 🔧 Problemas comuns
+
+<details>
+<summary><strong>pip install falha com "self-signed certificate in certificate chain"</strong></summary>
+
+Você está numa rede com inspeção HTTPS (ex.: Senac). Siga a seção **[🔒 Rede do Senac / SSL Interceptado](#-rede-do-senac--ssl-interceptado-leia-antes-de-instalar)** acima — é preciso instalar a CA da rede no trust store do sistema uma única vez.
+</details>
 
 <details>
 <summary><strong>sudo python3 não encontra o python do venv</strong></summary>
@@ -488,6 +617,18 @@ curl http://ip-api.com/json/
 pip3 install suricata-update
 sudo suricata-update
 sudo systemctl restart suricata
+```
+</details>
+
+<details>
+<summary><strong>/var sem espaço para instalar o Suricata / regras</strong></summary>
+
+```bash
+df -h /var
+# Se estiver usando LVM, verifique se o LV foi expandido de fato no filesystem:
+sudo lvextend -L +40G /dev/<vg>/var
+sudo resize2fs /dev/<vg>/var
+df -h /var
 ```
 </details>
 

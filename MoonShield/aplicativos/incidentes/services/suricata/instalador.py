@@ -6,11 +6,8 @@ Não contém lógicas de SO diretas, atua como coordenador de etapas dos módulo
 import json
 import logging
 import os
-import sys
 from pathlib import Path
 from datetime import datetime
-
-from django.conf import settings
 
 from .tipos import (
     ResultadoEtapa,
@@ -51,7 +48,6 @@ from .servicos import (
     reiniciar_servico,
     reiniciar_stack_suricata,
     iniciar_stack_suricata,
-    instalar_units_moonshield,
     obter_status_stack,
     SERVICO_SURICATA,
     SERVICO_MONITOR,
@@ -77,7 +73,6 @@ ETAPAS_INSTALACAO = (
     "copiar_regras_moonshield",
     "configurar_suricata",
     "validar_suricata",
-    "instalar_servicos_moonshield",
     "reiniciar_servicos",
     "validar_instalacao",
 )
@@ -433,87 +428,6 @@ def validar_pre_requisitos(configuracao: ConfiguracaoSuricataDados) -> Resultado
     return res
 
 
-
-def _resolver_caminhos_servicos(
-    configuracao: ConfiguracaoSuricataDados,
-) -> dict[str, str]:
-    """
-    Resolve caminhos absolutos usados nas units systemd.
-
-    O cursor pode estar salvo como caminho relativo no banco. Nesse caso ele é
-    resolvido a partir do BASE_DIR do projeto Django.
-    """
-    base_dir = Path(settings.BASE_DIR).resolve()
-    gerenciar_path = base_dir / "gerenciar.py"
-    python_executavel = Path(sys.executable).resolve()
-
-    cursor_raw = getattr(
-        configuracao,
-        "cursor_path",
-        "",
-    ) or "var/cursors/suricata_eve.cursor"
-
-    cursor_path = Path(str(cursor_raw)).expanduser()
-    if not cursor_path.is_absolute():
-        cursor_path = base_dir / cursor_path
-
-    eve_path = Path(configuracao.eve_path).expanduser()
-    if not eve_path.is_absolute():
-        eve_path = base_dir / eve_path
-
-    if not gerenciar_path.is_file():
-        raise FileNotFoundError(
-            f"gerenciar.py não encontrado em {gerenciar_path}"
-        )
-
-    if not python_executavel.is_file():
-        raise FileNotFoundError(
-            f"Executável Python não encontrado em {python_executavel}"
-        )
-
-    return {
-        "base_dir": str(base_dir),
-        "python_executavel": str(python_executavel),
-        "gerenciar_path": str(gerenciar_path),
-        "eve_path": str(eve_path.resolve()),
-        "cursor_path": str(cursor_path.resolve()),
-    }
-
-
-def _instalar_servicos_auxiliares(
-    configuracao: ConfiguracaoSuricataDados,
-) -> ResultadoEtapa:
-    """
-    Cria e habilita monitor e worker.
-
-    O worker não é reiniciado durante esta etapa para evitar que ele encerre a
-    própria instalação que está executando.
-    """
-    try:
-        caminhos = _resolver_caminhos_servicos(configuracao)
-    except Exception as exc:
-        res = _criar_resultado_etapa(
-            "instalar_servicos_moonshield",
-            "Resolvendo caminhos das units systemd.",
-        )
-        res.finalizar_erro(
-            "Não foi possível preparar os caminhos dos serviços.",
-            erro=str(exc),
-        )
-        return res
-
-    return instalar_units_moonshield(
-        base_dir=caminhos["base_dir"],
-        python_executavel=caminhos["python_executavel"],
-        gerenciar_path=caminhos["gerenciar_path"],
-        eve_path=caminhos["eve_path"],
-        cursor_path=caminhos["cursor_path"],
-        habilitar=True,
-        iniciar_monitor=False,
-        iniciar_worker=False,
-    )
-
-
 # ==============================================================================
 # ENTRYPOINTS MESTRES / FLUXOS DE ORQUESTRAÇÃO
 # ==============================================================================
@@ -619,49 +533,15 @@ def executar_instalacao(
     if not res_val.sucesso:
         return _consolidar_resultados("executar_instalacao", etapas_rodadas, "", "Arquivo rejeitado internamente pelo Suricata. Rollback atuando se existir.", avisos_globais)
 
-    # 9. Instalação das units MoonShield.
-    _atualizar_progresso(
-        progresso,
-        86,
-        "instalar_servicos_moonshield",
-        "Criando monitor e worker automáticos no systemd...",
-    )
-    res_units = _executar_etapa_segura(
-        "instalar_servicos_moonshield",
-        _instalar_servicos_auxiliares,
-        cfg_pronta,
-    )
-    etapas_rodadas["instalar_servicos_moonshield"] = res_units
-
-    if not res_units.sucesso:
-        return _consolidar_resultados(
-            "executar_instalacao",
-            etapas_rodadas,
-            "",
-            "Não foi possível instalar os serviços automáticos.",
-            avisos_globais,
-        )
-
-    # 10. Inicialização da stack.
-    usar_bounce = (
-        reiniciar_servicos
-        if reiniciar_servicos is not None
-        else cfg_pronta.reiniciar_servicos
-    )
+    # 8. Service Control e Matriz Bounce
+    usar_bounce = reiniciar_servicos if reiniciar_servicos is not None else cfg_pronta.reiniciar_servicos
     if usar_bounce:
         _atualizar_progresso(progresso, 90, "reiniciar_servicos", "Iniciando processo de Restart/Deploy em RAM...")
         # O Helper fará o bounce do cluster completo
-        res_bounce = _executar_etapa_segura(
-            "iniciar_stack_suricata",
-            iniciar_stack_suricata,
-        )
+        res_bounce = _executar_etapa_segura("iniciar_stack_suricata", iniciar_stack_suricata)
         etapas_rodadas["reiniciar_servicos"] = res_bounce
-
         if not res_bounce.sucesso:
-            avisos_globais.append(
-                "A configuração foi aplicada, mas Suricata ou monitor "
-                "não estabilizaram durante a inicialização."
-            )
+            avisos_globais.append("A aplicação de base foi bem-sucedida, porém os serviços demoraram/falharam ao estabilizar seu bounce.")
 
     # 9. Consolidação Pós-Deploy e Inspeção (Health Check Full)
     _atualizar_progresso(progresso, 95, "validar_instalacao", "Acionando Doctor pra auditar deploy completo.")
@@ -909,7 +789,6 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
         {"id": "copiar_regras_moonshield", "titulo": "Aplica MS-Rules", "descricao": "Filtros custom MoonShield", "obrigatoria": True, "estimativa_segundos": 2},
         {"id": "configurar_suricata", "titulo": "Injetar Configuração", "descricao": "Manipulação atômica via PATCH yaml.", "obrigatoria": True, "estimativa_segundos": 5},
         {"id": "validar_suricata", "titulo": "Dry-Run Suricata", "descricao": "Validação cruzada de conformidade (Engine).", "obrigatoria": True, "estimativa_segundos": 20},
-        {"id": "instalar_servicos_moonshield", "titulo": "Instalar Workers", "descricao": "Criação das units do monitor e processador automático.", "obrigatoria": True, "estimativa_segundos": 5},
         {"id": "reiniciar_servicos", "titulo": "Deploy Memory-State", "descricao": "Daemon reload e Restart Service (Bounce)", "obrigatoria": True, "estimativa_segundos": 30},
     ])
 
@@ -925,8 +804,6 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
         f"{path_yaml}.moonshield.bak",
         "/var/lib/suricata/rules/moonshield/ms.rules",
         "/etc/suricata/rules/moonshield/ms.rules",
-        "/etc/systemd/system/moonshield-suricata-monitor.service",
-        "/etc/systemd/system/moonshield-suricata-worker.service",
     ])
     
     plano["servicos_afetados"].extend([SERVICO_SURICATA, SERVICO_MONITOR])

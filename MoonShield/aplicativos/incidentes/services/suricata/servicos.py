@@ -1105,7 +1105,7 @@ def garantir_worker_tarefas(
         return resultado
 
     base = Path(base_dir).resolve()
-    python = Path(python_executavel).resolve()
+    python = Path(python_executavel)
     gerenciar = Path(gerenciar_path).resolve()
 
     if not base.is_dir():

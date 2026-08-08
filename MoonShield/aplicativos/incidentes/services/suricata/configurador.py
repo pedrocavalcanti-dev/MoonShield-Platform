@@ -153,7 +153,7 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
 
             coletadas.append(linha)
 
-        bloco_eve = "\\n".join(coletadas)
+        bloco_eve = "\n".join(coletadas)
         analise["eve_log"]["presente"] = True
 
         m_enabled = re.search(
@@ -391,22 +391,22 @@ def _remover_blocos_eve_log(conteudo: str) -> str:
 def _gerar_bloco_eve_log(eve_path: str | Path) -> str:
     """Gera o único output EVE mantido pelo MoonShield."""
     return (
-        f"  {MARCADOR_EVE}\\n"
-        "  - eve-log:\\n"
-        "      enabled: yes\\n"
-        "      filetype: regular\\n"
-        f"      filename: {eve_path}\\n"
-        "      community-id: true\\n"
-        "      types:\\n"
-        "        - alert\\n"
-        "        - dns:\\n"
-        "            query: yes\\n"
-        "            answer: yes\\n"
-        "        - http:\\n"
-        "            extended: yes\\n"
-        "        - tls:\\n"
-        "            extended: yes\\n"
-        "        - flow\\n"
+        f"  {MARCADOR_EVE}\n"
+        "  - eve-log:\n"
+        "      enabled: yes\n"
+        "      filetype: regular\n"
+        f"      filename: {eve_path}\n"
+        "      community-id: true\n"
+        "      types:\n"
+        "        - alert\n"
+        "        - dns:\n"
+        "            query: yes\n"
+        "            answer: yes\n"
+        "        - http:\n"
+        "            extended: yes\n"
+        "        - tls:\n"
+        "            extended: yes\n"
+        "        - flow\n"
     )
 
 
@@ -432,8 +432,8 @@ def patch_eve_log(
         posicao = match_outputs.end()
         return conteudo_limpo[:posicao] + bloco + conteudo_limpo[posicao:]
 
-    separador = "" if conteudo_limpo.endswith("\\n") else "\\n"
-    return conteudo_limpo + separador + "outputs:\\n" + bloco
+    separador = "" if conteudo_limpo.endswith("\n") else "\n"
+    return conteudo_limpo + separador + "outputs:\n" + bloco
 
 
 def gerar_bloco_af_packet(interfaces: list[str]) -> str:
@@ -478,7 +478,7 @@ def _substituir_bloco_top_level(
             break
 
     if inicio is None:
-        separador = "" if conteudo.endswith("\\n") else "\\n"
+        separador = "" if conteudo.endswith("\n") else "\n"
         return conteudo + separador + novo_bloco
 
     fim = len(linhas)
@@ -519,7 +519,7 @@ def patch_af_packet(conteudo: str, interfaces: list[str]) -> str:
 
 def patch_pcap_desabilitado(conteudo: str) -> str:
     """Desativa o PCAP para impedir captura duplicada com AF_PACKET."""
-    bloco_pcap = f"pcap:\\n  - interface: {PCAP_DESABILITADO}\\n"
+    bloco_pcap = f"pcap:\n  - interface: {PCAP_DESABILITADO}\n"
 
     return _substituir_bloco_top_level(
         conteudo,

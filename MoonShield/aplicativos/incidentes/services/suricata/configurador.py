@@ -660,7 +660,7 @@ def _escrever_yaml_atomico(caminho: Path, conteudo: str) -> None:
         gid_atual = stat_info.st_gid
 
     try:
-        with temp_path.open("w", encoding="utf-8", newline="\\n") as arquivo:
+        with temp_path.open("w", encoding="utf-8", newline="\n") as arquivo:
             arquivo.write(conteudo)
             arquivo.flush()
             os.fsync(arquivo.fileno())
@@ -726,26 +726,65 @@ def validar_configuracao(yaml_path: str | Path, timeout: float = 180.0) -> Resul
         timeout=timeout
     )
     
-    saida = resultado_cmd.saida.strip()
-    erros = [l.strip() for l in saida.split("\n") if l.strip().startswith("E:")]
-    warns = [l.strip() for l in saida.split("\n") if l.strip().startswith("W:")]
+    stdout = getattr(resultado_cmd, "stdout", "") or ""
+    stderr = getattr(resultado_cmd, "stderr", "") or ""
+    saida = (
+        getattr(resultado_cmd, "saida", "")
+        or "\n".join(parte for parte in (stdout, stderr) if parte)
+    ).strip()
+
+    linhas_saida = [linha.strip() for linha in saida.splitlines() if linha.strip()]
+
+    erros = [
+        linha for linha in linhas_saida
+        if (
+            linha.startswith("E:")
+            or "<Error>" in linha
+            or " error:" in linha.lower()
+            or linha.lower().startswith("error:")
+            or "[error]" in linha.lower()
+        )
+    ]
+
+    warns = [
+        linha for linha in linhas_saida
+        if (
+            linha.startswith("W:")
+            or "<Warning>" in linha
+            or " warning:" in linha.lower()
+            or linha.lower().startswith("warning:")
+            or "[warning]" in linha.lower()
+        )
+    ]
 
     res.dados = {
         "yaml_path": str(path_obj),
-        "stdout": resultado_cmd.stdout,
-        "stderr": resultado_cmd.stderr,
+        "stdout": stdout,
+        "stderr": stderr,
+        "saida": saida,
+        "codigo": getattr(resultado_cmd, "codigo", None),
         "erros": erros,
         "warnings": warns,
-        "duracao": resultado_cmd.duracao_segundos
+        "duracao": getattr(resultado_cmd, "duracao_segundos", 0.0),
     }
 
     if resultado_cmd.sucesso:
         res.adicionar_log("Configuração YAML aceita pelo Suricata.", NivelLog.SUCESSO)
         res.finalizar_sucesso("Validação suricata -T concluída com sucesso.")
     else:
-        msg_erro = erros[0] if erros else "Falha estrutural (timeout ou travamento)."
+        msg_erro = (
+            erros[0]
+            if erros
+            else stderr.strip()
+            or stdout.strip()
+            or saida
+            or "O Suricata rejeitou a configuração sem retornar detalhes."
+        )
         res.adicionar_log(f"Erros de configuração: {msg_erro}", NivelLog.ERRO)
-        res.finalizar_erro("Validação reprovou o arquivo de configuração.", erro=msg_erro)
+        res.finalizar_erro(
+            "Validação reprovou o arquivo de configuração.",
+            erro=msg_erro,
+        )
 
     return res
 

@@ -340,10 +340,14 @@
                 </div>
 
                 <h2 class="ob-step__title">Defina como o Suricata<br><em>enxerga sua rede.</em></h2>
-                <p class="ob-step__desc">Detectamos as interfaces disponíveis. Confirme a função de cada uma antes de continuar.</p>
+                <p class="ob-step__desc">
+                    Detectamos as interfaces disponíveis. <strong>Você define manualmente</strong> qual placa é WAN,
+                    qual é LAN e qual é apenas gerenciamento. O MoonShield não troca essas funções sozinho.
+                </p>
 
                 <div class="ob-topology-toolbar">
-                    <div class="ob-segmented" role="radiogroup" aria-label="Modo de captura">
+                    <div>
+                        <div class="ob-segmented" role="radiogroup" aria-label="Modo de captura">
                         <label class="ob-segmented__item">
                             <input type="radio" name="modoCaptura" value="lan" />
                             <span>Somente LAN</span>
@@ -356,6 +360,10 @@
                             <input type="radio" name="modoCaptura" value="personalizado" />
                             <span>Personalizado</span>
                         </label>
+                        </div>
+                        <p class="ob-field__hint" id="captureModeHint">
+                            LAN + WAN monitora automaticamente as duas placas. Use Personalizado para escolher manualmente.
+                        </p>
                     </div>
                     <button class="ob-btn ob-btn--secondary ob-btn--compact" type="button" id="btnDetectInterfaces">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -392,6 +400,7 @@
                                     </select>
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                                 </div>
+                                <p class="ob-field__hint">Saída para a rede externa. A WAN não entra no HOME_NET.</p>
                             </div>
                             <div class="ob-field">
                                 <label class="ob-field__label" for="fieldLan">Interface LAN</label>
@@ -401,6 +410,7 @@
                                     </select>
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                                 </div>
+                                <p class="ob-field__hint">Rede interna protegida. A rede desta placa vira o HOME_NET base.</p>
                             </div>
                         </div>
 
@@ -413,6 +423,7 @@
                                     </select>
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                                 </div>
+                                <p class="ob-field__hint">Usada para SSH/administração. Não será monitorada pelo Suricata.</p>
                             </div>
                             <div class="ob-field">
                                 <label class="ob-field__label" for="fieldDns">DNS interno <span>opcional</span></label>
@@ -429,7 +440,9 @@
                                 <input class="ob-token-input__field ob-input--mono" id="fieldHomeNet" type="text" placeholder="Ex.: 192.168.1.0/24" autocomplete="off" />
                                 <button type="button" class="ob-token-input__add" id="btnAddHomeNet">Adicionar</button>
                             </div>
-                            <p class="ob-field__hint">Adicione uma ou mais redes em notação CIDR.</p>
+                            <p class="ob-field__hint" id="homeNetHint">
+                                A rede da LAN é adicionada automaticamente. Adicione aqui somente outras redes internas que também devem ser protegidas.
+                            </p>
                         </div>
 
                         <div class="ob-field">
@@ -440,6 +453,9 @@
                                     <span>Detectando interfaces...</span>
                                 </div>
                             </div>
+                            <p class="ob-field__hint" id="monitoredInterfacesHint">
+                                No modo LAN + WAN a seleção acompanha automaticamente as funções escolhidas acima.
+                            </p>
                         </div>
                     </div>
                 </div>

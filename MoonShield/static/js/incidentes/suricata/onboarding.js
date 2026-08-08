@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
         topology: null,
         interfaces: [],
         homeNet: [],
+        autoHomeNetBase: "",
         selectedInterfaces: new Set(),
         configuration: normaliseObject(CFG.configuracao),
         onboardingStatus: normaliseObject(CFG.statusOnboarding),
@@ -422,6 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function bindNetworkActions() {
         el('btnDetectInterfaces')?.addEventListener('click', detectInterfaces);
         el('btnAddHomeNet')?.addEventListener('click', addHomeNetFromInput);
+
         el('fieldHomeNet')?.addEventListener('keydown', event => {
             if (event.key === 'Enter' || event.key === ',') {
                 event.preventDefault();
@@ -431,15 +433,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
         all('input[name="modoCaptura"]').forEach(radio => {
             radio.addEventListener('change', () => {
-                applyCaptureModeDefaults(radio.value);
+                syncMonitoredInterfacesForMode();
+                renderMonitoredInterfaces(state.interfaces);
+                updateCaptureModeHint();
                 clearNetworkError();
             });
         });
 
-        for (const id of ['fieldWan', 'fieldLan', 'fieldMgmt', 'fieldDns']) {
-            el(id)?.addEventListener('change', clearNetworkError);
-            el(id)?.addEventListener('input', clearNetworkError);
-        }
+        el('fieldWan')?.addEventListener('change', () => {
+            refreshRoleOptionAvailability();
+            syncMonitoredInterfacesForMode();
+            renderMonitoredInterfaces(state.interfaces);
+            updateCaptureModeHint();
+            clearNetworkError();
+        });
+
+        el('fieldLan')?.addEventListener('change', () => {
+            refreshRoleOptionAvailability();
+            syncHomeNetFromSelectedLan();
+            syncMonitoredInterfacesForMode();
+            renderMonitoredInterfaces(state.interfaces);
+            updateCaptureModeHint();
+            clearNetworkError();
+        });
+
+        el('fieldMgmt')?.addEventListener('change', () => {
+            refreshRoleOptionAvailability();
+            removeMgmtFromMonitoring();
+            syncMonitoredInterfacesForMode();
+            renderMonitoredInterfaces(state.interfaces);
+            updateCaptureModeHint();
+            clearNetworkError();
+        });
+
+        el('fieldDns')?.addEventListener('change', clearNetworkError);
+        el('fieldDns')?.addEventListener('input', clearNetworkError);
     }
 
     async function detectInterfaces() {
@@ -448,11 +476,24 @@ document.addEventListener('DOMContentLoaded', () => {
         clearNetworkError();
         renderInterfacesLoading();
 
+        /*
+         * IMPORTANTE:
+         * A API pode sugerir WAN/LAN com base em rota padrão/tráfego, mas isso
+         * é apenas heurística. Quem define os papéis finais é o operador.
+         *
+         * Ao detectar novamente, preservamos o que já foi salvo/escolhido.
+         */
+        const roleSnapshot = {
+            wan: firstText(el('fieldWan')?.value, state.configuration?.interface_wan),
+            lan: firstText(el('fieldLan')?.value, state.configuration?.interface_lan),
+            mgmt: firstText(el('fieldMgmt')?.value, state.configuration?.interface_mgmt),
+        };
+
         try {
             const payload = await requestJSON(CFG.urls.detectarInterfaces, { method: 'GET' });
             const data = unwrapData(payload);
+
             state.topology = data.topologia || data;
-            const suggested = data.configuracao_sugerida || data.configuracao || {};
             state.interfaces = extractInterfaces(state.topology, data);
 
             if (!state.interfaces.length) {
@@ -460,9 +501,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             populateInterfaceSelects(state.interfaces);
-            applySuggestedConfiguration(suggested);
+            restoreRoleSelections(roleSnapshot);
+
+            /*
+             * Não aplicamos automaticamente configuracao_sugerida.
+             * Ela pode identificar a rota padrão como WAN mesmo quando a
+             * topologia do laboratório usa outra placa como WAN do sensor.
+             */
+            initialiseHomeNetBaseFromCurrentSelection();
+            syncMonitoredInterfacesForMode({ preservePersonalized: true });
+            refreshRoleOptionAvailability();
+            renderHomeNetTokens();
             renderMonitoredInterfaces(state.interfaces);
-            showToast(`${state.interfaces.length} interface(s) detectada(s).`, 'success');
+            updateCaptureModeHint();
+
+            showToast(`${state.interfaces.length} interface(s) detectada(s). Defina os papéis conforme sua topologia.`, 'success');
         } catch (error) {
             state.interfaces = [];
             renderInterfacesError(error.message || 'Falha ao detectar interfaces.');
@@ -483,19 +536,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const seen = new Set();
         const result = [];
+
         for (const item of candidates) {
             const object = typeof item === 'string' ? { nome: item } : (item || {});
             const name = firstText(object.nome, object.name, object.interface, object.id);
+
             if (!name || seen.has(name) || name === 'lo') continue;
             seen.add(name);
+
+            const ipv4 = firstText(
+                object.ipv4,
+                object.ip,
+                object.endereco_ipv4
+            );
+
+            const cidr = firstText(
+                object.cidr,
+                object.ipv4_cidr,
+                object.endereco_cidr,
+                ipv4 && ipv4.includes('/') ? ipv4 : ''
+            );
+
+            const rede = firstText(
+                object.rede,
+                object.network,
+                object.rede_ipv4,
+                cidr ? networkFromCidr(cidr) : ''
+            );
+
             result.push({
                 nome: name,
-                ipv4: firstText(object.ipv4, object.ip, object.endereco_ipv4),
+                ipv4: ipv4.includes('/') ? ipv4.split('/')[0] : ipv4,
+                cidr,
+                rede,
                 mac: firstText(object.mac, object.endereco_mac),
-                estado: firstText(object.estado, object.state, object.status, object.ativa ? 'up' : ''),
+                estado: firstText(
+                    object.estado,
+                    object.state,
+                    object.status,
+                    object.ativa ? 'up' : ''
+                ),
                 tipo: firstText(object.tipo, object.kind, object.descricao),
+                rotaPadrao: Boolean(object.rota_padrao ?? object.default_route ?? false),
             });
         }
+
         return result;
     }
 
@@ -503,100 +588,292 @@ document.addEventListener('DOMContentLoaded', () => {
         for (const id of ['fieldWan', 'fieldLan', 'fieldMgmt']) {
             const select = el(id);
             if (!select) continue;
+
             const previous = select.value;
             select.innerHTML = `<option value="">${id === 'fieldMgmt' ? 'Nenhuma' : 'Selecione...'}</option>`;
+
             for (const item of interfaces) {
                 const option = document.createElement('option');
                 option.value = item.nome;
-                option.textContent = `${item.nome}${item.ipv4 ? ` · ${item.ipv4}` : ''}`;
+
+                const endereco = item.cidr || item.ipv4 || '';
+                option.textContent = `${item.nome}${endereco ? ` · ${endereco}` : ''}`;
                 select.appendChild(option);
             }
-            if (interfaces.some(item => item.nome === previous)) select.value = previous;
+
+            if (interfaces.some(item => item.nome === previous)) {
+                select.value = previous;
+            }
         }
+    }
+
+    function restoreRoleSelections(snapshot) {
+        const available = new Set(state.interfaces.map(item => item.nome));
+
+        if (snapshot.wan && available.has(snapshot.wan)) {
+            setSelectIfAvailable('fieldWan', snapshot.wan);
+        }
+
+        if (snapshot.lan && available.has(snapshot.lan)) {
+            setSelectIfAvailable('fieldLan', snapshot.lan);
+        }
+
+        if (snapshot.mgmt && available.has(snapshot.mgmt)) {
+            setSelectIfAvailable('fieldMgmt', snapshot.mgmt);
+        }
+    }
+
+    function refreshRoleOptionAvailability() {
+        const selections = {
+            fieldWan: el('fieldWan')?.value || '',
+            fieldLan: el('fieldLan')?.value || '',
+            fieldMgmt: el('fieldMgmt')?.value || '',
+        };
+
+        for (const id of ['fieldWan', 'fieldLan', 'fieldMgmt']) {
+            const select = el(id);
+            if (!select) continue;
+
+            for (const option of Array.from(select.options)) {
+                if (!option.value) {
+                    option.disabled = false;
+                    continue;
+                }
+
+                option.disabled = Object.entries(selections).some(
+                    ([otherId, value]) =>
+                        otherId !== id &&
+                        Boolean(value) &&
+                        option.value === value
+                );
+            }
+        }
+    }
+
+    function getInterfaceByName(name) {
+        return state.interfaces.find(item => item.nome === name) || null;
+    }
+
+    function getInterfaceNetwork(name) {
+        const item = getInterfaceByName(name);
+        if (!item) return '';
+
+        if (item.rede && isValidCidr(item.rede)) {
+            return networkFromCidr(item.rede);
+        }
+
+        if (item.cidr && isValidCidr(item.cidr)) {
+            return networkFromCidr(item.cidr);
+        }
+
+        return '';
+    }
+
+    function initialiseHomeNetBaseFromCurrentSelection() {
+        const lan = el('fieldLan')?.value || '';
+        const lanNetwork = getInterfaceNetwork(lan);
+
+        if (!lanNetwork) {
+            state.autoHomeNetBase = '';
+            return;
+        }
+
+        /*
+         * Se a configuração salva já contém a rede da LAN, tratamos esse item
+         * como HOME_NET base automático. Redes adicionais continuam manuais.
+         */
+        if (state.homeNet.includes(lanNetwork)) {
+            state.autoHomeNetBase = lanNetwork;
+            return;
+        }
+
+        /*
+         * Em primeira configuração (sem HOME_NET salvo), adiciona a LAN.
+         * Se já há redes salvas e elas não correspondem à LAN, não removemos
+         * silenciosamente até o operador efetivamente alterar a LAN.
+         */
+        if (!state.homeNet.length) {
+            state.autoHomeNetBase = lanNetwork;
+            state.homeNet = [lanNetwork];
+        }
+    }
+
+    function syncHomeNetFromSelectedLan() {
+        const lan = el('fieldLan')?.value || '';
+        const newBase = getInterfaceNetwork(lan);
+        const oldBase = state.autoHomeNetBase;
+
+        if (oldBase) {
+            state.homeNet = state.homeNet.filter(value => value !== oldBase);
+        }
+
+        state.autoHomeNetBase = newBase;
+
+        if (newBase && !state.homeNet.includes(newBase)) {
+            state.homeNet.unshift(newBase);
+        }
+
+        renderHomeNetTokens();
+    }
+
+    function removeMgmtFromMonitoring() {
+        const mgmt = el('fieldMgmt')?.value || '';
+        if (mgmt) state.selectedInterfaces.delete(mgmt);
+    }
+
+    function syncMonitoredInterfacesForMode({ preservePersonalized = false } = {}) {
+        const mode = getCaptureMode();
+        const wan = el('fieldWan')?.value || '';
+        const lan = el('fieldLan')?.value || '';
+        const mgmt = el('fieldMgmt')?.value || '';
+
+        if (mode === 'lan') {
+            state.selectedInterfaces = new Set([lan].filter(Boolean));
+        } else if (mode === 'lan_wan') {
+            state.selectedInterfaces = new Set([lan, wan].filter(Boolean));
+        } else if (!preservePersonalized && mode === 'personalizado') {
+            /*
+             * Ao entrar no personalizado preservamos o que já estava marcado.
+             * A partir daí os checkboxes passam a ser controlados pelo usuário.
+             */
+            state.selectedInterfaces = new Set(
+                Array.from(state.selectedInterfaces).filter(Boolean)
+            );
+        }
+
+        if (mgmt) state.selectedInterfaces.delete(mgmt);
+
+        const available = new Set(state.interfaces.map(item => item.nome));
+        state.selectedInterfaces = new Set(
+            Array.from(state.selectedInterfaces).filter(name => available.has(name))
+        );
+    }
+
+    function roleForInterface(name) {
+        if (!name) return '';
+        if (name === (el('fieldWan')?.value || '')) return 'WAN';
+        if (name === (el('fieldLan')?.value || '')) return 'LAN';
+        if (name === (el('fieldMgmt')?.value || '')) return 'MGMT';
+        return '';
     }
 
     function renderMonitoredInterfaces(interfaces) {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
+
         container.innerHTML = '';
 
-        const configured = arrayOfStrings(state.configuration?.interfaces_monitoradas);
-        if (!state.selectedInterfaces.size && configured.length) {
-            configured.forEach(value => state.selectedInterfaces.add(value));
-        }
-        if (!state.selectedInterfaces.size) {
-            interfaces.forEach(item => state.selectedInterfaces.add(item.nome));
+        const mode = getCaptureMode();
+        const manualMode = mode === 'personalizado';
+        const mgmt = el('fieldMgmt')?.value || '';
+
+        if (!interfaces.length) {
+            renderInterfacesError('Nenhuma interface detectada.');
+            return;
         }
 
         for (const item of interfaces) {
+            const role = roleForInterface(item.nome);
+            const isMgmt = Boolean(mgmt && item.nome === mgmt);
+            const disabled = !manualMode || isMgmt;
+            const checked = state.selectedInterfaces.has(item.nome) && !isMgmt;
+
             const label = document.createElement('label');
             label.className = 'ob-interface-item';
+
+            const roleText = role ? ` · ${role}` : '';
+            const address = item.cidr || item.ipv4 || '';
+
             label.innerHTML = `
-        <input type="checkbox" value="${escapeHtml(item.nome)}" ${state.selectedInterfaces.has(item.nome) ? 'checked' : ''}>
-        <span class="ob-interface-item__check">${iconSvg('check')}</span>
-        <span class="ob-interface-item__body">
-          <strong>${escapeHtml(item.nome)}</strong>
-          <small>${escapeHtml([item.ipv4, item.tipo, item.estado].filter(Boolean).join(' · ') || 'Interface disponível')}</small>
-        </span>
-        <span class="ob-interface-item__state">${escapeHtml(item.estado || 'detectada')}</span>
-      `;
+                <input
+                    type="checkbox"
+                    value="${escapeHtml(item.nome)}"
+                    ${checked ? 'checked' : ''}
+                    ${disabled ? 'disabled' : ''}
+                >
+                <span class="ob-interface-item__check">${iconSvg('check')}</span>
+                <span class="ob-interface-item__body">
+                    <strong>${escapeHtml(item.nome)}</strong>
+                    <small>${escapeHtml([address, item.estado].filter(Boolean).join(' · ') + roleText)}</small>
+                </span>
+                <span class="ob-interface-item__state">${escapeHtml(isMgmt ? 'gerência' : (item.estado || 'detectada'))}</span>
+            `;
+
             const input = label.querySelector('input');
             input?.addEventListener('change', () => {
+                if (getCaptureMode() !== 'personalizado') {
+                    syncMonitoredInterfacesForMode();
+                    renderMonitoredInterfaces(state.interfaces);
+                    return;
+                }
+
+                if (input.value === (el('fieldMgmt')?.value || '')) {
+                    input.checked = false;
+                    state.selectedInterfaces.delete(input.value);
+                    showNetworkError('A interface de gerenciamento não pode ser monitorada.');
+                    return;
+                }
+
                 if (input.checked) state.selectedInterfaces.add(input.value);
                 else state.selectedInterfaces.delete(input.value);
+
                 clearNetworkError();
             });
+
             container.appendChild(label);
+        }
+    }
+
+    function updateCaptureModeHint() {
+        const hint = el('captureModeHint');
+        const monitoredHint = el('monitoredInterfacesHint');
+        const mode = getCaptureMode();
+
+        const messages = {
+            lan: 'Somente LAN: o Suricata monitora automaticamente apenas a placa definida como LAN.',
+            lan_wan: 'LAN + WAN: o Suricata monitora automaticamente as placas definidas como LAN e WAN.',
+            personalizado: 'Personalizado: escolha manualmente as interfaces abaixo. A placa de gerenciamento permanece excluída.',
+        };
+
+        if (hint) hint.textContent = messages[mode] || '';
+        if (monitoredHint) {
+            monitoredHint.textContent = mode === 'personalizado'
+                ? 'Modo personalizado ativo: marque somente as interfaces que o Suricata deve capturar.'
+                : 'Seleção automática: altere WAN/LAN acima e esta lista será atualizada imediatamente.';
         }
     }
 
     function renderInterfacesLoading() {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-        container.innerHTML = '<div class="ob-empty-state ob-empty-state--compact"><span class="ob-spinner ob-spinner--sm"></span><span>Detectando interfaces...</span></div>';
+
+        container.innerHTML =
+            '<div class="ob-empty-state ob-empty-state--compact">' +
+            '<span class="ob-spinner ob-spinner--sm"></span>' +
+            '<span>Detectando interfaces...</span>' +
+            '</div>';
     }
 
     function renderInterfacesError(message) {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-        container.innerHTML = `<div class="ob-empty-state ob-empty-state--compact"><span>${iconSvg('error')}</span><span>${escapeHtml(message)}</span></div>`;
-    }
 
-    function applySuggestedConfiguration(suggested) {
-        const cfg = normaliseObject(suggested);
-        setSelectIfAvailable('fieldWan', firstText(cfg.interface_wan, cfg.wan));
-        setSelectIfAvailable('fieldLan', firstText(cfg.interface_lan, cfg.lan));
-        setSelectIfAvailable('fieldMgmt', firstText(cfg.interface_mgmt, cfg.mgmt));
-        if (el('fieldDns') && !el('fieldDns').value) el('fieldDns').value = firstText(cfg.dns_interno, cfg.dns);
-
-        const suggestedHome = arrayOfStrings(cfg.home_net || cfg.redes_home_net);
-        if (!state.homeNet.length && suggestedHome.length) {
-            state.homeNet = suggestedHome;
-            renderHomeNetTokens();
-        }
-
-        const suggestedMonitored = arrayOfStrings(cfg.interfaces_monitoradas);
-        if (suggestedMonitored.length) {
-            state.selectedInterfaces = new Set(suggestedMonitored);
-            renderMonitoredInterfaces(state.interfaces);
-        }
-    }
-
-    function applyCaptureModeDefaults(mode) {
-        const wan = el('fieldWan');
-        const lan = el('fieldLan');
-        if (mode === 'lan' && lan?.value) {
-            state.selectedInterfaces = new Set([lan.value]);
-        } else if (mode === 'lan_wan') {
-            state.selectedInterfaces = new Set([wan?.value, lan?.value].filter(Boolean));
-        }
-        if (state.interfaces.length) renderMonitoredInterfaces(state.interfaces);
+        container.innerHTML =
+            `<div class="ob-empty-state ob-empty-state--compact">` +
+            `<span>${iconSvg('error')}</span>` +
+            `<span>${escapeHtml(message)}</span>` +
+            `</div>`;
     }
 
     function addHomeNetFromInput() {
         const input = el('fieldHomeNet');
         if (!input) return;
-        const values = input.value.split(',').map(value => value.trim()).filter(Boolean);
+
+        const values = input.value
+            .split(',')
+            .map(value => value.trim())
+            .filter(Boolean);
+
         if (!values.length) return;
 
         const invalid = values.filter(value => !isValidCidr(value));
@@ -606,9 +883,27 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        for (const value of values) {
-            if (!state.homeNet.includes(value)) state.homeNet.push(value);
+        const wanNetwork = getInterfaceNetwork(el('fieldWan')?.value || '');
+        const forbiddenWan = values
+            .map(networkFromCidr)
+            .filter(value => Boolean(wanNetwork) && value === wanNetwork);
+
+        if (forbiddenWan.length) {
+            showNetworkError(
+                `A rede da WAN (${wanNetwork}) não deve entrar no HOME_NET. ` +
+                'HOME_NET representa as redes internas protegidas.'
+            );
+            shake(input.closest('.ob-token-input') || input);
+            return;
         }
+
+        for (const value of values) {
+            const normalised = networkFromCidr(value);
+            if (normalised && !state.homeNet.includes(normalised)) {
+                state.homeNet.push(normalised);
+            }
+        }
+
         input.value = '';
         renderHomeNetTokens();
         clearNetworkError();
@@ -617,34 +912,107 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHomeNetTokens() {
         const container = el('homeNetTokens');
         if (!container) return;
+
         container.innerHTML = '';
+
         for (const network of state.homeNet) {
             const token = document.createElement('span');
             token.className = 'ob-token';
-            token.innerHTML = `<span>${escapeHtml(network)}</span><button type="button" aria-label="Remover ${escapeHtml(network)}">×</button>`;
-            token.querySelector('button')?.addEventListener('click', () => {
-                state.homeNet = state.homeNet.filter(value => value !== network);
-                renderHomeNetTokens();
-            });
+
+            const isBase = Boolean(
+                state.autoHomeNetBase &&
+                network === state.autoHomeNetBase
+            );
+
+            if (isBase) {
+                token.innerHTML =
+                    `<span>${escapeHtml(network)} · LAN</span>`;
+                token.title = 'Rede base calculada automaticamente a partir da interface LAN.';
+            } else {
+                token.innerHTML =
+                    `<span>${escapeHtml(network)}</span>` +
+                    `<button type="button" aria-label="Remover ${escapeHtml(network)}">×</button>`;
+
+                token.querySelector('button')?.addEventListener('click', () => {
+                    state.homeNet = state.homeNet.filter(value => value !== network);
+                    renderHomeNetTokens();
+                });
+            }
+
             container.appendChild(token);
         }
     }
 
     function validateNetworkForm() {
         addPendingHomeNet();
+        syncMonitoredInterfacesForMode({ preservePersonalized: true });
+
         const mode = getCaptureMode();
         const wan = el('fieldWan')?.value || '';
         const lan = el('fieldLan')?.value || '';
+        const mgmt = el('fieldMgmt')?.value || '';
         const dns = el('fieldDns')?.value.trim() || '';
         const errors = [];
 
+        if (!wan) errors.push('Selecione a interface WAN.');
         if (!lan) errors.push('Selecione a interface LAN.');
-        if (mode === 'lan_wan' && !wan) errors.push('Selecione a interface WAN.');
-        if (mode === 'lan_wan' && wan && lan && wan === lan) errors.push('WAN e LAN devem usar interfaces diferentes.');
-        if (!state.homeNet.length) errors.push('Adicione pelo menos uma rede HOME_NET.');
-        if (state.homeNet.some(value => !isValidCidr(value))) errors.push('Existe uma rede HOME_NET inválida.');
-        if (!state.selectedInterfaces.size) errors.push('Selecione pelo menos uma interface monitorada.');
-        if (dns && !isValidIpv4(dns)) errors.push('O DNS interno não é um IPv4 válido.');
+
+        if (wan && lan && wan === lan) {
+            errors.push('WAN e LAN devem usar interfaces diferentes.');
+        }
+
+        if (mgmt && (mgmt === wan || mgmt === lan)) {
+            errors.push('A interface de gerenciamento deve ser diferente da WAN e da LAN.');
+        }
+
+        if (!state.homeNet.length) {
+            errors.push('O HOME_NET precisa conter pelo menos a rede interna da LAN.');
+        }
+
+        if (state.homeNet.some(value => !isValidCidr(value))) {
+            errors.push('Existe uma rede HOME_NET inválida.');
+        }
+
+        const lanNetwork = getInterfaceNetwork(lan);
+        if (lanNetwork && !state.homeNet.includes(lanNetwork)) {
+            errors.push(`O HOME_NET precisa incluir a rede da LAN (${lanNetwork}).`);
+        }
+
+        const wanNetwork = getInterfaceNetwork(wan);
+        if (
+            wanNetwork &&
+            lanNetwork &&
+            wanNetwork !== lanNetwork &&
+            state.homeNet.includes(wanNetwork)
+        ) {
+            errors.push(`A rede da WAN (${wanNetwork}) não deve fazer parte do HOME_NET.`);
+        }
+
+        if (!state.selectedInterfaces.size) {
+            errors.push('Selecione pelo menos uma interface monitorada.');
+        }
+
+        if (mgmt && state.selectedInterfaces.has(mgmt)) {
+            errors.push('A interface de gerenciamento não pode ser monitorada.');
+        }
+
+        if (mode === 'lan' && lan && !state.selectedInterfaces.has(lan)) {
+            errors.push('No modo Somente LAN, a interface LAN precisa ser monitorada.');
+        }
+
+        if (
+            mode === 'lan_wan' &&
+            (
+                (lan && !state.selectedInterfaces.has(lan)) ||
+                (wan && !state.selectedInterfaces.has(wan))
+            )
+        ) {
+            errors.push('No modo LAN + WAN, as duas interfaces precisam ser monitoradas.');
+        }
+
+        if (dns && !isValidIpv4(dns)) {
+            errors.push('O DNS interno não é um IPv4 válido.');
+        }
 
         return { ok: errors.length === 0, errors };
     }
@@ -713,21 +1081,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.homeNet = arrayOfStrings(cfg.home_net);
         state.selectedInterfaces = new Set(arrayOfStrings(cfg.interfaces_monitoradas));
-        renderHomeNetTokens();
+        state.autoHomeNetBase = '';
 
         setValue('fieldDns', cfg.dns_interno || '');
         setValue('fieldYamlPath', cfg.yaml_path || '/etc/suricata/suricata.yaml');
         setValue('fieldEvePath', cfg.eve_path || '/var/log/suricata/eve.json');
-        if (el('fieldEtOpen')) el('fieldEtOpen').checked = cfg.instalar_et_open !== false;
-        if (el('fieldRestartServices')) el('fieldRestartServices').checked = cfg.reiniciar_servicos !== false;
+
+        if (el('fieldEtOpen')) {
+            el('fieldEtOpen').checked = cfg.instalar_et_open !== false;
+        }
+
+        if (el('fieldRestartServices')) {
+            el('fieldRestartServices').checked = cfg.reiniciar_servicos !== false;
+        }
 
         const mode = cfg.modo_captura || 'lan_wan';
-        const radio = document.querySelector(`input[name="modoCaptura"][value="${cssEscape(mode)}"]`);
+        const radio = document.querySelector(
+            `input[name="modoCaptura"][value="${cssEscape(mode)}"]`
+        );
         if (radio) radio.checked = true;
 
+        /*
+         * Antes da detecção, os selects ainda não possuem options reais.
+         * detectInterfaces() restaura esses valores depois que as placas chegam.
+         */
         setSelectIfAvailable('fieldWan', cfg.interface_wan || '');
         setSelectIfAvailable('fieldLan', cfg.interface_lan || '');
         setSelectIfAvailable('fieldMgmt', cfg.interface_mgmt || '');
+
+        if (state.interfaces.length) {
+            initialiseHomeNetBaseFromCurrentSelection();
+            syncMonitoredInterfacesForMode({ preservePersonalized: true });
+            refreshRoleOptionAvailability();
+            renderMonitoredInterfaces(state.interfaces);
+        }
+
+        renderHomeNetTokens();
+        updateCaptureModeHint();
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -1512,6 +1902,51 @@ document.addEventListener('DOMContentLoaded', () => {
     function isValidIpv4(value) {
         const parts = String(value).split('.');
         return parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+    }
+
+    function ipToUint32(ip) {
+        const parts = String(ip).split('.').map(Number);
+        if (
+            parts.length !== 4 ||
+            parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)
+        ) {
+            return null;
+        }
+
+        return (
+            ((parts[0] << 24) >>> 0) +
+            ((parts[1] << 16) >>> 0) +
+            ((parts[2] << 8) >>> 0) +
+            (parts[3] >>> 0)
+        ) >>> 0;
+    }
+
+    function uint32ToIp(value) {
+        const number = Number(value) >>> 0;
+        return [
+            (number >>> 24) & 255,
+            (number >>> 16) & 255,
+            (number >>> 8) & 255,
+            number & 255,
+        ].join('.');
+    }
+
+    function networkFromCidr(value) {
+        const raw = String(value || '').trim();
+        if (!isValidCidr(raw)) return '';
+
+        const [ip, prefixText] = raw.split('/');
+        const prefix = Number(prefixText);
+        const ipNumber = ipToUint32(ip);
+
+        if (ipNumber === null) return '';
+
+        const mask = prefix === 0
+            ? 0
+            : (0xFFFFFFFF << (32 - prefix)) >>> 0;
+
+        const network = (ipNumber & mask) >>> 0;
+        return `${uint32ToIp(network)}/${prefix}`;
     }
 
     function isValidCidr(value) {

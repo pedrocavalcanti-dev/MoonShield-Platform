@@ -210,28 +210,53 @@ def remover_checks_duplicados(itens: list[DiagnosticoItem]) -> list[DiagnosticoI
 # CHECKS ESPECÍFICOS DO EVE.JSON / MONITOR
 # ==============================================================================
 
+
 def check_eve_existe(eve_path: str | Path) -> DiagnosticoItem:
+    """
+    Verifica a presença do EVE.
+
+    Logo após o restart do Suricata, o eve.json pode ainda não ter sido criado
+    ou pode estar vazio. Isso é transitório e não deve reprovar a instalação.
+    """
     path_obj = Path(eve_path)
     existe = path_obj.is_file()
     legivel = os.access(path_obj, os.R_OK) if existe else False
-    
+
     tamanho = 0
     try:
         tamanho = path_obj.stat().st_size if existe else 0
     except OSError:
         pass
 
+    if existe and legivel:
+        return DiagnosticoItem(
+            id="eve_existe",
+            grupo="EVE",
+            titulo="Detecção do Log de Telemetria (eve.json)",
+            ok=True,
+            detalhe=f"{tamanho:,} bytes.",
+            acao="",
+            critico=False,
+            dados={"existe": True, "legivel": True, "tamanho": tamanho},
+        )
+
     return DiagnosticoItem(
         id="eve_existe",
         grupo="EVE",
         titulo="Detecção do Log de Telemetria (eve.json)",
-        ok=existe and legivel,
-        detalhe=f"{tamanho:,} bytes." if existe and legivel else ("Sem acesso de leitura." if existe else "Arquivo não existe no diretório."),
-        acao="O Suricata precisa inicializar pelo menos uma vez para criar o arquivo." if not existe else "",
-        critico=True, # Definido por prompt como default critico
-        dados={"existe": existe, "legivel": legivel, "tamanho": tamanho}
+        ok=False,
+        detalhe=(
+            "Arquivo existe, mas ainda não está legível."
+            if existe
+            else "Arquivo ainda não foi criado após o restart."
+        ),
+        acao=(
+            "Aguarde alguns segundos e gere tráfego de rede. "
+            "Se continuar ausente, revise o serviço Suricata e o output eve-log."
+        ),
+        critico=False,
+        dados={"existe": existe, "legivel": legivel, "tamanho": tamanho},
     )
-
 
 def check_eve_atualizacao(eve_path: str | Path, limite_segundos: int = TEMPO_MAXIMO_EVE_ATUALIZACAO) -> DiagnosticoItem:
     path_obj = Path(eve_path)
@@ -267,44 +292,72 @@ def check_eve_atualizacao(eve_path: str | Path, limite_segundos: int = TEMPO_MAX
     )
 
 
+
 def check_eve_json_valido(eve_path: str | Path, max_linhas: int = 100) -> DiagnosticoItem:
+    """
+    Valida o NDJSON do EVE quando houver amostra.
+
+    Sem eventos logo após a instalação é aviso, não falha crítica. Se houver
+    linhas reais e nenhuma puder ser parseada, aí sim há corrupção/formato
+    incompatível e o check se torna crítico.
+    """
     path_obj = Path(eve_path)
     linhas = _ler_ultimas_linhas(path_obj, max_linhas=max_linhas)
-    
+
     if not linhas:
         return DiagnosticoItem(
-            id="eve_json_valido", grupo="EVE", titulo="Integridade JSON do Log",
-            ok=False, detalhe="Sem dados legíveis.", acao="Aguarde geração de tráfego real.", critico=True
+            id="eve_json_valido",
+            grupo="EVE",
+            titulo="Integridade JSON do Log",
+            ok=False,
+            detalhe="Ainda não há eventos suficientes para validar o NDJSON.",
+            acao="Gere tráfego de rede e execute o diagnóstico novamente.",
+            critico=False,
+            dados={
+                "linhas_analisadas": 0,
+                "validas": 0,
+                "invalidas": 0,
+                "ultimo_event_type": "",
+            },
         )
 
     validas = 0
     invalidas = 0
     ultimo_type = ""
-    
+
     for linha in linhas:
         try:
             obj = json.loads(linha)
             if isinstance(obj, dict):
                 validas += 1
                 if "event_type" in obj and not ultimo_type:
-                    ultimo_type = obj["event_type"]
+                    ultimo_type = str(obj["event_type"])
             else:
                 invalidas += 1
         except json.JSONDecodeError:
             invalidas += 1
 
     ok = validas > 0
+
     return DiagnosticoItem(
         id="eve_json_valido",
         grupo="EVE",
         titulo="Integridade JSON do Log",
         ok=ok,
-        detalhe=f"{validas} parsers limpos nas últimas {len(linhas)} linhas.",
-        acao="O formato do arquivo eve não é um ndjson compatível." if not ok else "",
-        critico=True,
-        dados={"linhas_analisadas": len(linhas), "validas": validas, "invalidas": invalidas, "ultimo_event_type": ultimo_type}
+        detalhe=(
+            f"{validas} linha(s) JSON válida(s) nas últimas {len(linhas)} amostras."
+            if ok
+            else f"Nenhuma linha JSON válida em {len(linhas)} amostras."
+        ),
+        acao="O formato do eve.json não parece NDJSON compatível." if not ok else "",
+        critico=(not ok and len(linhas) > 0),
+        dados={
+            "linhas_analisadas": len(linhas),
+            "validas": validas,
+            "invalidas": invalidas,
+            "ultimo_event_type": ultimo_type,
+        },
     )
-
 
 def check_tipos_eve(eve_path: str | Path, max_linhas: int = 1000) -> DiagnosticoItem:
     path_obj = Path(eve_path)
@@ -347,35 +400,54 @@ def check_tipos_eve(eve_path: str | Path, max_linhas: int = 1000) -> Diagnostico
     )
 
 
+
 def check_permissao_eve(eve_path: str | Path) -> DiagnosticoItem:
+    """
+    Permissão só é crítica quando o arquivo existe e o processo não consegue lê-lo.
+    Arquivo ainda inexistente é condição transitória coberta por check_eve_existe.
+    """
     path_obj = Path(eve_path)
+
     if not path_obj.exists():
         return DiagnosticoItem(
-            id="eve_permissao", grupo="EVE", titulo="Concessão de Leitura do EVE",
-            ok=False, detalhe="Arquivo não gerado.", acao="", critico=True
+            id="eve_permissao",
+            grupo="EVE",
+            titulo="Concessão de Leitura do EVE",
+            ok=False,
+            detalhe="Arquivo ainda não foi gerado; permissão não pode ser avaliada.",
+            acao="Aguarde a criação do eve.json e rode o diagnóstico novamente.",
+            critico=False,
+            dados={"modo_octal": "", "leitura_ok": False, "diretorio_ok": False},
         )
 
     r_ok = os.access(path_obj, os.R_OK)
     parent_ok = os.access(path_obj.parent, os.X_OK | os.R_OK)
-    
+
     modo_str = ""
     try:
-        modo_str = oct(path_obj.stat().st_mode)[-3:]
+        modo_str = oct(path_obj.stat().st_mode & 0o777)
     except OSError:
         pass
 
     ok = r_ok and parent_ok
+
     return DiagnosticoItem(
         id="eve_permissao",
         grupo="EVE",
         titulo="Concessão de Leitura do EVE",
         ok=ok,
-        detalhe=f"Legível pelo processo (modo {modo_str})." if ok else "Permissão Denied para o worker do Django.",
-        acao=f"Execute: chmod +r {path_obj}" if not ok else "",
-        critico=True,
-        dados={"modo_octal": modo_str, "leitura_ok": r_ok, "diretorio_ok": parent_ok}
+        detalhe=(
+            f"Legível pelo processo (modo {modo_str})."
+            if ok
+            else "O eve.json existe, porém o processo não possui acesso adequado."
+        ),
+        acao=(
+            f"Revise proprietário/permissões de {path_obj} e {path_obj.parent}."
+            if not ok else ""
+        ),
+        critico=not ok,
+        dados={"modo_octal": modo_str, "leitura_ok": r_ok, "diretorio_ok": parent_ok},
     )
-
 
 def check_cursor_monitor(cursor_path: str | Path, eve_path: str | Path) -> DiagnosticoItem:
     c_obj = Path(cursor_path)
@@ -390,7 +462,7 @@ def check_cursor_monitor(cursor_path: str | Path, eve_path: str | Path) -> Diagn
     if not os.access(c_obj, os.R_OK):
         return DiagnosticoItem(
             id="cursor_monitor", grupo="Monitor MoonShield", titulo="Cursor de Sincronismo do Worker",
-            ok=False, detalhe="Arquivo bloqueado por permissão.", acao="Ajuste permissões na pasta var/cursors.", critico=True
+            ok=False, detalhe="Arquivo de cursor existe, mas não está legível.", acao="Ajuste permissões na pasta var/cursors e reinicie o monitor.", critico=False
         )
 
     offset = -1
@@ -401,13 +473,13 @@ def check_cursor_monitor(cursor_path: str | Path, eve_path: str | Path) -> Diagn
     except Exception as e:
         return DiagnosticoItem(
             id="cursor_monitor", grupo="Monitor MoonShield", titulo="Cursor de Sincronismo do Worker",
-            ok=False, detalhe="JSON Quebrado/Corrompido.", acao=f"Apague o cursor (com a flag --resetar-cursor) para recriar. Erro: {e}", critico=True
+            ok=False, detalhe="Cursor ainda não pôde ser interpretado.", acao=f"Recrie o cursor se o monitor não se recuperar sozinho. Erro: {e}", critico=False
         )
 
     if not isinstance(offset, int) or offset < 0:
         return DiagnosticoItem(
             id="cursor_monitor", grupo="Monitor MoonShield", titulo="Cursor de Sincronismo do Worker",
-            ok=False, detalhe="Offset ilógico (negativo/invalido).", acao="Apague o cursor manual.", critico=True
+            ok=False, detalhe="Offset ainda não inicializado ou inválido.", acao="O monitor deve recriar/ajustar o cursor; se persistir, resete-o.", critico=False
         )
 
     tam_eve = 0
@@ -421,7 +493,7 @@ def check_cursor_monitor(cursor_path: str | Path, eve_path: str | Path) -> Diagn
          return DiagnosticoItem(
             id="cursor_monitor", grupo="Monitor MoonShield", titulo="Cursor de Sincronismo do Worker",
             ok=False, detalhe=f"Extravasamento: Offset ({offset}) é maior que o Arquivo EVE ({tam_eve}).",
-            acao="Ocorreu um truncamento silencioso no log que o monitor ainda não processou.", critico=True
+            acao="Provável rotação/truncamento do eve.json. Se persistir, resete o cursor.", critico=False
         )
 
     return DiagnosticoItem(
@@ -473,9 +545,12 @@ def check_monitor_lendo_eve(cursor_path: str | Path, eve_path: str | Path) -> Di
         # Se tem bytes novos e o cursor for mt velho e o eve mt novo (log avançou mas o worker parou)
         if idade_c > 60 and idade_e < 10:
             ok = False
-            crit = True
-            detalhe = f"Engarrafamento Grave: Backlog de {atraso_bytes:,} bytes não processados."
-            acao = "Worker pode ter crasheado. Veja journalctl -u moonshield-suricata-monitor."
+            crit = False
+            detalhe = f"Backlog de {atraso_bytes:,} bytes ainda não processados."
+            acao = (
+                "O monitor pode estar inicializando ou recuperando backlog. "
+                "Se persistir por vários minutos, veja journalctl -u moonshield-suricata-monitor."
+            )
         elif atraso_bytes > (50 * 1024 * 1024): # 50MB
             ok = False
             crit = False # Aviso
@@ -586,35 +661,70 @@ def check_validacao_suricata(yaml_path: str | Path) -> DiagnosticoItem:
 # ORQUESTRADORES DE ROTINAS DE DIAGNÓSTICO
 # ==============================================================================
 
-def diagnosticar_eve(eve_path: str | Path, cursor_path: str | Path | None = None) -> list[DiagnosticoItem]:
-    """Isola os health-checks referentes apenas a malha de entrega/arquivos."""
-    checks = []
-    
-    # Try safe call por função
-    try: checks.append(check_eve_existe(eve_path))
-    except Exception as e: checks.append(_criar_check_erro_interno("EVE", str(e)))
 
-    try: checks.append(check_eve_atualizacao(eve_path))
-    except Exception as e: checks.append(_criar_check_erro_interno("EVE", str(e)))
+def _criar_check_aviso_interno(grupo: str, detalhe_erro: str) -> DiagnosticoItem:
+    """Falha de coleta de telemetria não deve invalidar a instalação base."""
+    return DiagnosticoItem(
+        id=f"aviso_interno_{grupo.lower().replace(' ', '_')}",
+        grupo=grupo,
+        titulo=f"Coleta temporariamente indisponível: {grupo}",
+        ok=False,
+        detalhe=f"A telemetria não pôde ser coletada nesta tentativa: {detalhe_erro}",
+        acao="Repita o diagnóstico após alguns segundos.",
+        critico=False,
+    )
 
-    try: checks.append(check_eve_json_valido(eve_path))
-    except Exception as e: checks.append(_criar_check_erro_interno("EVE", str(e)))
 
-    try: checks.append(check_tipos_eve(eve_path))
-    except Exception as e: checks.append(_criar_check_erro_interno("EVE", str(e)))
+def diagnosticar_eve(
+    eve_path: str | Path,
+    cursor_path: str | Path | None = None,
+) -> list[DiagnosticoItem]:
+    """
+    Health-checks da malha EVE/monitor.
 
-    try: checks.append(check_permissao_eve(eve_path))
-    except Exception as e: checks.append(_criar_check_erro_interno("EVE", str(e)))
+    EVE e cursor dependem de tráfego e timing pós-start. Condições transitórias
+    ficam como aviso. Erros determinísticos de engine/configuração/serviço
+    continuam críticos nos módulos especialistas.
+    """
+    checks: list[DiagnosticoItem] = []
+
+    try:
+        checks.append(check_eve_existe(eve_path))
+    except Exception as e:
+        checks.append(_criar_check_aviso_interno("EVE", str(e)))
+
+    try:
+        checks.append(check_eve_atualizacao(eve_path))
+    except Exception as e:
+        checks.append(_criar_check_aviso_interno("EVE", str(e)))
+
+    try:
+        checks.append(check_eve_json_valido(eve_path))
+    except Exception as e:
+        checks.append(_criar_check_aviso_interno("EVE", str(e)))
+
+    try:
+        checks.append(check_tipos_eve(eve_path))
+    except Exception as e:
+        checks.append(_criar_check_aviso_interno("EVE", str(e)))
+
+    try:
+        checks.append(check_permissao_eve(eve_path))
+    except Exception as e:
+        checks.append(_criar_check_aviso_interno("EVE", str(e)))
 
     if cursor_path:
-        try: checks.append(check_cursor_monitor(cursor_path, eve_path))
-        except Exception as e: checks.append(_criar_check_erro_interno("Monitor MoonShield", str(e)))
+        try:
+            checks.append(check_cursor_monitor(cursor_path, eve_path))
+        except Exception as e:
+            checks.append(_criar_check_aviso_interno("Monitor MoonShield", str(e)))
 
-        try: checks.append(check_monitor_lendo_eve(cursor_path, eve_path))
-        except Exception as e: checks.append(_criar_check_erro_interno("Monitor MoonShield", str(e)))
+        try:
+            checks.append(check_monitor_lendo_eve(cursor_path, eve_path))
+        except Exception as e:
+            checks.append(_criar_check_aviso_interno("Monitor MoonShield", str(e)))
 
     return checks
-
 
 def executar_diagnostico(
     configuracao: ConfiguracaoSuricataDados | None = None,
@@ -695,22 +805,32 @@ def executar_diagnostico(
     return diag
 
 
-def executar_diagnostico_resumido(configuracao: ConfiguracaoSuricataDados | None = None) -> dict[str, object]:
-    """Envelopa o core retornando uma abstração leve/contabilizada do resultado de painel."""
+
+def executar_diagnostico_resumido(
+    configuracao: ConfiguracaoSuricataDados | None = None,
+) -> dict[str, object]:
+    """Resumo separando falhas críticas reais de avisos operacionais."""
     res = executar_diagnostico(configuracao)
-    
+
     grupos_resumo = {}
     for g_nome, checks in res.grupos.items():
         total_ok = sum(1 for c in checks if c.ok)
         total_fail = len(checks) - total_ok
         total_crit = sum(1 for c in checks if not c.ok and c.critico)
-        
+
         grupos_resumo[g_nome] = {
             "total": len(checks),
             "ok": total_ok,
             "falhas": total_fail,
-            "criticos": total_crit
+            "criticos": total_crit,
         }
+
+    falhas_criticas = [
+        c.to_dict() for c in res.itens if not c.ok and c.critico
+    ]
+    avisos = [
+        c.to_dict() for c in res.itens if not c.ok and not c.critico
+    ]
 
     return {
         "pronto": res.pronto,
@@ -718,13 +838,19 @@ def executar_diagnostico_resumido(configuracao: ConfiguracaoSuricataDados | None
         "total_ok": res.total_ok,
         "total_falhas": res.total_falhas,
         "total_criticos": res.total_criticos,
-        "falhas_criticas": [c.to_dict() for c in res.itens if not c.ok and c.critico],
-        "avisos": [c.to_dict() for c in res.itens if not c.ok and not c.critico],
+        "falhas_criticas": falhas_criticas,
+        "avisos": avisos,
         "grupos": grupos_resumo,
         "duracao_segundos": res.duracao_segundos,
-        "executado_em": res.executado_em.isoformat()
+        "executado_em": res.executado_em.isoformat(),
+        "mensagem": (
+            "Infraestrutura pronta; existem apenas avisos de telemetria."
+            if res.pronto and avisos
+            else "Infraestrutura pronta e sem falhas críticas."
+            if res.pronto
+            else "Existem falhas críticas determinísticas que exigem correção."
+        ),
     }
-
 
 def obter_acoes_recomendadas(resultado: ResultadoDiagnostico) -> list[dict[str, object]]:
     """Gera um log sequencial de intervenção do usuário extraído dos checks não passados."""

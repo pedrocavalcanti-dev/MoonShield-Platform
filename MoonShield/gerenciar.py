@@ -32,7 +32,7 @@ def _bootstrap_worker_suricata() -> None:
         )
 
         base_dir = Path(__file__).resolve().parent
-        python_executavel = Path(sys.executable).resolve()
+        python_executavel = Path(sys.executable)
         gerenciar_path = Path(__file__).resolve()
 
         print(

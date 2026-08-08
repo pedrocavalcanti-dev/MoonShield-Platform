@@ -7,8 +7,6 @@ import json
 import logging
 import os
 from pathlib import Path
-from datetime import datetime
-
 from django.utils import timezone as django_timezone
 
 from .tipos import (
@@ -272,156 +270,6 @@ def _atualizar_indices_apt() -> ResultadoEtapa:
 
 
 
-def _ler_os_release() -> dict[str, str]:
-    """Lê /etc/os-release de forma segura."""
-    dados: dict[str, str] = {}
-    caminho = Path("/etc/os-release")
-    if not caminho.is_file():
-        return dados
-    try:
-        for linha in caminho.read_text(encoding="utf-8", errors="replace").splitlines():
-            linha = linha.strip()
-            if not linha or linha.startswith("#") or "=" not in linha:
-                continue
-            chave, valor = linha.split("=", 1)
-            dados[chave.strip()] = valor.strip().strip('"').strip("'")
-    except OSError:
-        logger.exception("Não foi possível ler /etc/os-release.")
-    return dados
-
-
-def _obter_candidato_apt(pacote: str) -> tuple[str, ResultadoEtapa]:
-    res = _criar_resultado_etapa(
-        "consultar_candidate_apt",
-        f"Consultando Candidate APT para {pacote}.",
-    )
-    cmd = executar_comando(
-        ["apt-cache", "policy", pacote],
-        timeout=30.0,
-        env={"DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C"},
-    )
-    res.dados["comando"] = cmd.to_dict()
-    candidato = ""
-    texto_saida = "\n".join(parte for parte in (cmd.stdout, cmd.stderr) if parte)
-    for linha in texto_saida.splitlines():
-        linha_limpa = linha.strip()
-        if not linha_limpa.lower().startswith("candidate:"):
-            continue
-        valor = linha_limpa.split(":", 1)[1].strip()
-        if valor and valor.lower() != "(none)":
-            candidato = valor
-        break
-    res.dados["candidate"] = candidato
-    if candidato:
-        res.finalizar_sucesso(f"Candidate APT encontrado: {candidato}")
-    else:
-        res.finalizar_erro(
-            f"O pacote {pacote} está sem Candidate no APT.",
-            erro=texto_saida.strip() or "Candidate: (none)",
-        )
-    return candidato, res
-
-
-def _atualizar_indice_apt_fonte(arquivo_source: str | Path) -> ResultadoEtapa:
-    res = _criar_resultado_etapa(
-        "atualizar_indice_repositorio_suricata",
-        "Atualizando índice oficial usado pelo Suricata.",
-    )
-    source = Path(arquivo_source)
-    cmd = executar_comando(
-        [
-            "apt-get",
-            "-o", f"Dir::Etc::sourcelist={source}",
-            "-o", "Dir::Etc::sourceparts=-",
-            "-o", "APT::Get::List-Cleanup=0",
-            "-o", "Acquire::Retries=3",
-            "-o", "Acquire::http::Timeout=20",
-            "-o", "Acquire::https::Timeout=20",
-            "-o", "Acquire::ForceIPv4=true",
-            "update",
-        ],
-        timeout=180.0,
-        env={"DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C"},
-    )
-    res.dados["arquivo_source"] = str(source)
-    res.dados["comando"] = cmd.to_dict()
-    if cmd.sucesso:
-        res.finalizar_sucesso("Índice oficial do Suricata atualizado.")
-    else:
-        motivo = cmd.erro or cmd.stderr or cmd.stdout or cmd.saida
-        res.finalizar_erro(
-            "Falha ao atualizar o repositório oficial do Suricata.",
-            erro=motivo,
-        )
-    return res
-
-
-def _garantir_repositorio_suricata_debian() -> ResultadoEtapa:
-    res = _criar_resultado_etapa(
-        "preparar_repositorio_suricata",
-        "Preparando repositório oficial Debian para o Suricata.",
-    )
-    os_release = _ler_os_release()
-    distro = os_release.get("ID", "").strip().lower()
-    codename = (
-        os_release.get("VERSION_CODENAME", "").strip()
-        or os_release.get("DEBIAN_CODENAME", "").strip()
-    )
-    res.dados["distribuicao"] = distro
-    res.dados["codename"] = codename
-    if distro != "debian":
-        res.finalizar_erro(
-            "Fallback automático de repositório é suportado apenas em Debian.",
-            erro=f"Distribuição detectada: {distro or 'desconhecida'}",
-        )
-        return res
-    if not codename:
-        res.finalizar_erro("Não foi possível identificar o codename do Debian.")
-        return res
-
-    destino = Path("/etc/apt/sources.list.d/moonshield-suricata.list")
-    conteudo = f"deb http://deb.debian.org/debian {codename} main\n"
-
-    try:
-        destino.parent.mkdir(parents=True, exist_ok=True)
-        atual = destino.read_text(encoding="utf-8", errors="replace") if destino.exists() else ""
-        if atual != conteudo:
-            temporario = destino.with_name(f".{destino.name}.moonshield.{os.getpid()}.tmp")
-            temporario.write_text(conteudo, encoding="utf-8")
-            os.chmod(temporario, 0o644)
-            os.replace(temporario, destino)
-        res.dados["arquivo"] = str(destino)
-        res.dados["repositorio"] = conteudo.strip()
-    except OSError as exc:
-        logger.exception("Não foi possível preparar a fonte APT dedicada.")
-        res.finalizar_erro(
-            "Falha ao gravar o repositório oficial Debian.",
-            erro=str(exc),
-        )
-        return res
-
-    atualizacao = _atualizar_indice_apt_fonte(destino)
-    res.dados["atualizacao"] = atualizacao.to_dict()
-    if not atualizacao.sucesso:
-        res.finalizar_erro(
-            "O repositório oficial foi criado, mas não pôde ser atualizado.",
-            erro=atualizacao.erro,
-        )
-        return res
-
-    candidato, diagnostico = _obter_candidato_apt(PACOTE_SURICATA)
-    res.dados["candidate"] = diagnostico.to_dict()
-    if not candidato:
-        res.finalizar_erro(
-            "O repositório oficial foi atualizado, mas o Suricata continua sem Candidate.",
-            erro=diagnostico.erro or "Candidate: (none)",
-        )
-        return res
-
-    res.dados["candidate_encontrado"] = candidato
-    res.finalizar_sucesso(f"Repositório pronto. Candidate encontrado: {candidato}")
-    return res
-
 
 # ==============================================================================
 # ORQUESTRAÇÕES DE INFRAESTRUTURA
@@ -430,11 +278,27 @@ def _garantir_repositorio_suricata_debian() -> ResultadoEtapa:
 def garantir_suricata_instalado(
     progresso: ProgressoTarefa | None = None,
 ) -> ResultadoEtapa:
-    """Instala e valida o Suricata automaticamente."""
+    """
+    Garante a presença do Suricata seguindo a lógica simples do Sensor v2.0.
+
+    Fluxo:
+    1. Se o binário já existe, reutiliza a instalação atual.
+    2. Valida Linux e privilégios root.
+    3. Detecta o gerenciador de pacotes.
+    4. Executa diretamente o comando oficial de instalação.
+    5. Em APT, se a primeira tentativa falhar, atualiza os índices uma única vez
+       e repete exatamente a instalação.
+    6. Confirma que o binário realmente ficou disponível no PATH.
+
+    Não cria repositórios, não depende de VERSION_CODENAME e não bloqueia a
+    instalação por `apt-cache policy`/Candidate.
+    """
     etapa_nome = "instalar_suricata"
 
     _atualizar_progresso(
-        progresso, 15, etapa_nome,
+        progresso,
+        15,
+        etapa_nome,
         "Verificando instalação base do Suricata.",
     )
 
@@ -443,19 +307,25 @@ def garantir_suricata_instalado(
         "Gerenciando pacote core do Suricata.",
     )
 
+    # 1. Instalação já existente: comportamento idempotente.
     if suricata_instalado():
         res_versao = obter_versao_suricata()
         res.dados["versao"] = res_versao.dados.get("versao", "")
+        res.adicionar_log(
+            "Suricata já está instalado. Reutilizando instalação existente.",
+            NivelLog.SUCESSO,
+        )
         res.finalizar_sucesso(
             "Binário do Suricata já está presente no sistema."
         )
         return res
 
+    # 2. Ambiente.
     res_linux = verificar_linux()
     if not res_linux.sucesso:
         res.finalizar_erro(
             "A instalação automática só atua em servidores Linux.",
-            erro=res_linux.erro,
+            erro=res_linux.erro or res_linux.mensagem,
         )
         return res
 
@@ -463,10 +333,11 @@ def garantir_suricata_instalado(
     if not res_root.sucesso:
         res.finalizar_erro(
             "Instalação do pacote requer privilégio administrativo.",
-            erro=res_root.erro,
+            erro=res_root.erro or res_root.mensagem,
         )
         return res
 
+    # 3. Gerenciador e comando oficial.
     gerenciador = detectar_gerenciador_pacotes()
     if not gerenciador:
         res.finalizar_erro(
@@ -474,9 +345,14 @@ def garantir_suricata_instalado(
         )
         return res
 
-    comando_base = obter_comando_instalacao(PACOTE_SURICATA, gerenciador)
+    comando_base = obter_comando_instalacao(
+        PACOTE_SURICATA,
+        gerenciador,
+    )
     if not comando_base:
-        res.finalizar_erro("Impossível montar instrução de pacote segura.")
+        res.finalizar_erro(
+            "Impossível montar instrução segura para instalar o Suricata."
+        )
         return res
 
     ambiente_pacotes = {
@@ -484,81 +360,64 @@ def garantir_suricata_instalado(
         "LC_ALL": "C",
     }
 
-    if gerenciador in {"apt", "apt-get"}:
+    # 4. Primeira tentativa: igual ao instalador antigo.
+    _atualizar_progresso(
+        progresso,
+        18,
+        etapa_nome,
+        f"Instalando Suricata via {gerenciador}...",
+    )
+    res.adicionar_log(
+        f"Executando instalação via {gerenciador}: {' '.join(comando_base)}",
+        NivelLog.INFO,
+    )
+
+    resultado_cmd = executar_comando(
+        comando_base,
+        timeout=TIMEOUT_INSTALACAO_SURICATA,
+        env=ambiente_pacotes,
+    )
+    res.dados["primeira_tentativa"] = resultado_cmd.to_dict()
+
+    # 5. No Debian/APT, uma falha pode ser apenas índice desatualizado.
+    #    Fazemos UMA atualização e repetimos o mesmo install, sem criar sources.
+    if (
+        not resultado_cmd.sucesso
+        and gerenciador in {"apt", "apt-get"}
+    ):
         _atualizar_progresso(
-            progresso, 17, "atualizar_indices_pacotes",
-            "Atualizando catálogo APT...",
+            progresso,
+            18,
+            "atualizar_indices_pacotes",
+            "Primeira tentativa falhou. Atualizando catálogo APT e tentando novamente...",
+            NivelLog.AVISO,
+        )
+        res.adicionar_log(
+            "Primeira instalação via APT falhou; executando apt-get update uma única vez.",
+            NivelLog.AVISO,
         )
 
         res_indices = _atualizar_indices_apt()
         res.dados["atualizar_indices"] = res_indices.to_dict()
 
-        candidato, diag_candidate = _obter_candidato_apt(PACOTE_SURICATA)
-        res.dados["candidate_inicial"] = diag_candidate.to_dict()
-
-        if not candidato:
+        if res_indices.sucesso:
             _atualizar_progresso(
-                progresso, 17, "preparar_repositorio_suricata",
-                "Suricata sem Candidate. Preparando fonte oficial Debian isolada...",
-                NivelLog.AVISO,
+                progresso,
+                18,
+                etapa_nome,
+                "Repetindo instalação do Suricata após atualizar o APT...",
             )
-
-            res_repo = _garantir_repositorio_suricata_debian()
-            res.dados["repositorio_fallback"] = res_repo.to_dict()
-
-            if not res_repo.sucesso:
-                res.adicionar_log(
-                    res_repo.erro or res_repo.mensagem,
-                    NivelLog.ERRO,
-                )
-                res.finalizar_erro(
-                    "Não foi possível disponibilizar o pacote Suricata no APT.",
-                    erro=res_repo.erro or res_repo.mensagem,
-                )
-                return res
-
-            candidato = str(
-                res_repo.dados.get("candidate_encontrado", "")
-            ).strip()
-
-        if not candidato:
-            res.finalizar_erro(
-                "APT preparado, porém nenhum Candidate do Suricata foi encontrado.",
-                erro="Candidate: (none)",
+            resultado_cmd = executar_comando(
+                comando_base,
+                timeout=TIMEOUT_INSTALACAO_SURICATA,
+                env=ambiente_pacotes,
             )
-            return res
-
-        res.dados["candidate_final"] = candidato
-
-    _atualizar_progresso(
-        progresso, 18, etapa_nome,
-        f"Instalando via {gerenciador}...",
-    )
-
-    res.adicionar_log(
-        "Executando gerenciador de pacotes.",
-        NivelLog.INFO,
-    )
-
-    comando_instalacao = list(comando_base)
-
-    if gerenciador in {"apt", "apt-get"}:
-        comando_instalacao = [
-            "apt-get",
-            "-o", "Acquire::Retries=3",
-            "-o", "Acquire::http::Timeout=30",
-            "-o", "Acquire::https::Timeout=30",
-            "-o", "Acquire::ForceIPv4=true",
-            "install",
-            "-y",
-            PACOTE_SURICATA,
-        ]
-
-    resultado_cmd = executar_comando(
-        comando_instalacao,
-        timeout=TIMEOUT_INSTALACAO_SURICATA,
-        env=ambiente_pacotes,
-    )
+            res.dados["segunda_tentativa"] = resultado_cmd.to_dict()
+        else:
+            res.adicionar_log(
+                "apt-get update também falhou; não serão alterados repositórios automaticamente.",
+                NivelLog.ERRO,
+            )
 
     res.dados["comando"] = resultado_cmd.to_dict()
 
@@ -568,34 +427,36 @@ def garantir_suricata_instalado(
             or resultado_cmd.stderr
             or resultado_cmd.stdout
             or resultado_cmd.saida
+            or "O gerenciador de pacotes retornou falha sem mensagem adicional."
         )
         res.adicionar_log(
-            f"Falha técnica do gerenciador: {motivo}",
+            f"Falha real do gerenciador de pacotes: {motivo}",
             NivelLog.ERRO,
         )
         res.finalizar_erro(
-            "Instalador do sistema falhou ao prover o binário do Suricata.",
+            "Falha ao instalar o Suricata pelo gerenciador de pacotes do sistema.",
             erro=motivo,
         )
         return res
 
+    # 6. Validação final exatamente como no Sensor v2.0.
     if not suricata_instalado():
         res.adicionar_log(
-            "APT reportou sucesso, mas o comando 'suricata' não foi encontrado no PATH.",
+            "O gerenciador retornou sucesso, mas o binário 'suricata' não foi encontrado no PATH.",
             NivelLog.ERRO,
         )
         res.finalizar_erro(
-            "Pacote instalado, porém o binário não é detectável."
+            "Binário do Suricata não foi encontrado após a instalação."
         )
         return res
 
     res_versao = obter_versao_suricata()
     res.dados["versao"] = res_versao.dados.get(
-        "versao", "Desconhecido"
+        "versao",
+        "Desconhecido",
     )
-
     res.adicionar_log(
-        f"Suricata instalado: {res.dados['versao']}.",
+        f"Suricata instalado com sucesso: {res.dados['versao']}.",
         NivelLog.SUCESSO,
     )
     res.finalizar_sucesso(

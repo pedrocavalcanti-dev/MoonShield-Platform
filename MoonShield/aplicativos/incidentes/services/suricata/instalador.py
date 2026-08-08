@@ -1,12 +1,21 @@
 """
 Orquestrador central de instalação, configuração e manutenção do ciclo de vida do Suricata.
 Não contém lógicas de SO diretas, atua como coordenador de etapas dos módulos especialistas.
+
+v2 — Instalação do pacote Suricata simplificada (removida a lógica de
+Candidate/repositório dedicado que travava a instalação em Debian testing/sid).
+Agora segue a mesma filosofia do Sensor v2.0: se o binário não existe,
+tenta `apt-get update` (melhor esforço, não bloqueia) e depois
+`apt-get install -y suricata` direto. Se falhar, o erro REAL do apt
+é exposto no log, em vez de abortar silenciosamente numa etapa extra.
 """
 
 import json
 import logging
 import os
 from pathlib import Path
+from datetime import datetime
+
 from django.utils import timezone as django_timezone
 
 from .tipos import (
@@ -146,17 +155,17 @@ def _consolidar_resultados(
 ) -> ResultadoEtapa:
     """Une os vereditos de várias etapas num DTO pai para a View/API."""
     res_final = _criar_resultado_etapa(etapa_principal, "Consolidando...")
-    
+
     houve_erro = False
     falhas_nomes = []
-    
+
     dados_compilados = {}
     for sub_etapa, sub_res in resultados.items():
         dados_compilados[sub_etapa] = sub_res.to_dict()
         if not sub_res.sucesso:
             houve_erro = True
             falhas_nomes.append(sub_etapa)
-            
+
     res_final.dados["etapas"] = dados_compilados
     if avisos:
         res_final.dados["avisos"] = avisos
@@ -170,7 +179,6 @@ def _consolidar_resultados(
         res_final.finalizar_sucesso(mensagem=mensagem_sucesso)
 
     return res_final
-
 
 
 def _preparar_runtime_suricata(
@@ -242,35 +250,6 @@ def _preparar_runtime_suricata(
     return res
 
 
-def _atualizar_indices_apt() -> ResultadoEtapa:
-    """Atualiza os índices APT em uma instalação Debian nova."""
-    res = _criar_resultado_etapa(
-        "atualizar_indices_pacotes",
-        "Atualizando catálogo APT.",
-    )
-    cmd = executar_comando(
-        ["apt-get", "update"],
-        timeout=TIMEOUT_ATUALIZAR_INDICES,
-        env={
-            "DEBIAN_FRONTEND": "noninteractive",
-            "LC_ALL": "C",
-        },
-    )
-    res.dados["comando"] = cmd.to_dict()
-
-    if cmd.sucesso:
-        res.finalizar_sucesso("Catálogo APT atualizado.")
-    else:
-        res.finalizar_erro(
-            "Falha ao atualizar catálogo APT.",
-            erro=cmd.erro or cmd.saida,
-        )
-
-    return res
-
-
-
-
 # ==============================================================================
 # ORQUESTRAÇÕES DE INFRAESTRUTURA
 # ==============================================================================
@@ -279,26 +258,22 @@ def garantir_suricata_instalado(
     progresso: ProgressoTarefa | None = None,
 ) -> ResultadoEtapa:
     """
-    Garante a presença do Suricata seguindo a lógica simples do Sensor v2.0.
+    Instala e valida o Suricata automaticamente.
 
-    Fluxo:
-    1. Se o binário já existe, reutiliza a instalação atual.
-    2. Valida Linux e privilégios root.
-    3. Detecta o gerenciador de pacotes.
-    4. Executa diretamente o comando oficial de instalação.
-    5. Em APT, se a primeira tentativa falhar, atualiza os índices uma única vez
-       e repete exatamente a instalação.
-    6. Confirma que o binário realmente ficou disponível no PATH.
+    Lógica simplificada (igual ao Sensor v2.0):
+        binário já existe? -> segue
+        senão -> apt-get update (melhor esforço, não bloqueia)
+              -> apt-get install -y suricata
+              -> valida binário no PATH
 
-    Não cria repositórios, não depende de VERSION_CODENAME e não bloqueia a
-    instalação por `apt-cache policy`/Candidate.
+    Não há mais checagem de "Candidate" nem criação de repositório
+    dedicado — se o apt-get install falhar, o erro REAL retornado pelo
+    próprio apt aparece no log da instalação.
     """
     etapa_nome = "instalar_suricata"
 
     _atualizar_progresso(
-        progresso,
-        15,
-        etapa_nome,
+        progresso, 15, etapa_nome,
         "Verificando instalação base do Suricata.",
     )
 
@@ -307,25 +282,19 @@ def garantir_suricata_instalado(
         "Gerenciando pacote core do Suricata.",
     )
 
-    # 1. Instalação já existente: comportamento idempotente.
     if suricata_instalado():
         res_versao = obter_versao_suricata()
         res.dados["versao"] = res_versao.dados.get("versao", "")
-        res.adicionar_log(
-            "Suricata já está instalado. Reutilizando instalação existente.",
-            NivelLog.SUCESSO,
-        )
         res.finalizar_sucesso(
             "Binário do Suricata já está presente no sistema."
         )
         return res
 
-    # 2. Ambiente.
     res_linux = verificar_linux()
     if not res_linux.sucesso:
         res.finalizar_erro(
             "A instalação automática só atua em servidores Linux.",
-            erro=res_linux.erro or res_linux.mensagem,
+            erro=res_linux.erro,
         )
         return res
 
@@ -333,11 +302,10 @@ def garantir_suricata_instalado(
     if not res_root.sucesso:
         res.finalizar_erro(
             "Instalação do pacote requer privilégio administrativo.",
-            erro=res_root.erro or res_root.mensagem,
+            erro=res_root.erro,
         )
         return res
 
-    # 3. Gerenciador e comando oficial.
     gerenciador = detectar_gerenciador_pacotes()
     if not gerenciador:
         res.finalizar_erro(
@@ -345,14 +313,9 @@ def garantir_suricata_instalado(
         )
         return res
 
-    comando_base = obter_comando_instalacao(
-        PACOTE_SURICATA,
-        gerenciador,
-    )
+    comando_base = obter_comando_instalacao(PACOTE_SURICATA, gerenciador)
     if not comando_base:
-        res.finalizar_erro(
-            "Impossível montar instrução segura para instalar o Suricata."
-        )
+        res.finalizar_erro("Impossível montar instrução de pacote segura.")
         return res
 
     ambiente_pacotes = {
@@ -360,64 +323,63 @@ def garantir_suricata_instalado(
         "LC_ALL": "C",
     }
 
-    # 4. Primeira tentativa: igual ao instalador antigo.
+    # Atualiza os índices como melhor esforço — se falhar, não bloqueia a
+    # instalação (o apt-get install seguinte pode funcionar com o cache
+    # que já existir em disco).
+    if gerenciador in {"apt", "apt-get"}:
+        _atualizar_progresso(
+            progresso, 17, "atualizar_indices_pacotes",
+            "Atualizando catálogo APT...",
+        )
+
+        cmd_update = executar_comando(
+            ["apt-get", "update"],
+            timeout=TIMEOUT_ATUALIZAR_INDICES,
+            env=ambiente_pacotes,
+        )
+        res.dados["atualizar_indices"] = cmd_update.to_dict()
+
+        if not cmd_update.sucesso:
+            motivo_update = (
+                cmd_update.erro
+                or cmd_update.stderr
+                or cmd_update.stdout
+                or cmd_update.saida
+            )
+            res.adicionar_log(
+                f"apt-get update retornou erro, seguindo mesmo assim: {motivo_update}",
+                NivelLog.AVISO,
+            )
+
     _atualizar_progresso(
-        progresso,
-        18,
-        etapa_nome,
-        f"Instalando Suricata via {gerenciador}...",
+        progresso, 18, etapa_nome,
+        f"Instalando via {gerenciador}...",
     )
+
     res.adicionar_log(
-        f"Executando instalação via {gerenciador}: {' '.join(comando_base)}",
+        "Executando gerenciador de pacotes.",
         NivelLog.INFO,
     )
 
+    comando_instalacao = list(comando_base)
+
+    if gerenciador in {"apt", "apt-get"}:
+        comando_instalacao = [
+            "apt-get",
+            "-o", "Acquire::Retries=3",
+            "-o", "Acquire::http::Timeout=30",
+            "-o", "Acquire::https::Timeout=30",
+            "-o", "Acquire::ForceIPv4=true",
+            "install",
+            "-y",
+            PACOTE_SURICATA,
+        ]
+
     resultado_cmd = executar_comando(
-        comando_base,
+        comando_instalacao,
         timeout=TIMEOUT_INSTALACAO_SURICATA,
         env=ambiente_pacotes,
     )
-    res.dados["primeira_tentativa"] = resultado_cmd.to_dict()
-
-    # 5. No Debian/APT, uma falha pode ser apenas índice desatualizado.
-    #    Fazemos UMA atualização e repetimos o mesmo install, sem criar sources.
-    if (
-        not resultado_cmd.sucesso
-        and gerenciador in {"apt", "apt-get"}
-    ):
-        _atualizar_progresso(
-            progresso,
-            18,
-            "atualizar_indices_pacotes",
-            "Primeira tentativa falhou. Atualizando catálogo APT e tentando novamente...",
-            NivelLog.AVISO,
-        )
-        res.adicionar_log(
-            "Primeira instalação via APT falhou; executando apt-get update uma única vez.",
-            NivelLog.AVISO,
-        )
-
-        res_indices = _atualizar_indices_apt()
-        res.dados["atualizar_indices"] = res_indices.to_dict()
-
-        if res_indices.sucesso:
-            _atualizar_progresso(
-                progresso,
-                18,
-                etapa_nome,
-                "Repetindo instalação do Suricata após atualizar o APT...",
-            )
-            resultado_cmd = executar_comando(
-                comando_base,
-                timeout=TIMEOUT_INSTALACAO_SURICATA,
-                env=ambiente_pacotes,
-            )
-            res.dados["segunda_tentativa"] = resultado_cmd.to_dict()
-        else:
-            res.adicionar_log(
-                "apt-get update também falhou; não serão alterados repositórios automaticamente.",
-                NivelLog.ERRO,
-            )
 
     res.dados["comando"] = resultado_cmd.to_dict()
 
@@ -427,36 +389,34 @@ def garantir_suricata_instalado(
             or resultado_cmd.stderr
             or resultado_cmd.stdout
             or resultado_cmd.saida
-            or "O gerenciador de pacotes retornou falha sem mensagem adicional."
         )
         res.adicionar_log(
-            f"Falha real do gerenciador de pacotes: {motivo}",
+            f"Falha técnica do gerenciador: {motivo}",
             NivelLog.ERRO,
         )
         res.finalizar_erro(
-            "Falha ao instalar o Suricata pelo gerenciador de pacotes do sistema.",
+            "Instalador do sistema falhou ao prover o binário do Suricata.",
             erro=motivo,
         )
         return res
 
-    # 6. Validação final exatamente como no Sensor v2.0.
     if not suricata_instalado():
         res.adicionar_log(
-            "O gerenciador retornou sucesso, mas o binário 'suricata' não foi encontrado no PATH.",
+            "APT reportou sucesso, mas o comando 'suricata' não foi encontrado no PATH.",
             NivelLog.ERRO,
         )
         res.finalizar_erro(
-            "Binário do Suricata não foi encontrado após a instalação."
+            "Pacote instalado, porém o binário não é detectável."
         )
         return res
 
     res_versao = obter_versao_suricata()
     res.dados["versao"] = res_versao.dados.get(
-        "versao",
-        "Desconhecido",
+        "versao", "Desconhecido"
     )
+
     res.adicionar_log(
-        f"Suricata instalado com sucesso: {res.dados['versao']}.",
+        f"Suricata instalado: {res.dados['versao']}.",
         NivelLog.SUCESSO,
     )
     res.finalizar_sucesso(
@@ -472,11 +432,11 @@ def garantir_suricata_instalado(
 def preparar_configuracao_instalacao(configuracao: ConfiguracaoSuricataDados | None = None) -> tuple[ConfiguracaoSuricataDados | None, list[str]]:
     """Resolve os preenchimentos em falta gerando uma recomendação inteligente."""
     erros = []
-    
+
     if configuracao is not None:
         erros = configuracao.validar()
         return configuracao, erros
-        
+
     try:
         topo = obter_topologia_detectada(incluir_virtuais=True)
         config_sugerida = montar_configuracao_sugerida(topo)
@@ -496,7 +456,7 @@ def validar_pre_requisitos(configuracao: ConfiguracaoSuricataDados) -> Resultado
     res_lin = verificar_linux()
     if not res_lin.sucesso:
         erros.append(res_lin.mensagem)
-        
+
     res_root = verificar_privilegios()
     if not res_root.sucesso:
         erros.append(res_root.mensagem)
@@ -522,7 +482,7 @@ def validar_pre_requisitos(configuracao: ConfiguracaoSuricataDados) -> Resultado
         res.finalizar_erro("Validação inicial não aprovou o design técnico submetido.", erro="; ".join(erros[:2]))
     else:
         res.finalizar_sucesso("Ambiente de sistema e variáveis aprovados para deploy.")
-        
+
     return res
 
 
@@ -543,7 +503,7 @@ def executar_instalacao(
     Abortivo rápido em checkpoints críticos, permissivo em blocos como Update ET-Open.
     """
     _atualizar_progresso(progresso, 0, "iniciando", "Start do Roteiro Orquestrador de Instalação")
-    
+
     etapas_rodadas: dict[str, ResultadoEtapa] = {}
     avisos_globais: list[str] = []
 
@@ -597,7 +557,7 @@ def executar_instalacao(
         _atualizar_progresso(progresso, 25, "instalar_suricata_update", "Acoplando gestor de regras comunitário...")
         res_suri_up = _executar_etapa_segura("instalar_suricata_update", instalar_suricata_update)
         etapas_rodadas["instalar_suricata_update"] = res_suri_up
-        
+
         if res_suri_up.sucesso:
             _atualizar_progresso(progresso, 35, "atualizar_et_open", "Fazendo download massivo da rede ET...")
             res_et = _executar_etapa_segura("atualizar_et_open", atualizar_et_open, habilitar_fonte=True)
@@ -609,7 +569,7 @@ def executar_instalacao(
 
     # 4. Topologia Extra / Dummy checkpoint
     _atualizar_progresso(progresso, 45, "validar_topologia", "Inspecionando compatibilidade da topologia do cfg no hardware...")
-    
+
     # 5. Assinaturas Proprietary (MoonShield Rules)
     _atualizar_progresso(progresso, 55, "copiar_regras_moonshield", "Deployando assinaturas locais Drop-False-Positives...")
     res_rules = _executar_etapa_segura("copiar_regras_moonshield", copiar_regras_moonshield, copiar_para_etc=True)
@@ -643,7 +603,7 @@ def executar_instalacao(
 
     # 9. Consolidação Pós-Deploy e Inspeção (Health Check Full)
     _atualizar_progresso(progresso, 95, "validar_instalacao", "Acionando Doctor pra auditar deploy completo.")
-    
+
     st_final = {}
     res_diag = None
 
@@ -692,7 +652,7 @@ def executar_configuracao(
 ) -> ResultadoEtapa:
     """Manutenção de Topologia - Altera apenas o suricata.yaml baseando na interface/redes alteradas."""
     _atualizar_progresso(progresso, 0, "iniciando", "Start de Atualização de Topologia")
-    
+
     etapas_rodadas: dict[str, ResultadoEtapa] = {}
     avisos_globais: list[str] = []
 
@@ -700,7 +660,7 @@ def executar_configuracao(
     etapas_rodadas["verificar_ambiente"] = res_pre
     if not res_pre.sucesso:
         return _consolidar_resultados("executar_configuracao", etapas_rodadas, "", "Falha em validacao previa.", avisos_globais)
-        
+
     if not suricata_instalado():
         return _consolidar_resultados("executar_configuracao", etapas_rodadas, "", "Configuração não atua em máquina sem o binario primário.", avisos_globais)
 
@@ -729,7 +689,7 @@ def executar_configuracao(
         etapas_rodadas["reiniciar_servicos"] = res_b
 
     _atualizar_progresso(progresso, 100, "concluido", "Pronto.")
-    
+
     return _consolidar_resultados("executar_configuracao", etapas_rodadas, "Topologia Re-aplicada", "Falha orquestral", avisos_globais)
 
 
@@ -753,7 +713,7 @@ def executar_atualizacao_regras(
         etapas_rodadas["atualizar_et_open"] = res_et
         if not res_et.sucesso:
             avisos_globais.append("Repositório Open-Source ET-Open retornou falha temporária ou timeout.")
-            
+
     if atualizar_moonshield:
         _atualizar_progresso(progresso, 60, "copiar_regras_moonshield", "Extraindo e aplicando regras MS locais")
         res_ms = _executar_etapa_segura("copiar_regras_moonshield", copiar_regras_moonshield, origem_moonshield, True)
@@ -786,11 +746,11 @@ def executar_validacao(configuracao: ConfiguracaoSuricataDados | None = None, pr
     """Verifica e reporta formalmente via task se a configuração em disco não se degradou."""
     _atualizar_progresso(progresso, 10, "validar", "Executando inspeções operacionais.")
     etapas_rodadas: dict[str, ResultadoEtapa] = {}
-    
+
     yaml_ativo = configuracao.yaml_path if configuracao else localizar_suricata_yaml()
     if not yaml_ativo:
         return _consolidar_resultados("executar_validacao", etapas_rodadas, "", "YAML de cfg não encontrado.")
-        
+
     res_val = _executar_etapa_segura("validar_configuracao", validar_configuracao, yaml_ativo)
     etapas_rodadas["validar_suricata"] = res_val
     if not res_val.sucesso:
@@ -798,7 +758,7 @@ def executar_validacao(configuracao: ConfiguracaoSuricataDados | None = None, pr
 
     _atualizar_progresso(progresso, 50, "diagnostico", "Recolhendo telemetria do sistema para relatório final.")
     res_diag = _executar_etapa_segura("executar_diagnostico", executar_diagnostico, configuracao)
-    
+
     # Verifica se a entidade retornada possui a property `pronto`
     is_pronto = getattr(res_diag, "pronto", False)
 
@@ -820,7 +780,7 @@ def executar_reparo(configuracao: ConfiguracaoSuricataDados, progresso: Progress
     res_pre = _executar_etapa_segura("validar_pre_requisitos", validar_pre_requisitos, configuracao)
     if not res_pre.sucesso:
         return _consolidar_resultados("executar_reparo", etapas_rodadas, "", "Self-Healing abortado. Ambiente não sustenta o modelo baseline.", avisos_globais)
-        
+
     _atualizar_progresso(progresso, 20, "copiar_regras_moonshield", "Redeploy dos conjuntos de proteção estáticos.")
     res_rules = _executar_etapa_segura("copiar_regras_moonshield", copiar_regras_moonshield, copiar_para_etc=True)
     etapas_rodadas["copiar_regras_moonshield"] = res_rules
@@ -843,7 +803,7 @@ def executar_reparo(configuracao: ConfiguracaoSuricataDados, progresso: Progress
     _executar_etapa_segura("daemon_reload", daemon_reload)
     res_bounce = _executar_etapa_segura("reiniciar_stack_suricata", reiniciar_stack_suricata)
     etapas_rodadas["reiniciar_servicos"] = res_bounce
-    
+
     _atualizar_progresso(progresso, 100, "concluido", "Self-Healing concluído com veredito final.")
     return _consolidar_resultados("executar_reparo", etapas_rodadas, "Subsistema estabilizado através de reparo dinâmico.", "Ocorreram distúrbios na re-estabilização de serviços.", avisos_globais)
 
@@ -855,7 +815,7 @@ def executar_reparo(configuracao: ConfiguracaoSuricataDados, progresso: Progress
 def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None) -> dict[str, object]:
     """Exibe em preview os metadados brutos das ações que serão orquestradas para que o usuário aprove o escopo."""
     cfg_pronta, erros = preparar_configuracao_instalacao(configuracao)
-    
+
     plano = {
         "configuracao": cfg_pronta.to_dict() if cfg_pronta else {},
         "etapas": [],
@@ -868,21 +828,21 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
 
     if not verificar_linux().sucesso or not verificar_privilegios().sucesso:
         plano["bloqueios"].append("A máquina requer privilégios totais (Root) de sistema operacional Linux (Debian) para ser transformada num IDS node.")
-        
+
     gerenciador = detectar_gerenciador_pacotes()
 
     plano["etapas"].extend([
         {"id": "verificar_ambiente", "titulo": "Verificar Ambiente", "descricao": "Verificação SO e privilégios", "obrigatoria": True, "estimativa_segundos": 2},
         {"id": "instalar_suricata", "titulo": "Obter IDS nativo", "descricao": "Download/Aptidão de Suricata Engine", "obrigatoria": True, "estimativa_segundos": 180},
     ])
-    
+
     usar_et = True
     if cfg_pronta and not cfg_pronta.instalar_et_open:
         usar_et = False
-        
+
     if usar_et:
         plano["etapas"].append({"id": "atualizar_et_open", "titulo": "Regras ET-Open", "descricao": "Ingresso do ET-Open Signatures", "obrigatoria": False, "estimativa_segundos": 150})
-        
+
     plano["etapas"].extend([
         {"id": "copiar_regras_moonshield", "titulo": "Aplica MS-Rules", "descricao": "Filtros custom MoonShield", "obrigatoria": True, "estimativa_segundos": 2},
         {"id": "configurar_suricata", "titulo": "Injetar Configuração", "descricao": "Manipulação atômica via PATCH yaml.", "obrigatoria": True, "estimativa_segundos": 5},
@@ -903,7 +863,7 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
         "/var/lib/suricata/rules/moonshield/ms.rules",
         "/etc/suricata/rules/moonshield/ms.rules",
     ])
-    
+
     plano["servicos_afetados"].extend([SERVICO_SURICATA, SERVICO_MONITOR])
 
     return plano
@@ -912,7 +872,7 @@ def obter_plano_instalacao(configuracao: ConfiguracaoSuricataDados | None = None
 def validar_plano_instalacao(plano: dict[str, object]) -> list[str]:
     """Inspeção de sanity check do array JSON do plano para blindar eventuais frontends mal comportados."""
     erros = []
-    
+
     etapas_ids = [e.get("id") for e in plano.get("etapas", []) if isinstance(e, dict)]
     for eid in etapas_ids:
         if eid not in ETAPAS_INSTALACAO:
@@ -923,7 +883,7 @@ def validar_plano_instalacao(plano: dict[str, object]) -> list[str]:
             erros.append("Sintaxe shell subvertida no mapeamento de comandos previstos.")
         elif any(c in {"|", ">", "&&", ";"} for c in cmd):
             erros.append("Assinatura maliciosa encontrada em manifest list_str command.")
-            
+
     for srv in plano.get("servicos_afetados", []):
         if srv not in {SERVICO_SURICATA, SERVICO_MONITOR}:
             erros.append(f"Alvo logico inválido detectado na instrução ({srv}).")
@@ -944,7 +904,7 @@ def obter_resumo_instalacao(resultado: ResultadoEtapa) -> dict[str, object]:
     """Parseador da view/interface que consolida a matrix pesada do ResultadoEtapa global num dashboard UI clean."""
     etapas = resultado.dados.get("etapas", {})
     t_suc = sum(1 for v in etapas.values() if v.get("sucesso", False))
-    
+
     resumo = {
         "sucesso": resultado.sucesso,
         "mensagem": resultado.mensagem,

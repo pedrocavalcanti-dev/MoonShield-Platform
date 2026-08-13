@@ -107,7 +107,18 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
                 analise["rule_files"].append(m_rule.group(1).strip())
 
     # 3. af-packet
-    bloco_af_match = re.search(r"^af-packet:\n(?:^[ \t].*\n)*", conteudo, flags=re.MULTILINE)
+    # Se houver mais de um bloco legado, prioriza explicitamente o gerenciado
+    # pelo MoonShield. Após a próxima aplicação, o patcher consolida tudo em um.
+    blocos_af = list(
+        re.finditer(r"^af-packet:\n(?:^[ \t].*\n)*", conteudo, flags=re.MULTILINE)
+    )
+    bloco_af_match = None
+    if blocos_af:
+        bloco_af_match = next(
+            (m for m in blocos_af if MARCADOR_AF_PACKET in m.group(0)),
+            blocos_af[0],
+        )
+
     if bloco_af_match:
         analise["af_packet"]["presente"] = True
         linhas_af = bloco_af_match.group(0).splitlines()[1:]
@@ -421,6 +432,7 @@ def patch_eve_log(
     produz o mesmo arquivo.
     """
     conteudo_limpo = _remover_blocos_eve_log(conteudo)
+    conteudo_limpo = _consolidar_outputs_top_level(conteudo_limpo)
     bloco = _gerar_bloco_eve_log(eve_path)
 
     match_outputs = re.search(
@@ -455,50 +467,132 @@ def gerar_bloco_af_packet(interfaces: list[str]) -> str:
     return "\n".join(linhas) + "\n"
 
 
+def _intervalos_blocos_top_level(
+    conteudo: str,
+    chave: str,
+) -> list[tuple[int, int]]:
+    """
+    Localiza todas as ocorrências de uma chave YAML de nível raiz.
+
+    Cada intervalo inclui a chave e todo o seu corpo até a próxima chave
+    top-level não comentada. Isso permite reparar arquivos que tenham ficado
+    com blocos duplicados em versões anteriores do instalador.
+    """
+    linhas = conteudo.splitlines(keepends=True)
+    inicios: list[int] = []
+    padrao_inicio = re.compile(
+        rf"^{re.escape(chave)}:\s*(?:#.*)?(?:\r?\n)?$"
+    )
+
+    for indice, linha in enumerate(linhas):
+        if padrao_inicio.match(linha):
+            inicios.append(indice)
+
+    intervalos: list[tuple[int, int]] = []
+
+    for inicio in inicios:
+        fim = len(linhas)
+
+        for indice in range(inicio + 1, len(linhas)):
+            texto = linhas[indice].rstrip("\r\n")
+
+            if not texto.strip() or texto.lstrip().startswith("#"):
+                continue
+
+            if texto == texto.lstrip(" \t") and re.match(
+                r"^[A-Za-z0-9_.-]+:\s*(?:#.*)?$",
+                texto,
+            ):
+                fim = indice
+                break
+
+        intervalos.append((inicio, fim))
+
+    return intervalos
+
+
 def _substituir_bloco_top_level(
     conteudo: str,
     chave: str,
     novo_bloco: str,
 ) -> str:
     """
-    Substitui integralmente uma chave YAML de nível raiz.
+    Mantém exatamente uma ocorrência da chave top-level.
 
-    O bloco termina na próxima chave top-level não comentada.
+    Se versões antigas tiverem deixado blocos duplicados (por exemplo
+    `af-packet` ou `pcap`), todos são removidos e apenas o bloco novo é
+    recolocado na posição da primeira ocorrência.
     """
     linhas = conteudo.splitlines(keepends=True)
-    inicio = None
-    fim = None
-    padrao_inicio = re.compile(
-        rf"^{re.escape(chave)}:\\s*(?:#.*)?(?:\\r?\\n)?$"
-    )
+    intervalos = _intervalos_blocos_top_level(conteudo, chave)
 
-    for indice, linha in enumerate(linhas):
-        if padrao_inicio.match(linha):
-            inicio = indice
-            break
-
-    if inicio is None:
+    if not intervalos:
         separador = "" if conteudo.endswith("\n") else "\n"
         return conteudo + separador + novo_bloco
 
-    fim = len(linhas)
+    primeiro_inicio = intervalos[0][0]
+    remover = set()
 
-    for indice in range(inicio + 1, len(linhas)):
-        linha = linhas[indice]
-        texto = linha.rstrip("\\r\\n")
+    for inicio, fim in intervalos:
+        remover.update(range(inicio, fim))
 
-        if not texto.strip() or texto.lstrip().startswith("#"):
+    saida: list[str] = []
+
+    for indice, linha in enumerate(linhas):
+        if indice == primeiro_inicio:
+            saida.append(novo_bloco)
+
+        if indice in remover:
             continue
 
-        if texto == texto.lstrip(" \\t") and re.match(
-            r"^[A-Za-z0-9_.-]+:\\s*(?:#.*)?$",
-            texto,
-        ):
-            fim = indice
-            break
+        saida.append(linha)
 
-    linhas[inicio:fim] = [novo_bloco]
-    return "".join(linhas)
+    return "".join(saida)
+
+
+def _consolidar_outputs_top_level(conteudo: str) -> str:
+    """
+    Consolida múltiplos blocos `outputs:` em um único bloco.
+
+    Preserva as saídas não-EVE existentes (fast, stats, etc.). O eve-log é
+    removido separadamente por `_remover_blocos_eve_log` e depois reinserido
+    pelo MoonShield. Essa rotina também recupera YAMLs que ficaram duplicados
+    por versões anteriores do patcher.
+    """
+    linhas = conteudo.splitlines(keepends=True)
+    intervalos = _intervalos_blocos_top_level(conteudo, "outputs")
+
+    if len(intervalos) <= 1:
+        return conteudo
+
+    primeiro_inicio = intervalos[0][0]
+    remover = set()
+    corpos: list[str] = []
+
+    for inicio, fim in intervalos:
+        remover.update(range(inicio, fim))
+        corpos.extend(linhas[inicio + 1:fim])
+
+    # Remove excesso de linhas vazias entre os corpos, sem alterar conteúdo.
+    corpo_texto = "".join(corpos)
+    corpo_texto = re.sub(r"\n{3,}", "\n\n", corpo_texto)
+
+    bloco = "outputs:\n" + corpo_texto
+    if not bloco.endswith("\n"):
+        bloco += "\n"
+
+    saida: list[str] = []
+
+    for indice, linha in enumerate(linhas):
+        if indice == primeiro_inicio:
+            saida.append(bloco)
+
+        if indice in remover:
+            continue
+
+        saida.append(linha)
+
+    return "".join(saida)
 
 
 def patch_af_packet(conteudo: str, interfaces: list[str]) -> str:

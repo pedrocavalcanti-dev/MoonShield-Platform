@@ -4,6 +4,7 @@ Prove isolamento seguro validando nomes e ações via whitelist e garantindo seq
 """
 
 import os
+import sys
 import time
 import logging
 from pathlib import Path
@@ -43,6 +44,15 @@ INTERVALO_VERIFICACAO = 1.0
 MAX_LINHAS_LOG = 500
 DIRETORIO_UNITS_SYSTEMD = Path("/etc/systemd/system")
 MODO_UNIT_SYSTEMD = 0o644
+
+# Caminhos padrão do runtime integrado.
+# Este módulo vive em:
+# MoonShield/aplicativos/incidentes/services/suricata/servicos.py
+# Portanto parents[4] aponta para a raiz Django MoonShield/.
+RAIZ_MOONSHIELD = Path(__file__).resolve().parents[4]
+GERENCIAR_PADRAO = RAIZ_MOONSHIELD / "gerenciar.py"
+EVE_PADRAO = Path("/var/log/suricata/eve.json")
+CURSOR_PADRAO = RAIZ_MOONSHIELD / "var" / "cursors" / "suricata_eve.cursor"
 
 ESTADOS_ATIVOS_SYSTEMD = {
     "active",
@@ -802,16 +812,191 @@ def instalar_units_moonshield(
     return res
 
 
+def garantir_monitor_suricata(
+    *,
+    base_dir: str | Path | None = None,
+    python_executavel: str | Path | None = None,
+    gerenciar_path: str | Path | None = None,
+    eve_path: str | Path = EVE_PADRAO,
+    cursor_path: str | Path | None = None,
+    iniciar: bool = True,
+) -> dict[str, object]:
+    """
+    Garante que o monitor local de ingestão do EVE exista no systemd.
+
+    Esta rotina é propositalmente idempotente e pode ser chamada pelo instalador
+    antes do restart final da stack. Se a unit estiver ausente ela é criada; se
+    já estiver correta, nada é regravado.
+
+    Diferente do worker de tarefas, o monitor só é exigido depois que o Suricata
+    já existe, porque sua unit possui Requires=suricata.service.
+    """
+    resultado: dict[str, object] = {
+        "sucesso": False,
+        "ignorado": False,
+        "servico": SERVICO_MONITOR,
+    }
+
+    if not eh_linux():
+        resultado.update({
+            "ignorado": True,
+            "motivo": "Bootstrap do monitor disponível apenas em Linux.",
+        })
+        return resultado
+
+    if not systemd_disponivel():
+        resultado.update({
+            "ignorado": True,
+            "motivo": "Systemd/systemctl não está disponível.",
+        })
+        return resultado
+
+    if not verificar_privilegios().sucesso:
+        resultado.update({
+            "ignorado": True,
+            "motivo": "Privilégios root são necessários para instalar a unit systemd.",
+        })
+        return resultado
+
+    base = Path(base_dir) if base_dir is not None else RAIZ_MOONSHIELD
+    gerenciar = Path(gerenciar_path) if gerenciar_path is not None else GERENCIAR_PADRAO
+
+    # IMPORTANTE: não usar .resolve() no sys.executable.
+    # Em venvs Debian, o binário pode ser symlink para /usr/bin/python3.x.
+    # A unit precisa continuar apontando para .venv/bin/python.
+    python = Path(python_executavel) if python_executavel is not None else Path(sys.executable)
+
+    cursor = Path(cursor_path) if cursor_path is not None else CURSOR_PADRAO
+    eve = Path(eve_path)
+
+    if not base.is_dir():
+        resultado["erro"] = f"Diretório base inexistente: {base}"
+        return resultado
+
+    if not python.is_file():
+        resultado["erro"] = f"Executável Python inexistente: {python}"
+        return resultado
+
+    if not gerenciar.is_file():
+        resultado["erro"] = f"gerenciar.py inexistente: {gerenciar}"
+        return resultado
+
+    try:
+        cursor.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        resultado["erro"] = f"Não foi possível preparar diretório do cursor: {exc}"
+        return resultado
+
+    conteudo = gerar_unit_monitor_suricata(
+        base_dir=base,
+        python_executavel=python,
+        gerenciar_path=gerenciar,
+        eve_path=eve,
+        cursor_path=cursor,
+    )
+
+    r_unit = _escrever_unit_atomica(SERVICO_MONITOR, conteudo)
+    resultado["unit"] = r_unit.to_dict()
+    if not r_unit.sucesso:
+        resultado["erro"] = r_unit.erro or r_unit.mensagem
+        return resultado
+
+    alterado = bool((r_unit.dados or {}).get("alterado", False))
+    resultado["unit_alterada"] = alterado
+
+    # Uma unit recém-criada/alterada não existe para o systemd até o reload.
+    if alterado or not servico_instalado(SERVICO_MONITOR):
+        r_reload = daemon_reload()
+        resultado["daemon_reload"] = r_reload.to_dict()
+        if not r_reload.sucesso:
+            resultado["erro"] = r_reload.erro or r_reload.mensagem
+            return resultado
+
+    if not servico_habilitado(SERVICO_MONITOR):
+        r_enable = habilitar_servico(SERVICO_MONITOR)
+        resultado["enable"] = r_enable.to_dict()
+        if not r_enable.sucesso:
+            resultado["erro"] = r_enable.erro or r_enable.mensagem
+            return resultado
+    else:
+        resultado["enable"] = {"sucesso": True, "ja_habilitado": True}
+
+    # Só tenta iniciar se solicitado. Isso evita subir o monitor cedo demais
+    # durante fases anteriores à configuração/validação do Suricata.
+    if iniciar:
+        if obter_estado_bruto(SERVICO_MONITOR) not in ESTADOS_ATIVOS_SYSTEMD:
+            r_start = iniciar_servico(SERVICO_MONITOR)
+            resultado["start"] = r_start.to_dict()
+            if not r_start.sucesso:
+                resultado["erro"] = r_start.erro or r_start.mensagem
+                return resultado
+        else:
+            resultado["start"] = {"sucesso": True, "ja_ativo": True}
+
+    status = obter_status_servico(SERVICO_MONITOR)
+    resultado.update({
+        "sucesso": bool(
+            status.instalado
+            and status.habilitado
+            and (status.ativo if iniciar else True)
+        ),
+        "instalado": status.instalado,
+        "habilitado": status.habilitado,
+        "ativo": status.ativo,
+        "pid": status.pid,
+        "unit_path": str(DIRETORIO_UNITS_SYSTEMD / f"{SERVICO_MONITOR}.service"),
+        "python": str(python),
+        "base_dir": str(base),
+        "gerenciar_path": str(gerenciar),
+        "eve_path": str(eve),
+        "cursor_path": str(cursor),
+    })
+
+    if not resultado["sucesso"]:
+        resultado["erro"] = (
+            "Monitor não atingiu o estado esperado "
+            "(instalado + habilitado"
+            + (" + ativo)." if iniciar else ").")
+        )
+
+    return resultado
+
+
 # ==============================================================================
 # ORQUESTRAÇÃO DE START/STOP DO STACK CONJUGADO
 # ==============================================================================
 
 def reiniciar_stack_suricata(reiniciar_suricata_primeiro: bool = True) -> ResultadoEtapa:
-    """Processo mestre em cascata para cold/warm bounce da matriz do MoonShield."""
-    etapa_id = "reiniciar_stack_suricata"
-    res = ResultadoEtapa(etapa=etapa_id, status=StatusEtapa.EXECUTANDO, sucesso=False, mensagem="Inicializando sequenciador de restart.", iniciado_em=datetime.now())
+    """
+    Processo mestre em cascata para cold/warm bounce da matriz do MoonShield.
 
-    # Drop-ins requerem recarga
+    Antes do restart garante a existência da unit do monitor. Isso torna a etapa
+    final do instalador autossuficiente em uma máquina limpa.
+    """
+    etapa_id = "reiniciar_stack_suricata"
+    res = ResultadoEtapa(
+        etapa=etapa_id,
+        status=StatusEtapa.EXECUTANDO,
+        sucesso=False,
+        mensagem="Inicializando sequenciador de restart.",
+        iniciado_em=datetime.now(),
+    )
+
+    bootstrap_monitor = garantir_monitor_suricata(iniciar=False)
+    res.dados["bootstrap_monitor"] = bootstrap_monitor
+
+    if not bootstrap_monitor.get("sucesso"):
+        res.finalizar_erro(
+            "Falha ao implantar o monitor MoonShield antes do restart da stack.",
+            erro=str(
+                bootstrap_monitor.get("erro")
+                or bootstrap_monitor.get("motivo")
+                or "bootstrap do monitor não concluiu"
+            ),
+        )
+        return res
+
+    # Drop-ins/units requerem recarga
     res_daemon = daemon_reload()
     res.dados["daemon_reload"] = res_daemon.to_dict()
     if not res_daemon.sucesso:
@@ -828,7 +1013,7 @@ def reiniciar_stack_suricata(reiniciar_suricata_primeiro: bool = True) -> Result
         return True
 
     def _bounce_monitor() -> bool:
-        res.adicionar_log("Bouncing Worker Django...", NivelLog.INFO)
+        res.adicionar_log("Bouncing monitor local de ingestão EVE...", NivelLog.INFO)
         r_m = reiniciar_servico(SERVICO_MONITOR)
         res.dados["monitor"] = r_m.to_dict()
         if not r_m.sucesso:
@@ -870,9 +1055,28 @@ def parar_stack_suricata() -> ResultadoEtapa:
 
 
 def iniciar_stack_suricata() -> ResultadoEtapa:
-    """Deployment runtime inicial - Garante geração para em seguida iniciar leitura."""
+    """Deployment runtime inicial - garante produtor Suricata + consumidor MoonShield."""
     etapa_id = "iniciar_stack_suricata"
-    res = ResultadoEtapa(etapa=etapa_id, status=StatusEtapa.EXECUTANDO, sucesso=False, mensagem="Requisitando inicialização core do IDS.", iniciado_em=datetime.now())
+    res = ResultadoEtapa(
+        etapa=etapa_id,
+        status=StatusEtapa.EXECUTANDO,
+        sucesso=False,
+        mensagem="Requisitando inicialização core do IDS.",
+        iniciado_em=datetime.now(),
+    )
+
+    bootstrap_monitor = garantir_monitor_suricata(iniciar=False)
+    res.dados["bootstrap_monitor"] = bootstrap_monitor
+    if not bootstrap_monitor.get("sucesso"):
+        res.finalizar_erro(
+            "Monitor MoonShield não pôde ser implantado.",
+            erro=str(
+                bootstrap_monitor.get("erro")
+                or bootstrap_monitor.get("motivo")
+                or "bootstrap do monitor não concluiu"
+            ),
+        )
+        return res
 
     r_s = iniciar_servico(SERVICO_SURICATA)
     res.dados["suricata"] = r_s.to_dict()
@@ -880,7 +1084,7 @@ def iniciar_stack_suricata() -> ResultadoEtapa:
         res.finalizar_erro("Impeditivo: Motor C do Suricata recusou inicialização (YAML incorreto?).", erro=r_s.erro)
         return res
 
-    res.adicionar_log("Motor primário UP. Startando coletor secundário (Worker Django)...", NivelLog.INFO)
+    res.adicionar_log("Motor primário UP. Iniciando monitor local de ingestão EVE...", NivelLog.INFO)
     
     r_m = iniciar_servico(SERVICO_MONITOR)
     res.dados["monitor"] = r_m.to_dict()

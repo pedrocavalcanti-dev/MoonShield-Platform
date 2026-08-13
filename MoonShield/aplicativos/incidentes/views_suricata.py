@@ -827,9 +827,9 @@ def api_marcar_onboarding_concluido(request):
 
     try:
         with transaction.atomic():
-            cfg.onboarding_concluido = True
-            cfg.instalacao_concluida = True
-            cfg.suricata_instalado = True
+            # Primeiro atualiza o snapshot operacional. Esse método pode recalcular
+            # campos de estado; por isso ele deve rodar ANTES das flags finais.
+            cfg.atualizar_status(status=st, salvar=True)
 
             suri_top = st.get("suricata") or {}
 
@@ -839,13 +839,22 @@ def api_marcar_onboarding_concluido(request):
                 or cfg.versao_suricata
                 or ""
             )
+
+            # As flags de conclusão são persistidas por último para não serem
+            # sobrescritas pelo atualizar_status().
+            cfg.onboarding_concluido = True
+            cfg.instalacao_concluida = True
+            cfg.suricata_instalado = True
+            cfg.suricata_configurado = True
             cfg.versao_suricata = str(versao)
 
-            # A tarefa de instalação já aplicou e validou a configuração.
-            # Não executar `suricata -T` novamente apenas para preencher a flag.
-            cfg.suricata_configurado = True
-
-            cfg.atualizar_status(status=st, salvar=True)
+            cfg.save(update_fields=[
+                "onboarding_concluido",
+                "instalacao_concluida",
+                "suricata_instalado",
+                "suricata_configurado",
+                "versao_suricata",
+            ])
 
         return _json_sucesso(
             "Onboarding concluído. Abrindo painel do Suricata.",

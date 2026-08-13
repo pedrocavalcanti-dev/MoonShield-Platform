@@ -743,40 +743,163 @@ def api_solicitar_cancelamento(request, tarefa_id: str):
 @require_POST
 @csrf_protect
 def api_marcar_onboarding_concluido(request):
-    """Libera o lock do painel de setup, promovendo a máquina a um Sensor Vivo operante."""
+    """
+    Finaliza o onboarding somente quando os componentes essenciais realmente
+    estiverem operacionais.
+
+    A validação não depende exclusivamente de ``stack_pronta`` porque esse campo
+    agregado pode ficar momentaneamente defasado em relação aos serviços recém
+    implantados. Na finalização fazemos uma leitura profunda e validamos:
+      - Suricata instalado e ativo;
+      - monitor MoonShield instalado e ativo;
+      - worker de tarefas instalado e ativo;
+      - ausência de falhas críticas no Doctor, quando disponível.
+    """
     cfg = _obter_configuracao_ativa(criar=False)
     if not cfg:
-         return _json_erro("Mestre em branco. Onboarding não executado.")
+        return _json_erro("Mestre em branco. Onboarding não executado.")
 
     dto_cfg = _configuracao_service(cfg)
-    st = obter_status_stack_completo(dto_cfg, incluir_diagnostico=False)
 
-    if not st.get("stack_pronta"):
-        erros_b = st.get("erros", [])
+    try:
+        st = obter_status_stack_completo(dto_cfg, incluir_diagnostico=True)
+    except Exception as exc:
+        logger.exception("Falha ao validar a stack antes de concluir onboarding.")
+        return _json_erro(
+            "Não foi possível validar o estado final do sensor.",
+            status_http=500,
+            erros=[str(exc)],
+        )
+
+    servicos = st.get("servicos") or {}
+
+    st_suricata = servicos.get("suricata") or {}
+    st_monitor = servicos.get("monitor") or {}
+    st_worker = servicos.get("worker_tarefas") or {}
+
+    # Compatibilidade com contratos anteriores do status.py.
+    if not st_suricata:
+        suri_top = st.get("suricata") or {}
+        st_suricata = suri_top.get("servico") or suri_top
+
+    if not st_monitor:
+        mon_top = st.get("monitor") or {}
+        st_monitor = mon_top.get("servico") or mon_top
+
+    if not st_worker:
+        st_worker = st.get("worker_tarefas") or {}
+
+    def _servico_ok(dados: dict) -> bool:
+        return bool(dados.get("instalado") and dados.get("ativo"))
+
+    suricata_ok = _servico_ok(st_suricata)
+    monitor_ok = _servico_ok(st_monitor)
+    worker_ok = _servico_ok(st_worker)
+
+    diagnostico = st.get("diagnostico") or {}
+    total_criticos = diagnostico.get("total_criticos")
+
+    # Se o Doctor foi executado, qualquer falha crítica bloqueia.
+    diagnostico_ok = (
+        total_criticos == 0
+        if total_criticos is not None
+        else True
+    )
+
+    essenciais_ok = (
+        suricata_ok
+        and monitor_ok
+        and worker_ok
+        and diagnostico_ok
+    )
+
+    if not essenciais_ok:
+        erros = []
+
+        if not suricata_ok:
+            erros.append("Suricata não está instalado e ativo.")
+        if not monitor_ok:
+            erros.append("Monitor MoonShield não está instalado e ativo.")
+        if not worker_ok:
+            erros.append("Worker automático de tarefas não está instalado e ativo.")
+        if not diagnostico_ok:
+            erros.append(
+                f"O Doctor encontrou {total_criticos} falha(s) crítica(s)."
+            )
+
+        for erro in st.get("erros") or []:
+            erro_txt = str(erro).strip()
+            if erro_txt and erro_txt not in erros:
+                erros.append(erro_txt)
+
         return _json_erro(
             "Finalização vetada: Cluster não preenche os pré-requisitos essenciais.",
             status_http=409,
-            erros=erros_b if erros_b else ["Falta de integridade em dependências do Daemon Suricata."]
+            erros=erros or [
+                "Não foi possível comprovar a integridade dos componentes essenciais."
+            ],
+            dados={
+                "suricata_ok": suricata_ok,
+                "monitor_ok": monitor_ok,
+                "worker_ok": worker_ok,
+                "diagnostico_ok": diagnostico_ok,
+                "total_criticos": total_criticos,
+                "stack_pronta_reportada": bool(st.get("stack_pronta")),
+                "saudavel_reportado": bool(st.get("saudavel")),
+            },
         )
 
     try:
         with transaction.atomic():
             cfg.onboarding_concluido = True
-            
-            s_suri = st.get("suricata", {})
-            cfg.suricata_instalado = s_suri.get("instalado", False)
-            cfg.versao_suricata = s_suri.get("versao", "")
-            cfg.suricata_configurado = s_suri.get("configurado", False)
-            
-            if st.get("saudavel"):
-                cfg.instalacao_concluida = True
-                
+
+            suri_top = st.get("suricata") or {}
+            suri_servico = suri_top.get("servico") or st_suricata
+
+            cfg.suricata_instalado = bool(
+                suri_servico.get("instalado", suricata_ok)
+            )
+
+            versao = (
+                suri_top.get("versao")
+                or (st.get("ambiente") or {}).get("suricata", {}).get("versao")
+                or cfg.versao_suricata
+                or ""
+            )
+            cfg.versao_suricata = str(versao)
+
+            configurado_reportado = suri_top.get("configurado")
+            if configurado_reportado is None:
+                cfg.suricata_configurado = diagnostico_ok
+            else:
+                cfg.suricata_configurado = bool(
+                    configurado_reportado or diagnostico_ok
+                )
+
+            cfg.instalacao_concluida = True
+
             cfg.atualizar_status(status=st, salvar=True)
 
-        return _json_sucesso("Assistente dispensado e plataforma empossada.", _serializar_configuracao(cfg))
-    except Exception as e:
+        return _json_sucesso(
+            "Assistente concluído. Sensor MoonShield liberado para operação.",
+            {
+                "configuracao": _serializar_configuracao(cfg),
+                "validacao_final": {
+                    "suricata_ok": suricata_ok,
+                    "monitor_ok": monitor_ok,
+                    "worker_ok": worker_ok,
+                    "diagnostico_ok": diagnostico_ok,
+                    "total_criticos": total_criticos,
+                },
+            },
+        )
+    except Exception as exc:
         logger.exception("Incompatibilidade ao fechar os locks de onboarding.")
-        return _json_erro("Falha inesperada ao selar a base de dados.", 500, [str(e)])
+        return _json_erro(
+            "Falha inesperada ao selar a base de dados.",
+            500,
+            [str(exc)],
+        )
 
 
 @login_required(login_url="autenticacao:login")

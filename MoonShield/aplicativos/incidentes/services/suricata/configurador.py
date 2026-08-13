@@ -142,7 +142,7 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
     inicio_eve = conteudo.find(MARCADOR_EVE)
     trecho_eve = conteudo[inicio_eve:] if inicio_eve >= 0 else conteudo
     m_eve = re.search(
-        r"(?m)^([ \\t]*)-\\s+eve-log:\\s*$",
+        r"(?m)^([ \t]*)-\s+eve-log:\s*$",
         trecho_eve,
     )
 
@@ -153,9 +153,9 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
 
         for indice, linha in enumerate(linhas_eve):
             if indice > 0 and linha.strip():
-                espacos = len(linha) - len(linha.lstrip(" \\t"))
+                espacos = len(linha) - len(linha.lstrip(" \t"))
                 nivel = len(linha[:espacos].expandtabs(2))
-                limpa = linha.lstrip(" \\t")
+                limpa = linha.lstrip(" \t")
 
                 if nivel < indentacao:
                     break
@@ -168,7 +168,7 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
         analise["eve_log"]["presente"] = True
 
         m_enabled = re.search(
-            r"(?m)^[ \\t]+enabled:\\s+(yes|no)",
+            r"(?m)^[ \t]+enabled:\s+(yes|no)",
             bloco_eve,
             flags=re.IGNORECASE,
         )
@@ -177,14 +177,14 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
         )
 
         m_file = re.search(
-            r"(?m)^[ \\t]+filename:\\s+(.+)$",
+            r"(?m)^[ \t]+filename:\s+(.+)$",
             bloco_eve,
         )
         if m_file:
             analise["eve_log"]["filename"] = m_file.group(1).strip()
 
         m_types = re.search(
-            r"(?m)^[ \\t]+types:\\s*$",
+            r"(?m)^[ \t]+types:\s*$",
             bloco_eve,
         )
         if m_types:
@@ -192,7 +192,7 @@ def analisar_yaml_suricata(conteudo: str) -> dict[str, object]:
 
             for linha in trecho_tipos.splitlines():
                 m_tipo = re.match(
-                    r"^[ \\t]+-\\s+([a-zA-Z0-9_]+)",
+                    r"^[ \t]+-\s+([a-zA-Z0-9_]+)",
                     linha,
                 )
                 if m_tipo:
@@ -356,7 +356,7 @@ def _remover_blocos_eve_log(conteudo: str) -> str:
     while indice < len(linhas):
         linha = linhas[indice]
         match = re.match(
-            r"^([ \\t]*)-\\s+eve-log:\\s*(?:#.*)?(?:\\r?\\n)?$",
+            r"^([ \t]*)-\s+eve-log:\s*(?:#.*)?(?:\r?\n)?$",
             linha,
         )
 
@@ -374,15 +374,15 @@ def _remover_blocos_eve_log(conteudo: str) -> str:
 
         while indice < len(linhas):
             proxima = linhas[indice]
-            texto = proxima.rstrip("\\r\\n")
+            texto = proxima.rstrip("\r\n")
 
             if not texto.strip():
                 indice += 1
                 continue
 
-            espacos = len(texto) - len(texto.lstrip(" \\t"))
+            espacos = len(texto) - len(texto.lstrip(" \t"))
             nivel = len(texto[:espacos].expandtabs(2))
-            limpa = texto.lstrip(" \\t")
+            limpa = texto.lstrip(" \t")
 
             if nivel < indentacao:
                 break
@@ -393,7 +393,7 @@ def _remover_blocos_eve_log(conteudo: str) -> str:
 
     resultado = "".join(saida)
     return re.sub(
-        rf"(?m)^[ \\t]*{re.escape(MARCADOR_EVE)}[ \\t]*\\r?\\n?",
+        rf"(?m)^[ \t]*{re.escape(MARCADOR_EVE)}[ \t]*\r?\n?",
         "",
         resultado,
     )
@@ -436,7 +436,7 @@ def patch_eve_log(
     bloco = _gerar_bloco_eve_log(eve_path)
 
     match_outputs = re.search(
-        r"(?m)^outputs:\\s*(?:#.*)?\\r?\\n",
+        r"(?m)^outputs:\s*(?:#.*)?\r?\n",
         conteudo_limpo,
     )
 

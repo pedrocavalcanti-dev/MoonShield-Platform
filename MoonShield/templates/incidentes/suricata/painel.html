@@ -29,46 +29,73 @@
 </head>
 
 <body>
+
+{# ================================================================
+   DADOS DO BACKEND
+   Nunca injete dicts/booleans Python diretamente dentro de JS.
+   json_script garante JSON válido: true/false/null em vez de
+   True/False/None.
+   ================================================================ #}
+{{ configuracao_suricata|json_script:"ms-suricata-panel-config" }}
+{{ status_stack|json_script:"ms-suricata-panel-status" }}
+{{ cards_suricata|json_script:"ms-suricata-panel-cards" }}
+
 <script>
-    window.MS_SURICATA_PANEL = {
-        csrfToken: "{{ csrf_token }}",
+    (() => {
+        'use strict';
 
-        usuario: {
-            username: "{{ request.user.username|escapejs }}",
-            nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
-        },
+        const readJSONScript = (id, fallback) => {
+            const node = document.getElementById(id);
+            if (!node) return fallback;
 
-        configuracao: {{ configuracao_suricata|default:"null"|safe }},
-        statusInicial: {{ status_stack|default:"{}"|safe }},
-        cardsIniciais: {{ cards_suricata|default:"{}"|safe }},
+            try {
+                return JSON.parse(node.textContent);
+            } catch (error) {
+                console.error(`[MoonShield] JSON inválido em #${id}:`, error);
+                return fallback;
+            }
+        };
 
-        urls: {
-            painel: "{% url 'incidentes:suricata_painel' %}",
-            onboarding: "{% url 'incidentes:suricata_onboarding' %}",
+        window.MS_SURICATA_PANEL = {
+            csrfToken: "{{ csrf_token }}",
 
-            status: "{% url 'incidentes:api_suricata_status' %}",
-            diagnostico: "{% url 'incidentes:api_suricata_diagnostico' %}",
-            onboardingStatus: "{% url 'incidentes:api_suricata_onboarding_status' %}",
-            detectarInterfaces: "{% url 'incidentes:api_suricata_detectar_interfaces' %}",
-            salvarConfiguracao: "{% url 'incidentes:api_suricata_salvar_configuracao' %}",
-            reabrirOnboarding: "{% url 'incidentes:api_suricata_reabrir_onboarding' %}",
+            usuario: {
+                username: "{{ request.user.username|escapejs }}",
+                nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+            },
 
-            criarTarefa: "{% url 'incidentes:api_suricata_criar_tarefa' %}",
-            listarTarefas: "{% url 'incidentes:api_suricata_listar_tarefas' %}",
+            configuracao: readJSONScript("ms-suricata-panel-config", null),
+            statusInicial: readJSONScript("ms-suricata-panel-status", {}),
+            cardsIniciais: readJSONScript("ms-suricata-panel-cards", {}),
 
-            detalheTarefaTemplate:
-                "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
+            urls: {
+                painel: "{% url 'incidentes:suricata_painel' %}",
+                onboarding: "{% url 'incidentes:suricata_onboarding' %}",
 
-            executarTarefaTemplate:
-                "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
+                status: "{% url 'incidentes:api_suricata_status' %}",
+                diagnostico: "{% url 'incidentes:api_suricata_diagnostico' %}",
+                onboardingStatus: "{% url 'incidentes:api_suricata_onboarding_status' %}",
+                detectarInterfaces: "{% url 'incidentes:api_suricata_detectar_interfaces' %}",
+                salvarConfiguracao: "{% url 'incidentes:api_suricata_salvar_configuracao' %}",
+                reabrirOnboarding: "{% url 'incidentes:api_suricata_reabrir_onboarding' %}",
 
-            cancelarTarefaTemplate:
-                "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
+                criarTarefa: "{% url 'incidentes:api_suricata_criar_tarefa' %}",
+                listarTarefas: "{% url 'incidentes:api_suricata_listar_tarefas' %}",
 
-            logsTarefaTemplate:
-                "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
-        }
-    };
+                detalheTarefaTemplate:
+                    "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
+
+                executarTarefaTemplate:
+                    "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
+
+                cancelarTarefaTemplate:
+                    "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
+
+                logsTarefaTemplate:
+                    "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
+            }
+        };
+    })();
 </script>
 
 <!-- Fundo espacial -->

@@ -1,14 +1,66 @@
 /**
  * MOONSHIELD — PAINEL SURICATA
- * Integração do painel com as APIs do módulo incidentes.
+ *
+ * Organização para manutenção:
+ *  [01] Contrato e estado
+ *  [02] Utilitários e serialização
+ *  [03] Cliente HTTP/API
+ *  [04] Feedback visual e componentes base
+ *  [05] Navegação e eventos
+ *  [06] Status / saúde / topologia / configuração
+ *  [07] Diagnóstico
+ *  [08] Tarefas
+ *  [09] Polling e ciclo de vida
+ *  [10] Bootstrap
+ *
+ * Regra importante:
+ *  URLs de API sempre devem passar por apiUrl().
  */
 
 document.addEventListener('DOMContentLoaded', () => {
     'use strict';
 
+    // ================================================================
+    // [01] CONTRATO, CONFIGURAÇÃO E ESTADO
+    // ================================================================
     const APP = window.MS_SURICATA_PANEL || {};
     const URLS = APP.urls || {};
     const CONFIG = APP.configuracao || null;
+
+    const REQUIRED_URLS = Object.freeze([
+        'status',
+        'diagnostico',
+        'criarTarefa',
+        'listarTarefas',
+        'detalheTarefaTemplate',
+        'cancelarTarefaTemplate',
+        'logsTarefaTemplate',
+    ]);
+
+    function apiUrl(name) {
+        const value = URLS?.[name];
+
+        if (typeof value !== 'string' || !value.trim() || value === 'undefined') {
+            throw new Error(`URL da API não configurada: ${name}.`);
+        }
+
+        return value;
+    }
+
+    function validatePanelContract() {
+        const missing = REQUIRED_URLS.filter((name) => {
+            const value = URLS?.[name];
+            return typeof value !== 'string' || !value.trim() || value === 'undefined';
+        });
+
+        if (missing.length) {
+            throw new Error(
+                `Contrato do painel incompleto. URLs ausentes: ${missing.join(', ')}.`
+            );
+        }
+
+        return true;
+    }
 
     const state = {
         currentSection: 'overview',
@@ -110,6 +162,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return Array.from(root.querySelectorAll(selector));
     }
 
+    // ================================================================
+    // [02] UTILITÁRIOS, NORMALIZAÇÃO E FORMATAÇÃO
+    // ================================================================
     function normalizeInitialPayload(value) {
         if (!value) return {};
         if (typeof value === 'object') return value;
@@ -381,6 +436,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return APP.csrfToken || getCookie('csrftoken') || '';
     }
 
+    // ================================================================
+    // [03] CLIENTE HTTP / API
+    // ================================================================
     async function fetchJSON(url, options = {}) {
         if (!url) {
             throw new Error('URL da API não configurada.');
@@ -490,6 +548,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return payload;
     }
 
+    // ================================================================
+    // [04] FEEDBACK VISUAL E COMPONENTES BASE
+    // ================================================================
     function showToast(message, type = 'info', title = null, duration = 5000) {
         const container = $('toastContainer');
         if (!container) return;
@@ -630,6 +691,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { once: true });
     }
 
+    // ================================================================
+    // [05] NAVEGAÇÃO E EVENTOS
+    // ================================================================
     function initNavigation() {
         $all('[data-section-target]').forEach((button) => {
             button.addEventListener('click', () => {
@@ -978,6 +1042,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ================================================================
+    // [06] STATUS, SAÚDE, CONFIGURAÇÃO E TOPOLOGIA
+    // ================================================================
     async function refreshStatus(showSuccessToast = false) {
         if (state.isFetchingStatus) return state.statusData;
 
@@ -985,7 +1052,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setStatusRefreshVisual(true);
 
         try {
-            const payload = await fetchJSON(URLS.status);
+            const payload = await fetchJSON(apiUrl('status'));
             const data = unwrapPayload(payload);
 
             state.statusData = data;
@@ -1742,6 +1809,9 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('lastUpdateText', formatRelativeTime(value));
     }
 
+    // ================================================================
+    // [07] DIAGNÓSTICO
+    // ================================================================
     async function runDiagnostic(button = null) {
         if (state.isRunningDiagnostic) return;
 
@@ -1758,7 +1828,7 @@ document.addEventListener('DOMContentLoaded', () => {
         applyChip('diagnosticGeneralChip', 'pending', 'Executando');
 
         try {
-            const payload = await fetchJSON(URLS.diagnostico, {
+            const payload = await fetchJSON(apiUrl('diagnostico'), {
                 timeout: 120000,
             });
 
@@ -1980,8 +2050,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ================================================================
+    // [08] TAREFAS
+    // ================================================================
     async function createTask(tipo, parametros = {}) {
-        const payload = await fetchJSON(URLS.criarTarefa, {
+        const payload = await fetchJSON(apiUrl('criarTarefa'), {
             method: 'POST',
             body: {
                 tipo,
@@ -2013,7 +2086,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (status) query.set('status', status);
         if (type) query.set('tipo', type);
 
-        const payload = await fetchJSON(`${URLS.listarTarefas}?${query}`);
+        const payload = await fetchJSON(`${apiUrl('listarTarefas')}?${query}`);
         const data = unwrapPayload(payload);
 
         const tasks = safeArray(
@@ -2274,7 +2347,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadTaskDetail(taskId) {
-        const detailUrl = sanitizeUrl(URLS.detalheTarefaTemplate, taskId);
+        const detailUrl = sanitizeUrl(apiUrl('detalheTarefaTemplate'), taskId);
         const payload = await fetchJSON(detailUrl);
         const data = unwrapPayload(payload);
 
@@ -2342,7 +2415,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadTaskLogs(taskId) {
         const url = new URL(
-            sanitizeUrl(URLS.logsTarefaTemplate, taskId),
+            sanitizeUrl(apiUrl('logsTarefaTemplate'), taskId),
             window.location.origin
         );
 
@@ -2434,7 +2507,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadTaskDetailWithoutRestart(taskId) {
-        const detailUrl = sanitizeUrl(URLS.detalheTarefaTemplate, taskId);
+        const detailUrl = sanitizeUrl(apiUrl('detalheTarefaTemplate'), taskId);
         const payload = await fetchJSON(detailUrl);
         const data = unwrapPayload(payload);
         const task =
@@ -2457,7 +2530,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function requestTaskCancellation(taskId) {
-        const url = sanitizeUrl(URLS.cancelarTarefaTemplate, taskId);
+        const url = sanitizeUrl(apiUrl('cancelarTarefaTemplate'), taskId);
 
         await fetchJSON(url, {
             method: 'POST',
@@ -2496,6 +2569,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ================================================================
+    // [09] POLLING E CICLO DE VIDA
+    // ================================================================
     function startStatusPolling() {
         stopStatusPolling();
 
@@ -2551,7 +2627,14 @@ document.addEventListener('DOMContentLoaded', () => {
         stopStatusPolling();
     }
 
+    // ================================================================
+    // [10] BOOTSTRAP
+    // ================================================================
     async function bootstrap() {
+        // Falha cedo e de forma legível caso o template esteja desalinhado
+        // com o painel.js. Evita requests como "/undefined?...".
+        validatePanelContract();
+
         initStars();
         initNavigation();
         initButtons();

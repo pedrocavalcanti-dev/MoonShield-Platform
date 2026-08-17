@@ -17,15 +17,17 @@
 
 {% block conteudo %}
 
+<!-- BANNER DE MODO REAL -->
 <div id="prodModeBanner" class="cfg-prod-banner" style="display:none">
   <i class="bi bi-exclamation-triangle-fill"></i>
   <span>
-    <strong>Modo Produção ativo.</strong>
-    Os dados exibidos no painel virão das integrações reais.
-    Certifique-se de testar cada provider antes de usar.
+    <strong>Modo Real ativo.</strong>
+    Os serviços reais desta máquina poderão ser utilizados pelo MoonShield.
+    Certifique-se de testar cada serviço antes de usar.
   </span>
 </div>
 
+<!-- STATUS BAR -->
 <div class="cfg-status-bar">
   <div class="cfg-status-node">
     <div class="cfg-status-dot cfg-status-dot--ok"></div>
@@ -57,12 +59,12 @@
     </div>
   </div>
   <div class="cfg-status-bar__right">
-    <span class="cfg-mode-badge" id="modeBadge">DEMO</span>
+    <span class="cfg-mode-badge" id="modeBadge">SIMULAÇÃO</span>
     <div class="cfg-mode-selector">
-      <label class="cfg-mode-label">Modo:</label>
+      <label class="cfg-mode-label">Modo de operação:</label>
       <select class="cfg-mode-select" id="cfgModeSelect">
-        <option value="demo">Demo / Mock</option>
-        <option value="prod">Produção</option>
+        <option value="demo">Simulação</option>
+        <option value="prod">Real</option>
       </select>
     </div>
     <button class="cfg-save-all-btn" id="cfgSaveAllBtn">
@@ -71,6 +73,7 @@
   </div>
 </div>
 
+<!-- ABAS: Sistema, Rede, Scanner, Serviços, Segurança, Diagnóstico -->
 <div class="cfg-tabs">
   <button class="cfg-tab cfg-tab--active" data-tab="sistema">
     <i class="bi bi-display"></i> Sistema
@@ -81,9 +84,8 @@
   <button class="cfg-tab" data-tab="scanner">
     <i class="bi bi-search"></i> Scanner
   </button>
-  <button class="cfg-tab" data-tab="integracoes">
-    <i class="bi bi-plug-fill"></i> Integrações
-    <span class="cfg-tab-badge" id="tabBadgeIntegracoes">0/3</span>
+  <button class="cfg-tab" data-tab="servicos">
+    <i class="bi bi-cpu-fill"></i> Serviços
   </button>
   <button class="cfg-tab" data-tab="seguranca">
     <i class="bi bi-shield-lock-fill"></i> Segurança
@@ -95,8 +97,12 @@
 
 <div class="cfg-body">
 
-  <!-- ══ SISTEMA ══ -->
+  <!-- ══════════════════════════════════════════════════════
+       SISTEMA
+       ══════════════════════════════════════════════════════ -->
   <div class="cfg-panel cfg-panel--active" id="panelSistema">
+    
+    <!-- Informações do Servidor -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-server"></i> Este Servidor</p>
@@ -106,6 +112,8 @@
         <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando…</p>
       </div>
     </div>
+
+    <!-- Identidade do Node -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-person-badge-fill"></i> Identidade do Node</p>
@@ -134,10 +142,66 @@
         </div>
       </div>
     </div>
+
+    <!-- Resumo dos Serviços -->
+    <div class="cfg-section">
+      <div class="cfg-section__header">
+        <p class="cfg-section__title"><i class="bi bi-cpu-fill"></i> Serviços do Nó</p>
+        <p class="cfg-section__sub">Estado rápido dos componentes principais</p>
+      </div>
+      <div class="cfg-form-grid" style="grid-template-columns: repeat(3, 1fr); gap: var(--sp-md);">
+        
+        <!-- AdGuard -->
+        <div class="cfg-service-summary-card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <i class="bi bi-globe2" style="font-size:16px;color:#3b82f6"></i>
+            <p style="font-size:12px;font-weight:600;color:var(--text-primary)">AdGuard Home</p>
+          </div>
+          <p style="font-size:10px;color:var(--text-dim);margin-bottom:6px">DNS e bloqueio</p>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span class="cfg-service-status-dot" id="systemAdguardDot" style="background:var(--text-dim)"></span>
+            <span style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono)" id="systemAdguardStatus">—</span>
+          </div>
+        </div>
+
+        <!-- Suricata -->
+        <div class="cfg-service-summary-card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <i class="bi bi-shield-exclamation" style="font-size:16px;color:#ef4444"></i>
+            <p style="font-size:12px;font-weight:600;color:var(--text-primary)">Suricata</p>
+          </div>
+          <p style="font-size:10px;color:var(--text-dim);margin-bottom:6px">IDS local</p>
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+            <span class="cfg-service-status-dot" id="systemSuricataDot" style="background:var(--text-dim)"></span>
+            <span style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono)" id="systemSuricataStatus">—</span>
+          </div>
+          <p style="font-size:9px;color:var(--text-dim);margin-top:3px;font-family:var(--font-mono)" id="systemSuricataVersion"></p>
+        </div>
+
+        <!-- Firewall -->
+        <div class="cfg-service-summary-card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <i class="bi bi-fire" style="font-size:16px;color:#f97316"></i>
+            <p style="font-size:12px;font-weight:600;color:var(--text-primary)">Firewall</p>
+          </div>
+          <p style="font-size:10px;color:var(--text-dim);margin-bottom:6px">nftables local</p>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span class="cfg-service-status-dot" id="systemFirewallDot" style="background:var(--text-dim)"></span>
+            <span style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono)" id="systemFirewallStatus">—</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
   </div>
 
-  <!-- ══ REDE ══ -->
+  <!-- ══════════════════════════════════════════════════════
+       REDE
+       ══════════════════════════════════════════════════════ -->
   <div class="cfg-panel" id="panelRede">
+    
+    <!-- Interfaces de Rede -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-hdd-network-fill"></i> Interfaces de Rede</p>
@@ -149,6 +213,8 @@
         <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando…</p>
       </div>
     </div>
+
+    <!-- Rede Monitorada -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-diagram-3-fill"></i> Rede Monitorada</p>
@@ -173,21 +239,19 @@
           <input class="cfg-input cfg-input--mono" id="fieldDns2" type="text" placeholder="Ex: 8.8.8.8" />
         </div>
         <div class="cfg-form-field cfg-form-field--full">
-          <label class="cfg-label">IPs Críticos <span
-              style="color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none">(um por
-              linha)</span></label>
-          <textarea class="cfg-input cfg-input--mono cfg-textarea" id="fieldIpsCriticos" rows="3"
-            placeholder="192.168.0.1  ← roteador&#10;192.168.0.2  ← AdGuard&#10;192.168.0.3  ← Suricata"></textarea>
+          <label class="cfg-label">IPs Críticos <span style="color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none">(um por linha)</span></label>
+          <textarea class="cfg-input cfg-input--mono cfg-textarea" id="fieldIpsCriticos" rows="3" placeholder="192.168.0.1  ← roteador&#10;192.168.0.2  ← AdGuard&#10;192.168.0.3  ← Suricata"></textarea>
           <p class="cfg-hint">Destacados no mapa de dispositivos</p>
         </div>
         <div class="cfg-form-field cfg-form-field--full">
           <label class="cfg-label">Excluir do Scan</label>
-          <input class="cfg-input cfg-input--mono" id="fieldExcluir" type="text"
-            placeholder="Ex: 192.168.0.1, 192.168.0.2" />
+          <input class="cfg-input cfg-input--mono" id="fieldExcluir" type="text" placeholder="Ex: 192.168.0.1, 192.168.0.2" />
           <p class="cfg-hint">IPs separados por vírgula</p>
         </div>
       </div>
     </div>
+
+    <!-- Auto-descoberta -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-radar"></i> Auto-descoberta</p>
@@ -204,10 +268,15 @@
         <div class="cfg-detect-result" id="autoDiscoverResult" style="display:none"></div>
       </div>
     </div>
+
   </div>
 
-  <!-- ══ SCANNER ══ -->
+  <!-- ══════════════════════════════════════════════════════
+       SCANNER
+       ══════════════════════════════════════════════════════ -->
   <div class="cfg-panel" id="panelScanner">
+    
+    <!-- Configurações do Scanner -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-search-heart-fill"></i> Configurações do Scanner</p>
@@ -252,24 +321,21 @@
             <p class="cfg-toggle-label">Resolução de Hostname</p>
             <p class="cfg-toggle-sub">PTR lookup de cada IP</p>
           </div>
-          <label class="cfg-switch"><input type="checkbox" id="toggleHostname" checked><span
-              class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleHostname" checked><span class="cfg-switch-slider"></span></label>
         </div>
         <div class="cfg-toggle-item">
           <div class="cfg-toggle-info">
             <p class="cfg-toggle-label">Detectar MAC Address</p>
             <p class="cfg-toggle-sub">Via ARP (apenas rede local direta)</p>
           </div>
-          <label class="cfg-switch"><input type="checkbox" id="toggleMac" checked><span
-              class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleMac" checked><span class="cfg-switch-slider"></span></label>
         </div>
         <div class="cfg-toggle-item">
           <div class="cfg-toggle-info">
             <p class="cfg-toggle-label">Identificar Fabricante (OUI)</p>
             <p class="cfg-toggle-sub">Banco OUI para exibir fabricante pelo MAC</p>
           </div>
-          <label class="cfg-switch"><input type="checkbox" id="toggleOui" checked><span
-              class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleOui" checked><span class="cfg-switch-slider"></span></label>
         </div>
         <div class="cfg-toggle-item cfg-toggle-item--disabled">
           <div class="cfg-toggle-info">
@@ -280,6 +346,8 @@
         </div>
       </div>
     </div>
+
+    <!-- Retenção de Dados -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-database-fill-gear"></i> Retenção de Dados</p>
@@ -323,47 +391,40 @@
         </div>
       </div>
     </div>
+
   </div>
 
-  <!-- ══ INTEGRAÇÕES ══ -->
-  <div class="cfg-panel" id="panelIntegracoes">
+  <!-- ══════════════════════════════════════════════════════
+       SERVIÇOS (novo nome para Integrações)
+       ══════════════════════════════════════════════════════ -->
+  <div class="cfg-panel" id="panelServicos">
 
     <div class="cfg-integrations-hint" id="integracoesHint"></div>
 
-    <!-- ADGUARD -->
+    <!-- ──────────────────────────────────────────────────
+         ADGUARD HOME
+         ────────────────────────────────────────────────── -->
     <div class="cfg-connector" id="connectorDns">
       <div class="cfg-connector__header">
         <div class="cfg-connector__title-group">
           <div class="cfg-connector__icon">
-            <img src="{% static 'imagens/configuraçoes/logos-sistemas/adguard.png' %}" class="cfg-connector__logo"
-              alt="AdGuard">
+            <img src="{% static 'imagens/configuraçoes/logos-sistemas/adguard.png' %}" class="cfg-connector__logo" alt="AdGuard">
           </div>
           <div>
             <p class="cfg-connector__name">AdGuard Home</p>
-            <p class="cfg-connector__sub">Provedor DNS · Bloqueio e logs de consultas</p>
+            <p class="cfg-connector__sub">DNS e bloqueio de conteúdo</p>
           </div>
         </div>
         <div class="cfg-connector__header-right">
           <span class="cfg-conn-status" id="statusDns"><span class="cfg-conn-dot"></span> Desconectado</span>
           <span class="cfg-provider-mode-badge cfg-provider-mode-badge--mock" id="badgeModeDns">MOCK</span>
-          <label class="cfg-switch"><input type="checkbox" id="toggleDnsProvider" class="provider-toggle"
-              data-provider="dns"><span class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleDnsProvider" class="provider-toggle" data-provider="dns"><span class="cfg-switch-slider"></span></label>
         </div>
       </div>
       <div class="cfg-connector__body">
         <div class="cfg-form-grid">
           <div class="cfg-form-field">
-            <label class="cfg-label">Modo</label>
-            <select class="cfg-input" id="dnsMode">
-              <option value="mock">Mock (simulado)</option>
-            </select>
-          </div>
-          <div class="cfg-form-field">
-            <label class="cfg-label">URL do AdGuard
-              <span
-                style="color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;font-size:9px;margin-left:4px">(sem
-                barra no final)</span>
-            </label>
+            <label class="cfg-label">URL do AdGuard</label>
             <input class="cfg-input cfg-input--mono" id="dnsUrl" type="text" placeholder="http://10.53.49.41" />
             <div id="dnsUrlStatus" style="margin-top:4px"></div>
           </div>
@@ -372,20 +433,15 @@
             <input class="cfg-input" id="dnsUser" type="text" placeholder="moonshield" />
           </div>
           <div class="cfg-form-field">
-            <label class="cfg-label">Senha
-              <span
-                style="color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;font-size:9px;margin-left:4px">(vazio
-                = manter)</span>
-            </label>
+            <label class="cfg-label">Senha</label>
             <input class="cfg-input" id="dnsPass" type="password" placeholder="••••••••" autocomplete="new-password" />
           </div>
           <div class="cfg-form-field">
             <label class="cfg-label">Usar HTTPS</label>
-            <label class="cfg-switch" style="margin-top:6px"><input type="checkbox" id="dnsHttps"><span
-                class="cfg-switch-slider"></span></label>
+            <label class="cfg-switch" style="margin-top:6px"><input type="checkbox" id="dnsHttps"><span class="cfg-switch-slider"></span></label>
           </div>
           <div class="cfg-form-field">
-            <label class="cfg-label">Intervalo de Coleta</label>
+            <label class="cfg-label">Intervalo de Sincronização</label>
             <select class="cfg-input" id="dnsInterval">
               <option value="10">10 segundos</option>
               <option value="30">30 segundos</option>
@@ -395,270 +451,146 @@
         </div>
         <div class="cfg-demo-overlay" id="overlayDns" style="display:none">
           <i class="bi bi-lock-fill"></i>
-          <p>Bloqueado no Modo Demo</p>
-          <p class="cfg-demo-overlay__sub">Mude para <strong>Produção</strong> para configurar credenciais reais</p>
-        </div>
-        <div
-          style="margin:10px 0 14px;padding:10px 12px;background:rgba(59,130,246,.05);border:1px solid rgba(59,130,246,.12);border-radius:6px;font-size:10px;color:var(--text-dim);line-height:1.7;font-family:var(--font-mono)">
-          <strong style="color:#3b82f6">Endpoints consumidos:</strong>
-          &nbsp;<code>POST /control/login</code> · <code>GET /control/status</code> · <code>GET /control/stats</code> ·
-          <code>GET /control/filtering/status</code>
+          <p>Bloqueado no Modo Simulação</p>
+          <p class="cfg-demo-overlay__sub">Mude para <strong>Modo Real</strong> para configurar credenciais</p>
         </div>
         <div class="cfg-connector__actions">
-          <button class="cfg-test-btn" id="btnTestDns" data-provider="dns"><i class="bi bi-wifi"></i> Testar
-            Conexão</button>
+          <button class="cfg-test-btn" id="btnTestDns" data-provider="dns"><i class="bi bi-wifi"></i> Testar Conexão</button>
           <div class="cfg-test-result" id="testResultDns"></div>
         </div>
         <div class="cfg-connector__meta">
-          <span class="cfg-meta-item"><i class="bi bi-clock"></i> Última coleta: <strong
-              id="dnsLastSync">nunca</strong></span>
-          <span class="cfg-meta-item">Campos: <code>client_ip, domain, status, timestamp</code></span>
+          <span class="cfg-meta-item"><i class="bi bi-clock"></i> Última coleta: <strong id="dnsLastSync">nunca</strong></span>
         </div>
       </div>
     </div>
 
-    <!-- SURICATA IDS -->
+    <!-- ──────────────────────────────────────────────────
+         SURICATA IDS (componente local — sem sensor remoto)
+         ────────────────────────────────────────────────── -->
     <div class="cfg-connector" id="connectorIds">
       <div class="cfg-connector__header">
         <div class="cfg-connector__title-group">
           <div class="cfg-connector__icon">
-            <img src="{% static 'imagens/configuraçoes/logos-sistemas/suricata.png' %}" class="cfg-connector__logo"
-              alt="Suricata">
+            <img src="{% static 'imagens/configuraçoes/logos-sistemas/suricata.png' %}" class="cfg-connector__logo" alt="Suricata">
           </div>
           <div>
             <p class="cfg-connector__name">Suricata IDS</p>
-            <p class="cfg-connector__sub">Sensor Linux · Alertas e eventos via ms_sensor.py</p>
+            <p class="cfg-connector__sub">Detecção de ameaças e análise de tráfego</p>
           </div>
         </div>
         <div class="cfg-connector__header-right">
           <span class="cfg-conn-status" id="statusIds"><span class="cfg-conn-dot"></span> Desconectado</span>
           <span class="cfg-provider-mode-badge cfg-provider-mode-badge--mock" id="badgeModeIds">MOCK</span>
-          <label class="cfg-switch"><input type="checkbox" id="toggleIdsProvider" class="provider-toggle"
-              data-provider="ids"><span class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleIdsProvider" class="provider-toggle" data-provider="ids"><span class="cfg-switch-slider"></span></label>
         </div>
       </div>
       <div class="cfg-connector__body">
-        <div class="cfg-form-grid">
-          <div class="cfg-form-field">
-            <label class="cfg-label">Modo</label>
-            <select class="cfg-input" id="idsMode">
-              <option value="mock">Mock (simulado)</option>
-            </select>
+        <!-- Container de URLs reais do Suricata (Django) — usado por cfg-conexoes.js -->
+        <div
+          id="suricataUrls"
+          data-onboarding-url="{% url 'incidentes:suricata_onboarding' %}"
+          data-painel-url="{% url 'incidentes:suricata_painel' %}"
+          hidden>
+        </div>
+
+        <!-- Descrição do status -->
+        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:var(--r-md);padding:12px 14px;margin-bottom:12px">
+          <p style="font-size:11px;color:var(--text-muted);line-height:1.6;margin:0">
+            Suricata é um componente <strong>local</strong> desta máquina. O MoonShield detecta automaticamente seu estado de instalação, configuração e saúde operacional.
+          </p>
+        </div>
+
+        <!-- Status do Suricata -->
+        <div style="background:var(--bg-mid);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:12px 14px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <p style="font-size:11px;font-weight:600;color:var(--text-primary);margin:0">Status Operacional</p>
+            <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-dim)" id="suricataVersionLabel"></span>
           </div>
-          <div class="cfg-form-field">
-            <label class="cfg-label">Intervalo de Leitura</label>
-            <select class="cfg-input" id="idsInterval">
-              <option value="5">5 segundos</option>
-              <option value="10">10 segundos</option>
-              <option value="30">30 segundos</option>
-            </select>
-          </div>
-          <div class="cfg-form-field">
-            <label class="cfg-label">Severidade Mínima</label>
-            <select class="cfg-input" id="idsMinSeverity">
-              <option value="1">Crítico</option>
-              <option value="2">Alto</option>
-              <option value="3">Médio</option>
-              <option value="4">Todos</option>
-            </select>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:10px;font-family:var(--font-mono)">
+            <div style="display:flex;align-items:center;gap:4px">
+              <span class="cfg-service-status-dot" id="suricataServiceDot" style="background:var(--text-dim)"></span>
+              <span style="color:var(--text-dim)">Serviço: <strong id="suricataServiceText" style="color:var(--text-muted)">—</strong></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span class="cfg-service-status-dot" id="suricataMonitorDot" style="background:var(--text-dim)"></span>
+              <span style="color:var(--text-dim)">Monitor: <strong id="suricataMonitorText" style="color:var(--text-muted)">—</strong></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span class="cfg-service-status-dot" id="suricataWorkerDot" style="background:var(--text-dim)"></span>
+              <span style="color:var(--text-dim)">Worker: <strong id="suricataWorkerText" style="color:var(--text-muted)">—</strong></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span class="cfg-service-status-dot" id="suricataEveDot" style="background:var(--text-dim)"></span>
+              <span style="color:var(--text-dim)">EVE: <strong id="suricataEveText" style="color:var(--text-muted)">—</strong></span>
+            </div>
           </div>
         </div>
+
         <div class="cfg-demo-overlay" id="overlayIds" style="display:none">
           <i class="bi bi-lock-fill"></i>
-          <p>Bloqueado no Modo Demo</p>
-          <p class="cfg-demo-overlay__sub">Mude para <strong>Produção</strong> para visualizar sensores reais</p>
+          <p>Bloqueado no Modo Simulação</p>
+          <p class="cfg-demo-overlay__sub">Mude para <strong>Modo Real</strong> para gerenciar Suricata</p>
         </div>
-        <div id="idsSensorPanel" style="display:none">
-          <div
-            style="margin:4px 0 14px;padding:10px 12px;background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.12);border-radius:6px;font-size:10px;color:var(--text-dim);line-height:1.7;font-family:var(--font-mono)">
-            <strong style="color:#ef4444">Arquitetura:</strong>
-            &nbsp; Linux (Suricata + ms_sensor.py)
-            <span style="color:#666;margin:0 6px">→</span>
-            <code>POST /incidentes/api/ingest/</code>
-            <span style="color:#666;margin:0 6px">→</span>
-            MoonShield
-          </div>
-          <div
-            style="display:flex;gap:12px;margin-bottom:14px;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span
-                style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e88;display:inline-block"></span>
-              <span style="font-size:11px;color:var(--text-dim)">Online: <strong id="idsSensorOnline"
-                  style="color:#22c55e">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <span
-                style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 6px #ef444488;display:inline-block"></span>
-              <span style="font-size:11px;color:var(--text-dim)">Offline: <strong id="idsSensorOffline"
-                  style="color:#ef4444">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-              <span style="font-size:11px;color:var(--text-dim)">Total: <strong id="idsSensorTotal"
-                  style="color:var(--text-bright)">—</strong></span>
-            </div>
-            <button id="btnRefreshSensors"
-              style="margin-left:8px;padding:3px 10px;font-size:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text-dim);cursor:pointer;font-family:var(--font-mono);transition:all .2s"
-              onmouseover="this.style.background='rgba(255,255,255,.1)'"
-              onmouseout="this.style.background='rgba(255,255,255,.05)'">
-              <i class="bi bi-arrow-clockwise"></i> Atualizar
-            </button>
-          </div>
-          <div id="idsSensorList">
-            <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando sensores…</p>
-          </div>
-        </div>
-        <div class="cfg-connector__actions" style="margin-top:14px">
-          <button class="cfg-test-btn" id="btnTestIds" data-provider="ids"><i class="bi bi-shield-check"></i> Verificar
-            Sensores</button>
+
+        <!-- Ação (botão único) -->
+        <div class="cfg-connector__actions">
+          <button class="cfg-test-btn" id="suricataActionBtn" data-provider="ids"><i class="bi bi-play-circle"></i> Abrir Painel</button>
           <div class="cfg-test-result" id="testResultIds"></div>
         </div>
+
+        <!-- Meta -->
         <div class="cfg-connector__meta">
-          <span class="cfg-meta-item"><i class="bi bi-clock"></i> Última verificação: <strong
-              id="idsLastSync">nunca</strong></span>
-          <span class="cfg-meta-item">Campos: <code>alert.signature, src_ip, dest_ip, severity, timestamp</code></span>
+          <span class="cfg-meta-item"><i class="bi bi-clock"></i> Última verificação: <strong id="idsLastSync">nunca</strong></span>
         </div>
       </div>
     </div>
 
-    <!-- FIREWALL -->
+    <!-- ──────────────────────────────────────────────────
+         FIREWALL (PLACEHOLDER)
+         ────────────────────────────────────────────────── -->
     <div class="cfg-connector" id="connectorFw">
       <div class="cfg-connector__header">
         <div class="cfg-connector__title-group">
           <div class="cfg-connector__icon">
-            <img src="{% static 'imagens/configuraçoes/logos-sistemas/iptables.png' %}" class="cfg-connector__logo"
-              alt="Firewall">
+            <img src="{% static 'imagens/configuraçoes/logos-sistemas/iptables.png' %}" class="cfg-connector__logo" alt="Firewall">
           </div>
           <div>
-            <p class="cfg-connector__name">Firewall Provider</p>
-            <p class="cfg-connector__sub">nftables · Sensor Linux via ms_firewall.py + Agente HTTP :8765</p>
+            <p class="cfg-connector__name">Firewall</p>
+            <p class="cfg-connector__sub">Controle de tráfego e políticas de rede</p>
           </div>
         </div>
         <div class="cfg-connector__header-right">
-          <span class="cfg-conn-status" id="statusFw"><span class="cfg-conn-dot"></span> Desconectado</span>
+          <span class="cfg-conn-status" id="statusFw"><span class="cfg-conn-dot"></span> Em desenvolvimento</span>
           <span class="cfg-provider-mode-badge cfg-provider-mode-badge--mock" id="badgeModeFw">MOCK</span>
-          <label class="cfg-switch"><input type="checkbox" id="toggleFwProvider" class="provider-toggle"
-              data-provider="fw"><span class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleFwProvider" class="provider-toggle" data-provider="fw"><span class="cfg-switch-slider"></span></label>
         </div>
       </div>
       <div class="cfg-connector__body">
-
-        <!-- ── campos de configuração ── -->
-        <div class="cfg-form-grid">
-          <div class="cfg-form-field">
-            <label class="cfg-label">Modo</label>
-            <select class="cfg-input" id="fwMode">
-              <option value="mock">Mock (simulado)</option>
-            </select>
-          </div>
-          <div class="cfg-form-field">
-            <label class="cfg-label">Alvo</label>
-            <select class="cfg-input" id="fwTarget">
-              <option value="local">Local (este servidor)</option>
-              <option value="gateway">Gateway externo</option>
-            </select>
-          </div>
-          <div class="cfg-form-field">
-            <label class="cfg-label">URL / Host (remoto)</label>
-            <input class="cfg-input cfg-input--mono" id="fwHost" type="text" placeholder="192.168.0.1 ou pfSense URL" />
-          </div>
-          <div class="cfg-form-field">
-            <label class="cfg-label">API Token</label>
-            <input class="cfg-input" id="fwToken" type="password" placeholder="Token (opcional)" />
-          </div>
-          <!-- v2: porta do agente Flask -->
-          <div class="cfg-form-field cfg-form-field--full">
-            <label class="cfg-label">
-              Porta do Agente HTTP
-              <span
-                style="color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;font-size:9px;margin-left:4px">
-                (Flask local no sensor Linux — aplica regras sem esperar poll de 30s)
-              </span>
-            </label>
-            <div style="display:flex;align-items:center;gap:10px">
-              <input class="cfg-input cfg-input--mono" id="fwAgentePorta" type="number" min="1024" max="65535"
-                placeholder="8765" style="max-width:120px" />
-              <span style="font-size:11px;color:var(--text-dim);font-family:var(--font-mono)">
-                → o sensor responde em <code id="fwAgenteUrl" style="color:#3b82f6">http://IP_SENSOR:8765</code>
-              </span>
-            </div>
-            <p class="cfg-hint">Configure <code>agente_porta</code> no <code>config.json</code> do sensor para usar
-              porta diferente.</p>
-          </div>
+        <div style="background:rgba(168,85,247,.07);border:1px solid rgba(168,85,247,.2);border-radius:var(--r-md);padding:12px 14px">
+          <p style="font-size:11px;color:var(--text-muted);line-height:1.6;margin:0">
+            <i class="bi bi-gear" style="margin-right:6px"></i>
+            <strong>Em desenvolvimento</strong> — Integração com firewall local via nftables será disponibilizada em breve.
+          </p>
         </div>
-
         <div class="cfg-demo-overlay" id="overlayFw" style="display:none">
           <i class="bi bi-lock-fill"></i>
-          <p>Bloqueado no Modo Demo</p>
-          <p class="cfg-demo-overlay__sub">Mude para <strong>Produção</strong> para configurar o Firewall</p>
+          <p>Bloqueado no Modo Simulação</p>
+          <p class="cfg-demo-overlay__sub">Mude para <strong>Modo Real</strong> para configurar</p>
         </div>
-
-        <!-- ── arquitetura ── -->
-        <div
-          style="margin:4px 0 14px;padding:10px 12px;background:rgba(59,130,246,.05);border:1px solid rgba(59,130,246,.12);border-radius:6px;font-size:10px;color:var(--text-dim);line-height:1.7;font-family:var(--font-mono)">
-          <strong style="color:#3b82f6">Arquitetura:</strong>
-          &nbsp; Linux (nftables + ms_firewall.py)
-          <span style="color:#666;margin:0 6px">→</span>
-          <code>POST /firewall/api/ingest/</code>
-          <span style="color:#666;margin:0 6px">→</span>
-          MoonShield
-          <br>
-          <strong style="color:#3b82f6">Agente direto:</strong>
-          &nbsp; Django
-          <span style="color:#666;margin:0 6px">→</span>
-          <code>POST http://IP_SENSOR:8765/aplicar</code>
-          <span style="color:#666;margin:0 4px">—</span>
-          <span style="color:#22c55e">instantâneo, sem poll</span>
-        </div>
-
-        <!-- ── painel sensores FW ── -->
-        <div id="fwSensorPanel" style="display:none">
-          <div
-            style="display:flex;gap:12px;margin-bottom:14px;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span
-                style="width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e88;display:inline-block"></span>
-              <span style="font-size:11px;color:var(--text-dim)">Online: <strong id="fwSensorOnline"
-                  style="color:#22c55e">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <span
-                style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 6px #ef444488;display:inline-block"></span>
-              <span style="font-size:11px;color:var(--text-dim)">Offline: <strong id="fwSensorOffline"
-                  style="color:#ef4444">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
-              <span style="font-size:11px;color:var(--text-dim)">Total: <strong id="fwSensorTotal"
-                  style="color:var(--text-bright)">—</strong></span>
-            </div>
-            <button id="btnRefreshFwSensors"
-              style="margin-left:8px;padding:3px 10px;font-size:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:4px;color:var(--text-dim);cursor:pointer;font-family:var(--font-mono);transition:all .2s"
-              onmouseover="this.style.background='rgba(255,255,255,.1)'"
-              onmouseout="this.style.background='rgba(255,255,255,.05)'">
-              <i class="bi bi-arrow-clockwise"></i> Atualizar
-            </button>
-          </div>
-          <div id="fwSensorList">
-            <p style="color:var(--text-dim);font-size:11px;padding:8px 0">Carregando sensores…</p>
-          </div>
-        </div>
-
         <div class="cfg-connector__actions" style="margin-top:14px">
-          <button class="cfg-test-btn" id="btnTestFw" data-provider="fw"><i class="bi bi-shield-check"></i> Verificar
-            Sensores</button>
-          <div class="cfg-test-result" id="testResultFw"></div>
-        </div>
-        <div class="cfg-connector__meta">
-          <span class="cfg-meta-item"><i class="bi bi-clock"></i> Última sync: <strong
-              id="fwLastSync">nunca</strong></span>
-          <span class="cfg-meta-item">Campos: <code>src_ip, dst_ip, dst_port, proto, acao, timestamp</code></span>
+          <button class="cfg-test-btn" disabled style="opacity:.45;cursor:not-allowed"><i class="bi bi-gear"></i> Em Breve</button>
         </div>
       </div>
     </div>
 
-  </div><!-- /panelIntegracoes -->
+  </div>
 
-  <!-- ══ SEGURANÇA ══ -->
+  <!-- ══════════════════════════════════════════════════════
+       SEGURANÇA
+       ══════════════════════════════════════════════════════ -->
   <div class="cfg-panel" id="panelSeguranca">
+    
+    <!-- Autenticação -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-person-lock"></i> Autenticação</p>
@@ -685,27 +617,26 @@
             <p class="cfg-toggle-label">Forçar HTTPS</p>
             <p class="cfg-toggle-sub">Redirecionar sempre para HTTPS</p>
           </div>
-          <label class="cfg-switch"><input type="checkbox" id="toggleHttps"><span
-              class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleHttps"><span class="cfg-switch-slider"></span></label>
         </div>
         <div class="cfg-toggle-item">
           <div class="cfg-toggle-info">
             <p class="cfg-toggle-label">Log de Acessos</p>
             <p class="cfg-toggle-sub">Registrar login/logout de usuários</p>
           </div>
-          <label class="cfg-switch"><input type="checkbox" id="toggleAccessLog" checked><span
-              class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleAccessLog" checked><span class="cfg-switch-slider"></span></label>
         </div>
         <div class="cfg-toggle-item">
           <div class="cfg-toggle-info">
             <p class="cfg-toggle-label">Bloquear IP após falhas</p>
             <p class="cfg-toggle-sub">Ban automático após limite de tentativas</p>
           </div>
-          <label class="cfg-switch"><input type="checkbox" id="toggleIpBan" checked><span
-              class="cfg-switch-slider"></span></label>
+          <label class="cfg-switch"><input type="checkbox" id="toggleIpBan" checked><span class="cfg-switch-slider"></span></label>
         </div>
       </div>
     </div>
+
+    <!-- Logs do Sistema -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-journal-text"></i> Logs do Sistema</p>
@@ -728,6 +659,8 @@
         </div>
       </div>
     </div>
+
+    <!-- Chave Secreta Django -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-key-fill"></i> Chave Secreta Django</p>
@@ -740,21 +673,28 @@
         <p class="cfg-hint">A chave está no <code>settings.py</code> e não é exibida aqui por segurança.</p>
       </div>
     </div>
+
   </div>
 
-  <!-- ══ DIAGNÓSTICO ══ -->
+  <!-- ══════════════════════════════════════════════════════
+       DIAGNÓSTICO
+       ══════════════════════════════════════════════════════ -->
   <div class="cfg-panel" id="panelDiagnostico">
+    
+    <!-- Status dos Serviços -->
     <div class="cfg-section">
       <div class="cfg-section__header">
-        <p class="cfg-section__title"><i class="bi bi-activity"></i> Status dos Providers</p>
+        <p class="cfg-section__title"><i class="bi bi-activity"></i> Status dos Serviços</p>
         <button class="cfg-detect-btn" id="btnRefreshDiag"><i class="bi bi-arrow-clockwise"></i> Atualizar</button>
       </div>
       <div class="cfg-diag-grid" id="diagProviders"></div>
     </div>
+
+    <!-- Testes Rápidos -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-lightning-charge-fill"></i> Testes Rápidos</p>
-        <p class="cfg-section__sub">Executam no servidor real — independente do modo Demo/Prod</p>
+        <p class="cfg-section__sub">Executam no servidor real — independente do modo</p>
       </div>
       <div class="cfg-quick-tests">
         <div class="cfg-quick-test">
@@ -791,6 +731,8 @@
         </div>
       </div>
     </div>
+
+    <!-- Log de Diagnóstico -->
     <div class="cfg-section">
       <div class="cfg-section__header">
         <p class="cfg-section__title"><i class="bi bi-terminal-fill"></i> Log de Diagnóstico</p>
@@ -800,11 +742,37 @@
         <p class="cfg-diag-log__empty">Nenhuma entrada ainda. Execute um teste acima.</p>
       </div>
     </div>
+
   </div>
 
 </div><!-- /cfg-body -->
 
+<!-- TOAST NOTIFICAÇÕES -->
 <div class="cfg-toast" id="cfgToast"></div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     LEGADO TEMPORÁRIO — IDs/campos escondidos para compatibilidade JS
+     ═══════════════════════════════════════════════════════════ -->
+<div class="cfg-legacy-hidden" hidden>
+  <!-- IDS/Suricata — modo individual, intervalo, severidade (compatibilidade cfg-conexoes.js) -->
+  <select id="idsMode"></select>
+  <select id="idsInterval"></select>
+  <select id="idsMinSeverity"></select>
+  
+  <!-- FW/Firewall — modo, target, host, token, porta (compatibilidade legado) -->
+  <select id="fwMode"></select>
+  <select id="fwTarget"></select>
+  <input id="fwHost" type="text" />
+  <input id="fwToken" type="password" />
+  <input id="fwAgentePorta" type="number" />
+  
+  <!-- DNS — modo (compatibilidade) -->
+  <select id="dnsMode"></select>
+  
+  <!-- Blocos de sensor IDS/FW que eram renderizados dinamicamente — manter ocultos -->
+  <div id="idsSensorPanel" hidden></div>
+  <div id="fwSensorPanel" hidden></div>
+</div>
 
 {% endblock %}
 
@@ -812,16 +780,4 @@
 <script src="{% static 'js/configuracoes/cfg-nucleo.js' %}"></script>
 <script src="{% static 'js/configuracoes/cfg-conexoes.js' %}"></script>
 <script src="{% static 'js/configuracoes/cfg-infraestrutura.js' %}"></script>
-<!-- Atualiza preview da URL do agente quando porta muda -->
-<script>
-  document.addEventListener('DOMContentLoaded', () => {
-    const portaEl = document.getElementById('fwAgentePorta');
-    const urlEl = document.getElementById('fwAgenteUrl');
-    if (portaEl && urlEl) {
-      portaEl.addEventListener('input', () => {
-        urlEl.textContent = `http://IP_SENSOR:${portaEl.value || 8765}`;
-      });
-    }
-  });
-</script>
 {% endblock %}

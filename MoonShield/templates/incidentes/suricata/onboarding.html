@@ -11,7 +11,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/onboarding.css' %}" />
+    <!-- NOVO CSS LINKADO -->
+    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/onboarding_v2.css' %}" />
     <link rel="icon" type="image/png" sizes="32x32" href="{% static 'favicon/favicon-32x32.png' %}" />
 </head>
 <body>
@@ -21,17 +22,9 @@
 {{ plano_instalacao|json_script:"ms-suricata-plano" }}
 
 <script>
-    const configuracaoSuricataEl = document.getElementById(
-        "ms-suricata-configuracao"
-    );
-
-    const statusOnboardingEl = document.getElementById(
-        "ms-suricata-onboarding-status"
-    );
-
-    const planoInstalacaoEl = document.getElementById(
-        "ms-suricata-plano"
-    );
+    const configuracaoSuricataEl = document.getElementById("ms-suricata-configuracao");
+    const statusOnboardingEl = document.getElementById("ms-suricata-onboarding-status");
+    const planoInstalacaoEl = document.getElementById("ms-suricata-plano");
 
     window.MS_SURICATA = {
         csrfToken: "{{ csrf_token }}",
@@ -39,15 +32,9 @@
             username: "{{ request.user.username|escapejs }}",
             nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
         },
-        configuracao: configuracaoSuricataEl
-            ? JSON.parse(configuracaoSuricataEl.textContent)
-            : null,
-        statusOnboarding: statusOnboardingEl
-            ? JSON.parse(statusOnboardingEl.textContent)
-            : {},
-        planoInstalacao: planoInstalacaoEl
-            ? JSON.parse(planoInstalacaoEl.textContent)
-            : {},
+        configuracao: configuracaoSuricataEl ? JSON.parse(configuracaoSuricataEl.textContent) : null,
+        statusOnboarding: statusOnboardingEl ? JSON.parse(statusOnboardingEl.textContent) : {},
+        planoInstalacao: planoInstalacaoEl ? JSON.parse(planoInstalacaoEl.textContent) : {},
         urls: {
             painel: "{% url 'incidentes:suricata_painel' %}",
             status: "{% url 'incidentes:api_suricata_status' %}",
@@ -67,695 +54,661 @@
     };
 </script>
 
-<!-- Fundo espacial -->
-<div class="ob-bg" aria-hidden="true">
-    <canvas id="starsCanvas"></canvas>
-    <div class="ob-bg__noise"></div>
-    <div class="ob-bg__grid"></div>
-    <div class="ob-bg__glow ob-bg__glow--1"></div>
-    <div class="ob-bg__glow ob-bg__glow--2"></div>
-</div>
+<!-- Toasts globais (mantidos os IDs para compatibilidade com o JS) -->
+<div id="toastContainer" aria-live="polite" aria-atomic="true" style="position: fixed; top: 16px; right: 16px; z-index: 9999;"></div>
 
-<canvas id="warpCanvas" class="warp-canvas" aria-hidden="true"></canvas>
+<div class="app-container">
 
-<!-- Toasts globais -->
-<div class="ob-toasts" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+    <!-- ═══════════════════════════════════════════════════════════════
+         SIDEBAR
+    ═══════════════════════════════════════════════════════════════ -->
+    <aside class="app-sidebar">
+        <div class="app-brand">
+            <div class="app-brand__logo">MS</div>
+            <div class="app-brand__info">
+                <h2>MoonShield</h2>
+                <p>Suricata Setup</p>
+            </div>
+        </div>
 
-<div class="ob-shell">
-    <div class="ob-layout">
+        <nav class="steps-navigation" aria-label="Etapas da instalação">
+            <div class="steps-navigation__title">Etapas</div>
 
-        <!-- ═══════════════════════════════════════════════════════════════
-             SIDEBAR
-        ═══════════════════════════════════════════════════════════════ -->
-        <aside class="ob-sidebar">
-            <div class="ob-brand">
-                <div class="ob-brand__shield">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-                        <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                    </svg>
+            <div class="step-item active" data-step="1">
+                <div class="step-item__marker">
+                    <div class="step-item__dot">1</div>
+                    <div class="step-item__line"></div>
                 </div>
-                <div class="ob-brand__copy">
-                    <span class="ob-brand__name">MoonShield</span>
-                    <span class="ob-brand__module">Suricata Setup</span>
+                <div class="step-item__info">
+                    <div class="step-item__label">Visão geral</div>
+                    <div class="step-item__desc">Como funciona</div>
                 </div>
             </div>
 
-            <div class="ob-sidebar__label">Instalação guiada</div>
-
-            <nav class="ob-steps-nav" aria-label="Etapas da instalação">
-                <button class="ob-nav-step ob-nav-step--active" type="button" data-step="1" aria-current="step">
-                    <span class="ob-nav-step__left">
-                        <span class="ob-nav-step__dot">
-                            <svg class="ico-check" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12" /></svg>
-                        </span>
-                        <span class="ob-nav-step__connector"></span>
-                    </span>
-                    <span class="ob-nav-step__info">
-                        <span class="ob-nav-step__label">Visão geral</span>
-                        <span class="ob-nav-step__desc">Como funciona</span>
-                    </span>
-                </button>
-
-                <button class="ob-nav-step" type="button" data-step="2" disabled>
-                    <span class="ob-nav-step__left">
-                        <span class="ob-nav-step__dot">
-                            <svg class="ico-check" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12" /></svg>
-                        </span>
-                        <span class="ob-nav-step__connector"></span>
-                    </span>
-                    <span class="ob-nav-step__info">
-                        <span class="ob-nav-step__label">Ambiente</span>
-                        <span class="ob-nav-step__desc">Pré-requisitos</span>
-                    </span>
-                </button>
-
-                <button class="ob-nav-step" type="button" data-step="3" disabled>
-                    <span class="ob-nav-step__left">
-                        <span class="ob-nav-step__dot">
-                            <svg class="ico-check" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12" /></svg>
-                        </span>
-                        <span class="ob-nav-step__connector"></span>
-                    </span>
-                    <span class="ob-nav-step__info">
-                        <span class="ob-nav-step__label">Rede</span>
-                        <span class="ob-nav-step__desc">Topologia e interfaces</span>
-                    </span>
-                </button>
-
-                <button class="ob-nav-step" type="button" data-step="4" disabled>
-                    <span class="ob-nav-step__left">
-                        <span class="ob-nav-step__dot">
-                            <svg class="ico-check" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12" /></svg>
-                        </span>
-                        <span class="ob-nav-step__connector"></span>
-                    </span>
-                    <span class="ob-nav-step__info">
-                        <span class="ob-nav-step__label">Proteção</span>
-                        <span class="ob-nav-step__desc">Regras e captura</span>
-                    </span>
-                </button>
-
-                <button class="ob-nav-step" type="button" data-step="5" disabled>
-                    <span class="ob-nav-step__left">
-                        <span class="ob-nav-step__dot">
-                            <svg class="ico-check" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12" /></svg>
-                        </span>
-                        <span class="ob-nav-step__connector"></span>
-                    </span>
-                    <span class="ob-nav-step__info">
-                        <span class="ob-nav-step__label">Revisão</span>
-                        <span class="ob-nav-step__desc">Plano de instalação</span>
-                    </span>
-                </button>
-
-                <button class="ob-nav-step" type="button" data-step="6" disabled>
-                    <span class="ob-nav-step__left">
-                        <span class="ob-nav-step__dot">
-                            <svg class="ico-check" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12" /></svg>
-                        </span>
-                    </span>
-                    <span class="ob-nav-step__info">
-                        <span class="ob-nav-step__label">Instalação</span>
-                        <span class="ob-nav-step__desc">Execução e validação</span>
-                    </span>
-                </button>
-            </nav>
-
-            <div class="ob-sidebar__system" id="sidebarSystemStatus">
-                <span class="ob-system-dot ob-system-dot--pending" id="sidebarSystemDot"></span>
-                <span id="sidebarSystemText">Aguardando verificação</span>
+            <div class="step-item disabled" data-step="2">
+                <div class="step-item__marker">
+                    <div class="step-item__dot">2</div>
+                    <div class="step-item__line"></div>
+                </div>
+                <div class="step-item__info">
+                    <div class="step-item__label">Ambiente</div>
+                    <div class="step-item__desc">Pré-requisitos</div>
+                </div>
             </div>
 
-            <div class="ob-sidebar__footer">
-                <span>© 2026 MoonShield</span>
-                <span class="ob-sidebar__version">Setup v1.0</span>
+            <div class="step-item disabled" data-step="3">
+                <div class="step-item__marker">
+                    <div class="step-item__dot">3</div>
+                    <div class="step-item__line"></div>
+                </div>
+                <div class="step-item__info">
+                    <div class="step-item__label">Rede</div>
+                    <div class="step-item__desc">Topologia e interfaces</div>
+                </div>
             </div>
-        </aside>
 
-        <!-- ═══════════════════════════════════════════════════════════════
-             CONTEÚDO
-        ═══════════════════════════════════════════════════════════════ -->
-        <main class="ob-content">
-            <div class="ob-mobile-progress" aria-hidden="true">
-                <div class="ob-mobile-progress__bar" id="mobileBar" style="width:16.66%"></div>
+            <div class="step-item disabled" data-step="4">
+                <div class="step-item__marker">
+                    <div class="step-item__dot">4</div>
+                    <div class="step-item__line"></div>
+                </div>
+                <div class="step-item__info">
+                    <div class="step-item__label">Proteção</div>
+                    <div class="step-item__desc">Regras e captura</div>
+                </div>
             </div>
+
+            <div class="step-item disabled" data-step="5">
+                <div class="step-item__marker">
+                    <div class="step-item__dot">5</div>
+                    <div class="step-item__line"></div>
+                </div>
+                <div class="step-item__info">
+                    <div class="step-item__label">Revisão</div>
+                    <div class="step-item__desc">Plano de instalação</div>
+                </div>
+            </div>
+
+            <div class="step-item disabled" data-step="6">
+                <div class="step-item__marker">
+                    <div class="step-item__dot">6</div>
+                </div>
+                <div class="step-item__info">
+                    <div class="step-item__label">Instalação</div>
+                    <div class="step-item__desc">Execução e validação</div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="card" id="sidebarSystemStatus" style="margin-top: var(--spacing-xl); background: transparent; border-style: dashed;">
+            <div class="card__body" style="display: flex; align-items: center; gap: var(--spacing-sm);">
+                <span class="spinner" id="sidebarSystemDot"></span>
+                <span id="sidebarSystemText" style="font-size: 12px;">Aguardando verificação</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         CONTEÚDO
+    ═══════════════════════════════════════════════════════════════ -->
+    <main class="app-main">
+        <div class="app-content">
 
             <!-- STEP 1 — VISÃO GERAL -->
-            <section class="ob-step active" id="step1" data-step-panel="1">
-                <div class="ob-step__eyebrow">
-                    <span class="ob-step__num">00</span>
-                    <span class="ob-step__sep">/</span>
-                    <span>Instalação do sensor</span>
+            <section class="step-page active" id="step1" data-step-panel="1" data-step="1">
+                <div class="step-header">
+                    <div class="step-header__badge">Etapa 00 / Instalação do sensor</div>
+                    <h1>Prepare sua rede para detectar ameaças.</h1>
+                    <p class="step-intro">
+                        Olá, <strong id="greetName">operador</strong>. Este assistente vai preparar o Suricata,
+                        aplicar as regras MoonShield e validar toda a comunicação com o painel.
+                    </p>
                 </div>
 
-                <h1 class="ob-step__title">Prepare sua rede para<br><em>detectar ameaças.</em></h1>
-                <p class="ob-step__desc">
-                    Olá, <strong id="greetName">operador</strong>. Este assistente vai preparar o Suricata,
-                    aplicar as regras MoonShield e validar toda a comunicação com o painel.
-                </p>
-
-                <div class="ob-welcome-list ob-welcome-list--setup">
-                    <div class="ob-witem">
-                        <div class="ob-witem__num">01</div>
-                        <div class="ob-witem__body">
-                            <strong>Verificação segura</strong>
-                            <span>Linux, privilégios, pacotes e caminhos</span>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <h3 class="info-card__title">Passos da Configuração</h3>
+                        <div class="info-card__item">
+                            <div class="info-card__icon">1</div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Verificação segura</div>
+                                <div class="info-card__value">Linux, privilégios, pacotes e caminhos</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="ob-witem">
-                        <div class="ob-witem__num">02</div>
-                        <div class="ob-witem__body">
-                            <strong>Topologia assistida</strong>
-                            <span>WAN, LAN, interfaces e HOME_NET</span>
+                        <div class="info-card__item">
+                            <div class="info-card__icon">2</div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Topologia assistida</div>
+                                <div class="info-card__value">WAN, LAN, interfaces e HOME_NET</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="ob-witem">
-                        <div class="ob-witem__num">03</div>
-                        <div class="ob-witem__body">
-                            <strong>Regras de proteção</strong>
-                            <span>MoonShield e ET Open configuradas</span>
+                        <div class="info-card__item">
+                            <div class="info-card__icon">3</div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Regras de proteção</div>
+                                <div class="info-card__value">MoonShield e ET Open configuradas</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="ob-witem">
-                        <div class="ob-witem__num">04</div>
-                        <div class="ob-witem__body">
-                            <strong>Validação completa</strong>
-                            <span>Serviços, EVE JSON, monitor e diagnóstico</span>
+                        <div class="info-card__item">
+                            <div class="info-card__icon">4</div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Validação completa</div>
+                                <div class="info-card__value">Serviços, EVE JSON, monitor e diagnóstico</div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="ob-notice ob-notice--info">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    <div>
-                        <strong>Nenhuma alteração será feita sem sua confirmação.</strong>
-                        <span>Você poderá revisar interfaces, arquivos e serviços antes de iniciar.</span>
                     </div>
                 </div>
 
-                <div class="ob-step__actions">
-                    <button class="ob-btn ob-btn--primary" id="btnStep1Next" type="button">
-                        Verificar ambiente
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                    </button>
-                    <a class="ob-btn ob-btn--ghost" href="{% url 'incidentes:suricata_painel' %}">Voltar ao painel</a>
+                <div class="alert alert--info">
+                    <div class="alert__icon">ℹ</div>
+                    <div class="alert__content">
+                        <div class="alert__title">Aviso de Segurança</div>
+                        <div class="alert__message">Nenhuma alteração será feita sem sua confirmação. Você poderá revisar interfaces, arquivos e serviços antes de iniciar.</div>
+                    </div>
+                </div>
+
+                <div class="btn-group justify-between">
+                    <a class="btn btn--ghost" href="{% url 'incidentes:suricata_painel' %}">Voltar ao painel</a>
+                    <button class="btn btn--primary" id="btnStep1Next" type="button">Verificar ambiente</button>
                 </div>
             </section>
+
 
             <!-- STEP 2 — AMBIENTE -->
-            <section class="ob-step" id="step2" data-step-panel="2">
-                <div class="ob-step__eyebrow">
-                    <span class="ob-step__num">01</span>
-                    <span class="ob-step__sep">/</span>
-                    <span>Pré-requisitos do servidor</span>
+            <section class="step-page" id="step2" data-step-panel="2" data-step="2">
+                <div class="step-header">
+                    <div class="step-header__badge">Etapa 01 / Pré-requisitos do servidor</div>
+                    <h1>Vamos verificar o ambiente local.</h1>
+                    <p class="step-intro">A análise é somente leitura e identifica o que já está pronto antes da instalação.</p>
                 </div>
 
-                <h2 class="ob-step__title">Vamos verificar o<br><em>ambiente local.</em></h2>
-                <p class="ob-step__desc">A análise é somente leitura e identifica o que já está pronto antes da instalação.</p>
+                <div class="card" style="margin-bottom: var(--spacing-lg);">
+                    <div class="card__header">
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md);" id="environmentSummary">
+                            <span class="spinner" id="environmentSummaryIcon"></span>
+                            <div>
+                                <div class="card__title" id="environmentSummaryTitle">Verificando ambiente...</div>
+                                <div style="font-size: 12px; color: var(--color-text-secondary);" id="environmentSummaryText">Aguarde enquanto coletamos os pré-requisitos.</div>
+                            </div>
+                        </div>
+                        <button class="btn btn--ghost" type="button" id="btnRefreshEnvironment">Atualizar</button>
+                    </div>
 
-                <div class="ob-check-summary" id="environmentSummary">
-                    <div class="ob-check-summary__icon ob-check-summary__icon--loading" id="environmentSummaryIcon">
-                        <span class="ob-spinner"></span>
+                    <div class="card__body" id="environmentChecks">
+                        <div class="info-card__item" data-check="linux">
+                            <div class="info-card__icon"><span class="spinner"></span></div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Sistema Linux</div>
+                                <div class="info-card__value">Distribuição e arquitetura compatíveis</div>
+                            </div>
+                            <div style="font-weight: 600;" id="checkLinuxValue">Aguardando</div>
+                        </div>
+                        <div class="info-card__item" data-check="privilegios">
+                            <div class="info-card__icon"><span class="spinner"></span></div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Privilégios administrativos</div>
+                                <div class="info-card__value">Necessários para instalar e configurar serviços</div>
+                            </div>
+                            <div style="font-weight: 600;" id="checkPrivilegesValue">Aguardando</div>
+                        </div>
+                        <div class="info-card__item" data-check="suricata">
+                            <div class="info-card__icon"><span class="spinner"></span></div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Suricata</div>
+                                <div class="info-card__value">Detecta instalação e versão existente</div>
+                            </div>
+                            <div style="font-weight: 600;" id="checkSuricataValue">Aguardando</div>
+                        </div>
+                        <div class="info-card__item" data-check="systemd">
+                            <div class="info-card__icon"><span class="spinner"></span></div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Gerenciador de serviços</div>
+                                <div class="info-card__value">Verifica disponibilidade do systemd</div>
+                            </div>
+                            <div style="font-weight: 600;" id="checkSystemdValue">Aguardando</div>
+                        </div>
+                        <div class="info-card__item" data-check="paths">
+                            <div class="info-card__icon"><span class="spinner"></span></div>
+                            <div class="info-card__content">
+                                <div class="info-card__label">Caminhos padrão</div>
+                                <div class="info-card__value">YAML, regras e diretório de logs</div>
+                            </div>
+                            <div style="font-weight: 600;" id="checkPathsValue">Aguardando</div>
+                        </div>
                     </div>
-                    <div class="ob-check-summary__body">
-                        <strong id="environmentSummaryTitle">Verificando ambiente...</strong>
-                        <span id="environmentSummaryText">Aguarde enquanto coletamos os pré-requisitos.</span>
-                    </div>
-                    <button class="ob-icon-btn" type="button" id="btnRefreshEnvironment" title="Verificar novamente" aria-label="Verificar ambiente novamente">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    </button>
                 </div>
 
-                <div class="ob-check-list" id="environmentChecks">
-                    <div class="ob-check-row" data-check="linux">
-                        <span class="ob-check-row__status ob-check-row__status--pending"><span class="ob-spinner ob-spinner--sm"></span></span>
-                        <div class="ob-check-row__body"><strong>Sistema Linux</strong><span>Distribuição e arquitetura compatíveis</span></div>
-                        <span class="ob-check-row__value" id="checkLinuxValue">Aguardando</span>
-                    </div>
-                    <div class="ob-check-row" data-check="privilegios">
-                        <span class="ob-check-row__status ob-check-row__status--pending"><span class="ob-spinner ob-spinner--sm"></span></span>
-                        <div class="ob-check-row__body"><strong>Privilégios administrativos</strong><span>Necessários para instalar e configurar serviços</span></div>
-                        <span class="ob-check-row__value" id="checkPrivilegesValue">Aguardando</span>
-                    </div>
-                    <div class="ob-check-row" data-check="suricata">
-                        <span class="ob-check-row__status ob-check-row__status--pending"><span class="ob-spinner ob-spinner--sm"></span></span>
-                        <div class="ob-check-row__body"><strong>Suricata</strong><span>Detecta instalação e versão existente</span></div>
-                        <span class="ob-check-row__value" id="checkSuricataValue">Aguardando</span>
-                    </div>
-                    <div class="ob-check-row" data-check="systemd">
-                        <span class="ob-check-row__status ob-check-row__status--pending"><span class="ob-spinner ob-spinner--sm"></span></span>
-                        <div class="ob-check-row__body"><strong>Gerenciador de serviços</strong><span>Verifica disponibilidade do systemd</span></div>
-                        <span class="ob-check-row__value" id="checkSystemdValue">Aguardando</span>
-                    </div>
-                    <div class="ob-check-row" data-check="paths">
-                        <span class="ob-check-row__status ob-check-row__status--pending"><span class="ob-spinner ob-spinner--sm"></span></span>
-                        <div class="ob-check-row__body"><strong>Caminhos padrão</strong><span>YAML, regras e diretório de logs</span></div>
-                        <span class="ob-check-row__value" id="checkPathsValue">Aguardando</span>
+                <div class="alert alert--error" id="environmentError" hidden>
+                    <div class="alert__icon">⚠</div>
+                    <div class="alert__content">
+                        <div class="alert__title">Não foi possível continuar.</div>
+                        <div class="alert__message" id="environmentErrorText">Verifique os erros listados acima.</div>
                     </div>
                 </div>
 
-                <div class="ob-inline-error" id="environmentError" hidden>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    <div><strong>Não foi possível continuar.</strong><span id="environmentErrorText"></span></div>
-                </div>
-
-                <div class="ob-step__actions ob-step__actions--nav">
-                    <button class="ob-btn ob-btn--ghost ob-btn--back" type="button" data-back="1">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                        Voltar
-                    </button>
-                    <button class="ob-btn ob-btn--primary" id="btnStep2Next" type="button" disabled>
-                        Configurar rede
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                    </button>
+                <div class="btn-group justify-between">
+                    <button class="btn btn--secondary" type="button" data-back="1">Voltar</button>
+                    <button class="btn btn--primary" id="btnStep2Next" type="button" disabled>Configurar rede</button>
                 </div>
             </section>
 
+
             <!-- STEP 3 — REDE -->
-            <section class="ob-step" id="step3" data-step-panel="3">
-                <div class="ob-step__eyebrow">
-                    <span class="ob-step__num">02</span>
-                    <span class="ob-step__sep">/</span>
-                    <span>Topologia e captura</span>
+            <section class="step-page" id="step3" data-step-panel="3" data-step="3">
+                <div class="step-header">
+                    <div class="step-header__badge">Etapa 02 / Topologia e captura</div>
+                    <h1>Defina como o Suricata enxerga sua rede.</h1>
+                    <p class="step-intro">
+                        Detectamos as interfaces disponíveis. <strong>Você define manualmente</strong> qual placa é WAN,
+                        qual é LAN e qual é apenas gerenciamento. O MoonShield não troca essas funções sozinho.
+                    </p>
                 </div>
 
-                <h2 class="ob-step__title">Defina como o Suricata<br><em>enxerga sua rede.</em></h2>
-                <p class="ob-step__desc">
-                    Detectamos as interfaces disponíveis. <strong>Você define manualmente</strong> qual placa é WAN,
-                    qual é LAN e qual é apenas gerenciamento. O MoonShield não troca essas funções sozinho.
-                </p>
-
-                <div class="ob-topology-toolbar">
-                    <div>
-                        <div class="ob-segmented" role="radiogroup" aria-label="Modo de captura">
-                        <label class="ob-segmented__item">
-                            <input type="radio" name="modoCaptura" value="lan" />
-                            <span>Somente LAN</span>
-                        </label>
-                        <label class="ob-segmented__item">
-                            <input type="radio" name="modoCaptura" value="lan_wan" checked />
-                            <span>LAN + WAN</span>
-                        </label>
-                        <label class="ob-segmented__item">
-                            <input type="radio" name="modoCaptura" value="personalizado" />
-                            <span>Personalizado</span>
-                        </label>
-                        </div>
-                        <p class="ob-field__hint" id="captureModeHint">
-                            LAN + WAN monitora automaticamente as duas placas. Use Personalizado para escolher manualmente.
-                        </p>
+                <div class="card" style="margin-bottom: var(--spacing-lg);">
+                    <div class="card__header">
+                        <h3 class="card__title">Modo de Operação</h3>
+                        <button class="btn btn--secondary" type="button" id="btnDetectInterfaces">Detectar Placas</button>
                     </div>
-                    <button class="ob-btn ob-btn--secondary ob-btn--compact" type="button" id="btnDetectInterfaces">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                        Detectar novamente
-                    </button>
-                </div>
-
-                <div class="ob-network-layout">
-                    <div class="ob-network-map" aria-label="Representação da topologia">
-                        <div class="ob-network-node ob-network-node--internet">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></svg>
-                            <span>Internet</span>
-                        </div>
-                        <div class="ob-network-line"><span></span></div>
-                        <div class="ob-network-node ob-network-node--sensor">
-                            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z"/></svg>
-                            <strong>MoonShield</strong>
-                            <small>Sensor Suricata</small>
-                        </div>
-                        <div class="ob-network-line"><span></span></div>
-                        <div class="ob-network-node ob-network-node--lan">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><line x1="7" y1="6" x2="7.01" y2="6"/><line x1="7" y1="17" x2="7.01" y2="17"/></svg>
-                            <span>Rede interna</span>
-                        </div>
-                    </div>
-
-                    <div class="ob-fields ob-fields--network">
-                        <div class="ob-field-row">
-                            <div class="ob-field">
-                                <label class="ob-field__label" for="fieldWan">Interface WAN</label>
-                                <div class="ob-select-wrap">
-                                    <select class="ob-select" id="fieldWan" name="interface_wan">
-                                        <option value="">Selecione...</option>
-                                    </select>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                                </div>
-                                <p class="ob-field__hint">Saída para a rede externa. A WAN não entra no HOME_NET.</p>
+                    <div class="card__body">
+                        <div class="form-group">
+                            <div class="form-row">
+                                <label class="card card--highlighted" style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                                    <input type="radio" name="modoCaptura" value="lan" />
+                                    <span>Somente LAN</span>
+                                </label>
+                                <label class="card card--highlighted" style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                                    <input type="radio" name="modoCaptura" value="lan_wan" checked />
+                                    <span>LAN + WAN</span>
+                                </label>
+                                <label class="card card--highlighted" style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                                    <input type="radio" name="modoCaptura" value="personalizado" />
+                                    <span>Personalizado</span>
+                                </label>
                             </div>
-                            <div class="ob-field">
-                                <label class="ob-field__label" for="fieldLan">Interface LAN</label>
-                                <div class="ob-select-wrap">
-                                    <select class="ob-select" id="fieldLan" name="interface_lan">
-                                        <option value="">Selecione...</option>
-                                    </select>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                                </div>
-                                <p class="ob-field__hint">Rede interna protegida. A rede desta placa vira o HOME_NET base.</p>
+                            <div class="form-hint" id="captureModeHint" style="margin-top: var(--spacing-sm);">LAN + WAN monitora automaticamente as duas placas. Use Personalizado para escolher manualmente.</div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="fieldWan">Interface WAN</label>
+                                <select class="form-select" id="fieldWan" name="interface_wan">
+                                    <option value="">Selecione...</option>
+                                </select>
+                                <div class="form-hint">Saída para a rede externa. A WAN não entra no HOME_NET.</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="fieldLan">Interface LAN</label>
+                                <select class="form-select" id="fieldLan" name="interface_lan">
+                                    <option value="">Selecione...</option>
+                                </select>
+                                <div class="form-hint">Rede interna protegida. Esta rede vira o HOME_NET base.</div>
                             </div>
                         </div>
 
-                        <div class="ob-field-row">
-                            <div class="ob-field">
-                                <label class="ob-field__label" for="fieldMgmt">Interface de gerenciamento <span>opcional</span></label>
-                                <div class="ob-select-wrap">
-                                    <select class="ob-select" id="fieldMgmt" name="interface_mgmt">
-                                        <option value="">Nenhuma</option>
-                                    </select>
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                                </div>
-                                <p class="ob-field__hint">Usada para SSH/administração. Não será monitorada pelo Suricata.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="fieldMgmt">Interface de gerenciamento (opcional)</label>
+                                <select class="form-select" id="fieldMgmt" name="interface_mgmt">
+                                    <option value="">Nenhuma</option>
+                                </select>
+                                <div class="form-hint">Usada para administração. Não será monitorada pelo Suricata.</div>
                             </div>
-                            <div class="ob-field">
-                                <label class="ob-field__label" for="fieldDns">DNS interno <span>opcional</span></label>
-                                <div class="ob-input-wrap">
-                                    <input class="ob-input ob-input--mono" id="fieldDns" name="dns_interno" type="text" placeholder="192.168.1.1" inputmode="decimal" autocomplete="off" />
-                                </div>
+                            <div class="form-group">
+                                <label class="form-label" for="fieldDns">DNS interno (opcional)</label>
+                                <input class="form-input" id="fieldDns" name="dns_interno" type="text" placeholder="Ex: 192.168.1.1" autocomplete="off" />
                             </div>
                         </div>
 
-                        <div class="ob-field">
-                            <label class="ob-field__label" for="fieldHomeNet">HOME_NET</label>
-                            <div class="ob-token-input" id="homeNetInputWrap">
-                                <div class="ob-token-list" id="homeNetTokens"></div>
-                                <input class="ob-token-input__field ob-input--mono" id="fieldHomeNet" type="text" placeholder="Ex.: 192.168.1.0/24" autocomplete="off" />
-                                <button type="button" class="ob-token-input__add" id="btnAddHomeNet">Adicionar</button>
+                        <div class="form-group" id="homeNetInputWrap">
+                            <label class="form-label" for="fieldHomeNet">HOME_NET Adicional</label>
+                            <div style="display: flex; gap: var(--spacing-sm); flex-wrap: wrap; margin-bottom: var(--spacing-sm);" id="homeNetTokens"></div>
+                            <div style="display: flex; gap: var(--spacing-sm);">
+                                <input class="form-input" id="fieldHomeNet" type="text" placeholder="Ex.: 192.168.1.0/24" autocomplete="off" />
+                                <button type="button" class="btn btn--secondary" id="btnAddHomeNet">Adicionar</button>
                             </div>
-                            <p class="ob-field__hint" id="homeNetHint">
-                                A rede da LAN é adicionada automaticamente. Adicione aqui somente outras redes internas que também devem ser protegidas.
-                            </p>
+                            <div class="form-hint" id="homeNetHint">A rede da LAN é adicionada automaticamente. Adicione aqui somente outras redes internas.</div>
                         </div>
 
-                        <div class="ob-field">
-                            <span class="ob-field__label">Interfaces monitoradas</span>
-                            <div class="ob-interface-list" id="interfacesMonitoradasList">
-                                <div class="ob-empty-state ob-empty-state--compact">
-                                    <span class="ob-spinner ob-spinner--sm"></span>
+                        <div class="form-group">
+                            <label class="form-label">Interfaces monitoradas</label>
+                            <div class="card card--highlighted" id="interfacesMonitoradasList" style="padding: var(--spacing-md); min-height: 60px; display: flex; align-items: center;">
+                                <div style="display: flex; gap: var(--spacing-sm); align-items: center; width: 100%; justify-content: center;">
+                                    <span class="spinner"></span>
                                     <span>Detectando interfaces...</span>
                                 </div>
                             </div>
-                            <p class="ob-field__hint" id="monitoredInterfacesHint">
-                                No modo LAN + WAN a seleção acompanha automaticamente as funções escolhidas acima.
-                            </p>
+                            <div class="form-hint" id="monitoredInterfacesHint">No modo LAN + WAN a seleção acompanha automaticamente as funções escolhidas acima.</div>
                         </div>
                     </div>
                 </div>
 
-                <div class="ob-inline-error" id="networkError" hidden>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    <div><strong>Revise a configuração de rede.</strong><span id="networkErrorText"></span></div>
+                <div class="alert alert--error" id="networkError" hidden>
+                    <div class="alert__icon">⚠</div>
+                    <div class="alert__content">
+                        <div class="alert__title">Revise a configuração de rede.</div>
+                        <div class="alert__message" id="networkErrorText"></div>
+                    </div>
                 </div>
 
-                <div class="ob-step__actions ob-step__actions--nav">
-                    <button class="ob-btn ob-btn--ghost ob-btn--back" type="button" data-back="2">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                        Voltar
-                    </button>
-                    <button class="ob-btn ob-btn--primary" id="btnStep3Next" type="button">
-                        Definir proteção
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                    </button>
+                <div class="btn-group justify-between">
+                    <button class="btn btn--secondary" type="button" data-back="2">Voltar</button>
+                    <button class="btn btn--primary" id="btnStep3Next" type="button">Definir proteção</button>
                 </div>
             </section>
+
 
             <!-- STEP 4 — PROTEÇÃO -->
-            <section class="ob-step" id="step4" data-step-panel="4">
-                <div class="ob-step__eyebrow">
-                    <span class="ob-step__num">03</span>
-                    <span class="ob-step__sep">/</span>
-                    <span>Motor e regras de detecção</span>
+            <section class="step-page" id="step4" data-step-panel="4" data-step="4">
+                <div class="step-header">
+                    <div class="step-header__badge">Etapa 03 / Motor e regras de detecção</div>
+                    <h1>Escolha o nível de proteção inicial.</h1>
+                    <p class="step-intro">As opções recomendadas equilibram cobertura, desempenho e facilidade de manutenção.</p>
                 </div>
 
-                <h2 class="ob-step__title">Escolha o nível de<br><em>proteção inicial.</em></h2>
-                <p class="ob-step__desc">As opções recomendadas equilibram cobertura, desempenho e facilidade de manutenção.</p>
-
-                <div class="ob-option-cards">
-                    <label class="ob-option-card ob-option-card--recommended">
-                        <input type="checkbox" id="fieldMoonshieldRules" checked disabled />
-                        <span class="ob-option-card__check">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-                        </span>
-                        <span class="ob-option-card__icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z"/><path d="m9 12 2 2 4-4"/></svg>
-                        </span>
-                        <span class="ob-option-card__body">
-                            <span class="ob-option-card__top"><strong>Regras MoonShield</strong><em>Obrigatório</em></span>
-                            <span>Detecções próprias para reconhecimento, brute force, DNS, lateralidade, exfiltração e anomalias.</span>
-                        </span>
-                    </label>
-
-                    <label class="ob-option-card">
-                        <input type="checkbox" id="fieldEtOpen" checked />
-                        <span class="ob-option-card__check">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-                        </span>
-                        <span class="ob-option-card__icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4h16v16H4z"/><path d="M9 9h6v6H9z"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
-                        </span>
-                        <span class="ob-option-card__body">
-                            <span class="ob-option-card__top"><strong>Emerging Threats Open</strong><em>Recomendado</em></span>
-                            <span>Amplia a cobertura com inteligência comunitária atualizada pelo suricata-update.</span>
-                        </span>
-                    </label>
-
-                    <label class="ob-option-card">
-                        <input type="checkbox" id="fieldRestartServices" checked />
-                        <span class="ob-option-card__check">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-                        </span>
-                        <span class="ob-option-card__icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                        </span>
-                        <span class="ob-option-card__body">
-                            <span class="ob-option-card__top"><strong>Ativar após instalar</strong><em>Recomendado</em></span>
-                            <span>Recarrega o systemd e inicia o Suricata e o monitor MoonShield automaticamente.</span>
-                        </span>
-                    </label>
-                </div>
-
-                <div class="ob-fields ob-fields--paths">
-                    <div class="ob-field-row">
-                        <div class="ob-field">
-                            <label class="ob-field__label" for="fieldYamlPath">Arquivo de configuração</label>
-                            <div class="ob-input-wrap ob-input-wrap--icon">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                <input class="ob-input ob-input--mono" id="fieldYamlPath" type="text" value="/etc/suricata/suricata.yaml" autocomplete="off" />
-                            </div>
+                <div class="info-grid">
+                    <label class="info-card" style="cursor: pointer; display: flex; align-items: flex-start; gap: var(--spacing-md);">
+                        <input type="checkbox" id="fieldMoonshieldRules" checked disabled style="margin-top: 4px;" />
+                        <div class="info-card__content">
+                            <div class="info-card__label">Regras MoonShield <span style="color: var(--color-text-tertiary); font-weight: normal;">(Obrigatório)</span></div>
+                            <div class="info-card__value">Detecções próprias para reconhecimento, brute force, DNS, lateralidade, exfiltração e anomalias.</div>
                         </div>
-                        <div class="ob-field">
-                            <label class="ob-field__label" for="fieldEvePath">Arquivo de eventos</label>
-                            <div class="ob-input-wrap ob-input-wrap--icon">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/></svg>
-                                <input class="ob-input ob-input--mono" id="fieldEvePath" type="text" value="/var/log/suricata/eve.json" autocomplete="off" />
+                    </label>
+
+                    <label class="info-card" style="cursor: pointer; display: flex; align-items: flex-start; gap: var(--spacing-md);">
+                        <input type="checkbox" id="fieldEtOpen" checked style="margin-top: 4px;" />
+                        <div class="info-card__content">
+                            <div class="info-card__label">Emerging Threats Open</div>
+                            <div class="info-card__value">Amplia a cobertura com inteligência comunitária atualizada pelo suricata-update.</div>
+                        </div>
+                    </label>
+
+                    <label class="info-card" style="cursor: pointer; display: flex; align-items: flex-start; gap: var(--spacing-md);">
+                        <input type="checkbox" id="fieldRestartServices" checked style="margin-top: 4px;" />
+                        <div class="info-card__content">
+                            <div class="info-card__label">Ativar após instalar</div>
+                            <div class="info-card__value">Recarrega o systemd e inicia o Suricata e o monitor MoonShield automaticamente.</div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="card" style="margin-bottom: var(--spacing-lg);">
+                    <div class="card__body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="fieldYamlPath">Arquivo de configuração</label>
+                                <input class="form-input" style="font-family: var(--font-mono);" id="fieldYamlPath" type="text" value="/etc/suricata/suricata.yaml" autocomplete="off" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="fieldEvePath">Arquivo de eventos (EVE)</label>
+                                <input class="form-input" style="font-family: var(--font-mono);" id="fieldEvePath" type="text" value="/var/log/suricata/eve.json" autocomplete="off" />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="ob-notice ob-notice--warning">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <div><strong>O arquivo YAML existente será preservado.</strong><span>O instalador cria backup antes de aplicar mudanças e reverte em caso de validação inválida.</span></div>
+                <div class="alert alert--warning">
+                    <div class="alert__icon">⚠</div>
+                    <div class="alert__content">
+                        <div class="alert__title">O arquivo YAML existente será preservado.</div>
+                        <div class="alert__message">O instalador cria backup antes de aplicar mudanças e reverte em caso de validação inválida.</div>
+                    </div>
                 </div>
 
-                <div class="ob-step__actions ob-step__actions--nav">
-                    <button class="ob-btn ob-btn--ghost ob-btn--back" type="button" data-back="3">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                        Voltar
-                    </button>
-                    <button class="ob-btn ob-btn--primary" id="btnStep4Next" type="button">
-                        Revisar instalação
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                    </button>
+                <div class="btn-group justify-between">
+                    <button class="btn btn--secondary" type="button" data-back="3">Voltar</button>
+                    <button class="btn btn--primary" id="btnStep4Next" type="button">Revisar instalação</button>
                 </div>
             </section>
+
 
             <!-- STEP 5 — REVISÃO -->
-            <section class="ob-step" id="step5" data-step-panel="5">
-                <div class="ob-step__eyebrow">
-                    <span class="ob-step__num">04</span>
-                    <span class="ob-step__sep">/</span>
-                    <span>Confirmação final</span>
+            <section class="step-page" id="step5" data-step-panel="5" data-step="5">
+                <div class="step-header">
+                    <div class="step-header__badge">Etapa 04 / Confirmação final</div>
+                    <h1>Revise antes de iniciar a instalação.</h1>
+                    <p class="step-intro">Confira o que será aplicado no servidor. Você ainda pode voltar e ajustar qualquer opção.</p>
                 </div>
 
-                <h2 class="ob-step__title">Revise antes de<br><em>iniciar a instalação.</em></h2>
-                <p class="ob-step__desc">Confira o que será aplicado no servidor. Você ainda pode voltar e ajustar qualquer opção.</p>
-
-                <div class="ob-review-grid">
-                    <article class="ob-review-card">
-                        <header><span>Rede</span><button type="button" class="ob-link-btn" data-edit-step="3">Editar</button></header>
-                        <dl>
-                            <div><dt>Modo</dt><dd id="reviewMode">LAN + WAN</dd></div>
-                            <div><dt>WAN</dt><dd id="reviewWan">—</dd></div>
-                            <div><dt>LAN</dt><dd id="reviewLan">—</dd></div>
-                            <div><dt>HOME_NET</dt><dd id="reviewHomeNet">—</dd></div>
-                        </dl>
-                    </article>
-
-                    <article class="ob-review-card">
-                        <header><span>Proteção</span><button type="button" class="ob-link-btn" data-edit-step="4">Editar</button></header>
-                        <dl>
-                            <div><dt>MoonShield</dt><dd class="ob-status-text ob-status-text--ok">Ativado</dd></div>
-                            <div><dt>ET Open</dt><dd id="reviewEtOpen">Ativado</dd></div>
-                            <div><dt>Serviços</dt><dd id="reviewRestart">Reiniciar após instalar</dd></div>
-                        </dl>
-                    </article>
-                </div>
-
-                <div class="ob-plan">
-                    <div class="ob-plan__header">
-                        <div><strong>Plano de execução</strong><span id="planSummary">Preparando etapas...</span></div>
-                        <span class="ob-plan__badge" id="planDuration">≈ 2–5 min</span>
+                <div class="info-grid">
+                    <div class="card">
+                        <div class="card__header">
+                            <h3 class="card__title">Rede</h3>
+                            <button class="btn btn--ghost" type="button" data-edit-step="3">Editar</button>
+                        </div>
+                        <div class="card__body">
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">Modo</div></div>
+                                <div class="info-card__value" id="reviewMode">LAN + WAN</div>
+                            </div>
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">WAN</div></div>
+                                <div class="info-card__value" id="reviewWan">—</div>
+                            </div>
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">LAN</div></div>
+                                <div class="info-card__value" id="reviewLan">—</div>
+                            </div>
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">HOME_NET</div></div>
+                                <div class="info-card__value" id="reviewHomeNet">—</div>
+                            </div>
+                        </div>
                     </div>
-                    <ol class="ob-plan__steps" id="installationPlanSteps">
-                        <li><span>01</span><div><strong>Verificar ambiente</strong><small>Linux, privilégios e dependências</small></div></li>
-                        <li><span>02</span><div><strong>Instalar Suricata</strong><small>Somente quando ainda não estiver disponível</small></div></li>
-                        <li><span>03</span><div><strong>Aplicar regras</strong><small>MoonShield e ET Open</small></div></li>
-                        <li><span>04</span><div><strong>Configurar captura</strong><small>Interfaces, HOME_NET e EVE JSON</small></div></li>
-                        <li><span>05</span><div><strong>Validar e ativar</strong><small>suricata -T, serviços e diagnóstico</small></div></li>
-                    </ol>
+
+                    <div class="card">
+                        <div class="card__header">
+                            <h3 class="card__title">Proteção</h3>
+                            <button class="btn btn--ghost" type="button" data-edit-step="4">Editar</button>
+                        </div>
+                        <div class="card__body">
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">MoonShield</div></div>
+                                <div class="info-card__value" style="color: var(--color-success); font-weight: 600;">Ativado</div>
+                            </div>
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">ET Open</div></div>
+                                <div class="info-card__value" id="reviewEtOpen">Ativado</div>
+                            </div>
+                            <div class="info-card__item">
+                                <div class="info-card__content"><div class="info-card__label">Serviços</div></div>
+                                <div class="info-card__value" id="reviewRestart">Reiniciar após instalar</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <label class="ob-confirm-check">
-                    <input type="checkbox" id="confirmInstall" />
-                    <span class="ob-confirm-check__box">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-                    </span>
-                    <span>Revisei as interfaces e autorizo a configuração do Suricata neste servidor.</span>
-                </label>
-
-                <div class="ob-inline-error" id="reviewError" hidden>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    <div><strong>Não foi possível preparar a instalação.</strong><span id="reviewErrorText"></span></div>
+                <div class="card" style="margin-bottom: var(--spacing-lg);">
+                    <div class="card__header">
+                        <h3 class="card__title">Plano de execução</h3>
+                        <span style="font-size: 12px; background: var(--color-primary-light); padding: 4px 8px; border-radius: var(--radius-sm); color: var(--color-primary);" id="planDuration">≈ 2–5 min</span>
+                    </div>
+                    <div class="card__body" style="padding-bottom: 0;">
+                        <ul class="list" id="installationPlanSteps">
+                            <li class="list__item">
+                                <div class="list__marker">1</div>
+                                <div class="list__content">
+                                    <div class="list__title">Verificar ambiente</div>
+                                    <div class="list__desc">Linux, privilégios e dependências</div>
+                                </div>
+                            </li>
+                            <li class="list__item">
+                                <div class="list__marker">2</div>
+                                <div class="list__content">
+                                    <div class="list__title">Instalar Suricata</div>
+                                    <div class="list__desc">Somente quando ainda não estiver disponível</div>
+                                </div>
+                            </li>
+                            <li class="list__item">
+                                <div class="list__marker">3</div>
+                                <div class="list__content">
+                                    <div class="list__title">Aplicar regras</div>
+                                    <div class="list__desc">MoonShield e ET Open</div>
+                                </div>
+                            </li>
+                            <li class="list__item">
+                                <div class="list__marker">4</div>
+                                <div class="list__content">
+                                    <div class="list__title">Configurar captura</div>
+                                    <div class="list__desc">Interfaces, HOME_NET e EVE JSON</div>
+                                </div>
+                            </li>
+                            <li class="list__item">
+                                <div class="list__marker">5</div>
+                                <div class="list__content">
+                                    <div class="list__title">Validar e ativar</div>
+                                    <div class="list__desc">suricata -T, serviços e diagnóstico</div>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
 
-                <div class="ob-step__actions ob-step__actions--nav">
-                    <button class="ob-btn ob-btn--ghost ob-btn--back" type="button" data-back="4">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                        Voltar
-                    </button>
-                    <button class="ob-btn ob-btn--launch" id="btnStartInstall" type="button" disabled>
-                        <span class="ob-btn-text">
-                            Instalar e ativar
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                        </span>
-                        <span class="ob-btn-loader"></span>
-                    </button>
+                <div class="form-group" style="padding: var(--spacing-md); background: var(--color-bg-secondary); border-radius: var(--radius-md);">
+                    <label style="display: flex; gap: var(--spacing-md); align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="confirmInstall" style="width: 18px; height: 18px;" />
+                        <span style="font-weight: 500;">Revisei as interfaces e autorizo a configuração do Suricata neste servidor.</span>
+                    </label>
+                </div>
+
+                <div class="alert alert--error" id="reviewError" hidden>
+                    <div class="alert__icon">⚠</div>
+                    <div class="alert__content">
+                        <div class="alert__title">Não foi possível preparar a instalação.</div>
+                        <div class="alert__message" id="reviewErrorText"></div>
+                    </div>
+                </div>
+
+                <div class="btn-group justify-between">
+                    <button class="btn btn--secondary" type="button" data-back="4">Voltar</button>
+                    <button class="btn btn--primary" id="btnStartInstall" type="button" disabled>Instalar e ativar</button>
                 </div>
             </section>
+
 
             <!-- STEP 6 — INSTALAÇÃO / RESULTADO -->
-            <section class="ob-step ob-step--install" id="step6" data-step-panel="6">
-                <div class="ob-step__eyebrow">
-                    <span class="ob-step__num">05</span>
-                    <span class="ob-step__sep">/</span>
-                    <span id="installEyebrow">Instalação em andamento</span>
+            <section class="step-page" id="step6" data-step-panel="6" data-step="6">
+                <div class="step-header" id="installHero">
+                    <div class="step-header__badge">Etapa 05 / <span id="installEyebrow">Instalação em andamento</span></div>
+                    <h1 id="installTitle">Preparando o sensor MoonShield.</h1>
+                    <p class="step-intro" id="installDescription">Não feche esta página enquanto a configuração estiver em andamento.</p>
                 </div>
 
-                <div class="ob-install-hero" id="installHero">
-                    <div class="ob-install-orbit" id="installOrbit" aria-hidden="true">
-                        <span class="ob-install-orbit__ring ob-install-orbit__ring--1"></span>
-                        <span class="ob-install-orbit__ring ob-install-orbit__ring--2"></span>
-                        <span class="ob-install-orbit__core">
-                            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z"/><path d="m9 12 2 2 4-4"/></svg>
-                        </span>
-                    </div>
-                    <h2 class="ob-step__title" id="installTitle">Preparando o<br><em>sensor MoonShield.</em></h2>
-                    <p class="ob-step__desc" id="installDescription">Não feche esta página enquanto a configuração estiver em andamento.</p>
-                </div>
-
-                <div class="ob-progress-card" id="progressCard">
-                    <div class="ob-progress-card__top">
-                        <div>
-                            <strong id="currentStageTitle">Iniciando...</strong>
-                            <span id="currentStageMessage">Criando tarefa de instalação</span>
+                <div class="card card--highlighted" id="progressCard" style="margin-bottom: var(--spacing-lg);">
+                    <div class="card__body">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm);">
+                            <div>
+                                <strong id="currentStageTitle" style="display: block; font-size: 14px;">Iniciando...</strong>
+                                <span id="currentStageMessage" style="font-size: 13px; color: var(--color-text-secondary);">Criando tarefa de instalação</span>
+                            </div>
+                            <div style="font-weight: 600; font-size: 18px; color: var(--color-primary);" id="installPercent">0%</div>
                         </div>
-                        <span class="ob-progress-card__percent" id="installPercent">0%</span>
-                    </div>
-                    <div class="ob-progress-track">
-                        <div class="ob-progress-fill" id="installProgressBar" style="width:0%"></div>
-                    </div>
-                    <div class="ob-progress-card__meta">
-                        <span id="installTaskId">Tarefa: —</span>
-                        <span id="installElapsed">00:00</span>
-                    </div>
-                </div>
-
-                <div class="ob-install-body">
-                    <div class="ob-install-stages" id="installStages">
-                        <div class="ob-install-stage is-active" data-stage="verificar_ambiente"><span class="ob-install-stage__status"><span class="ob-spinner ob-spinner--sm"></span></span><div><strong>Verificar ambiente</strong><small>Aguardando execução</small></div></div>
-                        <div class="ob-install-stage" data-stage="instalar_suricata"><span class="ob-install-stage__status"></span><div><strong>Instalar Suricata</strong><small>Aguardando</small></div></div>
-                        <div class="ob-install-stage" data-stage="atualizar_et_open"><span class="ob-install-stage__status"></span><div><strong>Atualizar regras</strong><small>Aguardando</small></div></div>
-                        <div class="ob-install-stage" data-stage="configurar_suricata"><span class="ob-install-stage__status"></span><div><strong>Aplicar configuração</strong><small>Aguardando</small></div></div>
-                        <div class="ob-install-stage" data-stage="validar_suricata"><span class="ob-install-stage__status"></span><div><strong>Validar Suricata</strong><small>Aguardando</small></div></div>
-                        <div class="ob-install-stage" data-stage="reiniciar_servicos"><span class="ob-install-stage__status"></span><div><strong>Ativar serviços</strong><small>Aguardando</small></div></div>
-                        <div class="ob-install-stage" data-stage="validar_instalacao"><span class="ob-install-stage__status"></span><div><strong>Diagnóstico final</strong><small>Aguardando</small></div></div>
-                    </div>
-
-                    <div class="ob-terminal" id="installTerminal">
-                        <div class="ob-terminal__header">
-                            <div class="ob-terminal__dots"><span></span><span></span><span></span></div>
-                            <span>moonshield · instalação</span>
-                            <button class="ob-terminal__toggle" type="button" id="btnToggleLogs">Ocultar logs</button>
+                        <div style="width: 100%; height: 8px; background: var(--color-bg-primary); border-radius: 4px; overflow: hidden;">
+                            <div id="installProgressBar" style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.3s ease;"></div>
                         </div>
-                        <div class="ob-terminal__body" id="installLogs" role="log" aria-live="polite">
-                            <div class="ob-terminal__line ob-terminal__line--muted"><span>--:--:--</span><em>INFO</em><p>Aguardando o início da tarefa...</p></div>
+                        <div style="display: flex; justify-content: space-between; margin-top: var(--spacing-sm); font-size: 12px; color: var(--color-text-tertiary);">
+                            <span id="installTaskId">Tarefa: —</span>
+                            <span id="installElapsed">00:00</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="ob-result" id="installResult" hidden>
-                    <div class="ob-result__icon" id="resultIcon"></div>
-                    <div class="ob-result__content">
-                        <span class="ob-result__eyebrow" id="resultEyebrow">Instalação concluída</span>
-                        <h3 id="resultTitle">O Suricata está pronto.</h3>
-                        <p id="resultMessage">O sensor foi configurado e já pode enviar eventos ao MoonShield.</p>
-                        <div class="ob-result__stats">
-                            <div><strong id="resultVersion">—</strong><span>Versão</span></div>
-                            <div><strong id="resultInterface">—</strong><span>Interface principal</span></div>
-                            <div><strong id="resultStatus">Ativo</strong><span>Status</span></div>
+                <div class="info-grid" style="grid-template-columns: 1fr;">
+                    <div class="card">
+                        <div class="card__header">
+                            <h3 class="card__title">Etapas da Instalação</h3>
+                        </div>
+                        <div class="card__body">
+                            <ul class="list" id="installStages">
+                                <li class="list__item" data-stage="verificar_ambiente">
+                                    <div class="list__marker"><span class="spinner"></span></div>
+                                    <div class="list__content"><div class="list__title">Verificar ambiente</div><div class="list__desc">Aguardando execução</div></div>
+                                </li>
+                                <li class="list__item" data-stage="instalar_suricata">
+                                    <div class="list__marker"></div>
+                                    <div class="list__content"><div class="list__title">Instalar Suricata</div><div class="list__desc">Aguardando</div></div>
+                                </li>
+                                <li class="list__item" data-stage="atualizar_et_open">
+                                    <div class="list__marker"></div>
+                                    <div class="list__content"><div class="list__title">Atualizar regras</div><div class="list__desc">Aguardando</div></div>
+                                </li>
+                                <li class="list__item" data-stage="configurar_suricata">
+                                    <div class="list__marker"></div>
+                                    <div class="list__content"><div class="list__title">Aplicar configuração</div><div class="list__desc">Aguardando</div></div>
+                                </li>
+                                <li class="list__item" data-stage="validar_suricata">
+                                    <div class="list__marker"></div>
+                                    <div class="list__content"><div class="list__title">Validar Suricata</div><div class="list__desc">Aguardando</div></div>
+                                </li>
+                                <li class="list__item" data-stage="reiniciar_servicos">
+                                    <div class="list__marker"></div>
+                                    <div class="list__content"><div class="list__title">Ativar serviços</div><div class="list__desc">Aguardando</div></div>
+                                </li>
+                                <li class="list__item" data-stage="validar_instalacao">
+                                    <div class="list__marker"></div>
+                                    <div class="list__content"><div class="list__title">Diagnóstico final</div><div class="list__desc">Aguardando</div></div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Logs de Instalação -->
+                    <div class="card" id="installTerminal" style="background: var(--color-bg-dark); color: var(--color-text-light); border: none;">
+                        <div class="card__header" style="border-bottom-color: var(--color-bg-primary);">
+                            <h3 class="card__title" style="color: var(--color-text-tertiary); font-family: var(--font-mono); font-weight: normal; font-size: 12px;">moonshield · instalação</h3>
+                            <button class="btn btn--ghost" style="color: var(--color-text-secondary); font-size: 12px;" type="button" id="btnToggleLogs">Ocultar logs</button>
+                        </div>
+                        <div class="card__body" id="installLogs" role="log" aria-live="polite" style="font-family: var(--font-mono); font-size: 12px; max-height: 250px; overflow-y: auto;">
+                            <div style="display: flex; gap: var(--spacing-sm); margin-bottom: 4px; opacity: 0.7;">
+                                <span>--:--:--</span> <span style="color: var(--color-info);">INFO</span> <span>Aguardando o início da tarefa...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="ob-step__actions ob-step__actions--install">
-                    <button class="ob-btn ob-btn--ghost" id="btnCancelInstall" type="button">
-                        Cancelar tarefa
-                    </button>
-                    <button class="ob-btn ob-btn--secondary" id="btnRetryInstall" type="button" hidden>
-                        Tentar novamente
-                    </button>
-                    <button class="ob-btn ob-btn--launch" id="btnFinishOnboarding" type="button" hidden>
-                        <span class="ob-btn-text">
-                            Abrir painel do Suricata
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                        </span>
-                        <span class="ob-btn-loader"></span>
-                    </button>
+                <div class="alert alert--success" id="installResult" hidden style="margin-top: var(--spacing-lg);">
+                    <div class="alert__icon">✓</div>
+                    <div class="alert__content">
+                        <div class="alert__title" id="resultTitle">O Suricata está pronto.</div>
+                        <div class="alert__message" id="resultMessage">O sensor foi configurado e já pode enviar eventos ao MoonShield.</div>
+                        <div style="display: flex; gap: var(--spacing-lg); margin-top: var(--spacing-md); font-size: 13px;">
+                            <div><strong id="resultVersion" style="display: block;">—</strong> <span style="color: var(--color-text-secondary);">Versão</span></div>
+                            <div><strong id="resultInterface" style="display: block;">—</strong> <span style="color: var(--color-text-secondary);">Interface principal</span></div>
+                            <div><strong id="resultStatus" style="display: block; color: var(--color-success);">Ativo</strong> <span style="color: var(--color-text-secondary);">Status</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="btn-group justify-between" style="margin-top: var(--spacing-xl);">
+                    <button class="btn btn--ghost" id="btnCancelInstall" type="button">Cancelar tarefa</button>
+                    <button class="btn btn--secondary" id="btnRetryInstall" type="button" hidden>Tentar novamente</button>
+                    <button class="btn btn--primary" id="btnFinishOnboarding" type="button" hidden>Abrir painel do Suricata</button>
                 </div>
             </section>
-        </main>
-    </div>
+        </div>
+    </main>
 </div>
 
 <!-- Modal de confirmação de saída -->
-<div class="ob-modal" id="leaveModal" hidden>
-    <div class="ob-modal__backdrop" data-close-modal></div>
-    <div class="ob-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="leaveModalTitle">
-        <div class="ob-modal__icon ob-modal__icon--warning">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+<div class="modal" id="leaveModal">
+    <div class="modal__content">
+        <div class="modal__header">
+            <h2 class="modal__title" id="leaveModalTitle">Sair da instalação?</h2>
+            <p class="modal__description">As configurações salvas serão mantidas. Uma tarefa em execução não deve ser interrompida fechando a página.</p>
         </div>
-        <h3 id="leaveModalTitle">Sair da instalação?</h3>
-        <p>As configurações salvas serão mantidas. Uma tarefa em execução não deve ser interrompida fechando a página.</p>
-        <div class="ob-modal__actions">
-            <button class="ob-btn ob-btn--ghost" type="button" data-close-modal>Continuar aqui</button>
-            <a class="ob-btn ob-btn--danger" href="{% url 'incidentes:suricata_painel' %}">Sair mesmo assim</a>
+        <div class="modal__footer">
+            <button class="btn btn--ghost" type="button" data-close-modal>Continuar aqui</button>
+            <a class="btn btn--danger" href="{% url 'incidentes:suricata_painel' %}">Sair mesmo assim</a>
         </div>
     </div>
 </div>
 
 <noscript>
-    <div class="ob-noscript">
-        <strong>JavaScript é necessário.</strong>
-        <span>Ative o JavaScript para usar o assistente de instalação do Suricata.</span>
+    <div class="alert alert--error" style="position: fixed; bottom: 20px; left: 20px; right: 20px; z-index: 9999;">
+        <div class="alert__icon">⚠</div>
+        <div class="alert__content">
+            <div class="alert__title">JavaScript é necessário.</div>
+            <div class="alert__message">Ative o JavaScript para usar o assistente de instalação do Suricata.</div>
+        </div>
     </div>
 </noscript>
 

@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — SURICATA ONBOARDING
+ * MOONSHIELD — SURICATA ONBOARDING v2
  * Navegação, configuração, tarefas, progresso e logs.
  */
 
@@ -42,7 +42,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = id => document.getElementById(id);
     const all = selector => Array.from(document.querySelectorAll(selector));
 
-    initialiseBackground();
     initialiseGreeting();
     bindNavigation();
     bindEnvironmentActions();
@@ -64,60 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
         applyPlan(state.plan);
         updateReview();
         updateSidebarSystem('pending', 'Aguardando verificação');
-    }
-
-    /* ═══════════════════════════════════════════════════════════
-       FUNDO ESPACIAL
-    ═══════════════════════════════════════════════════════════ */
-    function initialiseBackground() {
-        const canvas = el('starsCanvas');
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        let stars = [];
-        let animationFrame = null;
-
-        const rebuild = () => {
-            const ratio = Math.min(window.devicePixelRatio || 1, 2);
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            canvas.width = Math.floor(width * ratio);
-            canvas.height = Math.floor(height * ratio);
-            canvas.style.width = `${width}px`;
-            canvas.style.height = `${height}px`;
-            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-            const quantity = Math.max(60, Math.floor((width * height) / 6500));
-            stars = Array.from({ length: quantity }, () => ({
-                x: Math.random() * width,
-                y: Math.random() * height,
-                radius: Math.random() * 1.05 + 0.15,
-                alpha: Math.random() * 0.5 + 0.15,
-                phase: Math.random() * Math.PI * 2,
-                speed: Math.random() * 0.0018 + 0.0005,
-            }));
-        };
-
-        const draw = timestamp => {
-            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-            for (const star of stars) {
-                const alpha = Math.max(0.08, star.alpha + Math.sin(star.phase + timestamp * star.speed) * 0.22);
-                ctx.beginPath();
-                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(205, 220, 255, ${alpha.toFixed(3)})`;
-                ctx.fill();
-            }
-            animationFrame = window.requestAnimationFrame(draw);
-        };
-
-        rebuild();
-        animationFrame = window.requestAnimationFrame(draw);
-        window.addEventListener('resize', debounce(rebuild, 120));
-        window.addEventListener('pagehide', () => {
-            if (animationFrame) window.cancelAnimationFrame(animationFrame);
-        }, { once: true });
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -183,10 +128,10 @@ document.addEventListener('DOMContentLoaded', () => {
             button.addEventListener('click', () => goToStep(Number(button.dataset.editStep || 1)));
         });
 
-        all('.ob-nav-step').forEach(button => {
+        all('.step-item').forEach(button => {
             button.addEventListener('click', () => {
                 const target = Number(button.dataset.step || 1);
-                if (target <= state.maxUnlockedStep && !button.disabled) goToStep(target);
+                if (target <= state.maxUnlockedStep && !button.classList.contains('disabled')) goToStep(target);
             });
         });
     }
@@ -195,42 +140,37 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Number.isInteger(step) || step < 1 || step > TOTAL_STEPS) return;
         if (step > state.maxUnlockedStep) return;
 
-        all('[data-step-panel]').forEach(panel => {
-            panel.classList.toggle('active', Number(panel.dataset.stepPanel) === step);
+        all('.step-page').forEach(panel => {
+            panel.classList.toggle('active', Number(panel.dataset.step) === step);
         });
 
         state.currentStep = step;
         updateNavigation(step);
-        updateMobileProgress(step);
 
-        const content = document.querySelector('.ob-content');
+        const content = document.querySelector('.app-content');
         if (content) content.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function unlockStep(step) {
         state.maxUnlockedStep = Math.max(state.maxUnlockedStep, step);
-        all('.ob-nav-step').forEach(button => {
-            const number = Number(button.dataset.step || 1);
-            button.disabled = number > state.maxUnlockedStep;
+        all('.step-item').forEach(item => {
+            const number = Number(item.dataset.step || 1);
+            item.classList.toggle('disabled', number > state.maxUnlockedStep);
         });
     }
 
     function updateNavigation(current) {
-        all('.ob-nav-step').forEach(button => {
-            const number = Number(button.dataset.step || 1);
-            button.classList.remove('ob-nav-step--active', 'ob-nav-step--done');
-            button.removeAttribute('aria-current');
+        all('.step-item').forEach(item => {
+            const number = Number(item.dataset.step || 1);
+            item.classList.remove('active', 'completed');
+            item.removeAttribute('aria-current');
 
-            if (number < current) button.classList.add('ob-nav-step--done');
+            if (number < current) item.classList.add('completed');
             if (number === current) {
-                button.classList.add('ob-nav-step--active');
-                button.setAttribute('aria-current', 'step');
+                item.classList.add('active');
+                item.setAttribute('aria-current', 'step');
             }
         });
-    }
-
-    function updateMobileProgress(step) {
-        if (el('mobileBar')) el('mobileBar').style.width = `${(step / TOTAL_STEPS) * 100}%`;
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -260,59 +200,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const services = stack.servicos || data.servicos || environment.servicos || {};
             const paths = stack.caminhos || data.caminhos || environment.caminhos || suricata.caminhos || {};
 
-            const linux = readBoolean(
-                systemInfo,
-                ['linux', 'eh_linux', 'is_linux'],
-                readBoolean(environment, ['linux', 'eh_linux', 'is_linux'], false)
-            );
-
-            const root = readBoolean(
-                systemInfo,
-                ['root', 'privilegios', 'privilegiado', 'is_root'],
-                readBoolean(environment, ['root', 'privilegios', 'privilegiado', 'is_root'], false)
-            );
-
-            const systemd = readBoolean(
-                capabilities,
-                ['pode_controlar_servicos', 'systemd', 'tem_systemd'],
-                readBoolean(
-                    services,
-                    ['disponivel', 'systemd', 'tem_systemd'],
-                    readBoolean(environment, ['systemd', 'tem_systemd'], false)
-                )
-            );
-
-            const installed = readBoolean(
-                suricata,
-                ['instalado'],
-                readBoolean(environment, ['suricata_instalado'], false)
-            );
-
-            const version = firstText(
-                suricata.versao,
-                environment.versao_suricata,
-                data.versao_suricata
-            );
+            const linux = readBoolean(systemInfo, ['linux', 'eh_linux', 'is_linux'], readBoolean(environment, ['linux', 'eh_linux', 'is_linux'], false));
+            const root = readBoolean(systemInfo, ['root', 'privilegios', 'privilegiado', 'is_root'], readBoolean(environment, ['root', 'privilegios', 'privilegiado', 'is_root'], false));
+            const systemd = readBoolean(capabilities, ['pode_controlar_servicos', 'systemd', 'tem_systemd'], readBoolean(services, ['disponivel', 'systemd', 'tem_systemd'], readBoolean(environment, ['systemd', 'tem_systemd'], false)));
+            const installed = readBoolean(suricata, ['instalado'], readBoolean(environment, ['suricata_instalado'], false));
+            const version = firstText(suricata.versao, environment.versao_suricata, data.versao_suricata);
 
             const yamlInfo = paths.yaml || suricata.yaml || {};
             const eveInfo = paths.eve || suricata.eve || {};
-            const pathReady = Boolean(
-                (yamlInfo.existe === true || yamlInfo.arquivo === true) &&
-                (eveInfo.existe === true || eveInfo.arquivo === true)
-            );
+            const pathReady = Boolean((yamlInfo.existe === true || yamlInfo.arquivo === true) && (eveInfo.existe === true || eveInfo.arquivo === true));
 
             const checks = {
                 linux: {
                     ok: linux,
                     warning: !linux,
-                    value: linux
-                        ? firstText(
-                            distribution.nome,
-                            distribution.id,
-                            systemInfo.nome,
-                            'Linux detectado'
-                        )
-                        : 'Linux necessário',
+                    value: linux ? firstText(distribution.nome, distribution.id, systemInfo.nome, 'Linux detectado') : 'Linux necessário',
                 },
                 privilegios: {
                     ok: root,
@@ -338,8 +240,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             Object.entries(checks).forEach(([name, check]) => setEnvironmentCheck(name, check));
 
-            // Em desenvolvimento Windows, a API responde corretamente, mas a instalação real fica bloqueada.
-            // Em Linux, Linux + privilégios + systemd são os requisitos críticos para prosseguir.
             const fatalErrors = [];
             if (!linux) fatalErrors.push('A instalação real precisa ser executada em um servidor Linux.');
             if (linux && !root) fatalErrors.push('A execução deve possuir privilégios administrativos.');
@@ -364,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setEnvironmentSummary('error', 'Falha ao verificar o ambiente', error.message || 'A API de status não respondeu.');
             showEnvironmentError(error.message || 'Não foi possível consultar o ambiente.');
             updateSidebarSystem('error', 'Falha na verificação');
-            if (el('btnStep2Next')) el('btnStep2Next').disabled = true;
+            if (el('btnStep2Next')) el('btnStep2Next.disabled = true');
         }
     }
 
@@ -379,14 +279,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function setEnvironmentSummary(type, title, text) {
         const icon = el('environmentSummaryIcon');
         if (icon) {
-            icon.className = `ob-check-summary__icon ob-check-summary__icon--${type}`;
-            icon.innerHTML = type === 'loading'
-                ? '<span class="ob-spinner"></span>'
-                : type === 'success'
-                    ? iconSvg('check')
-                    : type === 'warning'
-                        ? iconSvg('warning')
-                        : iconSvg('error');
+            icon.className = type === 'loading' ? 'spinner' : '';
+            icon.innerHTML = type === 'loading' ? '' : iconSvg(type);
+            icon.style.color = type === 'success' ? 'var(--color-success)' : type === 'warning' ? 'var(--color-warning)' : type === 'error' ? 'var(--color-error)' : 'inherit';
         }
         if (el('environmentSummaryTitle')) el('environmentSummaryTitle').textContent = title;
         if (el('environmentSummaryText')) el('environmentSummaryText').textContent = text;
@@ -395,23 +290,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function setEnvironmentCheck(name, check) {
         const row = document.querySelector(`[data-check="${cssEscape(name)}"]`);
         if (!row) return;
-        const status = row.querySelector('.ob-check-row__status');
-        const value = row.querySelector('.ob-check-row__value');
+        const status = row.querySelector('.info-card__icon');
+        const value = row.querySelector('div[id^="check"]'); // Seleciona a div de valor
 
         if (status) {
-            status.className = 'ob-check-row__status';
+            status.style.background = 'transparent';
             if (check.pending) {
-                status.classList.add('ob-check-row__status--pending');
-                status.innerHTML = '<span class="ob-spinner ob-spinner--sm"></span>';
+                status.innerHTML = '<span class="spinner"></span>';
+                status.style.color = 'inherit';
             } else if (check.ok) {
-                status.classList.add('ob-check-row__status--ok');
                 status.innerHTML = iconSvg('check');
+                status.style.color = 'var(--color-success)';
             } else if (check.warning) {
-                status.classList.add('ob-check-row__status--warning');
                 status.innerHTML = iconSvg('warning');
+                status.style.color = 'var(--color-warning)';
             } else {
-                status.classList.add('ob-check-row__status--error');
                 status.innerHTML = iconSvg('error');
+                status.style.color = 'var(--color-error)';
             }
         }
         if (value) value.textContent = check.value || '—';
@@ -476,13 +371,6 @@ document.addEventListener('DOMContentLoaded', () => {
         clearNetworkError();
         renderInterfacesLoading();
 
-        /*
-         * IMPORTANTE:
-         * A API pode sugerir WAN/LAN com base em rota padrão/tráfego, mas isso
-         * é apenas heurística. Quem define os papéis finais é o operador.
-         *
-         * Ao detectar novamente, preservamos o que já foi salvo/escolhido.
-         */
         const roleSnapshot = {
             wan: firstText(el('fieldWan')?.value, state.configuration?.interface_wan),
             lan: firstText(el('fieldLan')?.value, state.configuration?.interface_lan),
@@ -502,12 +390,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             populateInterfaceSelects(state.interfaces);
             restoreRoleSelections(roleSnapshot);
-
-            /*
-             * Não aplicamos automaticamente configuracao_sugerida.
-             * Ela pode identificar a rota padrão como WAN mesmo quando a
-             * topologia do laboratório usa outra placa como WAN do sensor.
-             */
             initialiseHomeNetBaseFromCurrentSelection();
             syncMonitoredInterfacesForMode({ preservePersonalized: true });
             refreshRoleOptionAvailability();
@@ -544,25 +426,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!name || seen.has(name) || name === 'lo') continue;
             seen.add(name);
 
-            const ipv4 = firstText(
-                object.ipv4,
-                object.ip,
-                object.endereco_ipv4
-            );
-
-            const cidr = firstText(
-                object.cidr,
-                object.ipv4_cidr,
-                object.endereco_cidr,
-                ipv4 && ipv4.includes('/') ? ipv4 : ''
-            );
-
-            const rede = firstText(
-                object.rede,
-                object.network,
-                object.rede_ipv4,
-                cidr ? networkFromCidr(cidr) : ''
-            );
+            const ipv4 = firstText(object.ipv4, object.ip, object.endereco_ipv4);
+            const cidr = firstText(object.cidr, object.ipv4_cidr, object.endereco_cidr, ipv4 && ipv4.includes('/') ? ipv4 : '');
+            const rede = firstText(object.rede, object.network, object.rede_ipv4, cidr ? networkFromCidr(cidr) : '');
 
             result.push({
                 nome: name,
@@ -570,17 +436,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 cidr,
                 rede,
                 mac: firstText(object.mac, object.endereco_mac),
-                estado: firstText(
-                    object.estado,
-                    object.state,
-                    object.status,
-                    object.ativa ? 'up' : ''
-                ),
+                estado: firstText(object.estado, object.state, object.status, object.ativa ? 'up' : ''),
                 tipo: firstText(object.tipo, object.kind, object.descricao),
                 rotaPadrao: Boolean(object.rota_padrao ?? object.default_route ?? false),
             });
         }
-
         return result;
     }
 
@@ -595,32 +455,20 @@ document.addEventListener('DOMContentLoaded', () => {
             for (const item of interfaces) {
                 const option = document.createElement('option');
                 option.value = item.nome;
-
                 const endereco = item.cidr || item.ipv4 || '';
                 option.textContent = `${item.nome}${endereco ? ` · ${endereco}` : ''}`;
                 select.appendChild(option);
             }
 
-            if (interfaces.some(item => item.nome === previous)) {
-                select.value = previous;
-            }
+            if (interfaces.some(item => item.nome === previous)) select.value = previous;
         }
     }
 
     function restoreRoleSelections(snapshot) {
         const available = new Set(state.interfaces.map(item => item.nome));
-
-        if (snapshot.wan && available.has(snapshot.wan)) {
-            setSelectIfAvailable('fieldWan', snapshot.wan);
-        }
-
-        if (snapshot.lan && available.has(snapshot.lan)) {
-            setSelectIfAvailable('fieldLan', snapshot.lan);
-        }
-
-        if (snapshot.mgmt && available.has(snapshot.mgmt)) {
-            setSelectIfAvailable('fieldMgmt', snapshot.mgmt);
-        }
+        if (snapshot.wan && available.has(snapshot.wan)) setSelectIfAvailable('fieldWan', snapshot.wan);
+        if (snapshot.lan && available.has(snapshot.lan)) setSelectIfAvailable('fieldLan', snapshot.lan);
+        if (snapshot.mgmt && available.has(snapshot.mgmt)) setSelectIfAvailable('fieldMgmt', snapshot.mgmt);
     }
 
     function refreshRoleOptionAvailability() {
@@ -639,13 +487,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     option.disabled = false;
                     continue;
                 }
-
-                option.disabled = Object.entries(selections).some(
-                    ([otherId, value]) =>
-                        otherId !== id &&
-                        Boolean(value) &&
-                        option.value === value
-                );
+                option.disabled = Object.entries(selections).some(([otherId, value]) => otherId !== id && Boolean(value) && option.value === value);
             }
         }
     }
@@ -657,15 +499,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function getInterfaceNetwork(name) {
         const item = getInterfaceByName(name);
         if (!item) return '';
-
-        if (item.rede && isValidCidr(item.rede)) {
-            return networkFromCidr(item.rede);
-        }
-
-        if (item.cidr && isValidCidr(item.cidr)) {
-            return networkFromCidr(item.cidr);
-        }
-
+        if (item.rede && isValidCidr(item.rede)) return networkFromCidr(item.rede);
+        if (item.cidr && isValidCidr(item.cidr)) return networkFromCidr(item.cidr);
         return '';
     }
 
@@ -678,20 +513,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        /*
-         * Se a configuração salva já contém a rede da LAN, tratamos esse item
-         * como HOME_NET base automático. Redes adicionais continuam manuais.
-         */
         if (state.homeNet.includes(lanNetwork)) {
             state.autoHomeNetBase = lanNetwork;
             return;
         }
 
-        /*
-         * Em primeira configuração (sem HOME_NET salvo), adiciona a LAN.
-         * Se já há redes salvas e elas não correspondem à LAN, não removemos
-         * silenciosamente até o operador efetivamente alterar a LAN.
-         */
         if (!state.homeNet.length) {
             state.autoHomeNetBase = lanNetwork;
             state.homeNet = [lanNetwork];
@@ -703,16 +529,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const newBase = getInterfaceNetwork(lan);
         const oldBase = state.autoHomeNetBase;
 
-        if (oldBase) {
-            state.homeNet = state.homeNet.filter(value => value !== oldBase);
-        }
-
+        if (oldBase) state.homeNet = state.homeNet.filter(value => value !== oldBase);
         state.autoHomeNetBase = newBase;
-
-        if (newBase && !state.homeNet.includes(newBase)) {
-            state.homeNet.unshift(newBase);
-        }
-
+        if (newBase && !state.homeNet.includes(newBase)) state.homeNet.unshift(newBase);
         renderHomeNetTokens();
     }
 
@@ -727,26 +546,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const lan = el('fieldLan')?.value || '';
         const mgmt = el('fieldMgmt')?.value || '';
 
-        if (mode === 'lan') {
-            state.selectedInterfaces = new Set([lan].filter(Boolean));
-        } else if (mode === 'lan_wan') {
-            state.selectedInterfaces = new Set([lan, wan].filter(Boolean));
-        } else if (!preservePersonalized && mode === 'personalizado') {
-            /*
-             * Ao entrar no personalizado preservamos o que já estava marcado.
-             * A partir daí os checkboxes passam a ser controlados pelo usuário.
-             */
-            state.selectedInterfaces = new Set(
-                Array.from(state.selectedInterfaces).filter(Boolean)
-            );
+        if (mode === 'lan') state.selectedInterfaces = new Set([lan].filter(Boolean));
+        else if (mode === 'lan_wan') state.selectedInterfaces = new Set([lan, wan].filter(Boolean));
+        else if (!preservePersonalized && mode === 'personalizado') {
+            state.selectedInterfaces = new Set(Array.from(state.selectedInterfaces).filter(Boolean));
         }
 
         if (mgmt) state.selectedInterfaces.delete(mgmt);
-
         const available = new Set(state.interfaces.map(item => item.nome));
-        state.selectedInterfaces = new Set(
-            Array.from(state.selectedInterfaces).filter(name => available.has(name))
-        );
+        state.selectedInterfaces = new Set(Array.from(state.selectedInterfaces).filter(name => available.has(name)));
     }
 
     function roleForInterface(name) {
@@ -762,6 +570,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!container) return;
 
         container.innerHTML = '';
+        container.style.flexDirection = 'column';
+        container.style.gap = 'var(--spacing-sm)';
+        container.style.alignItems = 'stretch';
+        container.classList.remove('card--highlighted');
 
         const mode = getCaptureMode();
         const manualMode = mode === 'personalizado';
@@ -779,24 +591,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const checked = state.selectedInterfaces.has(item.nome) && !isMgmt;
 
             const label = document.createElement('label');
-            label.className = 'ob-interface-item';
+            label.className = 'card card--highlighted';
+            label.style.display = 'flex';
+            label.style.alignItems = 'center';
+            label.style.gap = 'var(--spacing-md)';
+            label.style.cursor = disabled ? 'not-allowed' : 'pointer';
+            label.style.padding = 'var(--spacing-md)';
+            label.style.margin = '0';
+            label.style.opacity = disabled ? '0.6' : '1';
 
-            const roleText = role ? ` · ${role}` : '';
+            const roleText = role ? ` · <span style="font-weight:600; color:var(--color-primary);">${role}</span>` : '';
             const address = item.cidr || item.ipv4 || '';
 
             label.innerHTML = `
-                <input
-                    type="checkbox"
-                    value="${escapeHtml(item.nome)}"
-                    ${checked ? 'checked' : ''}
-                    ${disabled ? 'disabled' : ''}
-                >
-                <span class="ob-interface-item__check">${iconSvg('check')}</span>
-                <span class="ob-interface-item__body">
-                    <strong>${escapeHtml(item.nome)}</strong>
-                    <small>${escapeHtml([address, item.estado].filter(Boolean).join(' · ') + roleText)}</small>
-                </span>
-                <span class="ob-interface-item__state">${escapeHtml(isMgmt ? 'gerência' : (item.estado || 'detectada'))}</span>
+                <input type="checkbox" value="${escapeHtml(item.nome)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} style="width: 16px; height: 16px;">
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 14px;">${escapeHtml(item.nome)}</div>
+                    <div style="font-size: 12px; color: var(--color-text-secondary);">${escapeHtml(address)}</div>
+                </div>
+                <div style="font-size: 12px; color: var(--color-text-tertiary); text-align: right;">
+                    ${escapeHtml(isMgmt ? 'gerência' : (item.estado || 'detectada'))}
+                    ${roleText}
+                </div>
             `;
 
             const input = label.querySelector('input');
@@ -846,62 +662,55 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderInterfacesLoading() {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-
-        container.innerHTML =
-            '<div class="ob-empty-state ob-empty-state--compact">' +
-            '<span class="ob-spinner ob-spinner--sm"></span>' +
-            '<span>Detectando interfaces...</span>' +
-            '</div>';
+        container.className = 'card card--highlighted';
+        container.style.padding = 'var(--spacing-md)';
+        container.innerHTML = `
+            <div style="display: flex; gap: var(--spacing-sm); align-items: center; justify-content: center; width: 100%;">
+                <span class="spinner"></span>
+                <span>Detectando interfaces...</span>
+            </div>
+        `;
     }
 
     function renderInterfacesError(message) {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-
-        container.innerHTML =
-            `<div class="ob-empty-state ob-empty-state--compact">` +
-            `<span>${iconSvg('error')}</span>` +
-            `<span>${escapeHtml(message)}</span>` +
-            `</div>`;
+        container.className = 'alert alert--error';
+        container.style.padding = 'var(--spacing-md)';
+        container.innerHTML = `
+            <div class="alert__icon">⚠</div>
+            <div class="alert__content">
+                <div class="alert__message">${escapeHtml(message)}</div>
+            </div>
+        `;
     }
 
     function addHomeNetFromInput() {
         const input = el('fieldHomeNet');
         if (!input) return;
 
-        const values = input.value
-            .split(',')
-            .map(value => value.trim())
-            .filter(Boolean);
-
+        const values = input.value.split(',').map(v => v.trim()).filter(Boolean);
         if (!values.length) return;
 
         const invalid = values.filter(value => !isValidCidr(value));
         if (invalid.length) {
             showNetworkError(`CIDR inválido: ${invalid.join(', ')}.`);
-            shake(input.closest('.ob-token-input') || input);
+            shake(input.closest('.form-group'));
             return;
         }
 
         const wanNetwork = getInterfaceNetwork(el('fieldWan')?.value || '');
-        const forbiddenWan = values
-            .map(networkFromCidr)
-            .filter(value => Boolean(wanNetwork) && value === wanNetwork);
+        const forbiddenWan = values.map(networkFromCidr).filter(value => Boolean(wanNetwork) && value === wanNetwork);
 
         if (forbiddenWan.length) {
-            showNetworkError(
-                `A rede da WAN (${wanNetwork}) não deve entrar no HOME_NET. ` +
-                'HOME_NET representa as redes internas protegidas.'
-            );
-            shake(input.closest('.ob-token-input') || input);
+            showNetworkError(`A rede da WAN (${wanNetwork}) não deve entrar no HOME_NET. HOME_NET representa as redes internas protegidas.`);
+            shake(input.closest('.form-group'));
             return;
         }
 
         for (const value of values) {
             const normalised = networkFromCidr(value);
-            if (normalised && !state.homeNet.includes(normalised)) {
-                state.homeNet.push(normalised);
-            }
+            if (normalised && !state.homeNet.includes(normalised)) state.homeNet.push(normalised);
         }
 
         input.value = '';
@@ -916,29 +725,30 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = '';
 
         for (const network of state.homeNet) {
-            const token = document.createElement('span');
-            token.className = 'ob-token';
+            const token = document.createElement('div');
+            token.className = 'card';
+            token.style.padding = '4px 8px';
+            token.style.display = 'flex';
+            token.style.alignItems = 'center';
+            token.style.gap = 'var(--spacing-sm)';
+            token.style.fontSize = '12px';
+            token.style.background = 'var(--color-bg-secondary)';
 
-            const isBase = Boolean(
-                state.autoHomeNetBase &&
-                network === state.autoHomeNetBase
-            );
+            const isBase = Boolean(state.autoHomeNetBase && network === state.autoHomeNetBase);
 
             if (isBase) {
-                token.innerHTML =
-                    `<span>${escapeHtml(network)} · LAN</span>`;
+                token.innerHTML = `<span style="font-weight:600;">${escapeHtml(network)}</span> <span style="color:var(--color-text-tertiary);">· LAN</span>`;
                 token.title = 'Rede base calculada automaticamente a partir da interface LAN.';
             } else {
-                token.innerHTML =
-                    `<span>${escapeHtml(network)}</span>` +
-                    `<button type="button" aria-label="Remover ${escapeHtml(network)}">×</button>`;
-
+                token.innerHTML = `
+                    <span style="font-weight:600;">${escapeHtml(network)}</span>
+                    <button type="button" aria-label="Remover" style="cursor:pointer; color:var(--color-text-secondary); font-size:14px; line-height:1; padding:0 4px;">&times;</button>
+                `;
                 token.querySelector('button')?.addEventListener('click', () => {
                     state.homeNet = state.homeNet.filter(value => value !== network);
                     renderHomeNetTokens();
                 });
             }
-
             container.appendChild(token);
         }
     }
@@ -956,63 +766,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!wan) errors.push('Selecione a interface WAN.');
         if (!lan) errors.push('Selecione a interface LAN.');
-
-        if (wan && lan && wan === lan) {
-            errors.push('WAN e LAN devem usar interfaces diferentes.');
-        }
-
-        if (mgmt && (mgmt === wan || mgmt === lan)) {
-            errors.push('A interface de gerenciamento deve ser diferente da WAN e da LAN.');
-        }
-
-        if (!state.homeNet.length) {
-            errors.push('O HOME_NET precisa conter pelo menos a rede interna da LAN.');
-        }
-
-        if (state.homeNet.some(value => !isValidCidr(value))) {
-            errors.push('Existe uma rede HOME_NET inválida.');
-        }
+        if (wan && lan && wan === lan) errors.push('WAN e LAN devem usar interfaces diferentes.');
+        if (mgmt && (mgmt === wan || mgmt === lan)) errors.push('A interface de gerenciamento deve ser diferente da WAN e LAN.');
+        if (!state.homeNet.length) errors.push('O HOME_NET precisa conter pelo menos a rede interna da LAN.');
+        if (state.homeNet.some(value => !isValidCidr(value))) errors.push('Existe uma rede HOME_NET inválida.');
 
         const lanNetwork = getInterfaceNetwork(lan);
-        if (lanNetwork && !state.homeNet.includes(lanNetwork)) {
-            errors.push(`O HOME_NET precisa incluir a rede da LAN (${lanNetwork}).`);
-        }
+        if (lanNetwork && !state.homeNet.includes(lanNetwork)) errors.push(`O HOME_NET precisa incluir a rede da LAN (${lanNetwork}).`);
 
         const wanNetwork = getInterfaceNetwork(wan);
-        if (
-            wanNetwork &&
-            lanNetwork &&
-            wanNetwork !== lanNetwork &&
-            state.homeNet.includes(wanNetwork)
-        ) {
+        if (wanNetwork && lanNetwork && wanNetwork !== lanNetwork && state.homeNet.includes(wanNetwork)) {
             errors.push(`A rede da WAN (${wanNetwork}) não deve fazer parte do HOME_NET.`);
         }
 
-        if (!state.selectedInterfaces.size) {
-            errors.push('Selecione pelo menos uma interface monitorada.');
-        }
-
-        if (mgmt && state.selectedInterfaces.has(mgmt)) {
-            errors.push('A interface de gerenciamento não pode ser monitorada.');
-        }
-
-        if (mode === 'lan' && lan && !state.selectedInterfaces.has(lan)) {
-            errors.push('No modo Somente LAN, a interface LAN precisa ser monitorada.');
-        }
-
-        if (
-            mode === 'lan_wan' &&
-            (
-                (lan && !state.selectedInterfaces.has(lan)) ||
-                (wan && !state.selectedInterfaces.has(wan))
-            )
-        ) {
+        if (!state.selectedInterfaces.size) errors.push('Selecione pelo menos uma interface monitorada.');
+        if (mgmt && state.selectedInterfaces.has(mgmt)) errors.push('A interface de gerenciamento não pode ser monitorada.');
+        if (mode === 'lan' && lan && !state.selectedInterfaces.has(lan)) errors.push('No modo Somente LAN, a interface LAN precisa ser monitorada.');
+        if (mode === 'lan_wan' && ((lan && !state.selectedInterfaces.has(lan)) || (wan && !state.selectedInterfaces.has(wan)))) {
             errors.push('No modo LAN + WAN, as duas interfaces precisam ser monitoradas.');
         }
-
-        if (dns && !isValidIpv4(dns)) {
-            errors.push('O DNS interno não é um IPv4 válido.');
-        }
+        if (dns && !isValidIpv4(dns)) errors.push('O DNS interno não é um IPv4 válido.');
 
         return { ok: errors.length === 0, errors };
     }
@@ -1087,24 +860,13 @@ document.addEventListener('DOMContentLoaded', () => {
         setValue('fieldYamlPath', cfg.yaml_path || '/etc/suricata/suricata.yaml');
         setValue('fieldEvePath', cfg.eve_path || '/var/log/suricata/eve.json');
 
-        if (el('fieldEtOpen')) {
-            el('fieldEtOpen').checked = cfg.instalar_et_open !== false;
-        }
-
-        if (el('fieldRestartServices')) {
-            el('fieldRestartServices').checked = cfg.reiniciar_servicos !== false;
-        }
+        if (el('fieldEtOpen')) el('fieldEtOpen').checked = cfg.instalar_et_open !== false;
+        if (el('fieldRestartServices')) el('fieldRestartServices').checked = cfg.reiniciar_servicos !== false;
 
         const mode = cfg.modo_captura || 'lan_wan';
-        const radio = document.querySelector(
-            `input[name="modoCaptura"][value="${cssEscape(mode)}"]`
-        );
+        const radio = document.querySelector(`input[name="modoCaptura"][value="${cssEscape(mode)}"]`);
         if (radio) radio.checked = true;
 
-        /*
-         * Antes da detecção, os selects ainda não possuem options reais.
-         * detectInterfaces() restaura esses valores depois que as placas chegam.
-         */
         setSelectIfAvailable('fieldWan', cfg.interface_wan || '');
         setSelectIfAvailable('fieldLan', cfg.interface_lan || '');
         setSelectIfAvailable('fieldMgmt', cfg.interface_mgmt || '');
@@ -1165,26 +927,20 @@ document.addEventListener('DOMContentLoaded', () => {
             container.innerHTML = '';
             steps.forEach((step, index) => {
                 const item = document.createElement('li');
+                item.className = 'list__item';
                 item.innerHTML = `
-          <span>${String(index + 1).padStart(2, '0')}</span>
-          <div>
-            <strong>${escapeHtml(firstText(step.titulo, step.nome, step.id, 'Etapa'))}</strong>
-            <small>${escapeHtml(firstText(step.descricao, step.mensagem, step.obrigatoria === false ? 'Opcional' : 'Obrigatória'))}</small>
-          </div>
-        `;
+                    <div class="list__marker">${index + 1}</div>
+                    <div class="list__content">
+                        <div class="list__title">${escapeHtml(firstText(step.titulo, step.nome, step.id, 'Etapa'))}</div>
+                        <div class="list__desc">${escapeHtml(firstText(step.descricao, step.mensagem, step.obrigatoria === false ? 'Opcional' : 'Obrigatória'))}</div>
+                    </div>
+                `;
                 container.appendChild(item);
             });
         }
 
         const seconds = Number(data.estimativa_segundos || data.duracao_estimada_segundos || 0);
         if (seconds > 0) setText('planDuration', `≈ ${humanDuration(seconds)}`);
-        setText('planSummary', steps.length
-            ? `${steps.length} etapas serão executadas de forma controlada.`
-            : 'A instalação será validada etapa por etapa.');
-
-        const blockers = arrayOfStrings(data.bloqueios);
-        if (blockers.length) showReviewError(blockers.join(' '));
-        else clearReviewError();
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -1250,8 +1006,6 @@ document.addEventListener('DOMContentLoaded', () => {
             startTaskPolling(task.id);
             startLogPolling(task.id);
 
-            // A instalação privilegiada não é executada dentro da requisição web.
-            // Um executor/management command deve consumir a tarefa pendente.
             appendLocalLog('INFO', 'Tarefa criada. Aguardando o executor seguro iniciar a instalação.', 'tarefa');
             showToast('Tarefa de instalação criada.', 'success');
         } catch (error) {
@@ -1282,7 +1036,6 @@ document.addEventListener('DOMContentLoaded', () => {
             startLogPolling(active.id);
             showToast('Uma tarefa de instalação em andamento foi restaurada.', 'info');
         } catch (error) {
-            // A restauração é auxiliar e não deve bloquear o onboarding.
             console.debug('Nenhuma tarefa restaurada:', error);
         }
     }
@@ -1293,7 +1046,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el('btnCancelInstall')) el('btnCancelInstall').hidden = false;
         if (el('btnRetryInstall')) el('btnRetryInstall').hidden = true;
         if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = true;
-        if (el('installOrbit')) el('installOrbit').classList.remove('is-success', 'is-error');
+
         setText('installEyebrow', 'Instalação em andamento');
         setText('installTitle', 'Preparando o sensor MoonShield.');
         setText('installDescription', 'Não feche esta página enquanto a configuração estiver em andamento.');
@@ -1382,15 +1135,12 @@ document.addEventListener('DOMContentLoaded', () => {
         stopLogPolling();
         stopElapsedTimer();
 
-        // Busca o lote final de logs antes de apresentar o resultado.
         try {
             const url = `${resolveTemplateUrl(CFG.urls.logsTarefaTemplate, task.id)}?offset=${state.lastLogOffset}&limite=500`;
             const payload = await requestJSON(url, { method: 'GET' });
             const data = unwrapData(payload);
             renderTaskLogs(Array.isArray(data.logs) ? data.logs : []);
-        } catch (_) {
-            // Resultado permanece utilizável mesmo sem o último lote de logs.
-        }
+        } catch (_) {}
 
         if (state.taskSucceeded) showInstallationSuccess(task);
         else showInstallationFailure(task);
@@ -1400,7 +1150,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('installEyebrow', 'Instalação concluída');
         setText('installTitle', 'O Suricata está pronto.');
         setText('installDescription', 'O sensor foi configurado, validado e ativado com sucesso.');
-        if (el('installOrbit')) el('installOrbit').classList.add('is-success');
         if (el('btnCancelInstall')) el('btnCancelInstall').hidden = true;
         if (el('btnRetryInstall')) el('btnRetryInstall').hidden = true;
         if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = false;
@@ -1421,7 +1170,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('installEyebrow', cancelled ? 'Instalação cancelada' : 'Falha na instalação');
         setText('installTitle', cancelled ? 'A tarefa foi cancelada.' : 'A instalação precisa de atenção.');
         setText('installDescription', firstText(task.erro, task.mensagem, 'Revise os logs e tente novamente.'));
-        if (el('installOrbit')) el('installOrbit').classList.add('is-error');
         if (el('btnCancelInstall')) el('btnCancelInstall').hidden = true;
         if (el('btnRetryInstall')) el('btnRetryInstall').hidden = false;
         if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = true;
@@ -1441,12 +1189,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = el('installResult');
         if (!result) return;
         result.hidden = false;
-        result.classList.toggle('is-success', success);
-        result.classList.toggle('is-error', !success);
-        if (el('resultIcon')) el('resultIcon').innerHTML = success ? iconSvg('check') : iconSvg('error');
-        setText('resultEyebrow', eyebrow);
-        setText('resultTitle', title);
-        setText('resultMessage', message);
+        result.className = `alert alert--${success ? 'success' : 'error'}`;
+        
+        if (el('resultTitle')) el('resultTitle').textContent = title;
+        if (el('resultMessage')) el('resultMessage').textContent = message;
 
         const details = normaliseObject(task.resultado || task.result || {});
         const status = normaliseObject(details.status_final || details.status || details.stack || {});
@@ -1457,45 +1203,69 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('resultVersion', version);
         setText('resultInterface', mainInterface);
         setText('resultStatus', success ? 'Ativo' : String(task.status || 'Erro'));
+        if (el('resultStatus')) el('resultStatus').style.color = success ? 'var(--color-success)' : 'var(--color-error)';
     }
 
     function updateStages(currentStage, taskStatus, progress) {
-        const stages = all('[data-stage]');
+        const stages = all('.list__item[data-stage]');
         let currentIndex = stages.findIndex(item => item.dataset.stage === currentStage);
         if (currentIndex < 0) currentIndex = stageIndexFromProgress(progress, stages.length);
         const final = isFinalTaskStatus(taskStatus);
         const success = String(taskStatus).toLowerCase() === 'sucesso';
 
         stages.forEach((item, index) => {
-            const status = item.querySelector('.ob-install-stage__status');
-            const detail = item.querySelector('small');
-            item.classList.remove('is-active', 'is-done', 'is-error');
+            const marker = item.querySelector('.list__marker');
+            const detail = item.querySelector('.list__desc');
+            
+            if (marker) {
+                marker.style.background = 'var(--color-bg-secondary)';
+                marker.style.color = 'var(--color-text-secondary)';
+                marker.innerHTML = '';
+            }
+
             if (index < currentIndex || (final && success)) {
-                item.classList.add('is-done');
-                if (status) status.innerHTML = iconSvg('check');
+                if (marker) {
+                    marker.style.background = 'var(--color-success)';
+                    marker.style.color = '#fff';
+                    marker.innerHTML = iconSvg('check');
+                }
                 if (detail) detail.textContent = 'Concluído';
             } else if (index === currentIndex && !final) {
-                item.classList.add('is-active');
-                if (status) status.innerHTML = '<span class="ob-spinner ob-spinner--sm"></span>';
+                if (marker) {
+                    marker.style.background = 'var(--color-primary-light)';
+                    marker.style.color = 'var(--color-primary)';
+                    marker.innerHTML = '<span class="spinner"></span>';
+                }
                 if (detail) detail.textContent = 'Em execução';
             } else if (index === currentIndex && final && !success) {
-                item.classList.add('is-error');
-                if (status) status.innerHTML = iconSvg('error');
+                if (marker) {
+                    marker.style.background = 'var(--color-error)';
+                    marker.style.color = '#fff';
+                    marker.innerHTML = '⚠';
+                }
                 if (detail) detail.textContent = 'Falhou';
             } else {
-                if (status) status.innerHTML = '';
                 if (detail) detail.textContent = 'Aguardando';
             }
         });
     }
 
     function resetStages() {
-        all('[data-stage]').forEach((item, index) => {
-            item.classList.remove('is-active', 'is-done', 'is-error');
-            if (index === 0) item.classList.add('is-active');
-            const status = item.querySelector('.ob-install-stage__status');
-            const detail = item.querySelector('small');
-            if (status) status.innerHTML = index === 0 ? '<span class="ob-spinner ob-spinner--sm"></span>' : '';
+        all('.list__item[data-stage]').forEach((item, index) => {
+            const marker = item.querySelector('.list__marker');
+            const detail = item.querySelector('.list__desc');
+            
+            if (marker) {
+                if (index === 0) {
+                    marker.style.background = 'var(--color-primary-light)';
+                    marker.style.color = 'var(--color-primary)';
+                    marker.innerHTML = '<span class="spinner"></span>';
+                } else {
+                    marker.style.background = 'var(--color-bg-secondary)';
+                    marker.style.color = 'var(--color-text-secondary)';
+                    marker.innerHTML = '';
+                }
+            }
             if (detail) detail.textContent = index === 0 ? 'Aguardando execução' : 'Aguardando';
         });
     }
@@ -1527,7 +1297,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await requestJSON(CFG.urls.concluirOnboarding, { method: 'POST', body: {} });
             state.leavingAllowed = true;
-            await runWarpTransition();
             window.location.assign(CFG.urls.painel);
         } catch (error) {
             showToast(error.message || 'Não foi possível concluir o onboarding.', 'error');
@@ -1579,21 +1348,36 @@ document.addEventListener('DOMContentLoaded', () => {
     function appendTerminalLine(log) {
         const container = el('installLogs');
         if (!container) return;
-        const empty = container.querySelector('.ob-terminal__line--muted');
-        if (empty && container.children.length === 1) empty.remove();
+
+        // Limpa o placeholder de inicio se existir
+        if (container.children.length === 1 && container.firstElementChild.textContent.includes('Aguardando o início')) {
+            container.innerHTML = '';
+        }
 
         const level = String(log.nivel || log.level || 'info').toLowerCase();
         const line = document.createElement('div');
-        line.className = `ob-terminal__line ob-terminal__line--${terminalLevelClass(level)}`;
+        
+        let colorLevel = 'var(--color-info)';
+        if (['erro', 'error', 'critical'].includes(level)) colorLevel = 'var(--color-error)';
+        if (['aviso', 'warning', 'warn'].includes(level)) colorLevel = 'var(--color-warning)';
+        if (['sucesso', 'success', 'ok'].includes(level)) colorLevel = 'var(--color-success)';
+        if (['debug'].includes(level)) colorLevel = 'var(--color-text-tertiary)';
+
+        line.style.display = 'flex';
+        line.style.gap = 'var(--spacing-md)';
+        line.style.marginBottom = '4px';
+        line.style.opacity = '0.9';
 
         const timestamp = parseDate(log.criado_em || log.timestamp || new Date());
         const stage = firstText(log.etapa, log.stage);
         const message = firstText(log.mensagem, log.message, 'Evento sem mensagem');
+        
         line.innerHTML = `
-      <span>${formatTime(timestamp)}</span>
-      <em>${escapeHtml(level.toUpperCase())}</em>
-      <p>${stage ? `<b>[${escapeHtml(stage)}]</b> ` : ''}${escapeHtml(message)}</p>
-    `;
+            <span style="color: var(--color-text-tertiary); min-width: 60px;">${formatTime(timestamp)}</span>
+            <span style="color: ${colorLevel}; min-width: 50px; font-weight: 600;">${escapeHtml(level.toUpperCase())}</span>
+            <span style="flex: 1; word-break: break-all;">${stage ? `<strong style="opacity:0.8;">[${escapeHtml(stage)}]</strong> ` : ''}${escapeHtml(message)}</span>
+        `;
+        
         container.appendChild(line);
         container.scrollTop = container.scrollHeight;
     }
@@ -1601,7 +1385,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function clearTerminal() {
         const container = el('installLogs');
         if (!container) return;
-        container.innerHTML = '<div class="ob-terminal__line ob-terminal__line--muted"><span>--:--:--</span><em>INFO</em><p>Aguardando o início da tarefa...</p></div>';
+        container.innerHTML = `
+            <div style="display: flex; gap: var(--spacing-sm); margin-bottom: 4px; opacity: 0.7;">
+                <span style="color: var(--color-text-tertiary);">--:--:--</span>
+                <span style="color: var(--color-info); font-weight: 600;">INFO</span>
+                <span>Aguardando o início da tarefa...</span>
+            </div>
+        `;
     }
 
     function trimTerminalLogs() {
@@ -1614,13 +1404,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const terminal = el('installTerminal');
         if (!terminal) return;
         state.logsVisible = !state.logsVisible;
-        terminal.classList.toggle('is-collapsed', !state.logsVisible);
         if (el('installLogs')) el('installLogs').hidden = !state.logsVisible;
         setText('btnToggleLogs', state.logsVisible ? 'Ocultar logs' : 'Mostrar logs');
     }
 
     /* ═══════════════════════════════════════════════════════════
-       TEMPO E TRANSIÇÃO
+       TEMPO
     ═══════════════════════════════════════════════════════════ */
     function startElapsedTimer() {
         stopElapsedTimer();
@@ -1638,57 +1427,6 @@ document.addEventListener('DOMContentLoaded', () => {
         state.elapsedTimer = null;
     }
 
-    async function runWarpTransition() {
-        const canvas = el('warpCanvas');
-        if (!canvas) return;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const ratio = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.floor(window.innerWidth * ratio);
-        canvas.height = Math.floor(window.innerHeight * ratio);
-        ctx.scale(ratio, ratio);
-        canvas.classList.add('active');
-
-        const centreX = window.innerWidth / 2;
-        const centreY = window.innerHeight / 2;
-        const particles = Array.from({ length: 150 }, () => ({
-            angle: Math.random() * Math.PI * 2,
-            distance: Math.random() * 20 + 2,
-            speed: Math.random() * 18 + 8,
-            length: Math.random() * 80 + 20,
-            alpha: Math.random() * 0.7 + 0.2,
-        }));
-
-        const start = performance.now();
-        await new Promise(resolve => {
-            const draw = now => {
-                const progress = Math.min(1, (now - start) / 720);
-                ctx.fillStyle = `rgba(5, 7, 14, ${0.18 + progress * 0.22})`;
-                ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-                for (const particle of particles) {
-                    particle.distance += particle.speed * (1 + progress * 4);
-                    const x1 = centreX + Math.cos(particle.angle) * particle.distance;
-                    const y1 = centreY + Math.sin(particle.angle) * particle.distance;
-                    const x2 = centreX + Math.cos(particle.angle) * (particle.distance + particle.length * progress);
-                    const y2 = centreY + Math.sin(particle.angle) * (particle.distance + particle.length * progress);
-                    const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
-                    gradient.addColorStop(0, 'rgba(96,165,250,0)');
-                    gradient.addColorStop(1, `rgba(196,181,253,${particle.alpha})`);
-                    ctx.strokeStyle = gradient;
-                    ctx.lineWidth = 1;
-                    ctx.beginPath();
-                    ctx.moveTo(x1, y1);
-                    ctx.lineTo(x2, y2);
-                    ctx.stroke();
-                }
-                if (progress < 1) requestAnimationFrame(draw);
-                else resolve();
-            };
-            requestAnimationFrame(draw);
-        });
-    }
-
     /* ═══════════════════════════════════════════════════════════
        PROTEÇÃO DE SAÍDA E MODAL
     ═══════════════════════════════════════════════════════════ */
@@ -1702,13 +1440,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         all('[data-close-modal]').forEach(node => node.addEventListener('click', closeLeaveModal));
         document.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && !el('leaveModal')?.hidden) closeLeaveModal();
+            if (event.key === 'Escape' && el('leaveModal')?.classList.contains('active')) closeLeaveModal();
         });
     }
 
     function closeLeaveModal() {
         const modal = el('leaveModal');
-        if (modal) modal.hidden = true;
+        if (modal) modal.classList.remove('active');
     }
 
     /* ═══════════════════════════════════════════════════════════
@@ -1767,26 +1505,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ═══════════════════════════════════════════════════════════
-       FEEDBACK VISUAL
+       FEEDBACK VISUAL E HELPERS
     ═══════════════════════════════════════════════════════════ */
     function showToast(message, type = 'info', duration = 4200) {
         const container = el('toastContainer');
         if (!container || !message) return;
         const toast = document.createElement('div');
-        toast.className = `ob-toast ob-toast--${type}`;
+        
+        toast.className = `alert alert--${type}`;
+        toast.style.position = 'relative';
+        toast.style.marginBottom = 'var(--spacing-sm)';
+        toast.style.boxShadow = 'var(--shadow-md)';
+        toast.style.animation = 'fadeIn 0.3s ease';
+        toast.style.minWidth = '280px';
+        
         toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        
+        const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : type === 'warning' ? '⚠' : 'ℹ';
+        
         toast.innerHTML = `
-      <span class="ob-toast__icon">${iconSvg(type === 'success' ? 'check' : type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info')}</span>
-      <span class="ob-toast__message">${escapeHtml(message)}</span>
-      <button type="button" class="ob-toast__close" aria-label="Fechar">×</button>
-    `;
+            <div class="alert__icon">${icon}</div>
+            <div class="alert__content" style="padding-right: 24px;">
+                <div class="alert__message" style="font-weight: 500;">${escapeHtml(message)}</div>
+            </div>
+            <button type="button" style="position: absolute; right: 8px; top: 12px; cursor: pointer; opacity: 0.5; font-size: 16px; line-height: 1;" aria-label="Fechar">&times;</button>
+        `;
+        
         const close = () => {
-            toast.classList.add('is-leaving');
-            window.setTimeout(() => toast.remove(), 220);
+            toast.style.opacity = '0';
+            toast.style.transition = 'opacity 0.2s ease';
+            window.setTimeout(() => toast.remove(), 200);
         };
+        
         toast.querySelector('button')?.addEventListener('click', close);
         container.appendChild(toast);
-        requestAnimationFrame(() => toast.classList.add('is-visible'));
         window.setTimeout(close, duration);
     }
 
@@ -1822,7 +1574,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateSidebarSystem(status, text) {
         const dot = el('sidebarSystemDot');
-        if (dot) dot.className = `ob-system-dot ob-system-dot--${status}`;
+        if (dot) {
+            dot.className = 'spinner';
+            dot.style.borderColor = 'var(--color-border-light)';
+            if (status === 'ok') {
+                dot.style.borderTopColor = 'var(--color-success)';
+                dot.style.animation = 'none'; // Para de girar se estiver ok
+                dot.style.background = 'var(--color-success)';
+            } else if (status === 'error') {
+                dot.style.borderTopColor = 'var(--color-error)';
+                dot.style.animation = 'none';
+                dot.style.background = 'var(--color-error)';
+            } else {
+                dot.style.borderTopColor = 'var(--color-primary)';
+                dot.style.animation = 'spin 0.8s linear infinite';
+                dot.style.background = 'transparent';
+            }
+        }
         setText('sidebarSystemText', text);
     }
 
@@ -1835,15 +1603,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function shake(node) {
         if (!node) return;
+        // Injetamos estilo básico de shake caso não exista no CSS base
+        if (!document.getElementById('ob-shake-style')) {
+            const style = document.createElement('style');
+            style.id = 'ob-shake-style';
+            style.innerHTML = `
+                @keyframes ob-shake {
+                    0%, 100% { transform: translateX(0); }
+                    25% { transform: translateX(-4px); }
+                    75% { transform: translateX(4px); }
+                }
+                .ob-shake { animation: ob-shake 0.3s ease-in-out; }
+            `;
+            document.head.appendChild(style);
+        }
+        
         node.classList.remove('ob-shake');
         void node.offsetWidth;
         node.classList.add('ob-shake');
         node.addEventListener('animationend', () => node.classList.remove('ob-shake'), { once: true });
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       HELPERS
-    ═══════════════════════════════════════════════════════════ */
     function getCaptureMode() {
         return document.querySelector('input[name="modoCaptura"]:checked')?.value || 'lan_wan';
     }
@@ -1906,29 +1686,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function ipToUint32(ip) {
         const parts = String(ip).split('.').map(Number);
-        if (
-            parts.length !== 4 ||
-            parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)
-        ) {
+        if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
             return null;
         }
-
-        return (
-            ((parts[0] << 24) >>> 0) +
-            ((parts[1] << 16) >>> 0) +
-            ((parts[2] << 8) >>> 0) +
-            (parts[3] >>> 0)
-        ) >>> 0;
+        return (((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + (parts[3] >>> 0)) >>> 0;
     }
 
     function uint32ToIp(value) {
         const number = Number(value) >>> 0;
-        return [
-            (number >>> 24) & 255,
-            (number >>> 16) & 255,
-            (number >>> 8) & 255,
-            number & 255,
-        ].join('.');
+        return [(number >>> 24) & 255, (number >>> 16) & 255, (number >>> 8) & 255, number & 255].join('.');
     }
 
     function networkFromCidr(value) {
@@ -1941,10 +1707,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (ipNumber === null) return '';
 
-        const mask = prefix === 0
-            ? 0
-            : (0xFFFFFFFF << (32 - prefix)) >>> 0;
-
+        const mask = prefix === 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) >>> 0;
         const network = (ipNumber & mask) >>> 0;
         return `${uint32ToIp(network)}/${prefix}`;
     }
@@ -2006,14 +1769,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.min(count - 1, Math.max(0, Math.floor((progress / 100) * count)));
     }
 
-    function terminalLevelClass(level) {
-        if (['erro', 'error', 'critical'].includes(level)) return 'error';
-        if (['aviso', 'warning', 'warn'].includes(level)) return 'warning';
-        if (['sucesso', 'success', 'ok'].includes(level)) return 'success';
-        if (['debug'].includes(level)) return 'muted';
-        return 'info';
-    }
-
     function parseDate(value) {
         const date = value instanceof Date ? value : new Date(value);
         return Number.isNaN(date.getTime()) ? new Date() : date;
@@ -2054,21 +1809,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
     }
 
-    function debounce(fn, wait) {
-        let timer = null;
-        return (...args) => {
-            if (timer) window.clearTimeout(timer);
-            timer = window.setTimeout(() => fn(...args), wait);
-        };
-    }
-
     function iconSvg(type) {
         const icons = {
-            check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>',
-            error: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-            warning: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-            info: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+            check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-top:2px"><polyline points="20 6 9 17 4 12"/></svg>',
+            error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-top:2px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+            warning: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-top:2px"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
         };
-        return icons[type] || icons.info;
+        return icons[type] || '';
     }
 });

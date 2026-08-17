@@ -43,16 +43,21 @@ from .utils.quicktests import (
     test_internet_access,
 )
 
-# Imports do Módulo Suricata (utilizados exclusivamente para health e estado operacional)
+# Imports do módulo Suricata.
+#
+# IMPORTANTE:
+# - ConfiguracaoSuricata vem do model do app incidentes.
+# - obter_status_stack_completo NÃO é exportado pelo __init__.py de
+#   incidentes.services.suricata; a implementação real está em status.py.
+# - Não existe configuracao_model_para_dto no projeto atual.
 try:
     from incidentes.models import ConfiguracaoSuricata
-    from incidentes.services.suricata import (
-        configuracao_model_para_dto,
-        obter_status_stack_completo,
-    )
 except ImportError:
     ConfiguracaoSuricata = None
-    configuracao_model_para_dto = None
+
+try:
+    from incidentes.services.suricata.status import obter_status_stack_completo
+except ImportError:
     obter_status_stack_completo = None
 
 # Logger do módulo
@@ -188,17 +193,42 @@ def _obter_estado_suricata(modo_api):
             "acao": "continuar_instalacao",
         }
 
-    # Tenta obter status rápido usando os serviços do Suricata
+    # Tenta obter o status rápido usando a implementação REAL existente em
+    # incidentes.services.suricata.status.
+    #
+    # A função do projeto aceita configuração opcional (há chamadas internas sem
+    # argumento), portanto não inventamos/construímos DTO aqui. O módulo de
+    # Configurações só consulta o health da stack e nunca executa Doctor.
     try:
-        if configuracao_model_para_dto and obter_status_stack_completo:
-            dto = configuracao_model_para_dto(cfg_suricata)
-            status_stack = obter_status_stack_completo(dto, incluir_diagnostico=False)
-        else:
+        if not obter_status_stack_completo:
+            raise RuntimeError(
+                "obter_status_stack_completo não está disponível em "
+                "incidentes.services.suricata.status"
+            )
+
+        status_stack = obter_status_stack_completo(
+            incluir_diagnostico=False
+        ) or {}
+
+        if not isinstance(status_stack, dict):
+            logger.warning(
+                "Status Suricata retornou formato inesperado: %s",
+                type(status_stack).__name__,
+            )
             status_stack = {}
+
     except Exception as exc:
         logger.exception("Erro ao consultar status rápido do Suricata: %s", exc)
         return {
             "instalado": True,
+            "onboarding_concluido": onboarding_concluido,
+            "instalacao_concluida": instalacao_concluida,
+            "configurado": bool(getattr(cfg_suricata, "suricata_configurado", False)),
+            "ativo": False,
+            "monitor_ativo": False,
+            "worker_ativo": False,
+            "eve_ativo": False,
+            "versao": getattr(cfg_suricata, "versao_suricata", None),
             "status": "atencao",
             "acao": "painel",
         }

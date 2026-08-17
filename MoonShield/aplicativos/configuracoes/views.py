@@ -233,18 +233,43 @@ def _obter_estado_suricata(modo_api):
             "acao": "painel",
         }
 
-    # Avalia os componentes do status retornado
+    # Avalia os componentes conforme o formato REAL retornado por
+    # obter_status_stack_completo():
+    #
+    # status_stack["suricata"]["ativo"]
+    # status_stack["suricata"]["eve"]
+    # status_stack["monitor"]["ativo"]
+    # status_stack["servicos"]["worker_tarefas"]["ativo"]
     suricata_info = status_stack.get("suricata", {})
     monitor_info = status_stack.get("monitor", {})
-    worker_info = status_stack.get("worker", {})
-    eve_info = status_stack.get("eve", {})
+    servicos_info = status_stack.get("servicos", {})
 
-    suricata_ativo = suricata_info.get("ativo", False) if isinstance(suricata_info, dict) else False
-    monitor_ativo = monitor_info.get("ativo", False) if isinstance(monitor_info, dict) else False
-    worker_ativo = worker_info.get("ativo", False) if isinstance(worker_info, dict) else False
-    eve_ativo = (
-        eve_info.get("saudavel", False) or eve_info.get("ativo", False)
-        if isinstance(eve_info, dict) else False
+    if not isinstance(suricata_info, dict):
+        suricata_info = {}
+    if not isinstance(monitor_info, dict):
+        monitor_info = {}
+    if not isinstance(servicos_info, dict):
+        servicos_info = {}
+
+    worker_info = servicos_info.get("worker_tarefas", {})
+    if not isinstance(worker_info, dict):
+        worker_info = {}
+
+    eve_info = suricata_info.get("eve", {})
+    if not isinstance(eve_info, dict):
+        eve_info = {}
+
+    suricata_ativo = bool(suricata_info.get("ativo", False))
+    monitor_ativo = bool(monitor_info.get("ativo", False))
+    worker_ativo = bool(worker_info.get("ativo", False))
+
+    # No status.py real, o EVE informa se o arquivo existe/é legível e se está
+    # atualizando. Para considerar o pipeline operacional, exigimos EVE presente,
+    # legível e atualizando.
+    eve_ativo = bool(
+        eve_info.get("existe", False)
+        and eve_info.get("legivel", False)
+        and eve_info.get("atualizando", False)
     )
 
     versao = getattr(cfg_suricata, "versao_suricata", None)

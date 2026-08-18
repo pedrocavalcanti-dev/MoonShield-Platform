@@ -1,22 +1,19 @@
 /**
- * MOONSHIELD — SURICATA ONBOARDING v2
- * Navegação, configuração, tarefas, progresso e logs.
+ * MOONSHIELD — SURICATA ONBOARDING v3
+ * Script otimizado, modular, com proteção de escopo e feedback visual completo.
  */
 
 'use strict';
 
 document.addEventListener('DOMContentLoaded', () => {
     // ═══════════════════════════════════════════════════════════
-    // CONTROLE DE TEMA (TOGGLE SWITCH)
+    // CONTROLE DE TEMA
     // ═══════════════════════════════════════════════════════════
     const themeToggle = document.getElementById('themeToggle');
-
     if (themeToggle) {
-        // Define o estado inicial do interruptor baseado no HTML
         const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
         themeToggle.checked = currentTheme === 'dark';
-
-        // Escuta as mudanças no interruptor
+        
         themeToggle.addEventListener('change', (e) => {
             const newTheme = e.target.checked ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', newTheme);
@@ -25,11 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ═══════════════════════════════════════════════════════════
-    // ESTADO E CONFIGURAÇÕES GERAIS
+    // ESTADO E CONFIGURAÇÕES
     // ═══════════════════════════════════════════════════════════
     const CFG = window.MS_SURICATA || {};
     const TOTAL_STEPS = 6;
-    const POLL_INTERVAL_MS = 1800;
+    const POLL_INTERVAL_MS = 2000;
     const LOG_POLL_INTERVAL_MS = 1500;
     const MAX_RENDERED_LOGS = 500;
 
@@ -37,15 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
         currentStep: 1,
         maxUnlockedStep: 1,
         environmentReady: false,
-        environmentData: null,
-        topology: null,
         interfaces: [],
         homeNet: [],
         autoHomeNetBase: "",
         selectedInterfaces: new Set(),
         configuration: normaliseObject(CFG.configuracao),
-        onboardingStatus: normaliseObject(CFG.statusOnboarding),
-        plan: normaliseObject(CFG.planoInstalacao),
         activeTask: null,
         taskRunning: false,
         taskFinished: false,
@@ -63,32 +56,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = id => document.getElementById(id);
     const all = selector => Array.from(document.querySelectorAll(selector));
 
-    initialiseGreeting();
-    bindNavigation();
-    bindEnvironmentActions();
-    bindNetworkActions();
-    bindProtectionActions();
-    bindReviewActions();
-    bindInstallationActions();
-    bindLeaveProtection();
-    hydrateFromInitialData();
-    resumeExistingTask().catch(error => console.warn('Não foi possível restaurar tarefa:', error));
+    // Inicialização
+    init();
 
-    function initialiseGreeting() {
+    function init() {
+        // Saudação
         const name = CFG.usuario?.nome || CFG.usuario?.username || 'operador';
         if (el('greetName')) el('greetName').textContent = name;
-    }
 
-    function hydrateFromInitialData() {
+        // Hidratação
         applyConfigurationToForm(state.configuration);
-        applyPlan(state.plan);
         updateReview();
         updateSidebarSystem('pending', 'Aguardando verificação');
+
+        // Binds
+        bindNavigation();
+        bindEnvironmentActions();
+        bindNetworkActions();
+        bindProtectionActions();
+        bindReviewActions();
+        bindInstallationActions();
+        bindLeaveProtection();
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       NAVEGAÇÃO
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // NAVEGAÇÃO
+    // ═══════════════════════════════════════════════════════════
     function bindNavigation() {
         el('btnStep1Next')?.addEventListener('click', async () => {
             unlockStep(2);
@@ -110,10 +103,9 @@ document.addEventListener('DOMContentLoaded', () => {
             clearNetworkError();
             const validation = validateNetworkForm();
             if (!validation.ok) {
-                showNetworkError(validation.errors.join(' '));
+                showNetworkError(validation.errors.join('<br>'));
                 return;
             }
-
             try {
                 await saveConfiguration({ quiet: true });
                 unlockStep(4);
@@ -126,13 +118,11 @@ document.addEventListener('DOMContentLoaded', () => {
         el('btnStep4Next')?.addEventListener('click', async () => {
             const paths = validateProtectionForm();
             if (!paths.ok) {
-                showToast(paths.errors.join(' '), 'error');
+                showToast(paths.errors.join('\n'), 'error');
                 return;
             }
-
             try {
                 await saveConfiguration({ quiet: true });
-                await refreshOnboardingData();
                 updateReview();
                 unlockStep(5);
                 goToStep(5);
@@ -141,33 +131,29 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        all('[data-back]').forEach(button => {
-            button.addEventListener('click', () => goToStep(Number(button.dataset.back || 1)));
+        all('[data-back]').forEach(btn => {
+            btn.addEventListener('click', () => goToStep(Number(btn.dataset.back || 1)));
         });
 
-        all('[data-edit-step]').forEach(button => {
-            button.addEventListener('click', () => goToStep(Number(button.dataset.editStep || 1)));
+        all('[data-edit-step]').forEach(btn => {
+            btn.addEventListener('click', () => goToStep(Number(btn.dataset.editStep || 1)));
         });
 
-        all('.step-item').forEach(button => {
-            button.addEventListener('click', () => {
-                const target = Number(button.dataset.step || 1);
-                if (target <= state.maxUnlockedStep && !button.classList.contains('disabled')) goToStep(target);
+        all('.step-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = Number(btn.dataset.step || 1);
+                if (target <= state.maxUnlockedStep && !btn.classList.contains('disabled')) {
+                    goToStep(target);
+                }
             });
         });
     }
 
     function goToStep(step) {
-        if (!Number.isInteger(step) || step < 1 || step > TOTAL_STEPS) return;
-        if (step > state.maxUnlockedStep) return;
-
-        all('.step-page').forEach(panel => {
-            panel.classList.toggle('active', Number(panel.dataset.step) === step);
-        });
-
+        if (!Number.isInteger(step) || step < 1 || step > TOTAL_STEPS || step > state.maxUnlockedStep) return;
+        all('.step-page').forEach(panel => panel.classList.toggle('active', Number(panel.dataset.step) === step));
         state.currentStep = step;
         updateNavigation(step);
-
         const content = document.querySelector('.app-content');
         if (content) content.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -175,28 +161,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function unlockStep(step) {
         state.maxUnlockedStep = Math.max(state.maxUnlockedStep, step);
         all('.step-item').forEach(item => {
-            const number = Number(item.dataset.step || 1);
-            item.classList.toggle('disabled', number > state.maxUnlockedStep);
+            const num = Number(item.dataset.step || 1);
+            item.classList.toggle('disabled', num > state.maxUnlockedStep);
         });
     }
 
     function updateNavigation(current) {
         all('.step-item').forEach(item => {
-            const number = Number(item.dataset.step || 1);
+            const num = Number(item.dataset.step || 1);
             item.classList.remove('active', 'completed');
-            item.removeAttribute('aria-current');
-
-            if (number < current) item.classList.add('completed');
-            if (number === current) {
-                item.classList.add('active');
-                item.setAttribute('aria-current', 'step');
-            }
+            if (num < current) item.classList.add('completed');
+            if (num === current) item.classList.add('active');
         });
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       AMBIENTE
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // AMBIENTE
+    // ═══════════════════════════════════════════════════════════
     function bindEnvironmentActions() {
         el('btnRefreshEnvironment')?.addEventListener('click', () => loadEnvironment(true));
     }
@@ -210,80 +191,44 @@ document.addEventListener('DOMContentLoaded', () => {
             const url = `${CFG.urls.status}${separator}diagnostico=0${force ? '&refresh=1' : ''}`;
             const payload = await requestJSON(url, { method: 'GET' });
             const data = unwrapData(payload);
-            state.environmentData = data;
 
             const stack = data.stack || data.dados?.stack || data.status || data;
-            const environment = stack.ambiente || data.ambiente || stack.environment || data.environment || stack;
-            const systemInfo = environment.sistema || stack.sistema || data.sistema || {};
-            const capabilities = environment.capacidades || stack.capacidades || data.capacidades || {};
-            const distribution = environment.distribuicao || stack.distribuicao || data.distribuicao || {};
-            const suricata = stack.suricata || data.suricata || environment.suricata || {};
-            const services = stack.servicos || data.servicos || environment.servicos || {};
-            const paths = stack.caminhos || data.caminhos || environment.caminhos || suricata.caminhos || {};
+            const env = stack.ambiente || data.ambiente || stack.environment || stack;
+            const sys = env.sistema || stack.sistema || {};
+            const suri = stack.suricata || data.suricata || env.suricata || {};
 
-            const linux = readBoolean(systemInfo, ['linux', 'eh_linux', 'is_linux'], readBoolean(environment, ['linux', 'eh_linux', 'is_linux'], false));
-            const root = readBoolean(systemInfo, ['root', 'privilegios', 'privilegiado', 'is_root'], readBoolean(environment, ['root', 'privilegios', 'privilegiado', 'is_root'], false));
-            const systemd = readBoolean(capabilities, ['pode_controlar_servicos', 'systemd', 'tem_systemd'], readBoolean(services, ['disponivel', 'systemd', 'tem_systemd'], readBoolean(environment, ['systemd', 'tem_systemd'], false)));
-            const installed = readBoolean(suricata, ['instalado'], readBoolean(environment, ['suricata_instalado'], false));
-            const version = firstText(suricata.versao, environment.versao_suricata, data.versao_suricata);
-
-            const yamlInfo = paths.yaml || suricata.yaml || {};
-            const eveInfo = paths.eve || suricata.eve || {};
-            const pathReady = Boolean((yamlInfo.existe === true || yamlInfo.arquivo === true) && (eveInfo.existe === true || eveInfo.arquivo === true));
+            const linux = readBoolean(sys, ['linux', 'eh_linux', 'is_linux'], false);
+            const root = readBoolean(sys, ['root', 'privilegios', 'privilegiado', 'is_root'], false);
+            const installed = readBoolean(suri, ['instalado'], false);
+            const version = firstText(suri.versao, env.versao_suricata, data.versao_suricata);
 
             const checks = {
-                linux: {
-                    ok: linux,
-                    warning: !linux,
-                    value: linux ? firstText(distribution.nome, distribution.id, systemInfo.nome, 'Linux detectado') : 'Linux necessário',
-                },
-                privilegios: {
-                    ok: root,
-                    warning: !root,
-                    value: root ? 'Privilégios disponíveis' : 'Execução privilegiada necessária',
-                },
-                suricata: {
-                    ok: installed,
-                    warning: !installed,
-                    value: installed ? (version || 'Instalado') : 'Será instalado',
-                },
-                systemd: {
-                    ok: systemd,
-                    warning: !systemd,
-                    value: systemd ? 'Disponível' : 'Não detectado',
-                },
-                paths: {
-                    ok: pathReady || !installed,
-                    warning: !pathReady && installed,
-                    value: pathReady ? 'Caminhos localizados' : installed ? 'Revisão necessária' : 'Criados na instalação',
-                },
+                linux: { ok: linux, warning: !linux, value: linux ? 'Linux detectado' : 'Linux necessário' },
+                privilegios: { ok: root, warning: !root, value: root ? 'Privilégios disponíveis' : 'Execução privilegiada necessária' },
+                suricata: { ok: true, warning: false, value: installed ? (version || 'Instalado') : 'Será instalado' },
             };
 
             Object.entries(checks).forEach(([name, check]) => setEnvironmentCheck(name, check));
 
-            const fatalErrors = [];
-            if (!linux) fatalErrors.push('A instalação real precisa ser executada em um servidor Linux.');
-            if (linux && !root) fatalErrors.push('A execução deve possuir privilégios administrativos.');
-            if (linux && !systemd) fatalErrors.push('O systemd não foi detectado neste servidor.');
+            const errors = [];
+            if (!linux) errors.push('A instalação precisa ser executada em um servidor Linux.');
+            if (linux && !root) errors.push('A execução deve possuir privilégios administrativos.');
 
-            state.environmentReady = fatalErrors.length === 0;
-            const nextButton = el('btnStep2Next');
-            if (nextButton) nextButton.disabled = !state.environmentReady;
+            state.environmentReady = errors.length === 0;
+            if (el('btnStep2Next')) el('btnStep2Next').disabled = !state.environmentReady;
 
             if (state.environmentReady) {
-                setEnvironmentSummary('success', 'Ambiente pronto para continuar', installed
-                    ? `Suricata ${version || ''} detectado. Você pode revisar a rede.`.trim()
-                    : 'Os pré-requisitos foram validados. O Suricata será instalado durante a execução.');
-                updateSidebarSystem('ok', installed ? `Suricata ${version || 'detectado'}` : 'Ambiente compatível');
+                setEnvironmentSummary('success', 'Ambiente pronto para continuar', installed ? `Suricata ${version || 'detectado'}` : 'Pré-requisitos validados com sucesso.');
+                updateSidebarSystem('ok', installed ? `Suricata ${version || 'ativo'}` : 'Ambiente compatível');
             } else {
-                setEnvironmentSummary('error', 'O ambiente possui bloqueios', fatalErrors.join(' '));
-                showEnvironmentError(fatalErrors.join(' '));
-                updateSidebarSystem('error', 'Ambiente incompatível');
+                setEnvironmentSummary('error', 'O ambiente possui bloqueios', errors.join(' '));
+                showEnvironmentError(errors.join('<br>'));
+                updateSidebarSystem('error', 'Incompatível');
             }
         } catch (error) {
             state.environmentReady = false;
-            setEnvironmentSummary('error', 'Falha ao verificar o ambiente', error.message || 'A API de status não respondeu.');
-            showEnvironmentError(error.message || 'Não foi possível consultar o ambiente.');
+            setEnvironmentSummary('error', 'Falha ao verificar ambiente', error.message || 'API indisponível');
+            showEnvironmentError(error.message || 'Erro ao consultar o ambiente do servidor.');
             updateSidebarSystem('error', 'Falha na verificação');
             if (el('btnStep2Next')) el('btnStep2Next').disabled = true;
         }
@@ -291,9 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setEnvironmentLoading() {
         setEnvironmentSummary('loading', 'Verificando ambiente...', 'Aguarde enquanto coletamos os pré-requisitos.');
-        for (const name of ['linux', 'privilegios', 'suricata', 'systemd', 'paths']) {
-            setEnvironmentCheck(name, { pending: true, value: 'Verificando...' });
-        }
+        ['linux', 'privilegios', 'suricata'].forEach(name => setEnvironmentCheck(name, { pending: true, value: 'Verificando...' }));
         if (el('btnStep2Next')) el('btnStep2Next').disabled = true;
     }
 
@@ -302,10 +245,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (icon) {
             icon.className = type === 'loading' ? 'spinner' : '';
             icon.innerHTML = type === 'loading' ? '' : iconSvg(type);
-            icon.style.color = type === 'success' ? 'var(--color-success)' : type === 'warning' ? 'var(--color-warning)' : type === 'error' ? 'var(--color-error)' : 'inherit';
+            icon.style.color = type === 'success' ? 'var(--ok)' : type === 'error' ? 'var(--danger)' : 'inherit';
+            icon.style.border = type === 'loading' ? '' : 'none';
         }
-        if (el('environmentSummaryTitle')) el('environmentSummaryTitle').textContent = title;
-        if (el('environmentSummaryText')) el('environmentSummaryText').textContent = text;
+        setText('environmentSummaryTitle', title);
+        setText('environmentSummaryText', text);
     }
 
     function setEnvironmentCheck(name, check) {
@@ -313,29 +257,25 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!row) return;
         const status = row.querySelector('.info-card__icon');
         const value = row.querySelector('div[id^="check"]');
-
+        
         if (status) {
             status.style.background = 'transparent';
             if (check.pending) {
                 status.innerHTML = '<span class="spinner"></span>';
-                status.style.color = 'inherit';
             } else if (check.ok) {
                 status.innerHTML = iconSvg('check');
-                status.style.color = 'var(--color-success)';
-            } else if (check.warning) {
-                status.innerHTML = iconSvg('warning');
-                status.style.color = 'var(--color-warning)';
+                status.style.color = 'var(--ok)';
             } else {
                 status.innerHTML = iconSvg('error');
-                status.style.color = 'var(--color-error)';
+                status.style.color = 'var(--danger)';
             }
         }
         if (value) value.textContent = check.value || '—';
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       REDE E INTERFACES
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // REDE E INTERFACES
+    // ═══════════════════════════════════════════════════════════
     function bindNetworkActions() {
         el('btnDetectInterfaces')?.addEventListener('click', detectInterfaces);
         el('btnAddHomeNet')?.addEventListener('click', addHomeNetFromInput);
@@ -347,39 +287,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        all('input[name="modoCaptura"]').forEach(radio => {
-            radio.addEventListener('change', () => {
-                syncMonitoredInterfacesForMode();
-                renderMonitoredInterfaces(state.interfaces);
-                updateCaptureModeHint();
-                clearNetworkError();
+        ['modoCaptura', 'fieldWan', 'fieldLan', 'fieldMgmt'].forEach(nameOrId => {
+            const els = document.querySelectorAll(`[name="${nameOrId}"], #${nameOrId}`);
+            els.forEach(element => {
+                element.addEventListener('change', () => {
+                    syncMonitoredInterfacesForMode();
+                    renderMonitoredInterfaces(state.interfaces);
+                    clearNetworkError();
+                });
             });
-        });
-
-        el('fieldWan')?.addEventListener('change', () => {
-            refreshRoleOptionAvailability();
-            syncMonitoredInterfacesForMode();
-            renderMonitoredInterfaces(state.interfaces);
-            updateCaptureModeHint();
-            clearNetworkError();
-        });
-
-        el('fieldLan')?.addEventListener('change', () => {
-            refreshRoleOptionAvailability();
-            syncHomeNetFromSelectedLan();
-            syncMonitoredInterfacesForMode();
-            renderMonitoredInterfaces(state.interfaces);
-            updateCaptureModeHint();
-            clearNetworkError();
-        });
-
-        el('fieldMgmt')?.addEventListener('change', () => {
-            refreshRoleOptionAvailability();
-            removeMgmtFromMonitoring();
-            syncMonitoredInterfacesForMode();
-            renderMonitoredInterfaces(state.interfaces);
-            updateCaptureModeHint();
-            clearNetworkError();
         });
 
         el('fieldDns')?.addEventListener('change', clearNetworkError);
@@ -392,173 +308,83 @@ document.addEventListener('DOMContentLoaded', () => {
         clearNetworkError();
         renderInterfacesLoading();
 
-        const roleSnapshot = {
-            wan: firstText(el('fieldWan')?.value, state.configuration?.interface_wan),
-            lan: firstText(el('fieldLan')?.value, state.configuration?.interface_lan),
-            mgmt: firstText(el('fieldMgmt')?.value, state.configuration?.interface_mgmt),
-        };
-
         try {
             const payload = await requestJSON(CFG.urls.detectarInterfaces, { method: 'GET' });
             const data = unwrapData(payload);
+            const candidates = data.topologia?.interfaces || data.interfaces || [];
 
-            state.topology = data.topologia || data;
-            state.interfaces = extractInterfaces(state.topology, data);
+            const seen = new Set();
+            state.interfaces = [];
 
-            if (!state.interfaces.length) {
-                throw new Error('Nenhuma interface de rede utilizável foi detectada.');
+            for (const item of candidates) {
+                const obj = typeof item === 'string' ? { nome: item } : (item || {});
+                const nome = firstText(obj.nome, obj.name, obj.interface);
+                
+                if (!nome || seen.has(nome) || nome === 'lo') continue;
+                seen.add(nome);
+
+                const ipv4 = firstText(obj.ipv4, obj.ip);
+                const cidr = firstText(obj.cidr, obj.ipv4_cidr);
+                
+                state.interfaces.push({
+                    nome,
+                    ipv4: ipv4.includes('/') ? ipv4.split('/')[0] : ipv4,
+                    cidr,
+                    mac: firstText(obj.mac),
+                    estado: firstText(obj.estado, obj.state, 'detectada'),
+                });
             }
 
+            if (!state.interfaces.length) throw new Error('Nenhuma interface de rede útil detectada.');
+
             populateInterfaceSelects(state.interfaces);
-            restoreRoleSelections(roleSnapshot);
             initialiseHomeNetBaseFromCurrentSelection();
             syncMonitoredInterfacesForMode({ preservePersonalized: true });
-            refreshRoleOptionAvailability();
             renderHomeNetTokens();
             renderMonitoredInterfaces(state.interfaces);
-            updateCaptureModeHint();
 
-            showToast(`${state.interfaces.length} interface(s) detectada(s). Defina os papéis conforme sua topologia.`, 'success');
+            showToast(`${state.interfaces.length} interface(s) detectada(s).`, 'success');
         } catch (error) {
             state.interfaces = [];
-            renderInterfacesError(error.message || 'Falha ao detectar interfaces.');
-            showNetworkError(error.message || 'Não foi possível detectar as interfaces.');
+            renderInterfacesError(error.message);
+            showNetworkError(error.message);
         } finally {
             setButtonLoading(button, false);
         }
-    }
-
-    function extractInterfaces(topology, data) {
-        const candidates = [
-            topology?.interfaces,
-            topology?.interfaces_disponiveis,
-            topology?.todas_interfaces,
-            data?.interfaces,
-            data?.interfaces_disponiveis,
-        ].find(Array.isArray) || [];
-
-        const seen = new Set();
-        const result = [];
-
-        for (const item of candidates) {
-            const object = typeof item === 'string' ? { nome: item } : (item || {});
-            const name = firstText(object.nome, object.name, object.interface, object.id);
-
-            if (!name || seen.has(name) || name === 'lo') continue;
-            seen.add(name);
-
-            const ipv4 = firstText(object.ipv4, object.ip, object.endereco_ipv4);
-            const cidr = firstText(object.cidr, object.ipv4_cidr, object.endereco_cidr, ipv4 && ipv4.includes('/') ? ipv4 : '');
-            const rede = firstText(object.rede, object.network, object.rede_ipv4, cidr ? networkFromCidr(cidr) : '');
-
-            result.push({
-                nome: name,
-                ipv4: ipv4.includes('/') ? ipv4.split('/')[0] : ipv4,
-                cidr,
-                rede,
-                mac: firstText(object.mac, object.endereco_mac),
-                estado: firstText(object.estado, object.state, object.status, object.ativa ? 'up' : ''),
-                tipo: firstText(object.tipo, object.kind, object.descricao),
-                rotaPadrao: Boolean(object.rota_padrao ?? object.default_route ?? false),
-            });
-        }
-        return result;
     }
 
     function populateInterfaceSelects(interfaces) {
         for (const id of ['fieldWan', 'fieldLan', 'fieldMgmt']) {
             const select = el(id);
             if (!select) continue;
-
-            const previous = select.value;
+            const prev = select.value;
             select.innerHTML = `<option value="">${id === 'fieldMgmt' ? 'Nenhuma' : 'Selecione...'}</option>`;
-
+            
             for (const item of interfaces) {
-                const option = document.createElement('option');
-                option.value = item.nome;
-                const endereco = item.cidr || item.ipv4 || '';
-                option.textContent = `${item.nome}${endereco ? ` · ${endereco}` : ''}`;
-                select.appendChild(option);
+                const opt = document.createElement('option');
+                opt.value = item.nome;
+                opt.textContent = `${item.nome}${item.cidr ? ` · ${item.cidr}` : ''}`;
+                select.appendChild(opt);
             }
-
-            if (interfaces.some(item => item.nome === previous)) select.value = previous;
+            if (interfaces.some(i => i.nome === prev)) select.value = prev;
         }
-    }
-
-    function restoreRoleSelections(snapshot) {
-        const available = new Set(state.interfaces.map(item => item.nome));
-        if (snapshot.wan && available.has(snapshot.wan)) setSelectIfAvailable('fieldWan', snapshot.wan);
-        if (snapshot.lan && available.has(snapshot.lan)) setSelectIfAvailable('fieldLan', snapshot.lan);
-        if (snapshot.mgmt && available.has(snapshot.mgmt)) setSelectIfAvailable('fieldMgmt', snapshot.mgmt);
-    }
-
-    function refreshRoleOptionAvailability() {
-        const selections = {
-            fieldWan: el('fieldWan')?.value || '',
-            fieldLan: el('fieldLan')?.value || '',
-            fieldMgmt: el('fieldMgmt')?.value || '',
-        };
-
-        for (const id of ['fieldWan', 'fieldLan', 'fieldMgmt']) {
-            const select = el(id);
-            if (!select) continue;
-
-            for (const option of Array.from(select.options)) {
-                if (!option.value) {
-                    option.disabled = false;
-                    continue;
-                }
-                option.disabled = Object.entries(selections).some(([otherId, value]) => otherId !== id && Boolean(value) && option.value === value);
-            }
-        }
-    }
-
-    function getInterfaceByName(name) {
-        return state.interfaces.find(item => item.nome === name) || null;
     }
 
     function getInterfaceNetwork(name) {
-        const item = getInterfaceByName(name);
-        if (!item) return '';
-        if (item.rede && isValidCidr(item.rede)) return networkFromCidr(item.rede);
-        if (item.cidr && isValidCidr(item.cidr)) return networkFromCidr(item.cidr);
-        return '';
+        const item = state.interfaces.find(i => i.nome === name);
+        if (!item || !item.cidr || !isValidCidr(item.cidr)) return '';
+        return networkFromCidr(item.cidr);
     }
 
     function initialiseHomeNetBaseFromCurrentSelection() {
         const lan = el('fieldLan')?.value || '';
-        const lanNetwork = getInterfaceNetwork(lan);
-
-        if (!lanNetwork) {
+        const net = getInterfaceNetwork(lan);
+        if (!net) {
             state.autoHomeNetBase = '';
             return;
         }
-
-        if (state.homeNet.includes(lanNetwork)) {
-            state.autoHomeNetBase = lanNetwork;
-            return;
-        }
-
-        if (!state.homeNet.length) {
-            state.autoHomeNetBase = lanNetwork;
-            state.homeNet = [lanNetwork];
-        }
-    }
-
-    function syncHomeNetFromSelectedLan() {
-        const lan = el('fieldLan')?.value || '';
-        const newBase = getInterfaceNetwork(lan);
-        const oldBase = state.autoHomeNetBase;
-
-        if (oldBase) state.homeNet = state.homeNet.filter(value => value !== oldBase);
-        state.autoHomeNetBase = newBase;
-        if (newBase && !state.homeNet.includes(newBase)) state.homeNet.unshift(newBase);
-        renderHomeNetTokens();
-    }
-
-    function removeMgmtFromMonitoring() {
-        const mgmt = el('fieldMgmt')?.value || '';
-        if (mgmt) state.selectedInterfaces.delete(mgmt);
+        state.autoHomeNetBase = net;
+        if (!state.homeNet.includes(net)) state.homeNet.push(net);
     }
 
     function syncMonitoredInterfacesForMode({ preservePersonalized = false } = {}) {
@@ -567,64 +393,47 @@ document.addEventListener('DOMContentLoaded', () => {
         const lan = el('fieldLan')?.value || '';
         const mgmt = el('fieldMgmt')?.value || '';
 
-        if (mode === 'lan') state.selectedInterfaces = new Set([lan].filter(Boolean));
-        else if (mode === 'lan_wan') state.selectedInterfaces = new Set([lan, wan].filter(Boolean));
-        else if (!preservePersonalized && mode === 'personalizado') {
-            state.selectedInterfaces = new Set(Array.from(state.selectedInterfaces).filter(Boolean));
+        if (mode === 'lan') {
+            state.selectedInterfaces = new Set([lan].filter(Boolean));
+        } else if (mode === 'lan_wan') {
+            state.selectedInterfaces = new Set([lan, wan].filter(Boolean));
         }
 
         if (mgmt) state.selectedInterfaces.delete(mgmt);
-        const available = new Set(state.interfaces.map(item => item.nome));
-        state.selectedInterfaces = new Set(Array.from(state.selectedInterfaces).filter(name => available.has(name)));
-    }
-
-    function roleForInterface(name) {
-        if (!name) return '';
-        if (name === (el('fieldWan')?.value || '')) return 'WAN';
-        if (name === (el('fieldLan')?.value || '')) return 'LAN';
-        if (name === (el('fieldMgmt')?.value || '')) return 'MGMT';
-        return '';
+        
+        const avail = new Set(state.interfaces.map(i => i.nome));
+        state.selectedInterfaces = new Set(Array.from(state.selectedInterfaces).filter(n => avail.has(n)));
     }
 
     function renderMonitoredInterfaces(interfaces) {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-
         container.innerHTML = '';
+        
         const mode = getCaptureMode();
-        const manualMode = mode === 'personalizado';
+        const manual = mode === 'personalizado';
         const mgmt = el('fieldMgmt')?.value || '';
 
         if (!interfaces.length) {
-            renderInterfacesError('Nenhuma interface detectada.');
+            container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted);">Nenhuma interface</div>';
             return;
         }
 
         for (const item of interfaces) {
-            const role = roleForInterface(item.nome);
-            const isMgmt = Boolean(mgmt && item.nome === mgmt);
-            const disabled = !manualMode || isMgmt;
+            const isMgmt = mgmt && item.nome === mgmt;
+            const disabled = !manual || isMgmt;
             const checked = state.selectedInterfaces.has(item.nome) && !isMgmt;
 
             const label = document.createElement('label');
             label.className = 'selectable-card';
             label.style.padding = '12px 16px';
-            label.style.margin = '0';
-            if (disabled) label.style.opacity = '0.6';
-
-            const roleText = role ? `<span class="selectable-card__badge" style="color:var(--color-primary); font-weight:600;">· ${role}</span>` : '';
-            const address = item.cidr || item.ipv4 || '';
+            label.style.opacity = disabled ? '0.6' : '1';
 
             label.innerHTML = `
                 <input type="checkbox" value="${escapeHtml(item.nome)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
-                <div class="selectable-card__content" style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <span class="selectable-card__title" style="margin-bottom:0;">${escapeHtml(item.nome)}</span>
-                        <span class="selectable-card__desc">${escapeHtml(address)}</span>
-                    </div>
-                    <div style="text-align:right; font-size:12px; color:var(--color-text-tertiary);">
-                        ${escapeHtml(isMgmt ? 'gerência' : (item.estado || 'detectada'))} ${roleText}
-                    </div>
+                <div class="selectable-card__content" style="flex:1;">
+                    <span class="selectable-card__title" style="margin-bottom:0;">${escapeHtml(item.nome)} ${isMgmt ? '<span class="selectable-card__badge" style="color:var(--warn)">(Gerência)</span>' : ''}</span>
+                    <span class="selectable-card__desc">${escapeHtml(item.cidr || item.ipv4 || '')}</span>
                 </div>
             `;
 
@@ -635,12 +444,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderMonitoredInterfaces(state.interfaces);
                     return;
                 }
-                if (input.value === (el('fieldMgmt')?.value || '')) {
-                    input.checked = false;
-                    state.selectedInterfaces.delete(input.value);
-                    showNetworkError('A interface de gerenciamento não pode ser monitorada.');
-                    return;
-                }
                 if (input.checked) state.selectedInterfaces.add(input.value);
                 else state.selectedInterfaces.delete(input.value);
                 clearNetworkError();
@@ -649,75 +452,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function updateCaptureModeHint() {
-        const hint = el('captureModeHint');
-        const monitoredHint = el('monitoredInterfacesHint');
-        const mode = getCaptureMode();
-
-        const messages = {
-            lan: 'Somente LAN: o Suricata monitora automaticamente apenas a placa definida como LAN.',
-            lan_wan: 'LAN + WAN: o Suricata monitora automaticamente as placas definidas como LAN e WAN.',
-            personalizado: 'Personalizado: escolha manualmente as interfaces abaixo. A placa de gerenciamento permanece excluída.',
-        };
-
-        if (hint) hint.textContent = messages[mode] || '';
-        if (monitoredHint) {
-            monitoredHint.textContent = mode === 'personalizado'
-                ? 'Modo personalizado ativo: marque somente as interfaces que o Suricata deve capturar.'
-                : 'Seleção automática: altere WAN/LAN acima e esta lista será atualizada imediatamente.';
-        }
-    }
-
     function renderInterfacesLoading() {
         const container = el('interfacesMonitoradasList');
-        if (!container) return;
-        container.innerHTML = `
-            <div style="display: flex; gap: var(--spacing-sm); align-items: center; justify-content: center; padding: 20px; background:var(--color-bg-primary); border-radius:var(--radius-md);">
-                <span class="spinner" style="color:var(--color-primary)"></span>
-                <span>Detectando interfaces...</span>
-            </div>
-        `;
+        if (container) container.innerHTML = '<div style="text-align:center; padding:20px;"><span class="spinner"></span></div>';
     }
 
     function renderInterfacesError(message) {
         const container = el('interfacesMonitoradasList');
-        if (!container) return;
-        container.innerHTML = `
-            <div class="alert alert--error" style="margin:0;">
-                <div class="alert__icon">⚠</div>
-                <div class="alert__content">
-                    <div class="alert__message">${escapeHtml(message)}</div>
-                </div>
-            </div>
-        `;
+        if (container) container.innerHTML = `<div class="alert alert--error" style="margin:0;"><div class="alert__icon">${iconSvg('error')}</div><div class="alert__content"><div class="alert__message">${escapeHtml(message)}</div></div></div>`;
     }
 
     function addHomeNetFromInput() {
         const input = el('fieldHomeNet');
         if (!input) return;
-
         const values = input.value.split(',').map(v => v.trim()).filter(Boolean);
         if (!values.length) return;
 
-        const invalid = values.filter(value => !isValidCidr(value));
+        const invalid = values.filter(v => !isValidCidr(v));
         if (invalid.length) {
-            showNetworkError(`CIDR inválido: ${invalid.join(', ')}.`);
-            shake(input.closest('.form-group'));
-            return;
-        }
-
-        const wanNetwork = getInterfaceNetwork(el('fieldWan')?.value || '');
-        const forbiddenWan = values.map(networkFromCidr).filter(value => Boolean(wanNetwork) && value === wanNetwork);
-
-        if (forbiddenWan.length) {
-            showNetworkError(`A rede da WAN (${wanNetwork}) não deve entrar no HOME_NET. HOME_NET representa as redes internas protegidas.`);
-            shake(input.closest('.form-group'));
+            showNetworkError(`CIDR inválido: ${invalid.join(', ')}`);
             return;
         }
 
         for (const value of values) {
-            const normalised = networkFromCidr(value);
-            if (normalised && !state.homeNet.includes(normalised)) state.homeNet.push(normalised);
+            const net = networkFromCidr(value);
+            if (net && !state.homeNet.includes(net)) state.homeNet.push(net);
         }
 
         input.value = '';
@@ -728,32 +487,22 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHomeNetTokens() {
         const container = el('homeNetTokens');
         if (!container) return;
-
         container.innerHTML = '';
 
         for (const network of state.homeNet) {
             const token = document.createElement('div');
-            token.className = 'card';
-            token.style.padding = '4px 8px';
-            token.style.margin = '0';
-            token.style.display = 'flex';
-            token.style.alignItems = 'center';
-            token.style.gap = 'var(--spacing-sm)';
-            token.style.fontSize = '12px';
-            token.style.background = 'var(--color-bg-secondary)';
-
-            const isBase = Boolean(state.autoHomeNetBase && network === state.autoHomeNetBase);
+            token.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 12px; font-size:12px; background:var(--bg-secondary); border-radius:6px; border:1px solid var(--border);';
+            const isBase = state.autoHomeNetBase && network === state.autoHomeNetBase;
 
             if (isBase) {
-                token.innerHTML = `<span style="font-weight:600;">${escapeHtml(network)}</span> <span style="color:var(--color-text-tertiary);">· LAN</span>`;
-                token.title = 'Rede base calculada automaticamente a partir da interface LAN.';
+                token.innerHTML = `<span style="font-weight:600;">${escapeHtml(network)}</span><span style="color:var(--text-muted);">LAN</span>`;
             } else {
                 token.innerHTML = `
                     <span style="font-weight:600;">${escapeHtml(network)}</span>
-                    <button type="button" aria-label="Remover" style="cursor:pointer; color:var(--color-text-secondary); font-size:14px; line-height:1; padding:0 4px;">&times;</button>
+                    <button type="button" style="cursor:pointer; color:var(--text-muted); font-size:16px; padding:0 4px; border:0; background:none; line-height:1;" aria-label="Remover">&times;</button>
                 `;
                 token.querySelector('button')?.addEventListener('click', () => {
-                    state.homeNet = state.homeNet.filter(value => value !== network);
+                    state.homeNet = state.homeNet.filter(n => n !== network);
                     renderHomeNetTokens();
                 });
             }
@@ -762,10 +511,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function validateNetworkForm() {
-        addPendingHomeNet();
+        const input = el('fieldHomeNet');
+        if (input?.value.trim()) addHomeNetFromInput();
         syncMonitoredInterfacesForMode({ preservePersonalized: true });
 
-        const mode = getCaptureMode();
         const wan = el('fieldWan')?.value || '';
         const lan = el('fieldLan')?.value || '';
         const mgmt = el('fieldMgmt')?.value || '';
@@ -774,38 +523,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!wan) errors.push('Selecione a interface WAN.');
         if (!lan) errors.push('Selecione a interface LAN.');
-        if (wan && lan && wan === lan) errors.push('WAN e LAN devem usar interfaces diferentes.');
-        if (mgmt && (mgmt === wan || mgmt === lan)) errors.push('A interface de gerenciamento deve ser diferente da WAN e LAN.');
-        if (!state.homeNet.length) errors.push('O HOME_NET precisa conter pelo menos a rede interna da LAN.');
-        if (state.homeNet.some(value => !isValidCidr(value))) errors.push('Existe uma rede HOME_NET inválida.');
-
-        const lanNetwork = getInterfaceNetwork(lan);
-        if (lanNetwork && !state.homeNet.includes(lanNetwork)) errors.push(`O HOME_NET precisa incluir a rede da LAN (${lanNetwork}).`);
-
-        const wanNetwork = getInterfaceNetwork(wan);
-        if (wanNetwork && lanNetwork && wanNetwork !== lanNetwork && state.homeNet.includes(wanNetwork)) {
-            errors.push(`A rede da WAN (${wanNetwork}) não deve fazer parte do HOME_NET.`);
-        }
-
-        if (!state.selectedInterfaces.size) errors.push('Selecione pelo menos uma interface monitorada.');
-        if (mgmt && state.selectedInterfaces.has(mgmt)) errors.push('A interface de gerenciamento não pode ser monitorada.');
-        if (mode === 'lan' && lan && !state.selectedInterfaces.has(lan)) errors.push('No modo Somente LAN, a interface LAN precisa ser monitorada.');
-        if (mode === 'lan_wan' && ((lan && !state.selectedInterfaces.has(lan)) || (wan && !state.selectedInterfaces.has(wan)))) {
-            errors.push('No modo LAN + WAN, as duas interfaces precisam ser monitoradas.');
-        }
-        if (dns && !isValidIpv4(dns)) errors.push('O DNS interno não é um IPv4 válido.');
+        if (wan && lan && wan === lan) errors.push('WAN e LAN devem ser interfaces diferentes.');
+        if (mgmt && (mgmt === wan || mgmt === lan)) errors.push('Interface de gerenciamento deve ser diferente de WAN e LAN.');
+        if (!state.homeNet.length) errors.push('Sua HOME_NET está vazia.');
+        if (dns && !isValidIpv4(dns)) errors.push('O DNS interno informado não é um IPv4 válido.');
+        if (!state.selectedInterfaces.size) errors.push('Selecione ao menos uma interface para ser monitorada.');
 
         return { ok: errors.length === 0, errors };
     }
 
-    function addPendingHomeNet() {
-        const input = el('fieldHomeNet');
-        if (input?.value.trim()) addHomeNetFromInput();
-    }
-
-    /* ═══════════════════════════════════════════════════════════
-       PROTEÇÃO E CONFIGURAÇÃO
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // PROTEÇÃO E CONFIGURAÇÃO
+    // ═══════════════════════════════════════════════════════════
     function bindProtectionActions() {
         for (const id of ['fieldEtOpen', 'fieldRestartServices', 'fieldYamlPath', 'fieldEvePath']) {
             el(id)?.addEventListener('change', updateReview);
@@ -814,19 +543,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function validateProtectionForm() {
-        const errors = [];
         const yaml = el('fieldYamlPath')?.value.trim() || '';
         const eve = el('fieldEvePath')?.value.trim() || '';
-        if (!yaml || !yaml.startsWith('/')) errors.push('Informe um caminho absoluto para o suricata.yaml.');
-        if (!eve || !eve.startsWith('/')) errors.push('Informe um caminho absoluto para o eve.json.');
-        if (yaml.includes('\0') || eve.includes('\0')) errors.push('Os caminhos informados são inválidos.');
+        const errors = [];
+        if (!yaml.startsWith('/')) errors.push('O caminho do YAML deve ser absoluto (iniciar com /).');
+        if (!eve.startsWith('/')) errors.push('O caminho do EVE JSON deve ser absoluto (iniciar com /).');
         return { ok: errors.length === 0, errors };
     }
 
     function collectConfiguration() {
-        addPendingHomeNet();
+        const input = el('fieldHomeNet');
+        if (input?.value.trim()) addHomeNetFromInput();
+        
         return {
-            nome: state.configuration?.nome || 'Suricata Local',
             interface_wan: el('fieldWan')?.value || '',
             interface_lan: el('fieldLan')?.value || '',
             interface_mgmt: el('fieldMgmt')?.value || '',
@@ -835,7 +564,6 @@ document.addEventListener('DOMContentLoaded', () => {
             dns_interno: el('fieldDns')?.value.trim() || null,
             yaml_path: el('fieldYamlPath')?.value.trim() || '/etc/suricata/suricata.yaml',
             eve_path: el('fieldEvePath')?.value.trim() || '/var/log/suricata/eve.json',
-            cursor_path: state.configuration?.cursor_path || 'var/cursors/suricata_eve.cursor',
             modo_captura: getCaptureMode(),
             instalar_et_open: Boolean(el('fieldEtOpen')?.checked),
             instalar_regras_moonshield: true,
@@ -844,55 +572,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function saveConfiguration({ quiet = false } = {}) {
-        const configuration = collectConfiguration();
-        const payload = await requestJSON(CFG.urls.salvarConfiguracao, {
-            method: 'POST',
-            body: configuration,
-        });
+        const cfg = collectConfiguration();
+        const payload = await requestJSON(CFG.urls.salvarConfiguracao, { method: 'POST', body: cfg });
         const data = unwrapData(payload);
-        state.configuration = normaliseObject(data.configuracao || data.configuration || data);
+        state.configuration = normaliseObject(data.configuracao || data);
         applyConfigurationToForm(state.configuration);
         if (!quiet) showToast('Configuração salva com sucesso.', 'success');
-        return state.configuration;
     }
 
-    function applyConfigurationToForm(configuration) {
-        const cfg = normaliseObject(configuration);
-        if (!Object.keys(cfg).length) return;
+    function applyConfigurationToForm(cfg) {
+        const c = normaliseObject(cfg);
+        if (!Object.keys(c).length) return;
 
-        state.homeNet = arrayOfStrings(cfg.home_net);
-        state.selectedInterfaces = new Set(arrayOfStrings(cfg.interfaces_monitoradas));
-        state.autoHomeNetBase = '';
+        state.homeNet = Array.isArray(c.home_net) ? c.home_net.filter(Boolean) : [];
+        state.selectedInterfaces = new Set(Array.isArray(c.interfaces_monitoradas) ? c.interfaces_monitoradas : []);
 
-        setValue('fieldDns', cfg.dns_interno || '');
-        setValue('fieldYamlPath', cfg.yaml_path || '/etc/suricata/suricata.yaml');
-        setValue('fieldEvePath', cfg.eve_path || '/var/log/suricata/eve.json');
+        if (el('fieldDns')) el('fieldDns').value = c.dns_interno || '';
+        if (el('fieldYamlPath')) el('fieldYamlPath').value = c.yaml_path || '/etc/suricata/suricata.yaml';
+        if (el('fieldEvePath')) el('fieldEvePath').value = c.eve_path || '/var/log/suricata/eve.json';
+        if (el('fieldEtOpen')) el('fieldEtOpen').checked = c.instalar_et_open !== false;
+        if (el('fieldRestartServices')) el('fieldRestartServices').checked = c.reiniciar_servicos !== false;
 
-        if (el('fieldEtOpen')) el('fieldEtOpen').checked = cfg.instalar_et_open !== false;
-        if (el('fieldRestartServices')) el('fieldRestartServices').checked = cfg.reiniciar_servicos !== false;
-
-        const mode = cfg.modo_captura || 'lan_wan';
-        const radio = document.querySelector(`input[name="modoCaptura"][value="${cssEscape(mode)}"]`);
+        const mode = c.modo_captura || 'lan_wan';
+        const radio = document.querySelector(`input[name="modoCaptura"][value="${mode}"]`);
         if (radio) radio.checked = true;
 
-        setSelectIfAvailable('fieldWan', cfg.interface_wan || '');
-        setSelectIfAvailable('fieldLan', cfg.interface_lan || '');
-        setSelectIfAvailable('fieldMgmt', cfg.interface_mgmt || '');
+        const setSelect = (id, val) => {
+            const sel = el(id);
+            if (sel && val && Array.from(sel.options).some(o => o.value === val)) sel.value = val;
+        };
+        setSelect('fieldWan', c.interface_wan);
+        setSelect('fieldLan', c.interface_lan);
+        setSelect('fieldMgmt', c.interface_mgmt);
 
         if (state.interfaces.length) {
             initialiseHomeNetBaseFromCurrentSelection();
             syncMonitoredInterfacesForMode({ preservePersonalized: true });
-            refreshRoleOptionAvailability();
             renderMonitoredInterfaces(state.interfaces);
         }
-
         renderHomeNetTokens();
-        updateCaptureModeHint();
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       REVISÃO E PLANO
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // REVISÃO
+    // ═══════════════════════════════════════════════════════════
     function bindReviewActions() {
         el('confirmInstall')?.addEventListener('change', () => {
             if (el('btnStartInstall')) el('btnStartInstall').disabled = !el('confirmInstall').checked;
@@ -903,57 +626,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateReview() {
         const cfg = collectConfiguration();
-        const modeLabels = { lan: 'Somente LAN', lan_wan: 'LAN + WAN', personalizado: 'Personalizado' };
-        setText('reviewMode', modeLabels[cfg.modo_captura] || cfg.modo_captura);
-        setText('reviewWan', cfg.interface_wan || 'Não utilizada');
+        const modes = { lan: 'Somente LAN', lan_wan: 'LAN + WAN', personalizado: 'Personalizado' };
+        setText('reviewMode', modes[cfg.modo_captura] || cfg.modo_captura);
+        setText('reviewWan', cfg.interface_wan || 'Não definida');
         setText('reviewLan', cfg.interface_lan || 'Não definida');
-        setText('reviewHomeNet', cfg.home_net.length ? cfg.home_net.join(', ') : 'Não definida');
         setText('reviewEtOpen', cfg.instalar_et_open ? 'Ativado' : 'Desativado');
         setText('reviewRestart', cfg.reiniciar_servicos ? 'Reiniciar após instalar' : 'Não reiniciar automaticamente');
     }
 
-    async function refreshOnboardingData() {
-        try {
-            const payload = await requestJSON(CFG.urls.onboardingStatus, { method: 'GET' });
-            const data = unwrapData(payload);
-            state.onboardingStatus = normaliseObject(data.status_onboarding || data.onboarding || data.status || {});
-            state.plan = normaliseObject(data.plano_instalacao || data.plano || data.plan || {});
-            if (data.configuracao) state.configuration = normaliseObject(data.configuracao);
-            applyPlan(state.plan);
-        } catch (error) {
-            console.warn('Plano remoto indisponível; usando plano padrão.', error);
-            applyPlan(state.plan);
-        }
-    }
-
-    function applyPlan(plan) {
-        const data = normaliseObject(plan);
-        const steps = Array.isArray(data.etapas) ? data.etapas : [];
-        const container = el('installationPlanSteps');
-
-        if (steps.length && container) {
-            container.innerHTML = '';
-            steps.forEach((step, index) => {
-                const item = document.createElement('li');
-                item.className = 'list__item';
-                item.innerHTML = `
-                    <div class="list__marker">${index + 1}</div>
-                    <div class="list__content">
-                        <div class="list__title">${escapeHtml(firstText(step.titulo, step.nome, step.id, 'Etapa'))}</div>
-                        <div class="list__desc">${escapeHtml(firstText(step.descricao, step.mensagem, step.obrigatoria === false ? 'Opcional' : 'Obrigatória'))}</div>
-                    </div>
-                `;
-                container.appendChild(item);
-            });
-        }
-
-        const seconds = Number(data.estimativa_segundos || data.duracao_estimada_segundos || 0);
-        if (seconds > 0) setText('planDuration', `≈ ${humanDuration(seconds)}`);
-    }
-
-    /* ═══════════════════════════════════════════════════════════
-       INSTALAÇÃO E TAREFAS
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // INSTALAÇÃO E TAREFAS
+    // ═══════════════════════════════════════════════════════════
     function bindInstallationActions() {
         el('btnCancelInstall')?.addEventListener('click', cancelActiveTask);
         el('btnRetryInstall')?.addEventListener('click', () => {
@@ -972,38 +655,36 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const network = validateNetworkForm();
-        const protection = validateProtectionForm();
-        if (!network.ok || !protection.ok) {
-            showReviewError([...network.errors, ...protection.errors].join(' '));
+        const net = validateNetworkForm();
+        const prot = validateProtectionForm();
+        if (!net.ok || !prot.ok) {
+            showReviewError([...net.errors, ...prot.errors].join('<br>'));
             return;
         }
 
-        const button = el('btnStartInstall');
-        setButtonLoading(button, true);
+        const btn = el('btnStartInstall');
+        setButtonLoading(btn, true);
 
         try {
             await saveConfiguration({ quiet: true });
-            const parameters = {
+            const params = {
                 configuracao: collectConfiguration(),
                 instalar_et_open: Boolean(el('fieldEtOpen')?.checked),
                 reiniciar_servicos: Boolean(el('fieldRestartServices')?.checked),
                 executar_diagnostico_final: true,
             };
 
-            const payload = await requestJSON(CFG.urls.criarTarefa, {
-                method: 'POST',
-                body: { tipo: 'instalacao', parametros: parameters },
-            });
+            const payload = await requestJSON(CFG.urls.criarTarefa, { method: 'POST', body: { tipo: 'instalacao', parametros: params } });
             const data = unwrapData(payload);
             const task = data.tarefa || data.task || data;
-            if (!task?.id) throw new Error('A API não retornou o identificador da tarefa.');
+            
+            if (!task?.id) throw new Error('O ID da tarefa não foi retornado pela API.');
 
             state.activeTask = task;
             state.taskRunning = true;
             state.taskFinished = false;
             state.taskSucceeded = false;
-            state.taskStartedAt = new Date(task.iniciado_em || task.criado_em || Date.now());
+            state.taskStartedAt = new Date();
             state.lastLogOffset = 0;
             state.renderedLogKeys.clear();
 
@@ -1014,37 +695,13 @@ document.addEventListener('DOMContentLoaded', () => {
             startTaskPolling(task.id);
             startLogPolling(task.id);
 
-            appendLocalLog('INFO', 'Tarefa criada. Aguardando o executor seguro iniciar a instalação.', 'tarefa');
-            showToast('Tarefa de instalação criada.', 'success');
+            appendLocalLog('info', 'Tarefa criada. Aguardando o executor seguro.');
+            showToast('Tarefa de instalação iniciada.', 'success');
         } catch (error) {
-            showReviewError(error.message || 'Não foi possível criar a tarefa de instalação.');
-            showToast(error.message || 'Falha ao iniciar a instalação.', 'error');
+            showReviewError(error.message);
+            showToast(error.message, 'error');
         } finally {
-            setButtonLoading(button, false);
-        }
-    }
-
-    async function resumeExistingTask() {
-        if (!CFG.urls?.listarTarefas) return;
-        try {
-            const payload = await requestJSON(`${CFG.urls.listarTarefas}?tipo=instalacao&limite=10&offset=0`, { method: 'GET' });
-            const data = unwrapData(payload);
-            const tasks = data.tarefas || data.results || [];
-            const active = tasks.find(task => ['pendente', 'executando'].includes(String(task.status).toLowerCase()));
-            if (!active) return;
-
-            state.activeTask = active;
-            state.taskRunning = true;
-            state.taskStartedAt = new Date(active.iniciado_em || active.criado_em || Date.now());
-            unlockStep(6);
-            goToStep(6);
-            prepareInstallationUI(active);
-            startElapsedTimer();
-            startTaskPolling(active.id);
-            startLogPolling(active.id);
-            showToast('Uma tarefa de instalação em andamento foi restaurada.', 'info');
-        } catch (error) {
-            console.debug('Nenhuma tarefa restaurada:', error);
+            setButtonLoading(btn, false);
         }
     }
 
@@ -1055,334 +712,172 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el('btnRetryInstall')) el('btnRetryInstall').hidden = true;
         if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = true;
 
-        setText('installEyebrow', 'Instalação em andamento');
-        setText('installTitle', 'Preparando o sensor MoonShield.');
-        setText('installDescription', 'Não feche esta página enquanto a configuração estiver em andamento.');
-        setText('installTaskId', `Tarefa: ${task.id}`);
+        setText('installTitle', 'Preparando o sensor MoonShield');
         updateTaskProgress(task);
-        resetStages();
         clearTerminal();
     }
 
     function startTaskPolling(taskId) {
-        stopTaskPolling();
+        if (state.taskPollTimer) clearTimeout(state.taskPollTimer);
+        
         const poll = async () => {
             try {
-                const payload = await requestJSON(resolveTemplateUrl(CFG.urls.detalheTarefaTemplate, taskId), { method: 'GET' });
+                const url = resolveTemplateUrl(CFG.urls.detalheTarefaTemplate, taskId);
+                const payload = await requestJSON(url, { method: 'GET' });
                 const data = unwrapData(payload);
                 const task = data.tarefa || data.task || data;
+                
                 state.activeTask = task;
                 updateTaskProgress(task);
-
+                
                 if (isFinalTaskStatus(task.status)) {
                     await handleTaskFinished(task);
                     return;
                 }
             } catch (error) {
-                appendLocalLog('AVISO', `Falha temporária ao consultar a tarefa: ${error.message}`, 'consulta');
+                appendLocalLog('aviso', `Aviso: Falha temporária ao consultar a tarefa (${error.message})`);
             }
-            state.taskPollTimer = window.setTimeout(poll, POLL_INTERVAL_MS);
+            state.taskPollTimer = setTimeout(poll, POLL_INTERVAL_MS);
         };
         poll();
     }
 
-    function stopTaskPolling() {
-        if (state.taskPollTimer) window.clearTimeout(state.taskPollTimer);
-        state.taskPollTimer = null;
-    }
-
     function startLogPolling(taskId) {
-        stopLogPolling();
+        if (state.logPollTimer) clearTimeout(state.logPollTimer);
+        
         const poll = async () => {
             try {
                 const url = `${resolveTemplateUrl(CFG.urls.logsTarefaTemplate, taskId)}?offset=${state.lastLogOffset}&limite=200`;
                 const payload = await requestJSON(url, { method: 'GET' });
                 const data = unwrapData(payload);
                 const logs = Array.isArray(data.logs) ? data.logs : [];
+                
                 renderTaskLogs(logs);
                 state.lastLogOffset = Number(data.proximo_offset ?? (state.lastLogOffset + logs.length));
             } catch (error) {
-                console.debug('Falha ao consultar logs:', error);
+                // Silencioso no console para não floodar
             }
-            if (!state.taskFinished) state.logPollTimer = window.setTimeout(poll, LOG_POLL_INTERVAL_MS);
+            if (!state.taskFinished) state.logPollTimer = setTimeout(poll, LOG_POLL_INTERVAL_MS);
         };
         poll();
     }
 
-    function stopLogPolling() {
-        if (state.logPollTimer) window.clearTimeout(state.logPollTimer);
-        state.logPollTimer = null;
-    }
-
     function updateTaskProgress(task) {
-        const progress = clamp(Number(task.progresso ?? task.percentual ?? 0), 0, 100);
-        const stage = firstText(task.etapa_atual, task.etapa, inferStageFromProgress(progress), 'verificar_ambiente');
-        const message = firstText(task.mensagem, statusMessage(task.status), 'Aguardando atualização');
-
-        setText('installPercent', `${Math.round(progress)}%`);
-        if (el('installProgressBar')) el('installProgressBar').style.width = `${progress}%`;
-        setText('currentStageTitle', stageTitle(stage));
-        setText('currentStageMessage', message);
-        setText('installTaskId', `Tarefa: ${task.id || '—'}`);
-        updateStages(stage, task.status, progress);
-
-        if (String(task.status).toLowerCase() === 'pendente') {
-            setText('installEyebrow', 'Tarefa aguardando execução');
-            setText('installDescription', 'A tarefa foi registrada e aguarda o executor seguro do MoonShield.');
-        } else if (String(task.status).toLowerCase() === 'executando') {
-            setText('installEyebrow', 'Instalação em andamento');
-            setText('installDescription', 'O servidor está sendo preparado e validado etapa por etapa.');
-        }
+        const prog = clamp(Number(task.progresso ?? 0), 0, 100);
+        setText('installPercent', `${Math.round(prog)}%`);
+        if (el('installProgressBar')) el('installProgressBar').style.width = `${prog}%`;
+        
+        const stageStr = firstText(task.etapa_atual, 'Processando');
+        const formattedStage = stageStr.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        setText('currentStageTitle', formattedStage);
+        setText('currentStageMessage', statusMessage(task.status));
     }
 
     async function handleTaskFinished(task) {
         state.taskFinished = true;
         state.taskRunning = false;
         state.taskSucceeded = String(task.status).toLowerCase() === 'sucesso';
-        stopTaskPolling();
-        stopLogPolling();
-        stopElapsedTimer();
+        
+        if (state.taskPollTimer) clearTimeout(state.taskPollTimer);
+        if (state.logPollTimer) clearTimeout(state.logPollTimer);
+        if (state.elapsedTimer) clearInterval(state.elapsedTimer);
 
         try {
             const url = `${resolveTemplateUrl(CFG.urls.logsTarefaTemplate, task.id)}?offset=${state.lastLogOffset}&limite=500`;
             const payload = await requestJSON(url, { method: 'GET' });
             const data = unwrapData(payload);
             renderTaskLogs(Array.isArray(data.logs) ? data.logs : []);
-        } catch (_) { }
+        } catch (_) {}
 
-        if (state.taskSucceeded) showInstallationSuccess(task);
-        else showInstallationFailure(task);
-    }
+        if (state.taskSucceeded) {
+            setText('installTitle', 'Suricata pronto e validado!');
+            
+            // Força a UI de progresso para 100% visualmente
+            setText('installPercent', '100%');
+            if (el('installProgressBar')) el('installProgressBar').style.width = '100%';
+            setText('currentStageTitle', 'Instalação Concluída');
+            setText('currentStageMessage', 'Todos os processos foram finalizados.');
 
-    function showInstallationSuccess(task) {
-        setText('installEyebrow', 'Instalação concluída');
-        setText('installTitle', 'O Suricata está pronto.');
-        setText('installDescription', 'O sensor foi configurado, validado e ativado com sucesso.');
-        if (el('btnCancelInstall')) el('btnCancelInstall').hidden = true;
-        if (el('btnRetryInstall')) el('btnRetryInstall').hidden = true;
-        if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = false;
+            // Arruma a visibilidade dos botões
+            if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = false;
+            if (el('btnCancelInstall')) el('btnCancelInstall').hidden = true;
+            if (el('btnRetryInstall')) el('btnRetryInstall').hidden = true; 
 
-        renderResult({
-            success: true,
-            eyebrow: 'Instalação concluída',
-            title: 'O Suricata está pronto.',
-            message: firstText(task.mensagem, 'O sensor foi configurado e já pode enviar eventos ao MoonShield.'),
-            task,
-        });
-        updateSidebarSystem('ok', 'Suricata ativo');
-        showToast('Instalação concluída com sucesso.', 'success');
-    }
-
-    function showInstallationFailure(task) {
-        const cancelled = String(task.status).toLowerCase() === 'cancelado';
-        setText('installEyebrow', cancelled ? 'Instalação cancelada' : 'Falha na instalação');
-        setText('installTitle', cancelled ? 'A tarefa foi cancelada.' : 'A instalação precisa de atenção.');
-        setText('installDescription', firstText(task.erro, task.mensagem, 'Revise os logs e tente novamente.'));
-        if (el('btnCancelInstall')) el('btnCancelInstall').hidden = true;
-        if (el('btnRetryInstall')) el('btnRetryInstall').hidden = false;
-        if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = true;
-
-        renderResult({
-            success: false,
-            eyebrow: cancelled ? 'Tarefa cancelada' : 'Instalação não concluída',
-            title: cancelled ? 'A instalação foi interrompida.' : 'Não foi possível concluir a instalação.',
-            message: firstText(task.erro, task.mensagem, 'Consulte os logs para identificar a etapa que falhou.'),
-            task,
-        });
-        updateSidebarSystem('error', cancelled ? 'Instalação cancelada' : 'Instalação com erro');
-        showToast(cancelled ? 'Tarefa cancelada.' : 'A instalação falhou.', cancelled ? 'warning' : 'error');
-    }
-
-    function renderResult({ success, eyebrow, title, message, task }) {
-        const result = el('installResult');
-        if (!result) return;
-        result.hidden = false;
-        result.className = `alert alert--${success ? 'success' : 'error'}`;
-
-        if (el('resultTitle')) el('resultTitle').textContent = title;
-        if (el('resultMessage')) el('resultMessage').textContent = message;
-
-        const details = normaliseObject(task.resultado || task.result || {});
-        const status = normaliseObject(details.status_final || details.status || details.stack || {});
-        const suricata = normaliseObject(status.suricata || details.suricata || {});
-        const version = firstText(suricata.versao, details.versao_suricata, state.configuration?.versao_suricata, success ? 'Detectada' : '—');
-        const mainInterface = firstText(state.configuration?.interface_lan, state.configuration?.interface_wan, Array.from(state.selectedInterfaces)[0], '—');
-
-        setText('resultVersion', version);
-        setText('resultInterface', mainInterface);
-        setText('resultStatus', success ? 'Ativo' : String(task.status || 'Erro'));
-        if (el('resultStatus')) el('resultStatus').style.color = success ? 'var(--color-success)' : 'var(--color-error)';
-    }
-
-    function updateStages(currentStage, taskStatus, progress) {
-        const stages = all('.list__item[data-stage]');
-        let currentIndex = stages.findIndex(item => item.dataset.stage === currentStage);
-        if (currentIndex < 0) currentIndex = stageIndexFromProgress(progress, stages.length);
-        const final = isFinalTaskStatus(taskStatus);
-        const success = String(taskStatus).toLowerCase() === 'sucesso';
-
-        stages.forEach((item, index) => {
-            const marker = item.querySelector('.list__marker');
-            const detail = item.querySelector('.list__desc');
-
-            if (marker) {
-                marker.style.background = 'var(--color-bg-secondary)';
-                marker.style.color = 'var(--color-text-secondary)';
-                marker.innerHTML = '';
+            if (el('installResult')) {
+                el('installResult').hidden = false;
+                el('installResult').className = 'alert alert--success';
+                setText('resultTitle', 'Instalação concluída');
+                setText('resultMessage', 'O sensor foi configurado com sucesso e já está protegendo a rede.');
             }
-
-            if (index < currentIndex || (final && success)) {
-                if (marker) {
-                    marker.style.background = 'var(--color-success)';
-                    marker.style.color = '#fff';
-                    marker.innerHTML = iconSvg('check');
-                }
-                if (detail) detail.textContent = 'Concluído';
-            } else if (index === currentIndex && !final) {
-                if (marker) {
-                    marker.style.background = 'var(--color-primary-light)';
-                    marker.style.color = 'var(--color-primary)';
-                    marker.innerHTML = '<span class="spinner"></span>';
-                }
-                if (detail) detail.textContent = 'Em execução';
-            } else if (index === currentIndex && final && !success) {
-                if (marker) {
-                    marker.style.background = 'var(--color-error)';
-                    marker.style.color = '#fff';
-                    marker.innerHTML = '⚠';
-                }
-                if (detail) detail.textContent = 'Falhou';
-            } else {
-                if (detail) detail.textContent = 'Aguardando';
+            showToast('Instalação concluída com sucesso.', 'success');
+            updateSidebarSystem('ok', 'Suricata ativo');
+        } else {
+            const cancelled = String(task.status).toLowerCase() === 'cancelado';
+            setText('installTitle', cancelled ? 'Instalação cancelada.' : 'Falha na instalação.');
+            
+            // Arruma a visibilidade dos botões no caso de erro
+            if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = true;
+            if (el('btnCancelInstall')) el('btnCancelInstall').hidden = true;
+            if (el('btnRetryInstall')) el('btnRetryInstall').hidden = false; 
+            
+            if (el('installResult')) {
+                el('installResult').hidden = false;
+                el('installResult').className = 'alert alert--error';
+                setText('resultTitle', cancelled ? 'Operação interrompida.' : 'Ocorreu um erro.');
+                const erroMsg = firstText(task.erro, task.mensagem, 'Verifique o terminal acima para mais detalhes.');
+                setText('resultMessage', erroMsg);
             }
-        });
-    }
-
-    function resetStages() {
-        all('.list__item[data-stage]').forEach((item, index) => {
-            const marker = item.querySelector('.list__marker');
-            const detail = item.querySelector('.list__desc');
-
-            if (marker) {
-                if (index === 0) {
-                    marker.style.background = 'var(--color-primary-light)';
-                    marker.style.color = 'var(--color-primary)';
-                    marker.innerHTML = '<span class="spinner"></span>';
-                } else {
-                    marker.style.background = 'var(--color-bg-secondary)';
-                    marker.style.color = 'var(--color-text-secondary)';
-                    marker.innerHTML = '';
-                }
-            }
-            if (detail) detail.textContent = index === 0 ? 'Aguardando execução' : 'Aguardando';
-        });
-    }
-
-    async function cancelActiveTask() {
-        const task = state.activeTask;
-        if (!task?.id || state.taskFinished) return;
-        const button = el('btnCancelInstall');
-        setButtonLoading(button, true);
-        try {
-            const payload = await requestJSON(resolveTemplateUrl(CFG.urls.cancelarTarefaTemplate, task.id), {
-                method: 'POST',
-                body: {},
-            });
-            const data = unwrapData(payload);
-            state.activeTask = data.tarefa || data.task || data;
-            appendLocalLog('AVISO', 'Cancelamento solicitado. A interrupção ocorrerá entre etapas seguras.', 'cancelamento');
-            showToast('Cancelamento solicitado.', 'warning');
-        } catch (error) {
-            showToast(error.message || 'Não foi possível solicitar o cancelamento.', 'error');
-        } finally {
-            setButtonLoading(button, false);
+            showToast(cancelled ? 'Instalação cancelada.' : 'Instalação falhou.', 'error');
+            updateSidebarSystem('error', 'Erro na instalação');
         }
     }
 
-    async function finishOnboarding() {
-        const button = el('btnFinishOnboarding');
-        setButtonLoading(button, true);
-        try {
-            await requestJSON(CFG.urls.concluirOnboarding, { method: 'POST', body: {} });
-            state.leavingAllowed = true;
-            window.location.assign(CFG.urls.painel);
-        } catch (error) {
-            showToast(error.message || 'Não foi possível concluir o onboarding.', 'error');
-            setButtonLoading(button, false);
-        }
-    }
-
-    function resetInstallationUI() {
-        state.activeTask = null;
-        state.taskRunning = false;
-        state.taskFinished = false;
-        state.taskSucceeded = false;
-        state.lastLogOffset = 0;
-        state.renderedLogKeys.clear();
-        stopTaskPolling();
-        stopLogPolling();
-        stopElapsedTimer();
-        setText('installPercent', '0%');
-        if (el('installProgressBar')) el('installProgressBar').style.width = '0%';
-        setText('installTaskId', 'Tarefa: —');
-        setText('installElapsed', '00:00');
-        resetStages();
-        clearTerminal();
-        if (el('installResult')) el('installResult').hidden = true;
-    }
-
-    /* ═══════════════════════════════════════════════════════════
-       LOGS E TERMINAL REALISTA
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // TERMINAL DE LOGS
+    // ═══════════════════════════════════════════════════════════
     function renderTaskLogs(logs) {
         for (const log of logs) {
-            const key = `${log.id ?? ''}|${log.sequencia ?? ''}|${log.criado_em ?? ''}|${log.mensagem ?? ''}`;
+            const key = `${log.id ?? ''}|${log.criado_em ?? ''}|${log.mensagem ?? ''}`;
             if (state.renderedLogKeys.has(key)) continue;
             state.renderedLogKeys.add(key);
             appendTerminalLine(log);
         }
-        trimTerminalLogs();
     }
 
-    function appendLocalLog(level, message, stage = '') {
-        appendTerminalLine({
-            nivel: level.toLowerCase(),
-            mensagem: message,
-            etapa: stage,
-            criado_em: new Date().toISOString(),
-        });
+    function appendLocalLog(level, message) {
+        appendTerminalLine({ nivel: level.toLowerCase(), mensagem: message, criado_em: new Date().toISOString() });
     }
 
     function appendTerminalLine(log) {
         const container = el('installLogs');
         if (!container) return;
-
-        // Limpa o placeholder inicial
-        if (container.children.length === 1 && container.firstElementChild.textContent.includes('Aguardando o início')) {
+        if (container.children.length === 1 && container.firstElementChild.textContent.includes('Aguardando')) {
             container.innerHTML = '';
         }
 
-        const level = String(log.nivel || log.level || 'info').toLowerCase();
-        let colorClass = 'info';
-        if (['erro', 'error', 'critical'].includes(level)) colorClass = 'error';
-        if (['aviso', 'warning', 'warn'].includes(level)) colorClass = 'warning';
-        if (['sucesso', 'success', 'ok'].includes(level)) colorClass = 'success';
+        const level = String(log.nivel || 'info').toLowerCase();
+        let colorClass = 'var(--info)';
+        if (['erro', 'error', 'critical'].includes(level)) colorClass = 'var(--danger)';
+        if (['aviso', 'warning', 'warn'].includes(level)) colorClass = 'var(--warn)';
+        if (['sucesso', 'success', 'ok'].includes(level)) colorClass = 'var(--ok)';
 
         const line = document.createElement('div');
         line.className = 'terminal-line';
 
-        const timestamp = parseDate(log.criado_em || log.timestamp || new Date());
-        const stage = firstText(log.etapa, log.stage);
-        const message = firstText(log.mensagem, log.message, 'Evento sem mensagem');
+        const time = new Date(log.criado_em || Date.now());
+        const hours = String(time.getHours()).padStart(2, '0');
+        const mins = String(time.getMinutes()).padStart(2, '0');
+        const secs = String(time.getSeconds()).padStart(2, '0');
 
         line.innerHTML = `
-            <span class="terminal-time">${formatTime(timestamp)}</span>
-            <span class="terminal-level ${colorClass}">${escapeHtml(level.toUpperCase())}</span>
-            <span>${stage ? `<span style="opacity:0.7;">[${escapeHtml(stage)}]</span> ` : ''}${escapeHtml(message)}</span>
+            <span class="terminal-time">${hours}:${mins}:${secs}</span>
+            <span class="terminal-level" style="color: ${colorClass};">${level.toUpperCase()}</span>
+            <span>${escapeHtml(log.mensagem || '')}</span>
         `;
-
         container.appendChild(line);
         container.scrollTop = container.scrollHeight;
+
+        if (container.children.length > MAX_RENDERED_LOGS) container.firstElementChild?.remove();
     }
 
     function clearTerminal() {
@@ -1391,48 +886,80 @@ document.addEventListener('DOMContentLoaded', () => {
         container.innerHTML = `
             <div class="terminal-line">
                 <span class="terminal-time">--:--:--</span>
-                <span class="terminal-level info">INFO</span>
-                <span>Aguardando o início da tarefa...</span>
+                <span class="terminal-level" style="color: var(--info);">INFO</span>
+                <span>Aguardando início...</span>
             </div>
         `;
     }
 
-    function trimTerminalLogs() {
-        const container = el('installLogs');
-        if (!container) return;
-        while (container.children.length > MAX_RENDERED_LOGS) container.firstElementChild?.remove();
-    }
-
     function toggleLogs() {
-        const terminal = el('installTerminal');
-        if (!terminal) return;
         state.logsVisible = !state.logsVisible;
         if (el('installLogs')) el('installLogs').hidden = !state.logsVisible;
         setText('btnToggleLogs', state.logsVisible ? 'Ocultar' : 'Mostrar');
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       TEMPO DECORRIDO
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // AÇÕES DE FINALIZAÇÃO E CANCELAMENTO
+    // ═══════════════════════════════════════════════════════════
+    async function cancelActiveTask() {
+        const task = state.activeTask;
+        if (!task?.id) return;
+        
+        setButtonLoading(el('btnCancelInstall'), true);
+        try {
+            await requestJSON(resolveTemplateUrl(CFG.urls.cancelarTarefaTemplate, task.id), { method: 'POST', body: {} });
+            appendLocalLog('aviso', 'Cancelamento solicitado ao servidor...');
+            showToast('Cancelamento solicitado.', 'warning');
+        } catch (error) {
+            showToast(error.message, 'error');
+        } finally {
+            setButtonLoading(el('btnCancelInstall'), false);
+        }
+    }
+
+    function resetInstallationUI() {
+        state.activeTask = null;
+        state.taskRunning = false;
+        state.taskFinished = false;
+        if (state.elapsedTimer) clearInterval(state.elapsedTimer);
+        setText('installPercent', '0%');
+        if (el('installProgressBar')) el('installProgressBar').style.width = '0%';
+        clearTerminal();
+        if (el('installResult')) el('installResult').hidden = true;
+    }
+
+    async function finishOnboarding() {
+        setButtonLoading(el('btnFinishOnboarding'), true);
+        try {
+            await requestJSON(CFG.urls.concluirOnboarding, { method: 'POST', body: {} });
+            state.leavingAllowed = true;
+            window.location.assign(CFG.urls.painel);
+        } catch (error) {
+            showToast(error.message, 'error');
+            setButtonLoading(el('btnFinishOnboarding'), false);
+        }
+    }
+
     function startElapsedTimer() {
-        stopElapsedTimer();
+        if (state.elapsedTimer) clearInterval(state.elapsedTimer);
         const update = () => {
             if (!state.taskStartedAt) return;
-            const seconds = Math.max(0, Math.floor((Date.now() - state.taskStartedAt.getTime()) / 1000));
-            setText('installElapsed', formatElapsed(seconds));
+            const secs = Math.max(0, Math.floor((Date.now() - state.taskStartedAt) / 1000));
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            const title = el('installTerminal')?.querySelector('.terminal-title');
+            if (title) {
+                title.textContent = `moonshield-setup.sh — Decorrido: ${h > 0 ? `${h}h ` : ''}${m}m ${s}s`;
+            }
         };
         update();
-        state.elapsedTimer = window.setInterval(update, 1000);
+        state.elapsedTimer = setInterval(update, 1000);
     }
 
-    function stopElapsedTimer() {
-        if (state.elapsedTimer) window.clearInterval(state.elapsedTimer);
-        state.elapsedTimer = null;
-    }
-
-    /* ═══════════════════════════════════════════════════════════
-       PROTEÇÃO DE SAÍDA E MODAL
-    ═══════════════════════════════════════════════════════════ */
+    // ═══════════════════════════════════════════════════════════
+    // PROTEÇÃO DE SAÍDA (MODAL)
+    // ═══════════════════════════════════════════════════════════
     function bindLeaveProtection() {
         window.addEventListener('beforeunload', event => {
             if (state.taskRunning && !state.taskFinished && !state.leavingAllowed) {
@@ -1441,382 +968,220 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        all('[data-close-modal]').forEach(node => node.addEventListener('click', closeLeaveModal));
-        document.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && el('leaveModal')?.classList.contains('active')) closeLeaveModal();
-        });
+        all('[data-close-modal]').forEach(node => node.addEventListener('click', () => {
+            const modal = el('leaveModal');
+            if (modal) modal.classList.remove('active');
+        }));
     }
 
-    function closeLeaveModal() {
-        const modal = el('leaveModal');
-        if (modal) modal.classList.remove('active');
-    }
+    // ═══════════════════════════════════════════════════════════
+    // FETCH API CUSTOMIZADA
+    // ═══════════════════════════════════════════════════════════
+    async function requestJSON(url, { method = 'GET', body = undefined, timeout = 30000 } = {}) {
+        if (!url) throw new Error('URL da API não configurada');
+        
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), timeout);
+        const headers = { Accept: 'application/json' };
 
-    /* ═══════════════════════════════════════════════════════════
-       CHAMADAS DE API (FETCH)
-    ═══════════════════════════════════════════════════════════ */
-    async function requestJSON(url, { method = 'GET', body = undefined, headers = {}, timeout = 30000 } = {}) {
-        if (!url) throw new Error('URL da API não configurada.');
-
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), timeout);
-        const requestHeaders = {
-            Accept: 'application/json',
-            ...headers,
-        };
-
-        const options = {
-            method,
-            credentials: 'same-origin',
-            headers: requestHeaders,
-            signal: controller.signal,
-        };
-
+        const opts = { method, credentials: 'same-origin', headers, signal: ctrl.signal };
         if (method !== 'GET' && method !== 'HEAD') {
-            requestHeaders['Content-Type'] = 'application/json';
-            if (CFG.csrfToken) requestHeaders['X-CSRFToken'] = CFG.csrfToken;
-            options.body = JSON.stringify(body ?? {});
+            headers['Content-Type'] = 'application/json';
+            if (CFG.csrfToken) headers['X-CSRFToken'] = CFG.csrfToken;
+            opts.body = JSON.stringify(body ?? {});
         }
 
         try {
-            const response = await fetch(url, options);
-            const contentType = response.headers.get('content-type') || '';
-            const payload = contentType.includes('application/json')
-                ? await response.json()
-                : { ok: false, mensagem: (await response.text()).trim() || `HTTP ${response.status}` };
-
-            if (!response.ok || payload?.ok === false) {
-                const errors = Array.isArray(payload?.erros) ? payload.erros.filter(Boolean) : [];
-                const message = firstText(payload?.mensagem, payload?.msg, payload?.erro, errors.join(' '), `Erro HTTP ${response.status}`);
-                const error = new Error(message);
-                error.status = response.status;
-                error.payload = payload;
-                throw error;
+            const res = await fetch(url, opts);
+            const ct = res.headers.get('content-type') || '';
+            const data = ct.includes('json') ? await res.json() : { ok: false, mensagem: await res.text() };
+            
+            if (!res.ok || data?.ok === false) {
+                // Extrai o erro não importa como o backend retorne
+                const msg = data?.mensagem || data?.msg || data?.erro || data?.error || (data?.erros ? data.erros.join('<br>') : `Erro de requisição (HTTP ${res.status})`);
+                throw new Error(msg);
             }
-            return payload;
+            return data;
         } catch (error) {
-            if (error.name === 'AbortError') throw new Error('A operação excedeu o tempo limite.');
+            if (error.name === 'AbortError') throw new Error('A requisição excedeu o tempo limite (Timeout).');
             throw error;
         } finally {
-            window.clearTimeout(timeoutId);
+            clearTimeout(tid);
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // HELPERS E UTILITÁRIOS
+    // ═══════════════════════════════════════════════════════════
     function unwrapData(payload) {
-        if (payload && typeof payload === 'object' && payload.dados && typeof payload.dados === 'object') return payload.dados;
-        return payload || {};
+        return (payload?.dados && typeof payload.dados === 'object') ? payload.dados : payload || {};
     }
 
-    /* ═══════════════════════════════════════════════════════════
-       FEEDBACK VISUAL E HELPERS
-    ═══════════════════════════════════════════════════════════ */
     function showToast(message, type = 'info', duration = 4200) {
         const container = el('toastContainer');
         if (!container || !message) return;
         const toast = document.createElement('div');
-
         toast.className = `alert alert--${type}`;
-        toast.style.position = 'relative';
-        toast.style.marginBottom = 'var(--spacing-sm)';
-        toast.style.boxShadow = 'var(--shadow-md)';
-        toast.style.animation = 'fadeIn 0.3s ease';
-        toast.style.minWidth = '280px';
-
-        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
-
-        const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : type === 'warning' ? '⚠' : 'ℹ';
-
+        toast.style.marginBottom = '8px';
+        toast.style.boxShadow = 'var(--shadow-lg)';
+        toast.style.animation = 'fadeIn 0.3s ease-out';
+        
+        const icons = { success: '✓', error: '!', warning: '!', info: 'i' };
         toast.innerHTML = `
-            <div class="alert__icon">${icon}</div>
-            <div class="alert__content" style="padding-right: 24px;">
-                <div class="alert__message" style="font-weight: 500;">${escapeHtml(message)}</div>
-            </div>
-            <button type="button" style="position: absolute; right: 8px; top: 12px; cursor: pointer; opacity: 0.5; font-size: 16px; line-height: 1;" aria-label="Fechar">&times;</button>
+            <div class="alert__icon">${icons[type] || 'i'}</div>
+            <div class="alert__content"><div class="alert__message" style="font-weight:500;">${escapeHtml(message)}</div></div>
+            <button type="button" style="background:none; border:none; color:inherit; opacity:0.5; cursor:pointer; font-size:16px; padding:0 8px;">&times;</button>
         `;
-
+        
         const close = () => {
             toast.style.opacity = '0';
-            toast.style.transition = 'opacity 0.2s ease';
-            window.setTimeout(() => toast.remove(), 200);
+            toast.style.transform = 'translateY(-10px)';
+            toast.style.transition = 'all 0.2s ease';
+            setTimeout(() => toast.remove(), 200);
         };
-
+        
         toast.querySelector('button')?.addEventListener('click', close);
         container.appendChild(toast);
-        window.setTimeout(close, duration);
+        setTimeout(close, duration);
     }
 
-    function showEnvironmentError(message) {
+    function showEnvironmentError(msg) {
         if (el('environmentError')) el('environmentError').hidden = false;
-        setText('environmentErrorText', message);
+        const textNode = el('environmentErrorText');
+        if (textNode) textNode.innerHTML = String(msg).replace(/\n/g, '<br>');
     }
 
     function clearEnvironmentError() {
         if (el('environmentError')) el('environmentError').hidden = true;
-        setText('environmentErrorText', '');
     }
 
-    function showNetworkError(message) {
+    function showNetworkError(msg) {
         if (el('networkError')) el('networkError').hidden = false;
-        setText('networkErrorText', message);
+        const textNode = el('networkErrorText');
+        if (textNode) textNode.innerHTML = String(msg).replace(/\n/g, '<br>');
     }
 
     function clearNetworkError() {
         if (el('networkError')) el('networkError').hidden = true;
-        setText('networkErrorText', '');
     }
 
-    function showReviewError(message) {
+    function showReviewError(msg) {
         if (el('reviewError')) el('reviewError').hidden = false;
-        setText('reviewErrorText', message);
+        const textNode = el('reviewErrorText');
+        if (textNode) textNode.innerHTML = String(msg).replace(/\n/g, '<br>');
     }
 
     function clearReviewError() {
         if (el('reviewError')) el('reviewError').hidden = true;
-        setText('reviewErrorText', '');
     }
 
     function updateSidebarSystem(status, text) {
         const dot = el('sidebarSystemDot');
         if (dot) {
-            dot.className = 'spinner';
-            dot.style.borderColor = 'var(--color-border-light)';
             if (status === 'ok') {
-                dot.style.borderTopColor = 'var(--color-success)';
-                dot.style.animation = 'none';
-                dot.style.background = 'var(--color-success)';
+                dot.className = '';
+                dot.innerHTML = iconSvg('check');
+                dot.style.color = 'var(--ok)';
+                dot.style.border = 'none';
             } else if (status === 'error') {
-                dot.style.borderTopColor = 'var(--color-error)';
-                dot.style.animation = 'none';
-                dot.style.background = 'var(--color-error)';
+                dot.className = '';
+                dot.innerHTML = iconSvg('error');
+                dot.style.color = 'var(--danger)';
+                dot.style.border = 'none';
             } else {
-                dot.style.borderTopColor = 'var(--color-primary)';
-                dot.style.animation = 'spin 0.8s linear infinite';
-                dot.style.background = 'transparent';
+                dot.className = 'spinner';
+                dot.innerHTML = '';
+                dot.style.border = '';
             }
         }
         setText('sidebarSystemText', text);
     }
 
-    function setButtonLoading(button, loading) {
-        if (!button) return;
-        button.classList.toggle('loading', loading);
-        button.disabled = loading || button.dataset.forceDisabled === 'true';
-        button.setAttribute('aria-busy', String(loading));
-    }
-
-    function shake(node) {
-        if (!node) return;
-        if (!document.getElementById('ob-shake-style')) {
-            const style = document.createElement('style');
-            style.id = 'ob-shake-style';
-            style.innerHTML = `
-                @keyframes ob-shake {
-                    0%, 100% { transform: translateX(0); }
-                    25% { transform: translateX(-4px); }
-                    75% { transform: translateX(4px); }
-                }
-                .ob-shake { animation: ob-shake 0.3s ease-in-out; }
-            `;
-            document.head.appendChild(style);
+    function setButtonLoading(btn, loading) {
+        if (!btn) return;
+        btn.disabled = loading;
+        btn.classList.toggle('loading', loading);
+        const originalText = btn.dataset.originalText || btn.textContent;
+        if (loading) {
+            btn.dataset.originalText = originalText;
+            btn.innerHTML = `<span class="spinner" style="width:14px; height:14px; border-width:2px; border-top-color:currentColor; margin-right:8px;"></span> Aguarde...`;
+        } else {
+            btn.textContent = originalText;
         }
-
-        node.classList.remove('ob-shake');
-        void node.offsetWidth;
-        node.classList.add('ob-shake');
-        node.addEventListener('animationend', () => node.classList.remove('ob-shake'), { once: true });
     }
 
-    function getCaptureMode() {
-        return document.querySelector('input[name="modoCaptura"]:checked')?.value || 'lan_wan';
+    function normaliseObject(v) { return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; }
+    function firstText(...vals) { for (const v of vals) { const t = String(v || '').trim(); if (t) return t; } return ''; }
+    function readBoolean(obj, keys, fallback = false) { for (const k of keys) if (Object.hasOwn(obj || {}, k)) return Boolean(obj[k]); return fallback; }
+    function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+    
+    function isValidIpv4(v) {
+        const p = String(v).split('.');
+        return p.length === 4 && p.every(x => /^\d{1,3}$/.test(x) && Number(x) >= 0 && Number(x) <= 255);
     }
-
-    function setValue(id, value) {
-        const node = el(id);
-        if (node) node.value = value ?? '';
+    
+    function isValidCidr(v) {
+        const [ip, pre, extra] = String(v).split('/');
+        return extra === undefined && isValidIpv4(ip) && /^\d{1,2}$/.test(pre || '') && Number(pre) >= 0 && Number(pre) <= 32;
     }
-
-    function setText(id, value) {
-        const node = el(id);
-        if (node) node.textContent = value ?? '';
-    }
-
-    function setSelectIfAvailable(id, value) {
-        const select = el(id);
-        if (!select) return;
-        if (!value) {
-            select.value = '';
-            return;
-        }
-        const exists = Array.from(select.options).some(option => option.value === value);
-        if (exists) select.value = value;
-        else select.dataset.pendingValue = value;
-    }
-
-    function normaliseObject(value) {
-        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    }
-
-    function arrayOfStrings(value) {
-        if (!Array.isArray(value)) return [];
-        return value.map(item => String(item).trim()).filter(Boolean);
-    }
-
-    function firstText(...values) {
-        for (const value of values) {
-            if (value === null || value === undefined) continue;
-            const text = String(value).trim();
-            if (text) return text;
-        }
-        return '';
-    }
-
-    function readBoolean(object, keys, fallback = false) {
-        for (const key of keys) {
-            if (Object.prototype.hasOwnProperty.call(object || {}, key)) return Boolean(object[key]);
-        }
-        return fallback;
-    }
-
-    function clamp(value, min, max) {
-        return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
-    }
-
-    function isValidIpv4(value) {
-        const parts = String(value).split('.');
-        return parts.length === 4 && parts.every(part => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
-    }
-
+    
     function ipToUint32(ip) {
-        const parts = String(ip).split('.').map(Number);
-        if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
-            return null;
-        }
-        return (((parts[0] << 24) >>> 0) + ((parts[1] << 16) >>> 0) + ((parts[2] << 8) >>> 0) + (parts[3] >>> 0)) >>> 0;
+        const p = String(ip).split('.').map(Number);
+        return (p.length === 4 && p.every(x => Number.isInteger(x) && x >= 0 && x <= 255)) 
+            ? (((p[0] << 24) >>> 0) + ((p[1] << 16) >>> 0) + ((p[2] << 8) >>> 0) + (p[3] >>> 0)) >>> 0 
+            : null;
     }
-
-    function uint32ToIp(value) {
-        const number = Number(value) >>> 0;
-        return [(number >>> 24) & 255, (number >>> 16) & 255, (number >>> 8) & 255, number & 255].join('.');
+    
+    function uint32ToIp(v) {
+        const n = Number(v) >>> 0;
+        return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
     }
 
     function networkFromCidr(value) {
-        const raw = String(value || '').trim();
-        if (!isValidCidr(raw)) return '';
-
-        const [ip, prefixText] = raw.split('/');
+        if (!isValidCidr(value)) return '';
+        const [ip, prefixText] = value.split('/');
         const prefix = Number(prefixText);
         const ipNumber = ipToUint32(ip);
-
         if (ipNumber === null) return '';
-
         const mask = prefix === 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) >>> 0;
         const network = (ipNumber & mask) >>> 0;
         return `${uint32ToIp(network)}/${prefix}`;
     }
 
-    function isValidCidr(value) {
-        const [ip, prefix, extra] = String(value).split('/');
-        if (extra !== undefined || !isValidIpv4(ip) || !/^\d{1,2}$/.test(prefix || '')) return false;
-        return Number(prefix) >= 0 && Number(prefix) <= 32;
+    function escapeHtml(v) {
+        return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
-
-    function resolveTemplateUrl(template, taskId) {
-        return String(template || '').replace('__ID__', encodeURIComponent(taskId));
+    
+    function cssEscape(v) {
+        return window.CSS?.escape ? window.CSS.escape(String(v)) : String(v).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
     }
-
-    function isFinalTaskStatus(status) {
-        return ['sucesso', 'erro', 'cancelado', 'ignorado'].includes(String(status || '').toLowerCase());
+    
+    function setText(id, v) {
+        const n = el(id);
+        if (n) n.textContent = v ?? '';
     }
-
-    function statusMessage(status) {
-        const messages = {
-            pendente: 'Aguardando o executor seguro',
-            executando: 'Executando tarefa',
-            sucesso: 'Tarefa concluída',
-            erro: 'A tarefa falhou',
-            cancelado: 'Tarefa cancelada',
-            ignorado: 'Tarefa ignorada',
-        };
-        return messages[String(status || '').toLowerCase()] || 'Atualizando status';
+    
+    function getCaptureMode() {
+        return document.querySelector('input[name="modoCaptura"]:checked')?.value || 'lan_wan';
     }
-
-    function stageTitle(stage) {
-        const titles = {
-            verificar_ambiente: 'Verificando ambiente',
-            validar_pre_requisitos: 'Validando pré-requisitos',
-            instalar_suricata: 'Instalando Suricata',
-            instalar_suricata_update: 'Preparando suricata-update',
-            atualizar_et_open: 'Atualizando regras ET Open',
-            validar_topologia: 'Validando topologia',
-            copiar_regras_moonshield: 'Aplicando regras MoonShield',
-            configurar_suricata: 'Aplicando configuração',
-            validar_suricata: 'Validando o Suricata',
-            reiniciar_servicos: 'Ativando serviços',
-            validar_instalacao: 'Executando diagnóstico final',
-        };
-        return titles[stage] || String(stage || 'Executando').replaceAll('_', ' ');
+    
+    function resolveTemplateUrl(t, id) {
+        return String(t).replace('__ID__', encodeURIComponent(id));
     }
-
-    function inferStageFromProgress(progress) {
-        if (progress < 15) return 'verificar_ambiente';
-        if (progress < 30) return 'instalar_suricata';
-        if (progress < 50) return 'atualizar_et_open';
-        if (progress < 72) return 'configurar_suricata';
-        if (progress < 84) return 'validar_suricata';
-        if (progress < 94) return 'reiniciar_servicos';
-        return 'validar_instalacao';
+    
+    function isFinalTaskStatus(s) {
+        return ['sucesso', 'erro', 'cancelado', 'ignorado'].includes(String(s).toLowerCase());
     }
-
-    function stageIndexFromProgress(progress, count) {
-        return Math.min(count - 1, Math.max(0, Math.floor((progress / 100) * count)));
+    
+    function statusMessage(s) {
+        return { pendente: 'Aguardando execução', executando: 'Em execução', sucesso: 'Concluído com sucesso', erro: 'Falhou', cancelado: 'Cancelado' }[String(s).toLowerCase()] || 'Processando etapa...';
     }
-
-    function parseDate(value) {
-        const date = value instanceof Date ? value : new Date(value);
-        return Number.isNaN(date.getTime()) ? new Date() : date;
-    }
-
-    function formatTime(date) {
-        return new Intl.DateTimeFormat('pt-BR', {
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-        }).format(date);
-    }
-
-    function formatElapsed(seconds) {
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        return hours > 0
-            ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-            : `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-    }
-
-    function humanDuration(seconds) {
-        if (seconds < 60) return `${Math.ceil(seconds)} s`;
-        const min = Math.max(1, Math.round(seconds / 60));
-        return `${min} min`;
-    }
-
-    function escapeHtml(value) {
-        return String(value ?? '')
-            .replaceAll('&', '&amp;')
-            .replaceAll('<', '&lt;')
-            .replaceAll('>', '&gt;')
-            .replaceAll('"', '&quot;')
-            .replaceAll("'", '&#039;');
-    }
-
-    function cssEscape(value) {
-        if (window.CSS?.escape) return window.CSS.escape(String(value));
-        return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
-    }
-
-    function iconSvg(type) {
-        const icons = {
-            check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-top:2px"><polyline points="20 6 9 17 4 12"/></svg>',
-            error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-top:2px"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-            warning: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-top:2px"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
-        };
-        return icons[type] || '';
+    
+    function iconSvg(t) {
+        return { 
+            check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>', 
+            error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>', 
+            warning: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' 
+        }[t] || '?';
     }
 });

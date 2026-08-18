@@ -231,7 +231,7 @@ svg {
     flex-direction: column;
     padding: 24px 18px 18px;
     border-right: 1px solid var(--sp-border);
-    background: rgba(4, 7, 14, .78);
+    background: rgba(15, 15, 15, .78);
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
     box-shadow: 20px 0 50px rgba(0, 0, 0, .18);
@@ -440,7 +440,7 @@ svg {
     inset: 0;
     z-index: 45;
     display: none;
-    background: rgba(2, 5, 12, .72);
+    background: rgba(10, 10, 10, .72);
     backdrop-filter: blur(5px);
 }
 
@@ -456,7 +456,7 @@ svg {
     gap: 20px;
     padding: 16px 34px;
     border-bottom: 1px solid var(--sp-border);
-    background: rgba(5, 7, 14, .72);
+    background: rgba(15, 15, 15, .72);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
 }
@@ -998,7 +998,7 @@ svg {
 .sp-drawer__backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(2, 5, 12, .72);
+    background: rgba(10, 10, 10, .72);
     backdrop-filter: blur(6px);
     animation: sp-fade-in .2s ease both;
 }
@@ -1012,7 +1012,7 @@ svg {
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--sp-border);
-    background: rgba(7, 10, 18, .97);
+    background: rgba(20, 20, 20, .97);
     box-shadow: -24px 0 70px rgba(0, 0, 0, .46);
     animation: sp-drawer-in .32s var(--sp-ease) both;
 }
@@ -1087,7 +1087,7 @@ svg {
 .sp-modal__backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(2, 5, 12, .76);
+    background: rgba(10, 10, 10, .76);
     backdrop-filter: blur(7px);
     animation: sp-fade-in .2s ease both;
 }
@@ -1099,7 +1099,7 @@ svg {
     padding: 24px;
     border: 1px solid var(--sp-border);
     border-radius: 16px;
-    background: rgba(8, 12, 21, .97);
+    background: rgba(20, 20, 20, .97);
     box-shadow: var(--sp-shadow);
     animation: sp-modal-in .28s var(--sp-ease) both;
 }
@@ -1184,7 +1184,7 @@ svg {
     padding: 12px;
     border: 1px solid var(--sp-border);
     border-radius: 11px;
-    background: rgba(8, 12, 21, .95);
+    background: rgba(20, 20, 20, .95);
     box-shadow: 0 18px 40px rgba(0, 0, 0, .32);
     backdrop-filter: blur(20px);
     pointer-events: auto;

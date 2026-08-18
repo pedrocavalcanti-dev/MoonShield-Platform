@@ -1,0 +1,240 @@
+<!-- ====================================================
+     REGRAS
+===================================================== -->
+<section
+    class="sp-section"
+    id="section-rules"
+    data-section="rules"
+>
+    <div class="sp-section-title">
+        <div>
+            <span class="sp-section-title__eyebrow">
+                Mecanismos de detecção
+            </span>
+
+            <h2>Regras do Suricata</h2>
+
+            <p>
+                Acompanhe a disponibilidade das regras MoonShield,
+                ET Open e a validação do arquivo de configuração.
+            </p>
+        </div>
+
+        <button
+            class="sp-btn sp-btn--primary"
+            id="btnUpdateAllRules"
+            type="button"
+        >
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
+                <path d="M20 4v7h-7" />
+            </svg>
+            Atualizar regras
+        </button>
+    </div>
+
+    <div class="sp-rules-grid">
+        <article class="sp-panel sp-rule-card">
+            <div class="sp-rule-card__icon sp-rule-card__icon--moon">
+                <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                >
+                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
+                </svg>
+            </div>
+
+            <div class="sp-rule-card__head">
+                <div>
+                    <span>Pacote proprietário</span>
+                    <h3>MoonShield Rules</h3>
+                </div>
+
+                <span
+                    class="sp-status-pill sp-status-pill--pending"
+                    id="rulesMoonStatus"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <p id="rulesMoonDescription">
+                Regras focadas em reconhecimento, autenticação,
+                movimento lateral, DNS, web, TLS e anomalias.
+            </p>
+
+            <dl class="sp-rule-metrics">
+                <div>
+                    <dt>Arquivo</dt>
+                    <dd class="sp-mono" id="rulesMoonFile">—</dd>
+                </div>
+
+                <div>
+                    <dt>Instaladas</dt>
+                    <dd id="rulesMoonInstalled">—</dd>
+                </div>
+
+                <div>
+                    <dt>Referenciadas</dt>
+                    <dd id="rulesMoonReferenced">—</dd>
+                </div>
+
+                <div>
+                    <dt>Total</dt>
+                    <dd id="rulesMoonCount">—</dd>
+                </div>
+            </dl>
+
+            <button
+                class="sp-btn sp-btn--ghost sp-btn--small"
+                id="btnUpdateMoonRules"
+                type="button"
+            >
+                Reaplicar MoonShield
+            </button>
+        </article>
+
+        <article class="sp-panel sp-rule-card">
+            <div class="sp-rule-card__icon sp-rule-card__icon--et">
+                <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                >
+                    <path d="M4 4h16v16H4z" />
+                    <path d="M8 8h8M8 12h8M8 16h5" />
+                </svg>
+            </div>
+
+            <div class="sp-rule-card__head">
+                <div>
+                    <span>Threat intelligence</span>
+                    <h3>Emerging Threats Open</h3>
+                </div>
+
+                <span
+                    class="sp-status-pill sp-status-pill--pending"
+                    id="rulesEtStatus"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <p id="rulesEtDescription">
+                Conjunto comunitário de assinaturas atualizado
+                pelo suricata-update.
+            </p>
+
+            <dl class="sp-rule-metrics">
+                <div>
+                    <dt>suricata-update</dt>
+                    <dd id="rulesUpdaterInstalled">—</dd>
+                </div>
+
+                <div>
+                    <dt>ET Open</dt>
+                    <dd id="rulesEtInstalled">—</dd>
+                </div>
+
+                <div>
+                    <dt>Atualização</dt>
+                    <dd id="rulesEtUpdatedAt">—</dd>
+                </div>
+
+                <div>
+                    <dt>Status</dt>
+                    <dd id="rulesEtSummary">—</dd>
+                </div>
+            </dl>
+
+            <button
+                class="sp-btn sp-btn--ghost sp-btn--small"
+                id="btnUpdateEtRules"
+                type="button"
+            >
+                Atualizar ET Open
+            </button>
+        </article>
+    </div>
+
+    <article class="sp-panel sp-wide-panel">
+        <div class="sp-panel__head">
+            <div>
+                <span class="sp-panel__eyebrow">
+                    Validação das regras
+                </span>
+
+                <h3>Configuração carregável</h3>
+            </div>
+
+            <button
+                class="sp-btn sp-btn--ghost sp-btn--small"
+                id="btnValidateRules"
+                type="button"
+            >
+                Executar suricata -T
+            </button>
+        </div>
+
+        <div class="sp-validation-state">
+            <span
+                class="sp-validation-state__icon sp-validation-state__icon--pending"
+                id="rulesValidationIcon"
+            >
+                <span class="sp-spinner"></span>
+            </span>
+
+            <div class="sp-validation-state__copy">
+                <strong id="rulesValidationTitle">
+                    Validação ainda não executada
+                </strong>
+
+                <p id="rulesValidationText">
+                    Execute uma validação para confirmar se o YAML
+                    e todas as referências de regras estão corretos.
+                </p>
+            </div>
+
+            <span
+                class="sp-chip sp-chip--pending"
+                id="rulesValidationChip"
+            >
+                Pendente
+            </span>
+        </div>
+
+        <div
+            class="sp-validation-output"
+            id="rulesValidationOutput"
+            hidden
+        >
+            <div class="sp-validation-output__head">
+                <span>Saída da validação</span>
+
+                <button
+                    class="sp-copy-btn"
+                    id="btnCopyValidation"
+                    type="button"
+                >
+                    Copiar
+                </button>
+            </div>
+
+            <pre id="rulesValidationTextOutput"></pre>
+        </div>
+    </article>
+</section>

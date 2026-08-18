@@ -1,0 +1,246 @@
+<!-- ====================================================
+     CONFIGURAÇÃO
+===================================================== -->
+<section
+    class="sp-section"
+    id="section-configuration"
+    data-section="configuration"
+>
+    <div class="sp-section-title">
+        <div>
+            <span class="sp-section-title__eyebrow">
+                Configuração ativa
+            </span>
+
+            <h2>Sensor e topologia</h2>
+
+            <p>
+                Consulte as interfaces, redes e caminhos atualmente
+                utilizados pelo monitoramento.
+            </p>
+        </div>
+
+        <a
+            class="sp-btn sp-btn--primary"
+            href="{% url 'incidentes:suricata_onboarding' %}"
+        >
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+            Editar configuração
+        </a>
+    </div>
+
+    <div class="sp-config-layout">
+        <article class="sp-panel sp-config-card">
+            <div class="sp-panel__head">
+                <div>
+                    <span class="sp-panel__eyebrow">
+                        Identificação
+                    </span>
+                    <h3>Sensor local</h3>
+                </div>
+
+                <span
+                    class="sp-chip sp-chip--pending"
+                    id="configReadyChip"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <dl class="sp-config-list">
+                <div>
+                    <dt>Nome</dt>
+                    <dd id="configName">Suricata Local</dd>
+                </div>
+
+                <div>
+                    <dt>Modo de captura</dt>
+                    <dd id="configCaptureMode">—</dd>
+                </div>
+
+                <div>
+                    <dt>Onboarding</dt>
+                    <dd id="configOnboarding">—</dd>
+                </div>
+
+                <div>
+                    <dt>Instalação concluída</dt>
+                    <dd id="configInstallation">—</dd>
+                </div>
+
+                <div>
+                    <dt>Suricata configurado</dt>
+                    <dd id="configSuricataConfigured">—</dd>
+                </div>
+
+                <div>
+                    <dt>Última atualização</dt>
+                    <dd id="configUpdatedAt">—</dd>
+                </div>
+            </dl>
+        </article>
+
+        <article class="sp-panel sp-config-card">
+            <div class="sp-panel__head">
+                <div>
+                    <span class="sp-panel__eyebrow">
+                        Interfaces
+                    </span>
+                    <h3>Fluxo da rede</h3>
+                </div>
+            </div>
+
+            <dl class="sp-config-list">
+                <div>
+                    <dt>WAN</dt>
+                    <dd class="sp-mono" id="configWan">—</dd>
+                </div>
+
+                <div>
+                    <dt>LAN</dt>
+                    <dd class="sp-mono" id="configLan">—</dd>
+                </div>
+
+                <div>
+                    <dt>Gerenciamento</dt>
+                    <dd class="sp-mono" id="configMgmt">—</dd>
+                </div>
+
+                <div class="sp-config-list__full">
+                    <dt>Monitoradas</dt>
+                    <dd>
+                        <div
+                            class="sp-interface-chips"
+                            id="configMonitoredInterfaces"
+                        >
+                            <span class="sp-interface-chip">
+                                Nenhuma
+                            </span>
+                        </div>
+                    </dd>
+                </div>
+            </dl>
+        </article>
+
+        <article class="sp-panel sp-config-card">
+            <div class="sp-panel__head">
+                <div>
+                    <span class="sp-panel__eyebrow">
+                        Redes internas
+                    </span>
+                    <h3>HOME_NET e DNS</h3>
+                </div>
+            </div>
+
+            <dl class="sp-config-list">
+                <div class="sp-config-list__full">
+                    <dt>HOME_NET</dt>
+                    <dd>
+                        <div
+                            class="sp-code-list"
+                            id="configHomeNetList"
+                        >
+                            <code>Nenhuma rede informada</code>
+                        </div>
+                    </dd>
+                </div>
+
+                <div>
+                    <dt>DNS interno</dt>
+                    <dd class="sp-mono" id="configInternalDns">—</dd>
+                </div>
+
+                <div>
+                    <dt>ET Open</dt>
+                    <dd id="configEtOpen">—</dd>
+                </div>
+
+                <div>
+                    <dt>Regras MoonShield</dt>
+                    <dd id="configMoonShieldRules">—</dd>
+                </div>
+            </dl>
+        </article>
+
+        <article class="sp-panel sp-config-card">
+            <div class="sp-panel__head">
+                <div>
+                    <span class="sp-panel__eyebrow">
+                        Arquivos
+                    </span>
+                    <h3>Caminhos utilizados</h3>
+                </div>
+            </div>
+
+            <dl class="sp-config-list sp-config-list--paths">
+                <div class="sp-config-list__full">
+                    <dt>suricata.yaml</dt>
+                    <dd>
+                        <code id="configYamlPath">
+                            /etc/suricata/suricata.yaml
+                        </code>
+                    </dd>
+                </div>
+
+                <div class="sp-config-list__full">
+                    <dt>eve.json</dt>
+                    <dd>
+                        <code id="configEvePath">
+                            /var/log/suricata/eve.json
+                        </code>
+                    </dd>
+                </div>
+
+                <div class="sp-config-list__full">
+                    <dt>Cursor</dt>
+                    <dd>
+                        <code id="configCursorPath">
+                            var/cursors/suricata_eve.cursor
+                        </code>
+                    </dd>
+                </div>
+            </dl>
+        </article>
+    </div>
+
+    <article class="sp-panel sp-warning-panel">
+        <div class="sp-warning-panel__icon">
+            <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+            >
+                <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
+                <path d="M12 9v4M12 17h.01" />
+            </svg>
+        </div>
+
+        <div class="sp-warning-panel__copy">
+            <strong>Alterações afetam a captura de tráfego</strong>
+            <p>
+                Revise cuidadosamente WAN, LAN e HOME_NET antes
+                de reaplicar a configuração no servidor.
+            </p>
+        </div>
+
+        <a
+            class="sp-btn sp-btn--ghost sp-btn--small"
+            href="{% url 'incidentes:suricata_onboarding' %}"
+        >
+            Abrir assistente
+        </a>
+    </article>
+</section>

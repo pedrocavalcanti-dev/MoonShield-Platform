@@ -1,0 +1,65 @@
+<!-- ================================================================
+     MODAL DE CONFIRMAÇÃO
+================================================================= -->
+<div
+    class="sp-modal"
+    id="confirmationModal"
+    aria-hidden="true"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="confirmationModalTitle"
+>
+    <div class="sp-modal__backdrop" data-close-confirmation></div>
+
+    <div class="sp-modal__dialog">
+        <div
+            class="sp-modal__icon sp-modal__icon--warning"
+            id="confirmationModalIcon"
+        >
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+            >
+                <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
+                <path d="M12 9v4M12 17h.01" />
+            </svg>
+        </div>
+
+        <div class="sp-modal__copy">
+            <span class="sp-modal__eyebrow">Confirmar operação</span>
+            <h2 id="confirmationModalTitle">Executar tarefa?</h2>
+
+            <p id="confirmationModalText">
+                Confirme para continuar.
+            </p>
+        </div>
+
+        <div
+            class="sp-modal__details"
+            id="confirmationModalDetails"
+            hidden
+        ></div>
+
+        <div class="sp-modal__actions">
+            <button
+                class="sp-btn sp-btn--ghost"
+                id="btnCancelConfirmation"
+                type="button"
+            >
+                Voltar
+            </button>
+
+            <button
+                class="sp-btn sp-btn--primary"
+                id="btnConfirmOperation"
+                type="button"
+            >
+                Confirmar
+            </button>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,398 @@
+/* Filters */
+.sp-task-filters {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 13px;
+    border: 1px solid var(--sp-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .025);
+}
+
+.sp-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sp-filter-group label {
+    font-size: 8px;
+    font-weight: 600;
+    color: var(--sp-dim);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.sp-select {
+    min-width: 180px;
+    height: 36px;
+    padding: 0 34px 0 11px;
+    border: 1px solid var(--sp-border);
+    border-radius: 9px;
+    outline: none;
+    color: var(--sp-text);
+    background: rgba(255, 255, 255, .035) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a94aa' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
+    appearance: none;
+    font-size: 10px;
+}
+
+.sp-select:focus {
+    border-color: rgba(59, 130, 246, .42);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, .08);
+}
+
+.sp-select option {
+    color: var(--sp-text);
+    background: var(--sp-surface);
+}
+
+/* Table & Pagination */
+.sp-task-table-panel {
+    overflow: hidden;
+}
+
+.sp-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.sp-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 900px;
+}
+
+.sp-table th {
+    height: 42px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--sp-border);
+    color: var(--sp-dim);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.sp-table td {
+    padding: 13px 14px;
+    border-bottom: 1px solid var(--sp-border);
+    color: var(--sp-muted);
+    font-size: 9px;
+    vertical-align: middle;
+}
+
+.sp-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.sp-table tbody tr:not(.sp-table__loading-row) {
+    transition: background var(--sp-fast);
+}
+
+.sp-table tbody tr:not(.sp-table__loading-row):hover {
+    background: rgba(255, 255, 255, .025);
+}
+
+.sp-table__action-col {
+    width: 42px;
+}
+
+.sp-table-loading {
+    min-height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    color: var(--sp-dim);
+}
+
+.sp-table-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--sp-border);
+    color: var(--sp-dim);
+    font-size: 8px;
+}
+
+.sp-pagination {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sp-pagination span {
+    min-width: 56px;
+    text-align: center;
+    font-family: var(--sp-mono);
+    font-size: 8px;
+}
+
+/* Task Cells */
+.sp-task-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sp-task-cell__icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--sp-border);
+    border-radius: 8px;
+    color: var(--sp-blue);
+    background: rgba(59, 130, 246, .055);
+}
+
+.sp-task-cell__copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sp-task-cell__copy strong {
+    color: var(--sp-text);
+    font-size: 9px;
+    font-weight: 500;
+}
+
+.sp-task-cell__copy span {
+    overflow: hidden;
+    max-width: 220px;
+    color: var(--sp-dim);
+    font-family: var(--sp-mono);
+    font-size: 7px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Progress Mini */
+.sp-progress-mini {
+    min-width: 120px;
+}
+
+.sp-progress-mini__bar {
+    height: 5px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .06);
+}
+
+.sp-progress-mini__bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--sp-blue), var(--sp-purple));
+}
+
+.sp-progress-mini__text {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--sp-mono);
+    font-size: 7px;
+    color: var(--sp-dim);
+}
+
+/* Task Drawer Details */
+.sp-task-detail-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.sp-task-detail-summary strong {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.sp-task-detail-summary small {
+    margin-left: auto;
+    color: var(--sp-dim);
+    font-family: var(--sp-mono);
+    font-size: 8px;
+}
+
+.sp-progress-card {
+    padding: 15px;
+    border: 1px solid var(--sp-border);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .025);
+}
+
+.sp-progress-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 9px;
+    font-size: 9px;
+}
+
+.sp-progress-card__head strong {
+    font-family: var(--sp-mono);
+    font-size: 10px;
+}
+
+.sp-progress {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .06);
+}
+
+.sp-progress span {
+    display: block;
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--sp-blue), var(--sp-purple));
+    box-shadow: 0 0 12px rgba(59, 130, 246, .28);
+    transition: width .4s var(--sp-ease);
+}
+
+.sp-progress-card p {
+    margin: 9px 0 0;
+    color: var(--sp-muted);
+    font-size: 8px;
+    line-height: 1.45;
+}
+
+.sp-task-metadata {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin: 14px 0;
+}
+
+.sp-task-metadata>div {
+    padding: 11px;
+    border: 1px solid var(--sp-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .02);
+}
+
+.sp-task-metadata dt {
+    margin-bottom: 4px;
+    font-size: 8px;
+    color: var(--sp-dim);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.sp-task-metadata dd {
+    margin: 0;
+    color: var(--sp-text);
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.sp-task-error {
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid rgba(239, 68, 68, .18);
+    border-radius: 10px;
+    background: rgba(239, 68, 68, .055);
+}
+
+.sp-task-error strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #fecaca;
+    font-size: 9px;
+}
+
+.sp-task-error p {
+    margin: 0;
+    color: #fca5a5;
+    font-size: 8px;
+    line-height: 1.5;
+}
+
+.sp-drawer-section {
+    margin-top: 18px;
+}
+
+.sp-drawer-section__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.sp-drawer-section__head h3 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* Light Theme Overrides */
+[data-theme="light"] .sp-select {
+    border-color: var(--sp-border);
+    background: var(--sp-surface);
+    color: var(--sp-text);
+    box-shadow: none;
+}
+
+[data-theme="light"] .sp-progress-card,
+[data-theme="light"] .sp-task-table-panel {
+    border-color: var(--sp-border);
+    background: var(--sp-surface);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), var(--sp-shadow-soft);
+}
+
+[data-theme="light"] .sp-table th {
+    color: var(--sp-dim);
+    border-bottom-color: var(--sp-border);
+    background: var(--sp-bg-soft);
+}
+
+[data-theme="light"] .sp-table td {
+    border-bottom-color: var(--sp-border);
+}
+
+[data-theme="light"] .sp-table tbody tr:hover {
+    background: var(--sp-surface-hover);
+}
+
+/* Media Queries */
+@media (max-width: 640px) {
+    .sp-task-filters {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .sp-filter-group,
+    .sp-select {
+        width: 100%;
+    }
+
+    .sp-table-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .sp-task-metadata {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 430px) {
+    .sp-task-detail-summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .sp-task-detail-summary small {
+        margin-left: 0;
+    }
+}

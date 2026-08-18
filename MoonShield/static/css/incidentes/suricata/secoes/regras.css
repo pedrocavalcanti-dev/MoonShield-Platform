@@ -1,0 +1,199 @@
+/* Rules Grid & Cards */
+.sp-rules-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 15px;
+}
+
+.sp-rule-card {
+    padding: 20px;
+}
+
+.sp-rule-card__icon {
+    width: 48px;
+    height: 48px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 18px;
+    border-radius: 12px;
+}
+
+.sp-rule-card__icon--moon {
+    color: #9ec1ff;
+    border: 1px solid rgba(59, 130, 246, .2);
+    background: rgba(59, 130, 246, .08);
+}
+
+.sp-rule-card__icon--et {
+    color: #d5b4ff;
+    border: 1px solid rgba(168, 85, 247, .2);
+    background: rgba(168, 85, 247, .075);
+}
+
+.sp-rule-card__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sp-rule-card__head span:not(.sp-status-pill) {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--sp-dim);
+    font-size: 8px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
+
+.sp-rule-card__head h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.sp-rule-card>p {
+    min-height: 44px;
+    margin: 13px 0 18px;
+    color: var(--sp-muted);
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+/* Rule Metrics */
+.sp-rule-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    margin: 0 0 18px;
+    border-top: 1px solid var(--sp-border);
+    border-bottom: 1px solid var(--sp-border);
+}
+
+.sp-rule-metrics>div {
+    min-width: 0;
+    padding: 12px 4px;
+}
+
+.sp-rule-metrics dt {
+    margin-bottom: 4px;
+    font-size: 8px;
+    color: var(--sp-dim);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.sp-rule-metrics dd {
+    margin: 0;
+    color: var(--sp-text);
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+/* Validation State */
+.sp-validation-state {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr) auto;
+    gap: 15px;
+    align-items: center;
+    padding: 20px;
+}
+
+.sp-validation-state__icon {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--sp-border);
+    border-radius: 13px;
+    color: var(--sp-muted);
+    background: rgba(255, 255, 255, .025);
+}
+
+.sp-validation-state__icon--ok {
+    color: var(--sp-green);
+    border-color: rgba(34, 197, 94, .2);
+    background: rgba(34, 197, 94, .06);
+}
+
+.sp-validation-state__icon--error {
+    color: var(--sp-red);
+    border-color: rgba(239, 68, 68, .2);
+    background: rgba(239, 68, 68, .06);
+}
+
+.sp-validation-state__copy strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.sp-validation-state__copy p {
+    margin: 0;
+    color: var(--sp-muted);
+    font-size: 9px;
+    line-height: 1.55;
+}
+
+/* Validation Output */
+.sp-validation-output {
+    margin: 0 20px 20px;
+    overflow: hidden;
+    border: 1px solid var(--sp-border);
+    border-radius: 10px;
+    background: #0a0a0a;
+}
+
+.sp-validation-output__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--sp-border);
+    font-size: 8px;
+    color: var(--sp-dim);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+}
+
+.sp-validation-output pre {
+    margin: 0;
+    overflow: auto;
+    color: #c7d7f7;
+    font-family: var(--sp-mono);
+    font-size: 8px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    padding: 14px;
+}
+
+/* Light Theme Overrides */
+[data-theme="light"] .sp-rule-card {
+    border-color: var(--sp-border);
+    background: var(--sp-surface);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .03), var(--sp-shadow-soft);
+}
+
+/* Media Queries */
+@media (max-width: 1080px) {
+    .sp-rules-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .sp-rule-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .sp-validation-state {
+        grid-template-columns: 48px 1fr;
+    }
+
+    .sp-validation-state>.sp-chip {
+        grid-column: 1 / -1;
+        justify-self: flex-start;
+    }
+}

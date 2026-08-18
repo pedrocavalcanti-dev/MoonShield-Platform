@@ -1,0 +1,165 @@
+<!-- ====================================================
+     DIAGNÓSTICO
+===================================================== -->
+<section
+    class="sp-section"
+    id="section-diagnostic"
+    data-section="diagnostic"
+>
+    <div class="sp-section-title">
+        <div>
+            <span class="sp-section-title__eyebrow">
+                Verificação detalhada
+            </span>
+
+            <h2>Diagnóstico do Suricata</h2>
+
+            <p>
+                Execute uma análise completa do ambiente,
+                configuração, regras, serviços, EVE e monitor.
+            </p>
+        </div>
+
+        <button
+            class="sp-btn sp-btn--primary"
+            id="btnRunDiagnostic"
+            type="button"
+        >
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path d="M3 12h4l2-5 4 10 2-5h6" />
+            </svg>
+            Executar diagnóstico
+        </button>
+    </div>
+
+    <div class="sp-diagnostic-summary">
+        <article class="sp-summary-card">
+            <span class="sp-summary-card__label">
+                Total de checks
+            </span>
+            <strong id="diagnosticTotal">0</strong>
+            <small>Validações executadas</small>
+        </article>
+
+        <article class="sp-summary-card sp-summary-card--ok">
+            <span class="sp-summary-card__label">
+                Saudáveis
+            </span>
+            <strong id="diagnosticOk">0</strong>
+            <small>Checks aprovados</small>
+        </article>
+
+        <article class="sp-summary-card sp-summary-card--warning">
+            <span class="sp-summary-card__label">
+                Avisos
+            </span>
+            <strong id="diagnosticWarnings">0</strong>
+            <small>Pontos de atenção</small>
+        </article>
+
+        <article class="sp-summary-card sp-summary-card--error">
+            <span class="sp-summary-card__label">
+                Falhas críticas
+            </span>
+            <strong id="diagnosticCritical">0</strong>
+            <small>Bloqueios encontrados</small>
+        </article>
+    </div>
+
+    <div class="sp-diagnostic-layout">
+        <article class="sp-panel sp-diagnostic-panel">
+            <div class="sp-panel__head">
+                <div>
+                    <span class="sp-panel__eyebrow">
+                        Resultado por grupo
+                    </span>
+
+                    <h3>Checklist técnico</h3>
+                </div>
+
+                <span
+                    class="sp-chip sp-chip--pending"
+                    id="diagnosticGeneralChip"
+                >
+                    Não executado
+                </span>
+            </div>
+
+            <div
+                class="sp-diagnostic-groups"
+                id="diagnosticGroups"
+            >
+                <div class="sp-empty-state">
+                    <span class="sp-empty-state__icon">
+                        <svg
+                            width="23"
+                            height="23"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                        >
+                            <circle cx="11" cy="11" r="7" />
+                            <path d="m20 20-4-4" />
+                        </svg>
+                    </span>
+
+                    <div>
+                        <strong>Diagnóstico ainda não executado</strong>
+                        <span>
+                            Inicie uma análise para visualizar
+                            todos os checks técnicos.
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </article>
+
+        <article class="sp-panel sp-actions-panel">
+            <div class="sp-panel__head">
+                <div>
+                    <span class="sp-panel__eyebrow">
+                        Recomendações
+                    </span>
+
+                    <h3>Ações sugeridas</h3>
+                </div>
+            </div>
+
+            <div
+                class="sp-recommended-actions"
+                id="recommendedActions"
+            >
+                <div class="sp-empty-state sp-empty-state--compact">
+                    <span class="sp-empty-state__icon">
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                        >
+                            <path d="M9 18h6M10 22h4" />
+                            <path d="M8.3 14.2A7 7 0 1 1 15.7 14.2C14.8 15 14 16 14 17h-4c0-1-.8-2-1.7-2.8Z" />
+                        </svg>
+                    </span>
+
+                    <div>
+                        <strong>Sem recomendações</strong>
+                        <span>
+                            Execute o diagnóstico para gerar ações.
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </article>
+    </div>
+</section>

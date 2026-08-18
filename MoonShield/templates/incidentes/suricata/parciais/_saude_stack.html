@@ -1,0 +1,360 @@
+<!-- ====================================================
+     SAÚDE
+===================================================== -->
+<section
+    class="sp-section"
+    id="section-health"
+    data-section="health"
+>
+    <div class="sp-section-title">
+        <div>
+            <span class="sp-section-title__eyebrow">
+                Integridade operacional
+            </span>
+
+            <h2>Saúde da stack</h2>
+
+            <p>
+                Acompanhe serviços, arquivos, monitoramento,
+                cursor e comunicação entre os componentes.
+            </p>
+        </div>
+
+        <button
+            class="sp-btn sp-btn--ghost"
+            id="btnRefreshHealth"
+            type="button"
+        >
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
+                <path d="M20 4v7h-7" />
+            </svg>
+            Atualizar
+        </button>
+    </div>
+
+    <div class="sp-health-grid">
+
+        <article class="sp-panel sp-component-panel">
+            <div class="sp-component-panel__head">
+                <span class="sp-component-panel__icon">
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                    >
+                        <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
+                    </svg>
+                </span>
+
+                <div>
+                    <strong>Serviço Suricata</strong>
+                    <span id="healthSuricataMessage">
+                        Aguardando consulta
+                    </span>
+                </div>
+
+                <span
+                    class="sp-status-pill sp-status-pill--pending"
+                    id="healthSuricataStatus"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <dl class="sp-detail-list">
+                <div>
+                    <dt>Instalado</dt>
+                    <dd id="healthSuricataInstalled">—</dd>
+                </div>
+
+                <div>
+                    <dt>Ativo</dt>
+                    <dd id="healthSuricataActive">—</dd>
+                </div>
+
+                <div>
+                    <dt>Habilitado</dt>
+                    <dd id="healthSuricataEnabled">—</dd>
+                </div>
+
+                <div>
+                    <dt>PID</dt>
+                    <dd id="healthSuricataPid">—</dd>
+                </div>
+
+                <div>
+                    <dt>Versão</dt>
+                    <dd id="healthSuricataVersion">—</dd>
+                </div>
+
+                <div>
+                    <dt>Serviço</dt>
+                    <dd id="healthSuricataService">suricata</dd>
+                </div>
+            </dl>
+
+            <div class="sp-component-panel__actions">
+                <button
+                    class="sp-btn sp-btn--ghost sp-btn--small"
+                    type="button"
+                    data-action="restart-suricata"
+                >
+                    Reiniciar Suricata
+                </button>
+            </div>
+        </article>
+
+        <article class="sp-panel sp-component-panel">
+            <div class="sp-component-panel__head">
+                <span class="sp-component-panel__icon">
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                    >
+                        <path d="M3 12h4l2-5 4 10 2-5h6" />
+                    </svg>
+                </span>
+
+                <div>
+                    <strong>Monitor MoonShield</strong>
+                    <span id="healthMonitorMessage">
+                        Aguardando consulta
+                    </span>
+                </div>
+
+                <span
+                    class="sp-status-pill sp-status-pill--pending"
+                    id="healthMonitorStatus"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <dl class="sp-detail-list">
+                <div>
+                    <dt>Instalado</dt>
+                    <dd id="healthMonitorInstalled">—</dd>
+                </div>
+
+                <div>
+                    <dt>Ativo</dt>
+                    <dd id="healthMonitorActive">—</dd>
+                </div>
+
+                <div>
+                    <dt>Lendo EVE</dt>
+                    <dd id="healthMonitorReading">—</dd>
+                </div>
+
+                <div>
+                    <dt>Saudável</dt>
+                    <dd id="healthMonitorHealthy">—</dd>
+                </div>
+
+                <div>
+                    <dt>PID</dt>
+                    <dd id="healthMonitorPid">—</dd>
+                </div>
+
+                <div>
+                    <dt>Serviço</dt>
+                    <dd id="healthMonitorService">
+                        moonshield-suricata-monitor
+                    </dd>
+                </div>
+            </dl>
+
+            <div class="sp-component-panel__actions">
+                <button
+                    class="sp-btn sp-btn--ghost sp-btn--small"
+                    type="button"
+                    data-action="restart-monitor"
+                >
+                    Reiniciar monitor
+                </button>
+            </div>
+        </article>
+
+        <article class="sp-panel sp-component-panel">
+            <div class="sp-component-panel__head">
+                <span class="sp-component-panel__icon">
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                    >
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                        <path d="M14 2v6h6" />
+                    </svg>
+                </span>
+
+                <div>
+                    <strong>Arquivo EVE</strong>
+                    <span id="healthEveMessage">
+                        Aguardando consulta
+                    </span>
+                </div>
+
+                <span
+                    class="sp-status-pill sp-status-pill--pending"
+                    id="healthEveStatus"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <dl class="sp-detail-list">
+                <div>
+                    <dt>Existe</dt>
+                    <dd id="healthEveExists">—</dd>
+                </div>
+
+                <div>
+                    <dt>Legível</dt>
+                    <dd id="healthEveReadable">—</dd>
+                </div>
+
+                <div>
+                    <dt>Atualizando</dt>
+                    <dd id="healthEveUpdating">—</dd>
+                </div>
+
+                <div>
+                    <dt>Tamanho</dt>
+                    <dd id="healthEveSize">—</dd>
+                </div>
+
+                <div>
+                    <dt>Última alteração</dt>
+                    <dd id="healthEveAge">—</dd>
+                </div>
+
+                <div>
+                    <dt>Caminho</dt>
+                    <dd
+                        class="sp-mono"
+                        id="healthEvePath"
+                    >
+                        —
+                    </dd>
+                </div>
+            </dl>
+        </article>
+
+        <article class="sp-panel sp-component-panel">
+            <div class="sp-component-panel__head">
+                <span class="sp-component-panel__icon">
+                    <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                    >
+                        <path d="M4 12h16M12 4v16" />
+                        <circle cx="12" cy="12" r="9" />
+                    </svg>
+                </span>
+
+                <div>
+                    <strong>Cursor do monitor</strong>
+                    <span id="healthCursorMessage">
+                        Aguardando consulta
+                    </span>
+                </div>
+
+                <span
+                    class="sp-status-pill sp-status-pill--pending"
+                    id="healthCursorStatus"
+                >
+                    Verificando
+                </span>
+            </div>
+
+            <dl class="sp-detail-list">
+                <div>
+                    <dt>Existe</dt>
+                    <dd id="healthCursorExists">—</dd>
+                </div>
+
+                <div>
+                    <dt>Válido</dt>
+                    <dd id="healthCursorValid">—</dd>
+                </div>
+
+                <div>
+                    <dt>Acompanhando</dt>
+                    <dd id="healthCursorFollowing">—</dd>
+                </div>
+
+                <div>
+                    <dt>Posição</dt>
+                    <dd id="healthCursorPosition">—</dd>
+                </div>
+
+                <div>
+                    <dt>Atraso</dt>
+                    <dd id="healthCursorLag">—</dd>
+                </div>
+
+                <div>
+                    <dt>Caminho</dt>
+                    <dd
+                        class="sp-mono"
+                        id="healthCursorPath"
+                    >
+                        —
+                    </dd>
+                </div>
+            </dl>
+        </article>
+    </div>
+
+    <article class="sp-panel sp-wide-panel">
+        <div class="sp-panel__head">
+            <div>
+                <span class="sp-panel__eyebrow">
+                    Resumo de integridade
+                </span>
+
+                <h3>Condição geral da stack</h3>
+            </div>
+
+            <span
+                class="sp-chip sp-chip--pending"
+                id="stackGeneralStatus"
+            >
+                Verificando
+            </span>
+        </div>
+
+        <div class="sp-stack-checks" id="stackChecksList">
+            <div class="sp-stack-check sp-stack-check--pending">
+                <span class="sp-stack-check__status"></span>
+                <div>
+                    <strong>Consultando serviços</strong>
+                    <span>Aguarde a atualização do painel.</span>
+                </div>
+            </div>
+        </div>
+    </article>
+</section>

@@ -9,8 +9,15 @@ app_name = "incidentes"
 
 
 urlpatterns = [
-    # ── Páginas HTML ─────────────────────────────────────────────────────────
-    path("", views.incidentes_view, name="painel"),
+    # =========================================================================
+    # PÁGINAS — INCIDENTES
+    # =========================================================================
+
+    path(
+        "",
+        views.incidentes_view,
+        name="painel",
+    ),
 
     path(
         "sensores/",
@@ -30,7 +37,10 @@ urlpatterns = [
         name="detalhe",
     ),
 
-    # ── APIs JSON ─────────────────────────────────────────────────────────────
+    # =========================================================================
+    # APIs — INCIDENTES
+    # =========================================================================
+
     path(
         "api/data/",
         views.api_incidentes_data,
@@ -55,7 +65,10 @@ urlpatterns = [
         name="api_status",
     ),
 
-    # ── APIs de contexto por IP ──────────────────────────────────────────────
+    # =========================================================================
+    # APIs — CONTEXTO POR IP
+    # =========================================================================
+
     path(
         "api/ip/<str:ip>/contexto/",
         views.api_contexto_ip,
@@ -68,14 +81,20 @@ urlpatterns = [
         name="api_timeline_ip",
     ),
 
-    # ── Ingestão de sensores ─────────────────────────────────────────────────
+    # =========================================================================
+    # INGESTÃO DE EVENTOS
+    # =========================================================================
+
     path(
         "api/ingest/",
         receber_eventos,
         name="api_ingest",
     ),
 
-    # ── Configurações e ações auxiliares ─────────────────────────────────────
+    # =========================================================================
+    # CONFIGURAÇÕES AUXILIARES
+    # =========================================================================
+
     path(
         "api/preset/salvar/",
         views.api_salvar_preset,
@@ -88,94 +107,116 @@ urlpatterns = [
         name="api_supressao",
     ),
 
-    # ── Status do Suricata Local (Mantido por compatibilidade) ────────────────
+    # =========================================================================
+    # COMPATIBILIDADE LEGADA — SURICATA
+    # =========================================================================
+
     path(
         "api/status-suricata/",
         views.api_status_suricata,
         name="api_status_suricata",
     ),
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # NOVO MÓDULO: SURICATA LOCAL (ONBOARDING E GERENCIAMENTO)
-    # ══════════════════════════════════════════════════════════════════════════
+    # =========================================================================
+    # SURICATA — PÁGINAS
+    # =========================================================================
 
-    # ── Páginas do Suricata ───────────────────────────────────────────────────
     path(
         "suricata/",
         views_suricata.painel_suricata,
         name="suricata_painel",
     ),
+
     path(
         "suricata/instalacao/",
         views_suricata.onboarding_suricata,
         name="suricata_onboarding",
     ),
 
-    # ── APIs: Leitura e Diagnóstico (Status e Detecção) ───────────────────────
+    # =========================================================================
+    # SURICATA — STATUS / LEITURA
+    # =========================================================================
+
     path(
         "api/suricata/status/",
         views_suricata.api_status_suricata,
         name="api_suricata_status",
     ),
+
     path(
         "api/suricata/onboarding/status/",
         views_suricata.api_onboarding_status,
         name="api_suricata_onboarding_status",
     ),
+
     path(
         "api/suricata/interfaces/detectar/",
         views_suricata.api_detectar_interfaces,
         name="api_suricata_detectar_interfaces",
     ),
+
     path(
         "api/suricata/diagnostico/",
         views_suricata.api_diagnostico_suricata,
         name="api_suricata_diagnostico",
     ),
 
-    # ── APIs: Escrita de Configurações ────────────────────────────────────────
+    # =========================================================================
+    # SURICATA — CONFIGURAÇÃO
+    # =========================================================================
+
     path(
         "api/suricata/configuracao/salvar/",
         views_suricata.api_salvar_configuracao,
         name="api_suricata_salvar_configuracao",
     ),
+
     path(
         "api/suricata/onboarding/concluir/",
         views_suricata.api_marcar_onboarding_concluido,
         name="api_suricata_concluir_onboarding",
     ),
+
     path(
         "api/suricata/onboarding/reabrir/",
         views_suricata.api_reabrir_onboarding,
         name="api_suricata_reabrir_onboarding",
     ),
 
-    # ── APIs: Orquestração de Tarefas Assíncronas / Operações SO ──────────────
+    # =========================================================================
+    # SURICATA — TAREFAS
+    # =========================================================================
+
     path(
         "api/suricata/tarefas/",
         views_suricata.api_listar_tarefas,
         name="api_suricata_listar_tarefas",
     ),
+
     path(
         "api/suricata/tarefas/criar/",
         views_suricata.api_criar_tarefa,
         name="api_suricata_criar_tarefa",
     ),
+
     path(
         "api/suricata/tarefas/<str:tarefa_id>/",
         views_suricata.api_detalhe_tarefa,
         name="api_suricata_detalhe_tarefa",
     ),
+
     path(
         "api/suricata/tarefas/<str:tarefa_id>/executar/",
         views_suricata.api_executar_tarefa_sincrona,
         name="api_suricata_executar_tarefa",
     ),
+
     path(
         "api/suricata/tarefas/<str:tarefa_id>/cancelar/",
         views_suricata.api_solicitar_cancelamento,
         name="api_suricata_cancelar_tarefa",
     ),
+
     path(
         "api/suricata/tarefas/<str:tarefa_id>/logs/",
         views_suricata.api_logs_tarefa,

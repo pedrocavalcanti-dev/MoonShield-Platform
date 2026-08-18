@@ -1,0 +1,170 @@
+<!-- ====================================================
+     TAREFAS
+===================================================== -->
+<section
+    class="sp-section"
+    id="section-tasks"
+    data-section="tasks"
+>
+    <div class="sp-section-title">
+        <div>
+            <span class="sp-section-title__eyebrow">
+                Operações do sistema
+            </span>
+
+            <h2>Tarefas do Suricata</h2>
+
+            <p>
+                Acompanhe instalações, diagnósticos, validações,
+                atualizações e reinícios executados pelo MoonShield.
+            </p>
+        </div>
+
+        <button
+            class="sp-btn sp-btn--ghost"
+            id="btnRefreshTasks"
+            type="button"
+        >
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
+                <path d="M20 4v7h-7" />
+            </svg>
+            Atualizar
+        </button>
+    </div>
+
+    <div class="sp-task-filters">
+        <div class="sp-filter-group">
+            <label for="taskStatusFilter">Status</label>
+
+            <select
+                class="sp-select"
+                id="taskStatusFilter"
+            >
+                <option value="">Todos</option>
+                <option value="pendente">Pendente</option>
+                <option value="executando">Executando</option>
+                <option value="sucesso">Sucesso</option>
+                <option value="erro">Erro</option>
+                <option value="cancelado">Cancelado</option>
+                <option value="ignorado">Ignorado</option>
+            </select>
+        </div>
+
+        <div class="sp-filter-group">
+            <label for="taskTypeFilter">Tipo</label>
+
+            <select
+                class="sp-select"
+                id="taskTypeFilter"
+            >
+                <option value="">Todos</option>
+                <option value="diagnostico">Diagnóstico</option>
+                <option value="instalacao">Instalação</option>
+                <option value="configuracao">Configuração</option>
+                <option value="atualizacao_regras">
+                    Atualização de regras
+                </option>
+                <option value="validacao">Validação</option>
+                <option value="reinicio_suricata">
+                    Reinício do Suricata
+                </option>
+                <option value="reinicio_monitor">
+                    Reinício do monitor
+                </option>
+            </select>
+        </div>
+
+        <button
+            class="sp-btn sp-btn--ghost sp-btn--small"
+            id="btnClearTaskFilters"
+            type="button"
+        >
+            Limpar filtros
+        </button>
+    </div>
+
+    <article class="sp-panel sp-task-table-panel">
+        <div class="sp-table-wrap">
+            <table class="sp-table">
+                <thead>
+                    <tr>
+                        <th>Tarefa</th>
+                        <th>Status</th>
+                        <th>Progresso</th>
+                        <th>Etapa</th>
+                        <th>Iniciada</th>
+                        <th>Duração</th>
+                        <th class="sp-table__action-col"></th>
+                    </tr>
+                </thead>
+
+                <tbody id="taskTableBody">
+                    <tr class="sp-table__loading-row">
+                        <td colspan="7">
+                            <div class="sp-table-loading">
+                                <span class="sp-spinner"></span>
+                                <span>Carregando tarefas...</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="sp-table-footer">
+            <span id="taskPaginationText">
+                Nenhuma tarefa carregada
+            </span>
+
+            <div class="sp-pagination">
+                <button
+                    class="sp-icon-btn sp-icon-btn--small"
+                    id="btnTaskPrev"
+                    type="button"
+                    aria-label="Página anterior"
+                    disabled
+                >
+                    <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="m15 18-6-6 6-6" />
+                    </svg>
+                </button>
+
+                <span id="taskPageText">Página 1</span>
+
+                <button
+                    class="sp-icon-btn sp-icon-btn--small"
+                    id="btnTaskNext"
+                    type="button"
+                    aria-label="Próxima página"
+                    disabled
+                >
+                    <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="m9 18 6-6-6-6" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </article>
+</section>

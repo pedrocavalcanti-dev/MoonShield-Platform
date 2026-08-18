@@ -15,6 +15,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import JsonResponse, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_protect
@@ -288,6 +289,50 @@ def _serializar_configuracao(configuracao: ConfiguracaoSuricata | None) -> dict 
     }
 
 
+def _configuracao_pode_abrir_painel(configuracao: ConfiguracaoSuricata | None) -> bool:
+    """
+    Regra única de navegação entre onboarding e painel.
+
+    Saúde operacional não participa desta decisão: se um serviço cair depois
+    da instalação, o operador continua entrando no painel para diagnosticar e
+    recuperar a stack, em vez de ser enviado novamente ao instalador.
+    """
+    if not configuracao:
+        return False
+
+    return bool(
+        configuracao.onboarding_concluido
+        and configuracao.instalacao_concluida
+        and configuracao.suricata_instalado
+        and configuracao.suricata_configurado
+    )
+
+
+def _motivos_configuracao_incompleta(configuracao: ConfiguracaoSuricata | None) -> list[str]:
+    """Explica por que o painel ainda deve encaminhar ao onboarding."""
+    if not configuracao:
+        return ["Nenhuma configuração ativa do Suricata foi encontrada."]
+
+    motivos = []
+    if not configuracao.suricata_instalado:
+        motivos.append("Suricata ainda não marcado como instalado.")
+    if not configuracao.suricata_configurado:
+        motivos.append("Configuração do Suricata ainda não concluída.")
+    if not configuracao.instalacao_concluida:
+        motivos.append("Instalação ainda não concluída.")
+    if not configuracao.onboarding_concluido:
+        motivos.append("Onboarding ainda não concluído.")
+    return motivos
+
+
+def _urls_navegacao_suricata() -> dict:
+    """URLs oficiais de navegação do módulo Suricata."""
+    return {
+        "painel": reverse("incidentes:suricata_painel"),
+        "onboarding": reverse("incidentes:suricata_onboarding"),
+    }
+
+
 # ==============================================================================
 # VIEWS (RENDERIZAÇÃO HTML)
 # ==============================================================================
@@ -295,62 +340,113 @@ def _serializar_configuracao(configuracao: ConfiguracaoSuricata | None) -> dict 
 @login_required(login_url="autenticacao:login")
 @require_GET
 def onboarding_suricata(request):
-    """View do assistente/wizard de instalação do núcleo de Segurança do IDS."""
+    """
+    Assistente de instalação e reconfiguração do Suricata.
+
+    A URL do onboarding continua acessível quando chamada explicitamente mesmo
+    depois da instalação. Isso permite que "Configurar Suricata" abra o wizard
+    para revisão/reconfiguração sem apagar flags e sem fingir desinstalação.
+    """
     cfg = _obter_configuracao_ativa(criar=True)
     dto_cfg = _configuracao_service(cfg)
-    
-    # Resolve os relatórios sem executar tarefas mutáveis no SO
+    urls_nav = _urls_navegacao_suricata()
+    painel_disponivel = _configuracao_pode_abrir_painel(cfg)
+
     try:
         st_onb = obter_status_onboarding(dto_cfg)
-    except Exception as e:
+    except Exception as exc:
         logger.exception("Falha ao determinar a etapa inicial do onboarding.")
-        st_onb = {"erro": "Falha na análise do ambiente.", "mensagem": str(e)}
+        st_onb = {
+            "erro": "Falha na análise do ambiente.",
+            "mensagem": str(exc),
+        }
 
     try:
         plano = obter_plano_instalacao(dto_cfg)
-    except Exception as e:
+    except Exception as exc:
         logger.exception("Falha na formatação preditiva do plano de implantação.")
-        plano = {"erro": "Falha na construção do plano de ação.", "bloqueios": [str(e)]}
+        plano = {
+            "erro": "Falha na construção do plano de ação.",
+            "bloqueios": [str(exc)],
+        }
 
     context = {
         "configuracao_suricata": _serializar_configuracao(cfg),
         "status_onboarding": st_onb,
         "plano_instalacao": plano,
+        "painel_disponivel": painel_disponivel,
+        "modo_reconfiguracao": painel_disponivel,
+        "url_painel_suricata": urls_nav["painel"],
+        "url_onboarding_suricata": urls_nav["onboarding"],
         "pagina_suricata": True,
-        "titulo_pagina": "Instalação do Suricata",
+        "titulo_pagina": (
+            "Configuração do Suricata"
+            if painel_disponivel
+            else "Instalação do Suricata"
+        ),
     }
-    
+
     return render(request, "incidentes/suricata/onboarding.html", context)
 
 
 @login_required(login_url="autenticacao:login")
 @require_GET
 def painel_suricata(request):
-    """Cockpit final de gerenciamento day-to-day do Sensor e Regras."""
+    """
+    Cockpit operacional do Suricata.
+
+    Só redireciona ao onboarding quando a instalação/configuração inicial ainda
+    não terminou. Uma stack degradada NÃO bloqueia o painel, pois é justamente
+    nele que o operador precisa enxergar, diagnosticar e recuperar o serviço.
+    """
     cfg = _obter_configuracao_ativa(criar=False)
-    
-    if not cfg or not cfg.onboarding_concluido:
-        # Nota: A view "suricata_onboarding" precisa estar mapeada no urls.py
+
+    if not _configuracao_pode_abrir_painel(cfg):
+        logger.info(
+            "Painel Suricata indisponível; encaminhando ao onboarding: %s",
+            "; ".join(_motivos_configuracao_incompleta(cfg)),
+        )
         return redirect("incidentes:suricata_onboarding")
-        
+
     dto_cfg = _configuracao_service(cfg)
-    
+    urls_nav = _urls_navegacao_suricata()
+
     try:
-        st_stack = obter_status_stack_completo(dto_cfg, incluir_diagnostico=False)
+        st_stack = obter_status_stack_completo(
+            dto_cfg,
+            incluir_diagnostico=False,
+        )
+    except Exception as exc:
+        logger.exception("Falha ao ler status rápido da stack Suricata.")
+        st_stack = {
+            "status": "erro",
+            "saudavel": False,
+            "mensagem": "Não foi possível consultar o estado atual da stack.",
+            "erros": [str(exc)],
+        }
+
+    try:
         cards = obter_resumo_cards(dto_cfg)
-    except Exception:
-        logger.exception("Falha ao ler status da Stack.")
-        st_stack = {}
-        cards = {}
+    except Exception as exc:
+        logger.exception("Falha ao gerar cards iniciais do painel Suricata.")
+        cards = {
+            "erro": True,
+            "mensagem": "Não foi possível montar o resumo dos componentes.",
+            "detalhes": str(exc),
+        }
 
     context = {
         "configuracao_suricata": _serializar_configuracao(cfg),
         "status_stack": st_stack,
         "cards_suricata": cards,
+        "painel_disponivel": True,
+        "modo_reconfiguracao": False,
+        "url_painel_suricata": urls_nav["painel"],
+        "url_onboarding_suricata": urls_nav["onboarding"],
         "pagina_suricata": True,
         "titulo_pagina": "Suricata",
     }
-    
+
     return render(request, "incidentes/suricata/painel.html", context)
 
 
@@ -361,17 +457,69 @@ def painel_suricata(request):
 @login_required(login_url="autenticacao:login")
 @require_GET
 def api_status_suricata(request):
-    """Consulta consolidada leve (AJAX Fetch/Poll)."""
+    """Consulta consolidada leve usada pelo polling do painel."""
     cfg = _obter_configuracao_ativa(criar=False)
+    urls_nav = _urls_navegacao_suricata()
+
+    if not cfg:
+        return _json_erro(
+            "Suricata ainda não possui configuração ativa.",
+            status_http=409,
+            dados={
+                "requer_onboarding": True,
+                "painel_disponivel": False,
+                "url_onboarding": urls_nav["onboarding"],
+            },
+        )
+
     dto_cfg = _configuracao_service(cfg)
-    
-    inc_diag = request.GET.get("diagnostico") == "1"
-    
-    payload = obter_status_para_api(dto_cfg, incluir_diagnostico=inc_diag)
+    incluir_diagnostico = request.GET.get("diagnostico") == "1"
+
+    try:
+        payload = obter_status_para_api(
+            dto_cfg,
+            incluir_diagnostico=incluir_diagnostico,
+        )
+    except Exception as exc:
+        logger.exception("Falha ao consultar status do Suricata pela API.")
+        return _json_erro(
+            "Não foi possível consultar o estado atual do Suricata.",
+            status_http=500,
+            erros=[str(exc)],
+            dados={
+                "requer_onboarding": not _configuracao_pode_abrir_painel(cfg),
+                "painel_disponivel": _configuracao_pode_abrir_painel(cfg),
+                "url_painel": urls_nav["painel"],
+                "url_onboarding": urls_nav["onboarding"],
+            },
+        )
+
     if payload.get("ok"):
-        return _json_sucesso("Status obtido.", payload.get("dados"))
-    
-    return _json_erro(payload.get("mensagem", "Erro"), 500, dados=payload)
+        dados = payload.get("dados") or {}
+        if not isinstance(dados, dict):
+            dados = {"status": dados}
+
+        dados["navegacao"] = {
+            "requer_onboarding": not _configuracao_pode_abrir_painel(cfg),
+            "painel_disponivel": _configuracao_pode_abrir_painel(cfg),
+            "url_painel": urls_nav["painel"],
+            "url_onboarding": urls_nav["onboarding"],
+        }
+        return _json_sucesso("Status obtido.", dados)
+
+    return _json_erro(
+        payload.get("mensagem", "Erro ao consultar status."),
+        status_http=500,
+        dados={
+            "payload": payload,
+            "navegacao": {
+                "requer_onboarding": not _configuracao_pode_abrir_painel(cfg),
+                "painel_disponivel": _configuracao_pode_abrir_painel(cfg),
+                "url_painel": urls_nav["painel"],
+                "url_onboarding": urls_nav["onboarding"],
+            },
+        },
+    )
 
 
 @login_required(login_url="autenticacao:login")
@@ -386,11 +534,18 @@ def api_onboarding_status(request):
         plano = obter_plano_instalacao(dto_cfg)
         tipos_disp = obter_tipos_tarefa_disponiveis()
         
+        urls_nav = _urls_navegacao_suricata()
+        painel_disponivel = _configuracao_pode_abrir_painel(cfg)
+
         return _json_sucesso("Status Onboarding lido.", {
             "configuracao": _serializar_configuracao(cfg),
             "status_onboarding": onb,
             "plano_instalacao": plano,
             "tarefas_disponiveis": tipos_disp,
+            "painel_disponivel": painel_disponivel,
+            "modo_reconfiguracao": painel_disponivel,
+            "url_painel": urls_nav["painel"],
+            "url_onboarding": urls_nav["onboarding"],
         })
     except Exception as e:
         logger.exception("Erro em api_onboarding_status")
@@ -865,6 +1020,8 @@ def api_marcar_onboarding_concluido(request):
                     "monitor_ok": monitor_ok,
                     "worker_ok": worker_ok,
                 },
+                "painel_disponivel": True,
+                "redirecionar_para": reverse("incidentes:suricata_painel"),
             },
         )
     except Exception as exc:
@@ -880,7 +1037,13 @@ def api_marcar_onboarding_concluido(request):
 @require_POST
 @csrf_protect
 def api_reabrir_onboarding(request):
-    """Devolve a navegação para o Modo Assistente. (Apenas flag, sem destruir sistema instalado)."""
+    """
+    Reabre formalmente o onboarding sem desinstalar o Suricata.
+
+    Para apenas abrir o assistente e revisar configurações, o frontend deve
+    navegar diretamente para `incidentes:suricata_onboarding`. Esta API só é
+    necessária quando queremos marcar o onboarding como pendente novamente.
+    """
     cfg = _obter_configuracao_ativa(criar=False)
     if not cfg:
         return _json_erro("Nenhuma configuração local ativa presente no ambiente.")
@@ -889,8 +1052,19 @@ def api_reabrir_onboarding(request):
         with transaction.atomic():
             cfg.onboarding_concluido = False
             cfg.save(update_fields=["onboarding_concluido", "atualizado_em"])
-            
-        return _json_sucesso("Cockpit trancado. Assistente recuado com sucesso.", _serializar_configuracao(cfg))
-    except Exception as e:
-        logger.exception("Atrito ao destravar lock de assistente.")
-        return _json_erro("Trava de base de dados impediu downgrade de Onboarding.", 500, [str(e)])
+
+        return _json_sucesso(
+            "Onboarding reaberto sem remover a instalação existente.",
+            {
+                "configuracao": _serializar_configuracao(cfg),
+                "painel_disponivel": False,
+                "redirecionar_para": reverse("incidentes:suricata_onboarding"),
+            },
+        )
+    except Exception as exc:
+        logger.exception("Falha ao reabrir onboarding do Suricata.")
+        return _json_erro(
+            "Não foi possível reabrir o onboarding.",
+            500,
+            [str(exc)],
+        )

@@ -1,6 +1,7 @@
 {% load static %}
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -12,2447 +13,602 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
         href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap"
-        rel="stylesheet"
-    />
+        rel="stylesheet" />
 
-    <link
-        rel="stylesheet"
-        href="{% static 'css/incidentes/suricata/painel.css' %}"
-    />
+    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/painel.css' %}" />
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'favicon/favicon-32x32.png' %}" />
 
-    <link
-        rel="icon"
-        type="image/png"
-        sizes="32x32"
-        href="{% static 'favicon/favicon-32x32.png' %}"
-    />
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem('moonshield_theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+            } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+            }
+        })();
+    </script>
 </head>
 
 <body>
 
-{# ================================================================
-   DADOS DO BACKEND
-   Nunca injete dicts/booleans Python diretamente dentro de JS.
-   json_script garante JSON válido: true/false/null em vez de
-   True/False/None.
-   ================================================================ #}
-{{ configuracao_suricata|json_script:"ms-suricata-panel-config" }}
-{{ status_stack|json_script:"ms-suricata-panel-status" }}
-{{ cards_suricata|json_script:"ms-suricata-panel-cards" }}
+    {{ configuracao_suricata|json_script:"ms-suricata-panel-config" }}
+    {{ status_stack|json_script:"ms-suricata-panel-status" }}
+    {{ cards_suricata|json_script:"ms-suricata-panel-cards" }}
 
-<script>
-    (() => {
-        'use strict';
+    <script>
+        (() => {
+            'use strict';
 
-        const readJSONScript = (id, fallback) => {
-            const node = document.getElementById(id);
-            if (!node) return fallback;
+            const readJSONScript = (id, fallback) => {
+                const node = document.getElementById(id);
+                if (!node) return fallback;
+                try {
+                    return JSON.parse(node.textContent);
+                } catch (error) {
+                    console.error(`[MoonShield] JSON inválido em #${id}:`, error);
+                    return fallback;
+                }
+            };
 
-            try {
-                return JSON.parse(node.textContent);
-            } catch (error) {
-                console.error(`[MoonShield] JSON inválido em #${id}:`, error);
-                return fallback;
-            }
-        };
+            window.MS_SURICATA_PANEL = {
+                csrfToken: "{{ csrf_token }}",
+                usuario: {
+                    username: "{{ request.user.username|escapejs }}",
+                    nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+                },
+                configuracao: readJSONScript("ms-suricata-panel-config", null),
+                statusInicial: readJSONScript("ms-suricata-panel-status", {}),
+                cardsIniciais: readJSONScript("ms-suricata-panel-cards", {}),
+                urls: {
+                    painel: "{% url 'incidentes:suricata_painel' %}",
+                    onboarding: "{% url 'incidentes:suricata_onboarding' %}",
+                    status: "{% url 'incidentes:api_suricata_status' %}",
+                    diagnostico: "{% url 'incidentes:api_suricata_diagnostico' %}",
+                    onboardingStatus: "{% url 'incidentes:api_suricata_onboarding_status' %}",
+                    criarTarefa: "{% url 'incidentes:api_suricata_criar_tarefa' %}",
+                    listarTarefas: "{% url 'incidentes:api_suricata_listar_tarefas' %}",
+                    detalheTarefaTemplate: "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
+                    executarTarefaTemplate: "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
+                    cancelarTarefaTemplate: "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
+                    logsTarefaTemplate: "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
+                }
+            };
+        })();
+    </script>
 
-        window.MS_SURICATA_PANEL = {
-            csrfToken: "{{ csrf_token }}",
+    <div class="ob-bg" aria-hidden="true">
+        <canvas id="starsCanvas"></canvas>
+        <div class="ob-bg__noise"></div>
+        <div class="ob-bg__grid"></div>
+        <div class="ob-bg__glow ob-bg__glow--blue"></div>
+        <div class="ob-bg__glow ob-bg__glow--purple"></div>
+    </div>
 
-            usuario: {
-                username: "{{ request.user.username|escapejs }}",
-                nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
-            },
+    <div class="ob-toasts" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
-            configuracao: readJSONScript("ms-suricata-panel-config", null),
-            statusInicial: readJSONScript("ms-suricata-panel-status", {}),
-            cardsIniciais: readJSONScript("ms-suricata-panel-cards", {}),
+    <div class="ob-shell">
 
-            urls: {
-                painel: "{% url 'incidentes:suricata_painel' %}",
-                onboarding: "{% url 'incidentes:suricata_onboarding' %}",
-
-                status: "{% url 'incidentes:api_suricata_status' %}",
-                diagnostico: "{% url 'incidentes:api_suricata_diagnostico' %}",
-                onboardingStatus: "{% url 'incidentes:api_suricata_onboarding_status' %}",
-                detectarInterfaces: "{% url 'incidentes:api_suricata_detectar_interfaces' %}",
-                salvarConfiguracao: "{% url 'incidentes:api_suricata_salvar_configuracao' %}",
-                reabrirOnboarding: "{% url 'incidentes:api_suricata_reabrir_onboarding' %}",
-
-                criarTarefa: "{% url 'incidentes:api_suricata_criar_tarefa' %}",
-                listarTarefas: "{% url 'incidentes:api_suricata_listar_tarefas' %}",
-
-                detalheTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
-
-                executarTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
-
-                cancelarTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
-
-                logsTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
-            }
-        };
-    })();
-</script>
-
-<!-- Fundo espacial -->
-<div class="sp-bg" aria-hidden="true">
-    <canvas id="starsCanvas"></canvas>
-    <div class="sp-bg__noise"></div>
-    <div class="sp-bg__grid"></div>
-    <div class="sp-bg__glow sp-bg__glow--blue"></div>
-    <div class="sp-bg__glow sp-bg__glow--purple"></div>
-</div>
-
-<!-- Região de notificações -->
-<div
-    class="sp-toasts"
-    id="toastContainer"
-    aria-live="polite"
-    aria-atomic="true"
-></div>
-
-<div class="sp-shell">
-
-    <!-- ============================================================
-         SIDEBAR
-    ============================================================= -->
-    <aside class="sp-sidebar" id="panelSidebar">
-
-        <div class="sp-sidebar__head">
-            <a
-                href="{% url 'incidentes:suricata_painel' %}"
-                class="sp-brand"
-                aria-label="MoonShield Suricata"
-            >
-                <span class="sp-brand__shield">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        aria-hidden="true"
-                    >
-                        <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                    </svg>
-                </span>
-
-                <span class="sp-brand__copy">
-                    <strong>MoonShield</strong>
-                    <small>Suricata Control</small>
-                </span>
+        <aside class="ob-sidebar">
+            <a href="{% url 'incidentes:suricata_painel' %}" class="ob-brand">
+                <div class="ob-brand__logo">MS</div>
+                <div class="ob-brand__info">
+                    <h2>MoonShield</h2>
+                    <p>Suricata Control</p>
+                </div>
             </a>
 
-            <button
-                class="sp-sidebar__close"
-                id="btnCloseSidebar"
-                type="button"
-                aria-label="Fechar menu"
-            >
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-            </button>
-        </div>
+            <nav class="ob-nav" aria-label="Navegação do Suricata">
+                <div class="ob-nav__label">Monitoramento</div>
 
-        <div class="sp-sidebar__section-label">Monitoramento</div>
+                <button class="ob-nav__item is-active" type="button" data-section="overview">
+                    <span class="ob-nav__icon">⊞</span>
+                    <span>Visão geral</span>
+                </button>
 
-        <nav class="sp-nav" aria-label="Navegação do Suricata">
-            <button
-                class="sp-nav__item is-active"
-                type="button"
-                data-section-target="overview"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <rect x="3" y="3" width="7" height="7" rx="1" />
-                        <rect x="14" y="3" width="7" height="7" rx="1" />
-                        <rect x="3" y="14" width="7" height="7" rx="1" />
-                        <rect x="14" y="14" width="7" height="7" rx="1" />
-                    </svg>
-                </span>
-                <span>Visão geral</span>
-            </button>
+                <button class="ob-nav__item" type="button" data-section="health">
+                    <span class="ob-nav__icon">📈</span>
+                    <span>Saúde da stack</span>
+                </button>
 
-            <button
-                class="sp-nav__item"
-                type="button"
-                data-section-target="health"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <path d="M3 12h4l2.2-6 4.1 12 2.2-6H21" />
-                    </svg>
-                </span>
-                <span>Saúde da stack</span>
-            </button>
+                <button class="ob-nav__item" type="button" data-section="configuration">
+                    <span class="ob-nav__icon">⚙</span>
+                    <span>Configuração</span>
+                </button>
 
-            <button
-                class="sp-nav__item"
-                type="button"
-                data-section-target="configuration"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.14.4-1.51 1Z" />
-                    </svg>
-                </span>
-                <span>Configuração</span>
-            </button>
+                <button class="ob-nav__item" type="button" data-section="rules">
+                    <span class="ob-nav__icon">📋</span>
+                    <span>Regras</span>
+                </button>
 
-            <button
-                class="sp-nav__item"
-                type="button"
-                data-section-target="rules"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <path d="M4 4h16v16H4z" />
-                        <path d="M8 9h8M8 13h8M8 17h5" />
-                    </svg>
-                </span>
-                <span>Regras</span>
-            </button>
+                <button class="ob-nav__item" type="button" data-section="tasks">
+                    <span class="ob-nav__icon">✓</span>
+                    <span>Tarefas</span>
+                    <span class="ob-nav__badge" id="navTaskBadge" hidden>0</span>
+                </button>
 
-            <button
-                class="sp-nav__item"
-                type="button"
-                data-section-target="tasks"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <path d="M9 11l3 3L22 4" />
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                    </svg>
-                </span>
-                <span>Tarefas</span>
-                <span class="sp-nav__badge" id="navTaskBadge" hidden>0</span>
-            </button>
+                <button class="ob-nav__item" type="button" data-section="diagnostic">
+                    <span class="ob-nav__icon">🔍</span>
+                    <span>Diagnóstico</span>
+                </button>
 
-            <button
-                class="sp-nav__item"
-                type="button"
-                data-section-target="diagnostic"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="m20 20-4-4" />
-                        <path d="M8 11h6M11 8v6" />
-                    </svg>
-                </span>
-                <span>Diagnóstico</span>
-            </button>
-        </nav>
+                <div class="ob-nav__label">Atalhos</div>
 
-        <div class="sp-sidebar__section-label">Atalhos</div>
+                <a class="ob-nav__item" href="{% url 'incidentes:suricata_onboarding' %}">
+                    <span class="ob-nav__icon">✏</span>
+                    <span>Reconfigurar sensor</span>
+                </a>
 
-        <nav class="sp-nav sp-nav--secondary">
-            <a
-                class="sp-nav__item"
-                href="{% url 'incidentes:suricata_onboarding' %}"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                    </svg>
-                </span>
-                <span>Reconfigurar sensor</span>
-            </a>
+                <a class="ob-nav__item" href="{% url 'painel:index' %}">
+                    <span class="ob-nav__icon">🏠</span>
+                    <span>Voltar ao MoonShield</span>
+                </a>
+            </nav>
 
-            <a
-                class="sp-nav__item"
-                href="{% url 'painel:index' %}"
-            >
-                <span class="sp-nav__icon">
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                    >
-                        <path d="M3 12 12 3l9 9" />
-                        <path d="M5 10v11h14V10" />
-                    </svg>
-                </span>
-                <span>Voltar ao MoonShield</span>
-            </a>
-        </nav>
-
-        <div class="sp-sidebar__bottom">
-            <div class="sp-mini-status">
-                <span
-                    class="sp-status-dot sp-status-dot--pending"
-                    id="sidebarStatusDot"
-                ></span>
-
-                <span class="sp-mini-status__copy">
-                    <strong id="sidebarStatusTitle">Verificando...</strong>
-                    <small id="sidebarStatusText">Aguardando status</small>
-                </span>
+            <div class="ob-status-mini">
+                <span class="ob-status-dot ob-status-dot--pending" id="sidebarStatusDot"></span>
+                <div class="ob-status-mini__info">
+                    <div class="ob-status-mini__label" id="sidebarStatusLabel">Verificando...</div>
+                    <div class="ob-status-mini__desc" id="sidebarStatusDesc">Aguardando status</div>
+                </div>
             </div>
 
-            <div class="sp-sidebar__footer">
-                <span>MoonShield 2026</span>
-                <span>Suricata v1.0</span>
+            <div class="ob-sidebar__footer">
+                <span class="ob-sidebar__version">MoonShield 2026</span>
+
+                <button class="ob-theme-toggle" id="themeToggle" type="button" aria-label="Alternar tema">
+                    <span class="ob-theme-toggle__track"></span>
+                    <span class="ob-theme-toggle__thumb"></span>
+                </button>
+            </div>
+        </aside>
+
+        <main class="ob-main">
+            <header class="ob-topbar">
+                <div class="ob-topbar__left">
+                    <button class="ob-icon-btn ob-topbar__menu" id="btnOpenSidebar" type="button"
+                        aria-label="Abrir menu">☰</button>
+                    <div class="ob-page-heading">
+                        <span class="ob-page-heading__eyebrow">Segurança de rede</span>
+                        <div class="ob-page-heading__line">
+                            <h1>Suricata</h1>
+                            <span class="ob-chip ob-chip--pending" id="headerStackChip">Verificando</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ob-topbar__right">
+                    <div class="ob-last-update">
+                        <span>Última atualização</span>
+                        <strong id="lastUpdateText">agora</strong>
+                    </div>
+
+                    <button class="ob-icon-btn" id="btnRefreshStatus" type="button"
+                        aria-label="Atualizar status">⟳</button>
+                    <button class="ob-btn ob-btn--primary ob-btn--sm" id="btnRunDiagnosticTop"
+                        type="button">Diagnosticar</button>
+                </div>
+            </header>
+
+            <div class="ob-content">
+
+                <!-- OVERVIEW -->
+                <section class="ob-section is-active" id="section-overview" data-section="overview">
+                    <div class="ob-hero">
+                        <div class="ob-hero__copy">
+                            <div class="ob-hero__eyebrow">
+                                <span class="ob-status-dot ob-status-dot--pending" id="heroStatusDot"></span>
+                                <span id="heroStatusEyebrow">Coletando estado da proteção</span>
+                            </div>
+
+                            <h2>Sua rede sob <em>observação contínua.</em></h2>
+
+                            <p id="heroDescription">
+                                O MoonShield está verificando a integridade do Suricata, do monitor local e do fluxo de
+                                eventos.
+                            </p>
+
+                            <div class="ob-hero__actions">
+                                <button class="ob-btn ob-btn--primary" id="btnRunDiagnosticHero" type="button">
+                                    Executar diagnóstico
+                                </button>
+                                <button class="ob-btn ob-btn--ghost" id="btnOpenConfiguration" type="button">
+                                    Ver configuração
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ob-section-title">
+                        <div>
+                            <span class="ob-section-eyebrow">Estado atual</span>
+                            <h3>Componentes da proteção</h3>
+                        </div>
+                    </div>
+
+                    <div class="ob-status-grid">
+                        <div class="ob-status-card ob-status-card--pending" id="cardSuricata">
+                            <div class="ob-status-card__header">
+                                <span class="ob-status-card__icon">🛡</span>
+                                <span class="ob-status-card__state" id="cardSuricataState">Verificando</span>
+                            </div>
+                            <div class="ob-status-card__body">
+                                <span class="ob-status-card__label">Suricata</span>
+                                <strong id="cardSuricataValue">—</strong>
+                                <small id="cardSuricataDetail">Coletando informações do serviço</small>
+                            </div>
+                            <div class="ob-status-card__footer">
+                                <span id="cardSuricataMeta">Versão indisponível</span>
+                            </div>
+                        </div>
+
+                        <div class="ob-status-card ob-status-card--pending" id="cardMonitor">
+                            <div class="ob-status-card__header">
+                                <span class="ob-status-card__icon">📊</span>
+                                <span class="ob-status-card__state" id="cardMonitorState">Verificando</span>
+                            </div>
+                            <div class="ob-status-card__body">
+                                <span class="ob-status-card__label">Monitor local</span>
+                                <strong id="cardMonitorValue">—</strong>
+                                <small id="cardMonitorDetail">Validando leitura do eve.json</small>
+                            </div>
+                            <div class="ob-status-card__footer">
+                                <span id="cardMonitorMeta">Cursor não consultado</span>
+                            </div>
+                        </div>
+
+                        <div class="ob-status-card ob-status-card--pending" id="cardEve">
+                            <div class="ob-status-card__header">
+                                <span class="ob-status-card__icon">📄</span>
+                                <span class="ob-status-card__state" id="cardEveState">Verificando</span>
+                            </div>
+                            <div class="ob-status-card__body">
+                                <span class="ob-status-card__label">EVE JSON</span>
+                                <strong id="cardEveValue">—</strong>
+                                <small id="cardEveDetail">Verificando atividade do arquivo</small>
+                            </div>
+                            <div class="ob-status-card__footer">
+                                <span id="cardEveMeta">Sem tamanho disponível</span>
+                            </div>
+                        </div>
+
+                        <div class="ob-status-card ob-status-card--pending" id="cardRules">
+                            <div class="ob-status-card__header">
+                                <span class="ob-status-card__icon">📋</span>
+                                <span class="ob-status-card__state" id="cardRulesState">Verificando</span>
+                            </div>
+                            <div class="ob-status-card__body">
+                                <span class="ob-status-card__label">Regras</span>
+                                <strong id="cardRulesValue">—</strong>
+                                <small id="cardRulesDetail">Conferindo MoonShield e ET Open</small>
+                            </div>
+                            <div class="ob-status-card__footer">
+                                <span id="cardRulesMeta">Pacotes não consultados</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ob-overview-layout">
+                        <div class="ob-panel">
+                            <div class="ob-panel__header">
+                                <div>
+                                    <span class="ob-section-eyebrow">Saúde consolidada</span>
+                                    <h3 class="ob-panel__title">Stack Suricata</h3>
+                                </div>
+                                <span class="ob-chip ob-chip--pending" id="healthSummaryChip">Analisando</span>
+                            </div>
+                            <div class="ob-panel__body" id="healthScoreContainer">
+                                <div class="ob-health-score">
+                                    <div class="ob-health-score__ring">
+                                        <svg viewBox="0 0 120 120" aria-hidden="true">
+                                            <circle class="ob-health-score__track" cx="60" cy="60" r="48"></circle>
+                                            <circle class="ob-health-score__value" id="healthScoreCircle" cx="60"
+                                                cy="60" r="48"></circle>
+                                        </svg>
+                                        <div class="ob-health-score__number">
+                                            <strong id="healthScoreValue">0</strong>
+                                            <span>%</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="ob-health-score__copy">
+                                        <strong id="healthScoreTitle">Calculando integridade</strong>
+                                        <p id="healthScoreText">
+                                            O painel está avaliando serviços, configuração, regras e telemetria.
+                                        </p>
+                                        <div class="ob-health-legend">
+                                            <span>
+                                                <i class="ob-legend-dot ob-legend-dot--ok"></i>
+                                                <strong id="healthOkCount">0</strong>
+                                                saudáveis
+                                            </span>
+                                            <span>
+                                                <i class="ob-legend-dot ob-legend-dot--warning"></i>
+                                                <strong id="healthWarningCount">0</strong>
+                                                avisos
+                                            </span>
+                                            <span>
+                                                <i class="ob-legend-dot ob-legend-dot--error"></i>
+                                                <strong id="healthErrorCount">0</strong>
+                                                erros
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="ob-panel">
+                            <div class="ob-panel__header">
+                                <div>
+                                    <span class="ob-section-eyebrow">Caminho do tráfego</span>
+                                    <h3 class="ob-panel__title">Topologia configurada</h3>
+                                </div>
+                                <button class="ob-icon-btn ob-icon-btn--sm" id="btnRefreshTopology"
+                                    type="button">⟳</button>
+                            </div>
+                            <div class="ob-panel__body" id="topologyContainer">
+                                <p class="ob-hint">Carregando topologia...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ob-section-title">
+                        <span class="ob-section-eyebrow">Execuções recentes</span>
+                        <h3>Atividade operacional</h3>
+                    </div>
+
+                    <div id="overviewTaskList" class="ob-activity-list">
+                        <div class="ob-empty-state">
+                            <span class="ob-empty-state__icon">✓</span>
+                            <div>
+                                <strong>Nenhuma atividade carregada</strong>
+                                <span>As últimas tarefas aparecerão aqui.</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- HEALTH -->
+                <section class="ob-section" id="section-health" data-section="health">
+                    <div class="ob-section-title">
+                        <div>
+                            <span class="ob-section-eyebrow">Integridade operacional</span>
+                            <h2>Saúde da stack</h2>
+                            <p>Acompanhe serviços, arquivos, monitoramento, cursor e comunicação entre os componentes.
+                            </p>
+                        </div>
+                        <button class="ob-btn ob-btn--ghost" id="btnRefreshHealth" type="button">⟳ Atualizar</button>
+                    </div>
+
+                    <div id="healthComponentsContainer" class="ob-health-grid">
+                        <p class="ob-hint">Carregando componentes...</p>
+                    </div>
+                </section>
+
+                <!-- CONFIGURATION -->
+                <section class="ob-section" id="section-configuration" data-section="configuration">
+                    <div class="ob-section-title">
+                        <div>
+                            <span class="ob-section-eyebrow">Configuração ativa</span>
+                            <h2>Sensor e topologia</h2>
+                            <p>Consulte as interfaces, redes e caminhos atualmente utilizados pelo monitoramento.</p>
+                        </div>
+                        <a class="ob-btn ob-btn--primary" href="{% url 'incidentes:suricata_onboarding' %}">
+                            ✏ Editar configuração
+                        </a>
+                    </div>
+
+                    <div id="configurationContainer" class="ob-config-grid">
+                        <p class="ob-hint">Carregando configuração...</p>
+                    </div>
+                </section>
+
+                <!-- RULES -->
+                <section class="ob-section" id="section-rules" data-section="rules">
+                    <div class="ob-section-title">
+                        <div>
+                            <span class="ob-section-eyebrow">Mecanismos de detecção</span>
+                            <h2>Regras do Suricata</h2>
+                            <p>Acompanhe a disponibilidade das regras MoonShield e ET Open e a validação do arquivo de
+                                configuração.</p>
+                        </div>
+                        <button class="ob-btn ob-btn--primary" id="btnUpdateAllRules" type="button">
+                            ⟳ Atualizar regras
+                        </button>
+                    </div>
+
+                    <div id="rulesContainer" class="ob-rules-grid">
+                        <p class="ob-hint">Carregando regras...</p>
+                    </div>
+                </section>
+
+                <!-- TASKS -->
+                <section class="ob-section" id="section-tasks" data-section="tasks">
+                    <div class="ob-section-title">
+                        <div>
+                            <span class="ob-section-eyebrow">Operações do sistema</span>
+                            <h2>Tarefas do Suricata</h2>
+                            <p>Acompanhe instalações, diagnósticos, validações, atualizações e reinícios.</p>
+                        </div>
+                        <button class="ob-btn ob-btn--ghost" id="btnRefreshTasks" type="button">⟳ Atualizar</button>
+                    </div>
+
+                    <div class="ob-task-filters">
+                        <div class="ob-form-group">
+                            <label for="taskStatusFilter">Status</label>
+                            <select class="ob-select" id="taskStatusFilter">
+                                <option value="">Todos</option>
+                                <option value="pendente">Pendente</option>
+                                <option value="executando">Executando</option>
+                                <option value="sucesso">Sucesso</option>
+                                <option value="erro">Erro</option>
+                                <option value="cancelado">Cancelado</option>
+                            </select>
+                        </div>
+                        <div class="ob-form-group">
+                            <label for="taskTypeFilter">Tipo</label>
+                            <select class="ob-select" id="taskTypeFilter">
+                                <option value="">Todos</option>
+                                <option value="diagnostico">Diagnóstico</option>
+                                <option value="instalacao">Instalação</option>
+                                <option value="configuracao">Configuração</option>
+                                <option value="atualizacao_regras">Atualização de regras</option>
+                                <option value="validacao">Validação</option>
+                                <option value="reinicio_suricata">Reinício do Suricata</option>
+                            </select>
+                        </div>
+                        <button class="ob-btn ob-btn--ghost ob-btn--sm" id="btnClearTaskFilters"
+                            type="button">Limpar</button>
+                    </div>
+
+                    <div class="ob-panel">
+                        <div class="ob-table-wrap">
+                            <table class="ob-table">
+                                <thead>
+                                    <tr>
+                                        <th>Tarefa</th>
+                                        <th>Status</th>
+                                        <th>Progresso</th>
+                                        <th>Etapa</th>
+                                        <th>Iniciada</th>
+                                        <th>Duração</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="taskTableBody">
+                                    <tr>
+                                        <td colspan="7" style="text-align: center; padding: 20px;">Carregando tarefas...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="ob-table-footer">
+                            <span id="taskPaginationText">Nenhuma tarefa carregada</span>
+                            <div class="ob-pagination">
+                                <button class="ob-icon-btn ob-icon-btn--sm" id="btnTaskPrev" type="button"
+                                    disabled>←</button>
+                                <span id="taskPageText">Página 1</span>
+                                <button class="ob-icon-btn ob-icon-btn--sm" id="btnTaskNext" type="button"
+                                    disabled">→</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- DIAGNOSTIC -->
+                <section class="ob-section" id="section-diagnostic" data-section="diagnostic">
+                    <div class="ob-section-title">
+                        <div>
+                            <span class="ob-section-eyebrow">Verificação detalhada</span>
+                            <h2>Diagnóstico do Suricata</h2>
+                            <p>Execute uma análise completa do ambiente, configuração, regras, serviços, EVE e monitor.
+                            </p>
+                        </div>
+                        <button class="ob-btn ob-btn--primary" id="btnRunDiagnostic" type="button">📊 Executar
+                            diagnóstico</button>
+                    </div>
+
+                    <div id="diagnosticContainer">
+                        <p class="ob-hint">Diagnóstico não executado ainda. Clique em "Executar diagnóstico" para
+                            começar.</p>
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- TASK DRAWER -->
+    <aside class="ob-drawer" id="taskDrawer" aria-hidden="true">
+        <div class="ob-drawer__backdrop" data-close-drawer></div>
+        <div class="ob-drawer__panel">
+            <div class="ob-drawer__header">
+                <h2 id="taskDrawerTitle">Tarefa Suricata</h2>
+                <button class="ob-icon-btn" id="btnCloseDrawer" type="button">×</button>
+            </div>
+            <div class="ob-drawer__body">
+                <div class="ob-task-summary">
+                    <span class="ob-pill ob-pill--pending" id="drawerTaskStatus">Pendente</span>
+                    <strong id="drawerTaskType">—</strong>
+                    <small id="drawerTaskId">—</small>
+                </div>
+
+                <div class="ob-progress-card">
+                    <div class="ob-progress-card__header">
+                        <span id="drawerTaskStage">Aguardando início</span>
+                        <strong id="drawerTaskPercent">0%</strong>
+                    </div>
+                    <div class="ob-progress">
+                        <span id="drawerTaskProgressBar"></span>
+                    </div>
+                    <p id="drawerTaskMessage">Nenhuma atualização disponível.</p>
+                </div>
+
+                <div class="ob-task-metadata">
+                    <div>
+                        <dt>Criada</dt>
+                        <dd id="drawerTaskCreated">—</dd>
+                    </div>
+                    <div>
+                        <dt>Iniciada</dt>
+                        <dd id="drawerTaskStarted">—</dd>
+                    </div>
+                    <div>
+                        <dt>Finalizada</dt>
+                        <dd id="drawerTaskFinished">—</dd>
+                    </div>
+                    <div>
+                        <dt>Duração</dt>
+                        <dd id="drawerTaskDuration">—</dd>
+                    </div>
+                </div>
+
+                <div class="ob-alert ob-alert--error" id="drawerTaskError" hidden>
+                    <strong>Erro da tarefa</strong>
+                    <p id="drawerTaskErrorText"></p>
+                </div>
+
+                <div class="ob-drawer-section">
+                    <h3>Logs da execução</h3>
+                    <div class="ob-terminal">
+                        <div class="ob-terminal__header">
+                            <div class="ob-terminal__dots"><span></span><span></span><span></span></div>
+                            <span>moonshield-suricata</span>
+                        </div>
+                        <div class="ob-terminal__body" id="drawerTaskLogs">
+                            <div class="ob-terminal__empty">Os logs aparecerão aqui.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="ob-drawer__footer">
+                <button class="ob-btn ob-btn--secondary" id="btnCloseDrawerFooter" type="button">Fechar</button>
             </div>
         </div>
     </aside>
 
-    <div
-        class="sp-sidebar-backdrop"
-        id="sidebarBackdrop"
-        aria-hidden="true"
-    ></div>
-
-    <!-- ============================================================
-         ÁREA PRINCIPAL
-    ============================================================= -->
-    <div class="sp-main">
-
-        <!-- TOPBAR -->
-        <header class="sp-topbar">
-            <div class="sp-topbar__left">
-                <button
-                    class="sp-icon-btn sp-topbar__menu"
-                    id="btnOpenSidebar"
-                    type="button"
-                    aria-label="Abrir menu"
-                >
-                    <svg
-                        width="19"
-                        height="19"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <path d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                </button>
-
-                <div class="sp-page-heading">
-                    <span class="sp-page-heading__eyebrow">
-                        Segurança de rede
-                    </span>
-
-                    <div class="sp-page-heading__line">
-                        <h1>Suricata</h1>
-
-                        <span
-                            class="sp-chip sp-chip--pending"
-                            id="headerStackChip"
-                        >
-                            <span class="sp-chip__dot"></span>
-                            <span id="headerStackText">Verificando</span>
-                        </span>
-                    </div>
-                </div>
+    <!-- CONFIRMATION MODAL -->
+    <div class="ob-modal" id="confirmationModal" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="ob-modal__backdrop" data-close-confirmation></div>
+        <div class="ob-modal__dialog">
+            <h2 id="confirmationModalTitle">Confirmar operação</h2>
+            <p id="confirmationModalText">Confirme para continuar.</p>
+            <div id="confirmationModalDetails" hidden></div>
+            <div class="ob-modal__actions">
+                <button class="ob-btn ob-btn--ghost" id="btnCancelConfirmation" type="button">Voltar</button>
+                <button class="ob-btn ob-btn--primary" id="btnConfirmOperation" type="button">Confirmar</button>
             </div>
-
-            <div class="sp-topbar__right">
-                <div class="sp-last-update">
-                    <span>Última atualização</span>
-                    <strong id="lastUpdateText">agora</strong>
-                </div>
-
-                <button
-                    class="sp-icon-btn"
-                    id="btnRefreshStatus"
-                    type="button"
-                    aria-label="Atualizar status"
-                    title="Atualizar status"
-                >
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.9"
-                    >
-                        <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
-                        <path d="M20 4v7h-7" />
-                    </svg>
-                </button>
-
-                <button
-                    class="sp-btn sp-btn--primary sp-btn--compact"
-                    id="btnRunDiagnosticTop"
-                    type="button"
-                >
-                    <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="m20 20-4-4" />
-                    </svg>
-                    Diagnosticar
-                </button>
-            </div>
-        </header>
-
-        <!-- CONTEÚDO -->
-        <main class="sp-content">
-
-            <!-- ====================================================
-                 VISÃO GERAL
-            ===================================================== -->
-            <section
-                class="sp-section is-active"
-                id="section-overview"
-                data-section="overview"
-            >
-                <div class="sp-hero">
-                    <div class="sp-hero__copy">
-                        <div class="sp-hero__eyebrow">
-                            <span
-                                class="sp-status-dot sp-status-dot--pending"
-                                id="heroStatusDot"
-                            ></span>
-
-                            <span id="heroStatusEyebrow">
-                                Coletando estado da proteção
-                            </span>
-                        </div>
-
-                        <h2>
-                            Sua rede sob
-                            <em>observação contínua.</em>
-                        </h2>
-
-                        <p id="heroDescription">
-                            O MoonShield está verificando a integridade do
-                            Suricata, do monitor local e do fluxo de eventos.
-                        </p>
-
-                        <div class="sp-hero__actions">
-                            <button
-                                class="sp-btn sp-btn--primary"
-                                id="btnRunDiagnosticHero"
-                                type="button"
-                            >
-                                <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                >
-                                    <path d="M3 12h4l2-5 4 10 2-5h6" />
-                                </svg>
-                                Executar diagnóstico
-                            </button>
-
-                            <button
-                                class="sp-btn sp-btn--ghost"
-                                id="btnOpenConfiguration"
-                                type="button"
-                            >
-                                Ver configuração
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="sp-hero__visual">
-                        <div class="sp-orbit">
-                            <div class="sp-orbit__ring sp-orbit__ring--1"></div>
-                            <div class="sp-orbit__ring sp-orbit__ring--2"></div>
-                            <div class="sp-orbit__ring sp-orbit__ring--3"></div>
-
-                            <div class="sp-orbit__node sp-orbit__node--sensor">
-                                <span class="sp-orbit__pulse"></span>
-
-                                <svg
-                                    width="41"
-                                    height="41"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.3"
-                                >
-                                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                                    <path d="M8.5 12 11 14.5 16 9.5" />
-                                </svg>
-                            </div>
-
-                            <div class="sp-orbit__satellite sp-orbit__satellite--1">
-                                <span>WAN</span>
-                            </div>
-
-                            <div class="sp-orbit__satellite sp-orbit__satellite--2">
-                                <span>LAN</span>
-                            </div>
-
-                            <div class="sp-orbit__satellite sp-orbit__satellite--3">
-                                <span>EVE</span>
-                            </div>
-
-                            <div
-                                class="sp-orbit__status sp-orbit__status--pending"
-                                id="orbitStatus"
-                            >
-                                <span class="sp-orbit__status-dot"></span>
-                                <span id="orbitStatusText">Verificando stack</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Cards principais -->
-                <div class="sp-section-heading">
-                    <div>
-                        <span class="sp-section-heading__eyebrow">
-                            Estado atual
-                        </span>
-                        <h3>Componentes da proteção</h3>
-                    </div>
-
-                    <button
-                        class="sp-link-btn"
-                        type="button"
-                        data-section-link="health"
-                    >
-                        Ver detalhes da stack
-                        <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                        </svg>
-                    </button>
-                </div>
-
-                <div class="sp-status-grid">
-
-                    <article
-                        class="sp-status-card sp-status-card--pending"
-                        id="cardSuricata"
-                    >
-                        <div class="sp-status-card__top">
-                            <span class="sp-status-card__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                                </svg>
-                            </span>
-
-                            <span class="sp-card-state" id="cardSuricataState">
-                                Verificando
-                            </span>
-                        </div>
-
-                        <div class="sp-status-card__body">
-                            <span class="sp-status-card__label">Suricata</span>
-                            <strong id="cardSuricataValue">—</strong>
-                            <small id="cardSuricataDetail">
-                                Coletando informações do serviço
-                            </small>
-                        </div>
-
-                        <div class="sp-status-card__footer">
-                            <span id="cardSuricataMeta">Versão indisponível</span>
-                            <button
-                                type="button"
-                                class="sp-mini-action"
-                                data-action="restart-suricata"
-                            >
-                                Reiniciar
-                            </button>
-                        </div>
-                    </article>
-
-                    <article
-                        class="sp-status-card sp-status-card--pending"
-                        id="cardMonitor"
-                    >
-                        <div class="sp-status-card__top">
-                            <span class="sp-status-card__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M3 12h4l2-5 4 10 2-5h6" />
-                                </svg>
-                            </span>
-
-                            <span class="sp-card-state" id="cardMonitorState">
-                                Verificando
-                            </span>
-                        </div>
-
-                        <div class="sp-status-card__body">
-                            <span class="sp-status-card__label">Monitor local</span>
-                            <strong id="cardMonitorValue">—</strong>
-                            <small id="cardMonitorDetail">
-                                Validando leitura do eve.json
-                            </small>
-                        </div>
-
-                        <div class="sp-status-card__footer">
-                            <span id="cardMonitorMeta">Cursor não consultado</span>
-                            <button
-                                type="button"
-                                class="sp-mini-action"
-                                data-action="restart-monitor"
-                            >
-                                Reiniciar
-                            </button>
-                        </div>
-                    </article>
-
-                    <article
-                        class="sp-status-card sp-status-card--pending"
-                        id="cardEve"
-                    >
-                        <div class="sp-status-card__top">
-                            <span class="sp-status-card__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-                                    <path d="M14 2v6h6M8 13h8M8 17h6" />
-                                </svg>
-                            </span>
-
-                            <span class="sp-card-state" id="cardEveState">
-                                Verificando
-                            </span>
-                        </div>
-
-                        <div class="sp-status-card__body">
-                            <span class="sp-status-card__label">EVE JSON</span>
-                            <strong id="cardEveValue">—</strong>
-                            <small id="cardEveDetail">
-                                Verificando atividade do arquivo
-                            </small>
-                        </div>
-
-                        <div class="sp-status-card__footer">
-                            <span id="cardEveMeta">Sem tamanho disponível</span>
-                            <button
-                                type="button"
-                                class="sp-mini-action"
-                                data-section-link="health"
-                            >
-                                Detalhes
-                            </button>
-                        </div>
-                    </article>
-
-                    <article
-                        class="sp-status-card sp-status-card--pending"
-                        id="cardRules"
-                    >
-                        <div class="sp-status-card__top">
-                            <span class="sp-status-card__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M5 3h14v18H5z" />
-                                    <path d="M8 8h8M8 12h8M8 16h5" />
-                                </svg>
-                            </span>
-
-                            <span class="sp-card-state" id="cardRulesState">
-                                Verificando
-                            </span>
-                        </div>
-
-                        <div class="sp-status-card__body">
-                            <span class="sp-status-card__label">Regras</span>
-                            <strong id="cardRulesValue">—</strong>
-                            <small id="cardRulesDetail">
-                                Conferindo MoonShield e ET Open
-                            </small>
-                        </div>
-
-                        <div class="sp-status-card__footer">
-                            <span id="cardRulesMeta">Pacotes não consultados</span>
-                            <button
-                                type="button"
-                                class="sp-mini-action"
-                                data-section-link="rules"
-                            >
-                                Gerenciar
-                            </button>
-                        </div>
-                    </article>
-                </div>
-
-                <!-- Faixa de saúde + topologia -->
-                <div class="sp-overview-layout">
-
-                    <article class="sp-panel sp-panel--health">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Saúde consolidada
-                                </span>
-                                <h3>Stack Suricata</h3>
-                            </div>
-
-                            <span
-                                class="sp-chip sp-chip--pending"
-                                id="healthSummaryChip"
-                            >
-                                Analisando
-                            </span>
-                        </div>
-
-                        <div class="sp-health-score">
-                            <div class="sp-health-score__ring">
-                                <svg
-                                    viewBox="0 0 120 120"
-                                    aria-hidden="true"
-                                >
-                                    <circle
-                                        class="sp-health-score__track"
-                                        cx="60"
-                                        cy="60"
-                                        r="48"
-                                    ></circle>
-
-                                    <circle
-                                        class="sp-health-score__value"
-                                        id="healthScoreCircle"
-                                        cx="60"
-                                        cy="60"
-                                        r="48"
-                                    ></circle>
-                                </svg>
-
-                                <div class="sp-health-score__number">
-                                    <strong id="healthScoreValue">0</strong>
-                                    <span>%</span>
-                                </div>
-                            </div>
-
-                            <div class="sp-health-score__copy">
-                                <strong id="healthScoreTitle">
-                                    Calculando integridade
-                                </strong>
-
-                                <p id="healthScoreText">
-                                    O painel está avaliando serviços,
-                                    configuração, regras e telemetria.
-                                </p>
-
-                                <div class="sp-health-legend">
-                                    <span>
-                                        <i class="sp-legend-dot sp-legend-dot--ok"></i>
-                                        <strong id="healthOkCount">0</strong>
-                                        saudáveis
-                                    </span>
-
-                                    <span>
-                                        <i class="sp-legend-dot sp-legend-dot--warning"></i>
-                                        <strong id="healthWarningCount">0</strong>
-                                        avisos
-                                    </span>
-
-                                    <span>
-                                        <i class="sp-legend-dot sp-legend-dot--error"></i>
-                                        <strong id="healthErrorCount">0</strong>
-                                        erros
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="sp-panel__footer">
-                            <span id="healthLastDiagnostic">
-                                Nenhum diagnóstico completo nesta sessão
-                            </span>
-
-                            <button
-                                class="sp-link-btn"
-                                type="button"
-                                data-section-link="diagnostic"
-                            >
-                                Abrir diagnóstico
-                            </button>
-                        </div>
-                    </article>
-
-                    <article class="sp-panel sp-panel--topology">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Caminho do tráfego
-                                </span>
-                                <h3>Topologia configurada</h3>
-                            </div>
-
-                            <button
-                                class="sp-icon-btn sp-icon-btn--small"
-                                id="btnRefreshTopology"
-                                type="button"
-                                title="Atualizar topologia"
-                                aria-label="Atualizar topologia"
-                            >
-                                <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                >
-                                    <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
-                                    <path d="M20 4v7h-7" />
-                                </svg>
-                            </button>
-                        </div>
-
-                        <div class="sp-topology">
-                            <div class="sp-topology__node sp-topology__node--internet">
-                                <span class="sp-topology__node-icon">
-                                    <svg
-                                        width="20"
-                                        height="20"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.7"
-                                    >
-                                        <circle cx="12" cy="12" r="9" />
-                                        <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
-                                    </svg>
-                                </span>
-                                <strong>Internet</strong>
-                                <small>Tráfego externo</small>
-                            </div>
-
-                            <div class="sp-topology__link">
-                                <span></span>
-                                <small id="topologyWanLabel">WAN</small>
-                            </div>
-
-                            <div class="sp-topology__node sp-topology__node--sensor">
-                                <span class="sp-topology__sensor-pulse"></span>
-                                <span class="sp-topology__node-icon">
-                                    <svg
-                                        width="22"
-                                        height="22"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.6"
-                                    >
-                                        <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                                    </svg>
-                                </span>
-                                <strong>MoonShield</strong>
-                                <small id="topologyCaptureMode">Modo de captura</small>
-                            </div>
-
-                            <div class="sp-topology__link">
-                                <span></span>
-                                <small id="topologyLanLabel">LAN</small>
-                            </div>
-
-                            <div class="sp-topology__node sp-topology__node--network">
-                                <span class="sp-topology__node-icon">
-                                    <svg
-                                        width="20"
-                                        height="20"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.7"
-                                    >
-                                        <rect x="3" y="4" width="18" height="6" rx="2" />
-                                        <rect x="3" y="14" width="18" height="6" rx="2" />
-                                        <path d="M7 7h.01M7 17h.01" />
-                                    </svg>
-                                </span>
-                                <strong>Rede protegida</strong>
-                                <small id="topologyHomeNet">HOME_NET</small>
-                            </div>
-                        </div>
-
-                        <div class="sp-topology__interfaces">
-                            <span>Interfaces monitoradas</span>
-
-                            <div
-                                class="sp-interface-chips"
-                                id="topologyInterfaceChips"
-                            >
-                                <span class="sp-interface-chip">Detectando...</span>
-                            </div>
-                        </div>
-                    </article>
-                </div>
-
-                <!-- Atividade recente -->
-                <div class="sp-section-heading sp-section-heading--spaced">
-                    <div>
-                        <span class="sp-section-heading__eyebrow">
-                            Execuções recentes
-                        </span>
-                        <h3>Atividade operacional</h3>
-                    </div>
-
-                    <button
-                        class="sp-link-btn"
-                        type="button"
-                        data-section-link="tasks"
-                    >
-                        Ver todas as tarefas
-                        <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                        </svg>
-                    </button>
-                </div>
-
-                <div class="sp-activity-list" id="overviewTaskList">
-                    <div class="sp-empty-state sp-empty-state--compact">
-                        <span class="sp-empty-state__icon">
-                            <svg
-                                width="20"
-                                height="20"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                            >
-                                <path d="M9 11l3 3L22 4" />
-                                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                            </svg>
-                        </span>
-
-                        <div>
-                            <strong>Nenhuma atividade carregada</strong>
-                            <span>As últimas tarefas aparecerão aqui.</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ====================================================
-                 SAÚDE
-            ===================================================== -->
-            <section
-                class="sp-section"
-                id="section-health"
-                data-section="health"
-            >
-                <div class="sp-section-title">
-                    <div>
-                        <span class="sp-section-title__eyebrow">
-                            Integridade operacional
-                        </span>
-
-                        <h2>Saúde da stack</h2>
-
-                        <p>
-                            Acompanhe serviços, arquivos, monitoramento,
-                            cursor e comunicação entre os componentes.
-                        </p>
-                    </div>
-
-                    <button
-                        class="sp-btn sp-btn--ghost"
-                        id="btnRefreshHealth"
-                        type="button"
-                    >
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
-                            <path d="M20 4v7h-7" />
-                        </svg>
-                        Atualizar
-                    </button>
-                </div>
-
-                <div class="sp-health-grid">
-
-                    <article class="sp-panel sp-component-panel">
-                        <div class="sp-component-panel__head">
-                            <span class="sp-component-panel__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                                </svg>
-                            </span>
-
-                            <div>
-                                <strong>Serviço Suricata</strong>
-                                <span id="healthSuricataMessage">
-                                    Aguardando consulta
-                                </span>
-                            </div>
-
-                            <span
-                                class="sp-status-pill sp-status-pill--pending"
-                                id="healthSuricataStatus"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <dl class="sp-detail-list">
-                            <div>
-                                <dt>Instalado</dt>
-                                <dd id="healthSuricataInstalled">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Ativo</dt>
-                                <dd id="healthSuricataActive">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Habilitado</dt>
-                                <dd id="healthSuricataEnabled">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>PID</dt>
-                                <dd id="healthSuricataPid">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Versão</dt>
-                                <dd id="healthSuricataVersion">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Serviço</dt>
-                                <dd id="healthSuricataService">suricata</dd>
-                            </div>
-                        </dl>
-
-                        <div class="sp-component-panel__actions">
-                            <button
-                                class="sp-btn sp-btn--ghost sp-btn--small"
-                                type="button"
-                                data-action="restart-suricata"
-                            >
-                                Reiniciar Suricata
-                            </button>
-                        </div>
-                    </article>
-
-                    <article class="sp-panel sp-component-panel">
-                        <div class="sp-component-panel__head">
-                            <span class="sp-component-panel__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M3 12h4l2-5 4 10 2-5h6" />
-                                </svg>
-                            </span>
-
-                            <div>
-                                <strong>Monitor MoonShield</strong>
-                                <span id="healthMonitorMessage">
-                                    Aguardando consulta
-                                </span>
-                            </div>
-
-                            <span
-                                class="sp-status-pill sp-status-pill--pending"
-                                id="healthMonitorStatus"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <dl class="sp-detail-list">
-                            <div>
-                                <dt>Instalado</dt>
-                                <dd id="healthMonitorInstalled">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Ativo</dt>
-                                <dd id="healthMonitorActive">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Lendo EVE</dt>
-                                <dd id="healthMonitorReading">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Saudável</dt>
-                                <dd id="healthMonitorHealthy">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>PID</dt>
-                                <dd id="healthMonitorPid">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Serviço</dt>
-                                <dd id="healthMonitorService">
-                                    moonshield-suricata-monitor
-                                </dd>
-                            </div>
-                        </dl>
-
-                        <div class="sp-component-panel__actions">
-                            <button
-                                class="sp-btn sp-btn--ghost sp-btn--small"
-                                type="button"
-                                data-action="restart-monitor"
-                            >
-                                Reiniciar monitor
-                            </button>
-                        </div>
-                    </article>
-
-                    <article class="sp-panel sp-component-panel">
-                        <div class="sp-component-panel__head">
-                            <span class="sp-component-panel__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-                                    <path d="M14 2v6h6" />
-                                </svg>
-                            </span>
-
-                            <div>
-                                <strong>Arquivo EVE</strong>
-                                <span id="healthEveMessage">
-                                    Aguardando consulta
-                                </span>
-                            </div>
-
-                            <span
-                                class="sp-status-pill sp-status-pill--pending"
-                                id="healthEveStatus"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <dl class="sp-detail-list">
-                            <div>
-                                <dt>Existe</dt>
-                                <dd id="healthEveExists">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Legível</dt>
-                                <dd id="healthEveReadable">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Atualizando</dt>
-                                <dd id="healthEveUpdating">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Tamanho</dt>
-                                <dd id="healthEveSize">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Última alteração</dt>
-                                <dd id="healthEveAge">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Caminho</dt>
-                                <dd
-                                    class="sp-mono"
-                                    id="healthEvePath"
-                                >
-                                    —
-                                </dd>
-                            </div>
-                        </dl>
-                    </article>
-
-                    <article class="sp-panel sp-component-panel">
-                        <div class="sp-component-panel__head">
-                            <span class="sp-component-panel__icon">
-                                <svg
-                                    width="20"
-                                    height="20"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.7"
-                                >
-                                    <path d="M4 12h16M12 4v16" />
-                                    <circle cx="12" cy="12" r="9" />
-                                </svg>
-                            </span>
-
-                            <div>
-                                <strong>Cursor do monitor</strong>
-                                <span id="healthCursorMessage">
-                                    Aguardando consulta
-                                </span>
-                            </div>
-
-                            <span
-                                class="sp-status-pill sp-status-pill--pending"
-                                id="healthCursorStatus"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <dl class="sp-detail-list">
-                            <div>
-                                <dt>Existe</dt>
-                                <dd id="healthCursorExists">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Válido</dt>
-                                <dd id="healthCursorValid">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Acompanhando</dt>
-                                <dd id="healthCursorFollowing">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Posição</dt>
-                                <dd id="healthCursorPosition">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Atraso</dt>
-                                <dd id="healthCursorLag">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Caminho</dt>
-                                <dd
-                                    class="sp-mono"
-                                    id="healthCursorPath"
-                                >
-                                    —
-                                </dd>
-                            </div>
-                        </dl>
-                    </article>
-                </div>
-
-                <article class="sp-panel sp-wide-panel">
-                    <div class="sp-panel__head">
-                        <div>
-                            <span class="sp-panel__eyebrow">
-                                Resumo de integridade
-                            </span>
-
-                            <h3>Condição geral da stack</h3>
-                        </div>
-
-                        <span
-                            class="sp-chip sp-chip--pending"
-                            id="stackGeneralStatus"
-                        >
-                            Verificando
-                        </span>
-                    </div>
-
-                    <div class="sp-stack-checks" id="stackChecksList">
-                        <div class="sp-stack-check sp-stack-check--pending">
-                            <span class="sp-stack-check__status"></span>
-                            <div>
-                                <strong>Consultando serviços</strong>
-                                <span>Aguarde a atualização do painel.</span>
-                            </div>
-                        </div>
-                    </div>
-                </article>
-            </section>
-
-            <!-- ====================================================
-                 CONFIGURAÇÃO
-            ===================================================== -->
-            <section
-                class="sp-section"
-                id="section-configuration"
-                data-section="configuration"
-            >
-                <div class="sp-section-title">
-                    <div>
-                        <span class="sp-section-title__eyebrow">
-                            Configuração ativa
-                        </span>
-
-                        <h2>Sensor e topologia</h2>
-
-                        <p>
-                            Consulte as interfaces, redes e caminhos atualmente
-                            utilizados pelo monitoramento.
-                        </p>
-                    </div>
-
-                    <a
-                        class="sp-btn sp-btn--primary"
-                        href="{% url 'incidentes:suricata_onboarding' %}"
-                    >
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                        </svg>
-                        Editar configuração
-                    </a>
-                </div>
-
-                <div class="sp-config-layout">
-                    <article class="sp-panel sp-config-card">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Identificação
-                                </span>
-                                <h3>Sensor local</h3>
-                            </div>
-
-                            <span
-                                class="sp-chip sp-chip--pending"
-                                id="configReadyChip"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <dl class="sp-config-list">
-                            <div>
-                                <dt>Nome</dt>
-                                <dd id="configName">Suricata Local</dd>
-                            </div>
-
-                            <div>
-                                <dt>Modo de captura</dt>
-                                <dd id="configCaptureMode">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Onboarding</dt>
-                                <dd id="configOnboarding">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Instalação concluída</dt>
-                                <dd id="configInstallation">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Suricata configurado</dt>
-                                <dd id="configSuricataConfigured">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Última atualização</dt>
-                                <dd id="configUpdatedAt">—</dd>
-                            </div>
-                        </dl>
-                    </article>
-
-                    <article class="sp-panel sp-config-card">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Interfaces
-                                </span>
-                                <h3>Fluxo da rede</h3>
-                            </div>
-                        </div>
-
-                        <dl class="sp-config-list">
-                            <div>
-                                <dt>WAN</dt>
-                                <dd class="sp-mono" id="configWan">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>LAN</dt>
-                                <dd class="sp-mono" id="configLan">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Gerenciamento</dt>
-                                <dd class="sp-mono" id="configMgmt">—</dd>
-                            </div>
-
-                            <div class="sp-config-list__full">
-                                <dt>Monitoradas</dt>
-                                <dd>
-                                    <div
-                                        class="sp-interface-chips"
-                                        id="configMonitoredInterfaces"
-                                    >
-                                        <span class="sp-interface-chip">
-                                            Nenhuma
-                                        </span>
-                                    </div>
-                                </dd>
-                            </div>
-                        </dl>
-                    </article>
-
-                    <article class="sp-panel sp-config-card">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Redes internas
-                                </span>
-                                <h3>HOME_NET e DNS</h3>
-                            </div>
-                        </div>
-
-                        <dl class="sp-config-list">
-                            <div class="sp-config-list__full">
-                                <dt>HOME_NET</dt>
-                                <dd>
-                                    <div
-                                        class="sp-code-list"
-                                        id="configHomeNetList"
-                                    >
-                                        <code>Nenhuma rede informada</code>
-                                    </div>
-                                </dd>
-                            </div>
-
-                            <div>
-                                <dt>DNS interno</dt>
-                                <dd class="sp-mono" id="configInternalDns">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>ET Open</dt>
-                                <dd id="configEtOpen">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Regras MoonShield</dt>
-                                <dd id="configMoonShieldRules">—</dd>
-                            </div>
-                        </dl>
-                    </article>
-
-                    <article class="sp-panel sp-config-card">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Arquivos
-                                </span>
-                                <h3>Caminhos utilizados</h3>
-                            </div>
-                        </div>
-
-                        <dl class="sp-config-list sp-config-list--paths">
-                            <div class="sp-config-list__full">
-                                <dt>suricata.yaml</dt>
-                                <dd>
-                                    <code id="configYamlPath">
-                                        /etc/suricata/suricata.yaml
-                                    </code>
-                                </dd>
-                            </div>
-
-                            <div class="sp-config-list__full">
-                                <dt>eve.json</dt>
-                                <dd>
-                                    <code id="configEvePath">
-                                        /var/log/suricata/eve.json
-                                    </code>
-                                </dd>
-                            </div>
-
-                            <div class="sp-config-list__full">
-                                <dt>Cursor</dt>
-                                <dd>
-                                    <code id="configCursorPath">
-                                        var/cursors/suricata_eve.cursor
-                                    </code>
-                                </dd>
-                            </div>
-                        </dl>
-                    </article>
-                </div>
-
-                <article class="sp-panel sp-warning-panel">
-                    <div class="sp-warning-panel__icon">
-                        <svg
-                            width="20"
-                            height="20"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.8"
-                        >
-                            <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
-                            <path d="M12 9v4M12 17h.01" />
-                        </svg>
-                    </div>
-
-                    <div class="sp-warning-panel__copy">
-                        <strong>Alterações afetam a captura de tráfego</strong>
-                        <p>
-                            Revise cuidadosamente WAN, LAN e HOME_NET antes
-                            de reaplicar a configuração no servidor.
-                        </p>
-                    </div>
-
-                    <a
-                        class="sp-btn sp-btn--ghost sp-btn--small"
-                        href="{% url 'incidentes:suricata_onboarding' %}"
-                    >
-                        Abrir assistente
-                    </a>
-                </article>
-            </section>
-
-            <!-- ====================================================
-                 REGRAS
-            ===================================================== -->
-            <section
-                class="sp-section"
-                id="section-rules"
-                data-section="rules"
-            >
-                <div class="sp-section-title">
-                    <div>
-                        <span class="sp-section-title__eyebrow">
-                            Mecanismos de detecção
-                        </span>
-
-                        <h2>Regras do Suricata</h2>
-
-                        <p>
-                            Acompanhe a disponibilidade das regras MoonShield,
-                            ET Open e a validação do arquivo de configuração.
-                        </p>
-                    </div>
-
-                    <button
-                        class="sp-btn sp-btn--primary"
-                        id="btnUpdateAllRules"
-                        type="button"
-                    >
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
-                            <path d="M20 4v7h-7" />
-                        </svg>
-                        Atualizar regras
-                    </button>
-                </div>
-
-                <div class="sp-rules-grid">
-                    <article class="sp-panel sp-rule-card">
-                        <div class="sp-rule-card__icon sp-rule-card__icon--moon">
-                            <svg
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.6"
-                            >
-                                <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                            </svg>
-                        </div>
-
-                        <div class="sp-rule-card__head">
-                            <div>
-                                <span>Pacote proprietário</span>
-                                <h3>MoonShield Rules</h3>
-                            </div>
-
-                            <span
-                                class="sp-status-pill sp-status-pill--pending"
-                                id="rulesMoonStatus"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <p id="rulesMoonDescription">
-                            Regras focadas em reconhecimento, autenticação,
-                            movimento lateral, DNS, web, TLS e anomalias.
-                        </p>
-
-                        <dl class="sp-rule-metrics">
-                            <div>
-                                <dt>Arquivo</dt>
-                                <dd class="sp-mono" id="rulesMoonFile">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Instaladas</dt>
-                                <dd id="rulesMoonInstalled">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Referenciadas</dt>
-                                <dd id="rulesMoonReferenced">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Total</dt>
-                                <dd id="rulesMoonCount">—</dd>
-                            </div>
-                        </dl>
-
-                        <button
-                            class="sp-btn sp-btn--ghost sp-btn--small"
-                            id="btnUpdateMoonRules"
-                            type="button"
-                        >
-                            Reaplicar MoonShield
-                        </button>
-                    </article>
-
-                    <article class="sp-panel sp-rule-card">
-                        <div class="sp-rule-card__icon sp-rule-card__icon--et">
-                            <svg
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.6"
-                            >
-                                <path d="M4 4h16v16H4z" />
-                                <path d="M8 8h8M8 12h8M8 16h5" />
-                            </svg>
-                        </div>
-
-                        <div class="sp-rule-card__head">
-                            <div>
-                                <span>Threat intelligence</span>
-                                <h3>Emerging Threats Open</h3>
-                            </div>
-
-                            <span
-                                class="sp-status-pill sp-status-pill--pending"
-                                id="rulesEtStatus"
-                            >
-                                Verificando
-                            </span>
-                        </div>
-
-                        <p id="rulesEtDescription">
-                            Conjunto comunitário de assinaturas atualizado
-                            pelo suricata-update.
-                        </p>
-
-                        <dl class="sp-rule-metrics">
-                            <div>
-                                <dt>suricata-update</dt>
-                                <dd id="rulesUpdaterInstalled">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>ET Open</dt>
-                                <dd id="rulesEtInstalled">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Atualização</dt>
-                                <dd id="rulesEtUpdatedAt">—</dd>
-                            </div>
-
-                            <div>
-                                <dt>Status</dt>
-                                <dd id="rulesEtSummary">—</dd>
-                            </div>
-                        </dl>
-
-                        <button
-                            class="sp-btn sp-btn--ghost sp-btn--small"
-                            id="btnUpdateEtRules"
-                            type="button"
-                        >
-                            Atualizar ET Open
-                        </button>
-                    </article>
-                </div>
-
-                <article class="sp-panel sp-wide-panel">
-                    <div class="sp-panel__head">
-                        <div>
-                            <span class="sp-panel__eyebrow">
-                                Validação das regras
-                            </span>
-
-                            <h3>Configuração carregável</h3>
-                        </div>
-
-                        <button
-                            class="sp-btn sp-btn--ghost sp-btn--small"
-                            id="btnValidateRules"
-                            type="button"
-                        >
-                            Executar suricata -T
-                        </button>
-                    </div>
-
-                    <div class="sp-validation-state">
-                        <span
-                            class="sp-validation-state__icon sp-validation-state__icon--pending"
-                            id="rulesValidationIcon"
-                        >
-                            <span class="sp-spinner"></span>
-                        </span>
-
-                        <div class="sp-validation-state__copy">
-                            <strong id="rulesValidationTitle">
-                                Validação ainda não executada
-                            </strong>
-
-                            <p id="rulesValidationText">
-                                Execute uma validação para confirmar se o YAML
-                                e todas as referências de regras estão corretos.
-                            </p>
-                        </div>
-
-                        <span
-                            class="sp-chip sp-chip--pending"
-                            id="rulesValidationChip"
-                        >
-                            Pendente
-                        </span>
-                    </div>
-
-                    <div
-                        class="sp-validation-output"
-                        id="rulesValidationOutput"
-                        hidden
-                    >
-                        <div class="sp-validation-output__head">
-                            <span>Saída da validação</span>
-
-                            <button
-                                class="sp-copy-btn"
-                                id="btnCopyValidation"
-                                type="button"
-                            >
-                                Copiar
-                            </button>
-                        </div>
-
-                        <pre id="rulesValidationTextOutput"></pre>
-                    </div>
-                </article>
-            </section>
-
-            <!-- ====================================================
-                 TAREFAS
-            ===================================================== -->
-            <section
-                class="sp-section"
-                id="section-tasks"
-                data-section="tasks"
-            >
-                <div class="sp-section-title">
-                    <div>
-                        <span class="sp-section-title__eyebrow">
-                            Operações do sistema
-                        </span>
-
-                        <h2>Tarefas do Suricata</h2>
-
-                        <p>
-                            Acompanhe instalações, diagnósticos, validações,
-                            atualizações e reinícios executados pelo MoonShield.
-                        </p>
-                    </div>
-
-                    <button
-                        class="sp-btn sp-btn--ghost"
-                        id="btnRefreshTasks"
-                        type="button"
-                    >
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
-                            <path d="M20 4v7h-7" />
-                        </svg>
-                        Atualizar
-                    </button>
-                </div>
-
-                <div class="sp-task-filters">
-                    <div class="sp-filter-group">
-                        <label for="taskStatusFilter">Status</label>
-
-                        <select
-                            class="sp-select"
-                            id="taskStatusFilter"
-                        >
-                            <option value="">Todos</option>
-                            <option value="pendente">Pendente</option>
-                            <option value="executando">Executando</option>
-                            <option value="sucesso">Sucesso</option>
-                            <option value="erro">Erro</option>
-                            <option value="cancelado">Cancelado</option>
-                            <option value="ignorado">Ignorado</option>
-                        </select>
-                    </div>
-
-                    <div class="sp-filter-group">
-                        <label for="taskTypeFilter">Tipo</label>
-
-                        <select
-                            class="sp-select"
-                            id="taskTypeFilter"
-                        >
-                            <option value="">Todos</option>
-                            <option value="diagnostico">Diagnóstico</option>
-                            <option value="instalacao">Instalação</option>
-                            <option value="configuracao">Configuração</option>
-                            <option value="atualizacao_regras">
-                                Atualização de regras
-                            </option>
-                            <option value="validacao">Validação</option>
-                            <option value="reinicio_suricata">
-                                Reinício do Suricata
-                            </option>
-                            <option value="reinicio_monitor">
-                                Reinício do monitor
-                            </option>
-                        </select>
-                    </div>
-
-                    <button
-                        class="sp-btn sp-btn--ghost sp-btn--small"
-                        id="btnClearTaskFilters"
-                        type="button"
-                    >
-                        Limpar filtros
-                    </button>
-                </div>
-
-                <article class="sp-panel sp-task-table-panel">
-                    <div class="sp-table-wrap">
-                        <table class="sp-table">
-                            <thead>
-                                <tr>
-                                    <th>Tarefa</th>
-                                    <th>Status</th>
-                                    <th>Progresso</th>
-                                    <th>Etapa</th>
-                                    <th>Iniciada</th>
-                                    <th>Duração</th>
-                                    <th class="sp-table__action-col"></th>
-                                </tr>
-                            </thead>
-
-                            <tbody id="taskTableBody">
-                                <tr class="sp-table__loading-row">
-                                    <td colspan="7">
-                                        <div class="sp-table-loading">
-                                            <span class="sp-spinner"></span>
-                                            <span>Carregando tarefas...</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="sp-table-footer">
-                        <span id="taskPaginationText">
-                            Nenhuma tarefa carregada
-                        </span>
-
-                        <div class="sp-pagination">
-                            <button
-                                class="sp-icon-btn sp-icon-btn--small"
-                                id="btnTaskPrev"
-                                type="button"
-                                aria-label="Página anterior"
-                                disabled
-                            >
-                                <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                >
-                                    <path d="m15 18-6-6 6-6" />
-                                </svg>
-                            </button>
-
-                            <span id="taskPageText">Página 1</span>
-
-                            <button
-                                class="sp-icon-btn sp-icon-btn--small"
-                                id="btnTaskNext"
-                                type="button"
-                                aria-label="Próxima página"
-                                disabled
-                            >
-                                <svg
-                                    width="15"
-                                    height="15"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="2"
-                                >
-                                    <path d="m9 18 6-6-6-6" />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </article>
-            </section>
-
-            <!-- ====================================================
-                 DIAGNÓSTICO
-            ===================================================== -->
-            <section
-                class="sp-section"
-                id="section-diagnostic"
-                data-section="diagnostic"
-            >
-                <div class="sp-section-title">
-                    <div>
-                        <span class="sp-section-title__eyebrow">
-                            Verificação detalhada
-                        </span>
-
-                        <h2>Diagnóstico do Suricata</h2>
-
-                        <p>
-                            Execute uma análise completa do ambiente,
-                            configuração, regras, serviços, EVE e monitor.
-                        </p>
-                    </div>
-
-                    <button
-                        class="sp-btn sp-btn--primary"
-                        id="btnRunDiagnostic"
-                        type="button"
-                    >
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="M3 12h4l2-5 4 10 2-5h6" />
-                        </svg>
-                        Executar diagnóstico
-                    </button>
-                </div>
-
-                <div class="sp-diagnostic-summary">
-                    <article class="sp-summary-card">
-                        <span class="sp-summary-card__label">
-                            Total de checks
-                        </span>
-                        <strong id="diagnosticTotal">0</strong>
-                        <small>Validações executadas</small>
-                    </article>
-
-                    <article class="sp-summary-card sp-summary-card--ok">
-                        <span class="sp-summary-card__label">
-                            Saudáveis
-                        </span>
-                        <strong id="diagnosticOk">0</strong>
-                        <small>Checks aprovados</small>
-                    </article>
-
-                    <article class="sp-summary-card sp-summary-card--warning">
-                        <span class="sp-summary-card__label">
-                            Avisos
-                        </span>
-                        <strong id="diagnosticWarnings">0</strong>
-                        <small>Pontos de atenção</small>
-                    </article>
-
-                    <article class="sp-summary-card sp-summary-card--error">
-                        <span class="sp-summary-card__label">
-                            Falhas críticas
-                        </span>
-                        <strong id="diagnosticCritical">0</strong>
-                        <small>Bloqueios encontrados</small>
-                    </article>
-                </div>
-
-                <div class="sp-diagnostic-layout">
-                    <article class="sp-panel sp-diagnostic-panel">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Resultado por grupo
-                                </span>
-
-                                <h3>Checklist técnico</h3>
-                            </div>
-
-                            <span
-                                class="sp-chip sp-chip--pending"
-                                id="diagnosticGeneralChip"
-                            >
-                                Não executado
-                            </span>
-                        </div>
-
-                        <div
-                            class="sp-diagnostic-groups"
-                            id="diagnosticGroups"
-                        >
-                            <div class="sp-empty-state">
-                                <span class="sp-empty-state__icon">
-                                    <svg
-                                        width="23"
-                                        height="23"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.8"
-                                    >
-                                        <circle cx="11" cy="11" r="7" />
-                                        <path d="m20 20-4-4" />
-                                    </svg>
-                                </span>
-
-                                <div>
-                                    <strong>Diagnóstico ainda não executado</strong>
-                                    <span>
-                                        Inicie uma análise para visualizar
-                                        todos os checks técnicos.
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </article>
-
-                    <article class="sp-panel sp-actions-panel">
-                        <div class="sp-panel__head">
-                            <div>
-                                <span class="sp-panel__eyebrow">
-                                    Recomendações
-                                </span>
-
-                                <h3>Ações sugeridas</h3>
-                            </div>
-                        </div>
-
-                        <div
-                            class="sp-recommended-actions"
-                            id="recommendedActions"
-                        >
-                            <div class="sp-empty-state sp-empty-state--compact">
-                                <span class="sp-empty-state__icon">
-                                    <svg
-                                        width="20"
-                                        height="20"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="1.8"
-                                    >
-                                        <path d="M9 18h6M10 22h4" />
-                                        <path d="M8.3 14.2A7 7 0 1 1 15.7 14.2C14.8 15 14 16 14 17h-4c0-1-.8-2-1.7-2.8Z" />
-                                    </svg>
-                                </span>
-
-                                <div>
-                                    <strong>Sem recomendações</strong>
-                                    <span>
-                                        Execute o diagnóstico para gerar ações.
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </article>
-                </div>
-            </section>
-        </main>
-    </div>
-</div>
-
-<!-- ================================================================
-     DRAWER DA TAREFA
-================================================================= -->
-<aside
-    class="sp-drawer"
-    id="taskDrawer"
-    aria-hidden="true"
-    aria-labelledby="taskDrawerTitle"
->
-    <div class="sp-drawer__backdrop" data-close-task-drawer></div>
-
-    <div class="sp-drawer__panel">
-        <div class="sp-drawer__head">
-            <div>
-                <span class="sp-drawer__eyebrow">Detalhes da tarefa</span>
-                <h2 id="taskDrawerTitle">Tarefa Suricata</h2>
-            </div>
-
-            <button
-                class="sp-icon-btn"
-                id="btnCloseTaskDrawer"
-                type="button"
-                aria-label="Fechar detalhes"
-            >
-                <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                >
-                    <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-            </button>
-        </div>
-
-        <div class="sp-drawer__body">
-            <div class="sp-task-detail-summary">
-                <span
-                    class="sp-status-pill sp-status-pill--pending"
-                    id="drawerTaskStatus"
-                >
-                    Pendente
-                </span>
-
-                <strong id="drawerTaskType">—</strong>
-                <small id="drawerTaskId">—</small>
-            </div>
-
-            <div class="sp-progress-card">
-                <div class="sp-progress-card__head">
-                    <span id="drawerTaskStage">Aguardando início</span>
-                    <strong id="drawerTaskPercent">0%</strong>
-                </div>
-
-                <div class="sp-progress">
-                    <span id="drawerTaskProgressBar"></span>
-                </div>
-
-                <p id="drawerTaskMessage">
-                    Nenhuma atualização disponível.
-                </p>
-            </div>
-
-            <dl class="sp-task-metadata">
-                <div>
-                    <dt>Criada</dt>
-                    <dd id="drawerTaskCreated">—</dd>
-                </div>
-
-                <div>
-                    <dt>Iniciada</dt>
-                    <dd id="drawerTaskStarted">—</dd>
-                </div>
-
-                <div>
-                    <dt>Finalizada</dt>
-                    <dd id="drawerTaskFinished">—</dd>
-                </div>
-
-                <div>
-                    <dt>Duração</dt>
-                    <dd id="drawerTaskDuration">—</dd>
-                </div>
-            </dl>
-
-            <div
-                class="sp-task-error"
-                id="drawerTaskError"
-                hidden
-            >
-                <strong>Erro da tarefa</strong>
-                <p id="drawerTaskErrorText"></p>
-            </div>
-
-            <div class="sp-drawer-section">
-                <div class="sp-drawer-section__head">
-                    <h3>Logs da execução</h3>
-
-                    <button
-                        class="sp-copy-btn"
-                        id="btnCopyTaskLogs"
-                        type="button"
-                    >
-                        Copiar logs
-                    </button>
-                </div>
-
-                <div class="sp-terminal">
-                    <div class="sp-terminal__head">
-                        <span class="sp-terminal__dots">
-                            <i></i>
-                            <i></i>
-                            <i></i>
-                        </span>
-
-                        <span>moonshield-suricata</span>
-                    </div>
-
-                    <div
-                        class="sp-terminal__body"
-                        id="drawerTaskLogs"
-                    >
-                        <div class="sp-terminal__empty">
-                            Os logs aparecerão aqui.
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="sp-drawer-section">
-                <div class="sp-drawer-section__head">
-                    <h3>Resultado</h3>
-                </div>
-
-                <pre
-                    class="sp-json-output"
-                    id="drawerTaskResult"
-                >Nenhum resultado disponível.</pre>
-            </div>
-        </div>
-
-        <div class="sp-drawer__footer">
-            <button
-                class="sp-btn sp-btn--danger"
-                id="btnCancelTask"
-                type="button"
-                hidden
-            >
-                Solicitar cancelamento
-            </button>
-
-            <button
-                class="sp-btn sp-btn--ghost"
-                id="btnCloseTaskDrawerFooter"
-                type="button"
-            >
-                Fechar
-            </button>
         </div>
     </div>
-</aside>
 
-<!-- ================================================================
-     MODAL DE CONFIRMAÇÃO
-================================================================= -->
-<div
-    class="sp-modal"
-    id="confirmationModal"
-    aria-hidden="true"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="confirmationModalTitle"
->
-    <div class="sp-modal__backdrop" data-close-confirmation></div>
+    <script src="{% static 'js/incidentes/suricata/terminal.js' %}" defer></script>
+    <script src="{% static 'js/incidentes/suricata/tarefas.js' %}" defer></script>
+    <script src="{% static 'js/incidentes/suricata/painel.js' %}" defer></script>
 
-    <div class="sp-modal__dialog">
-        <div
-            class="sp-modal__icon sp-modal__icon--warning"
-            id="confirmationModalIcon"
-        >
-            <svg
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-            >
-                <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" />
-                <path d="M12 9v4M12 17h.01" />
-            </svg>
-        </div>
-
-        <div class="sp-modal__copy">
-            <span class="sp-modal__eyebrow">Confirmar operação</span>
-            <h2 id="confirmationModalTitle">Executar tarefa?</h2>
-
-            <p id="confirmationModalText">
-                Confirme para continuar.
-            </p>
-        </div>
-
-        <div
-            class="sp-modal__details"
-            id="confirmationModalDetails"
-            hidden
-        ></div>
-
-        <div class="sp-modal__actions">
-            <button
-                class="sp-btn sp-btn--ghost"
-                id="btnCancelConfirmation"
-                type="button"
-            >
-                Voltar
-            </button>
-
-            <button
-                class="sp-btn sp-btn--primary"
-                id="btnConfirmOperation"
-                type="button"
-            >
-                Confirmar
-            </button>
-        </div>
-    </div>
-</div>
-
-<script src="{% static 'js/incidentes/suricata/terminal.js' %}" defer></script>
-<script src="{% static 'js/incidentes/suricata/tarefas.js' %}" defer></script>
-<script src="{% static 'js/incidentes/suricata/painel.js' %}" defer></script>
 </body>
+
 </html>

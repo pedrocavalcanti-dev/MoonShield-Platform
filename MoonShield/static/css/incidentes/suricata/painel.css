@@ -1063,9 +1063,9 @@ svg {
     height: 28px;
     display: grid;
     place-items: center;
-    border: 1px solid var(--sp-border);
+    border: 1px solid rgba(255, 255, 255, 0.12); /* Modificado para contraste consistente */
     border-radius: 999px;
-    color: var(--sp-muted);
+    color: #ffffff; /* Textos agora sempre brancos */
     background: rgba(6, 10, 18, .82);
     font-family: var(--sp-mono);
     font-size: 8px;
@@ -1098,10 +1098,10 @@ svg {
     gap: 7px;
     transform: translateX(-50%);
     padding: 8px 11px;
-    border: 1px solid var(--sp-border);
+    border: 1px solid rgba(255, 255, 255, 0.12); /* Modificado para contraste consistente */
     border-radius: 999px;
     background: rgba(5, 8, 16, .82);
-    color: var(--sp-muted);
+    color: #ffffff; /* Texto agora sempre branco */
     font-size: 8px;
     white-space: nowrap;
 }
@@ -1110,9 +1110,26 @@ svg {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: currentColor;
-    box-shadow: 0 0 10px currentColor;
+    background: var(--dot-color, #b0b0b0); /* Isolamento da cor do dot da cor do texto */
+    box-shadow: 0 0 10px var(--dot-color, #b0b0b0);
 }
+
+.sp-orbit__status--ok {
+    --dot-color: var(--sp-green);
+}
+
+.sp-orbit__status--warning {
+    --dot-color: var(--sp-yellow);
+}
+
+.sp-orbit__status--error {
+    --dot-color: var(--sp-red);
+}
+
+.sp-orbit__status--pending {
+    --dot-color: #b0b0b0;
+}
+
 
 /* =========================================================
    STATUS CARDS
@@ -3036,7 +3053,6 @@ svg {
     font-weight: 500;
 }
 
-/* Contraste Corrigido */
 [data-theme="light"] .sp-hero p {
     color: var(--sp-muted);
 }

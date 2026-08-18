@@ -1596,3 +1596,23 @@ svg {
         transition-duration: .01ms !important;
     }
 }
+
+/* Torna o botão hambúrguer visível também no desktop */
+.sp-topbar__menu {
+    display: grid !important;
+}
+
+/* Adiciona transição suave para recolher o painel */
+.sp-sidebar, .sp-main {
+    transition: transform var(--sp-medium) var(--sp-ease), margin-left var(--sp-medium) var(--sp-ease);
+}
+
+/* Regra que oculta a sidebar apenas no desktop quando a classe estiver ativa */
+@media (min-width: 861px) {
+    body.is-sidebar-collapsed .sp-sidebar {
+        transform: translateX(-100%);
+    }
+    body.is-sidebar-collapsed .sp-main {
+        margin-left: 0;
+    }
+}

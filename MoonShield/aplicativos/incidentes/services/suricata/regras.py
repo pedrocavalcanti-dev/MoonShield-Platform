@@ -26,6 +26,7 @@ from .comandos import (
 from .ambiente import (
     detectar_gerenciador_pacotes,
     obter_comando_instalacao,
+    localizar_suricata_yaml,
     eh_linux,
     usuario_e_root,
 )
@@ -204,9 +205,132 @@ def listar_sids(caminho: str | Path, limite: int | None = None) -> list[int]:
     return sorted(list(sids))
 
 
-# ==============================================================================
+def _mtime_iso(caminho: str | Path | None) -> str:
+    """Retorna a data de modificação de um arquivo em ISO-8601, sem lançar erro."""
+    if not caminho:
+        return ""
+    path_obj = Path(caminho)
+    try:
+        if path_obj.is_file():
+            return datetime.fromtimestamp(path_obj.stat().st_mtime).astimezone().isoformat()
+    except OSError:
+        pass
+    return ""
+
+
+def obter_referencias_rule_files(
+    yaml_path: str | Path | None = None,
+) -> dict[str, object]:
+    """
+    Lê passivamente default-rule-path e rule-files do suricata.yaml.
+
+    Não usa PyYAML de propósito: precisamos apenas das duas diretivas e queremos
+    manter este módulo leve, previsível e sem dependência adicional.
+    """
+    yaml_real = localizar_suricata_yaml(yaml_path)
+    resultado = {
+        "yaml_path": str(yaml_real) if yaml_real else "",
+        "existe": bool(yaml_real and yaml_real.is_file()),
+        "default_rule_path": "",
+        "rule_files": [],
+        "arquivos_resolvidos": [],
+    }
+
+    if not yaml_real or not yaml_real.is_file():
+        return resultado
+
+    default_rule_path = ""
+    rule_files: list[str] = []
+    dentro_rule_files = False
+    indent_rule_files = -1
+
+    try:
+        with open(yaml_real, "r", encoding="utf-8", errors="replace") as f:
+            for linha_original in f:
+                sem_comentario = linha_original.split("#", 1)[0].rstrip()
+                if not sem_comentario.strip():
+                    continue
+
+                stripped = sem_comentario.strip()
+
+                match_default = re.match(
+                    r"^default-rule-path\s*:\s*(.+?)\s*$",
+                    stripped,
+                    flags=re.IGNORECASE,
+                )
+                if match_default:
+                    default_rule_path = match_default.group(1).strip().strip("'\"")
+                    continue
+
+                indent = len(sem_comentario) - len(sem_comentario.lstrip())
+
+                if re.match(r"^rule-files\s*:\s*$", stripped, flags=re.IGNORECASE):
+                    dentro_rule_files = True
+                    indent_rule_files = indent
+                    continue
+
+                if dentro_rule_files:
+                    if indent <= indent_rule_files and not stripped.startswith("-"):
+                        dentro_rule_files = False
+                    else:
+                        match_item = re.match(r"^-\s*(.+?)\s*$", stripped)
+                        if match_item:
+                            valor = match_item.group(1).strip().strip("'\"")
+                            if valor:
+                                rule_files.append(valor)
+                            continue
+
+    except Exception as e:
+        logger.debug("Falha ao interpretar rule-files de %s: %s", yaml_real, e)
+        return resultado
+
+    resolvidos = []
+    base = Path(default_rule_path) if default_rule_path else None
+    for item in rule_files:
+        item_path = Path(item)
+        if item_path.is_absolute():
+            resolvidos.append(str(item_path))
+        elif base:
+            resolvidos.append(str(base / item_path))
+        else:
+            resolvidos.append(item)
+
+    resultado.update({
+        "default_rule_path": default_rule_path,
+        "rule_files": rule_files,
+        "arquivos_resolvidos": resolvidos,
+    })
+    return resultado
+
+
+def _regra_referenciada(
+    referencias: dict[str, object],
+    candidatos_relativos: tuple[str, ...],
+    candidatos_absolutos: tuple[Path, ...],
+) -> tuple[bool, str]:
+    """Confere se um artefato aparece efetivamente em rule-files."""
+    rule_files = [str(x).strip() for x in referencias.get("rule_files", [])]
+    resolvidos = [str(x).strip() for x in referencias.get("arquivos_resolvidos", [])]
+
+    relativos_normalizados = {x.replace("\\", "/") for x in candidatos_relativos}
+    absolutos_normalizados = {str(x).replace("\\", "/") for x in candidatos_absolutos}
+
+    for item in rule_files:
+        normalizado = item.replace("\\", "/")
+        if normalizado in relativos_normalizados:
+            return True, item
+
+    for item in resolvidos:
+        normalizado = item.replace("\\", "/")
+        if normalizado in absolutos_normalizados:
+            return True, item
+
+    return False, ""
+
+
+# ============================================================================== 
 # AUDITORIA DE REGRAS E CONFLITOS
-# ==============================================================================
+# ============================================================================== 
 
 def detectar_sids_duplicados(caminhos: list[str | Path]) -> dict[int, list[str]]:
     """Mapeia assinaturas colidentes que existem em múltiplos arquivos simultâneos."""
@@ -226,48 +350,142 @@ def detectar_sids_duplicados(caminhos: list[str | Path]) -> dict[int, list[str]]
     return dict(sorted(duplicados.items()))
 
 
-def obter_status_regras_moonshield(origem: str | Path | None = None) -> dict[str, object]:
-    """Compila o retrato de sincronia dos artefatos core do MoonShield entre base/repo e /var e /etc."""
-    def _analisar_ponta(caminho_obj: Path | None, hash_ref: str = "") -> dict:
-        info = {
+def obter_status_regras_moonshield(
+    origem: str | Path | None = None,
+    yaml_path: str | Path | None = None,
+) -> dict[str, object]:
+    """
+    Compila o retrato operacional das regras MoonShield.
+
+    Mantém o contrato detalhado antigo (origem/destino_var/destino_etc) e
+    acrescenta campos diretos para o painel: arquivo, total, referenciadas,
+    sincronizado, status e mensagem.
+    """
+
+    def _analisar_ponta(caminho_obj: Path | None, hash_ref: str = "") -> dict[str, object]:
+        info: dict[str, object] = {
             "caminho": str(caminho_obj) if caminho_obj else "",
             "existe": False,
             "valido": False,
             "tamanho": 0,
             "hash": "",
-            "sincronizado": False
+            "sincronizado": False,
+            "quantidade_regras": 0,
+            "total": 0,
+            "atualizado_em": "",
         }
+
         if caminho_obj and caminho_obj.is_file():
             info["existe"] = True
             try:
                 info["tamanho"] = caminho_obj.stat().st_size
                 valido, _ = arquivo_regras_valido(caminho_obj)
                 info["valido"] = valido
+                info["atualizado_em"] = _mtime_iso(caminho_obj)
+
                 if valido:
                     h = calcular_hash_arquivo(caminho_obj)
+                    qtd = contar_regras(caminho_obj)
                     info["hash"] = h
+                    info["quantidade_regras"] = qtd
+                    info["total"] = qtd
                     if hash_ref:
-                        info["sincronizado"] = (h == hash_ref)
+                        info["sincronizado"] = h == hash_ref
             except OSError:
                 pass
+
         return info
 
     path_origem = localizar_regras_moonshield_origem(origem)
     stat_origem = _analisar_ponta(path_origem)
-    
-    hash_base = stat_origem["hash"] if stat_origem["valido"] else ""
+    hash_base = str(stat_origem.get("hash") or "") if stat_origem.get("valido") else ""
 
     stat_var = _analisar_ponta(REGRAS_DEST, hash_ref=hash_base)
     stat_etc = _analisar_ponta(REGRAS_DEST_ETC, hash_ref=hash_base)
 
-    # Considera instalado se alguma ponta final estiver saudável
-    instaladas = stat_var["valido"] or stat_etc["valido"]
+    instaladas = bool(stat_var["valido"] or stat_etc["valido"])
+
+    # O caminho primário de runtime é /var/lib. /etc é mantido como cópia/fallback.
+    if stat_var["valido"]:
+        ativo = stat_var
+    elif stat_etc["valido"]:
+        ativo = stat_etc
+    else:
+        ativo = stat_var if stat_var["existe"] else stat_etc
+
+    referencias = obter_referencias_rule_files(yaml_path)
+    referenciadas, referencia_encontrada = _regra_referenciada(
+        referencias,
+        candidatos_relativos=(
+            "moonshield/ms.rules",
+            "ms.rules",
+        ),
+        candidatos_absolutos=(
+            REGRAS_DEST,
+            REGRAS_DEST_ETC,
+        ),
+    )
+
+    sincronizado = bool(
+        stat_origem["valido"]
+        and (
+            (stat_var["valido"] and stat_var["sincronizado"])
+            or (stat_etc["valido"] and stat_etc["sincronizado"])
+        )
+    )
+
+    total = int(ativo.get("quantidade_regras") or 0)
+    arquivo = str(ativo.get("caminho") or "")
+    valido = bool(ativo.get("valido"))
+    pronto = bool(instaladas and referenciadas and valido)
+
+    avisos: list[str] = []
+    if not stat_origem["valido"]:
+        avisos.append("Arquivo original das regras MoonShield ausente ou inválido.")
+    if not instaladas:
+        avisos.append("Regras MoonShield não estão instaladas em um destino válido.")
+    if instaladas and not referenciadas:
+        avisos.append("Regras MoonShield estão instaladas, mas não aparecem em rule-files do suricata.yaml.")
+    if instaladas and stat_origem["valido"] and not sincronizado:
+        avisos.append("A cópia instalada das regras MoonShield difere do artefato original do projeto.")
+
+    status = "ok" if pronto and sincronizado else "warning" if instaladas else "error"
+    mensagem = (
+        "Regras MoonShield instaladas, referenciadas e sincronizadas."
+        if status == "ok"
+        else avisos[0] if avisos else "Estado das regras MoonShield requer atenção."
+    )
 
     return {
+        # Contrato detalhado legado
         "origem": stat_origem,
         "destino_var": stat_var,
         "destino_etc": stat_etc,
+
+        # Contrato direto/estável para UI e status.py
         "instaladas": instaladas,
+        "instalada": instaladas,
+        "instalado": instaladas,
+        "arquivo": arquivo,
+        "caminho": arquivo,
+        "valido": valido,
+        "referenciadas": referenciadas,
+        "referenciada": referenciadas,
+        "referenciado": referenciadas,
+        "referencia": referencia_encontrada,
+        "total": total,
+        "quantidade_regras": total,
+        "tamanho": int(ativo.get("tamanho") or 0),
+        "hash": str(ativo.get("hash") or ""),
+        "sincronizado": sincronizado,
+        "atualizado_em": str(ativo.get("atualizado_em") or ""),
+        "yaml_path": str(referencias.get("yaml_path") or ""),
+        "default_rule_path": str(referencias.get("default_rule_path") or ""),
+        "rule_files": list(referencias.get("rule_files") or []),
+        "pronto": pronto,
+        "status": status,
+        "mensagem": mensagem,
+        "avisos": avisos,
     }
 
 
@@ -325,69 +543,139 @@ def verificar_conflitos_regras() -> ResultadoEtapa:
     return res
 
 
-def obter_status_regras_completo(origem_moonshield: str | Path | None = None) -> dict[str, object]:
-    """Compila o retrato operacional global do subsistema de assinaturas IDS."""
-    ms_status = obter_status_regras_moonshield(origem_moonshield)
-    
-    # Status do Update
-    up_disponivel = suricata_update_disponivel()
-    up_versao = obter_versao_suricata_update().dados.get("versao", "") if up_disponivel else ""
+def obter_status_regras_completo(
+    origem_moonshield: str | Path | None = None,
+    yaml_path: str | Path | None = None,
+) -> dict[str, object]:
+    """
+    Compila o retrato operacional global do subsistema de assinaturas IDS.
 
-    # Status ET Open
-    et_info = {
+    O payload mantém as chaves antigas e fornece aliases simples consumíveis
+    pelo painel sem precisar inferir estado a partir de objetos profundamente
+    aninhados.
+    """
+    ms_status = obter_status_regras_moonshield(origem_moonshield, yaml_path=yaml_path)
+
+    up_disponivel = suricata_update_disponivel()
+    up_resultado = obter_versao_suricata_update() if up_disponivel else None
+    up_versao = ""
+    if up_resultado and up_resultado.sucesso:
+        up_versao = str(up_resultado.dados.get("versao", "") or "")
+
+    referencias = obter_referencias_rule_files(yaml_path)
+    et_referenciada, et_referencia = _regra_referenciada(
+        referencias,
+        candidatos_relativos=("suricata.rules",),
+        candidatos_absolutos=(REGRAS_ET_OPEN, REGRAS_ET_OPEN_ETC),
+    )
+
+    et_info: dict[str, object] = {
         "instalada": False,
+        "instalado": False,
         "arquivo": str(REGRAS_ET_OPEN),
+        "caminho": str(REGRAS_ET_OPEN),
         "valido": False,
+        "referenciada": et_referenciada,
+        "referenciado": et_referenciada,
+        "referencia": et_referencia,
         "tamanho": 0,
         "quantidade_regras": 0,
+        "total": 0,
         "hash": "",
+        "atualizado_em": "",
+        "status": "error",
+        "mensagem": "Dataset ET Open não encontrado.",
     }
-    
-    if REGRAS_ET_OPEN.is_file():
+
+    # Preferimos o masterfile do suricata-update. O /etc pode ser link/fallback.
+    et_arquivo = REGRAS_ET_OPEN if REGRAS_ET_OPEN.is_file() else REGRAS_ET_OPEN_ETC
+    if et_arquivo.is_file():
         et_info["instalada"] = True
+        et_info["instalado"] = True
+        et_info["arquivo"] = str(et_arquivo)
+        et_info["caminho"] = str(et_arquivo)
         try:
-            et_info["tamanho"] = REGRAS_ET_OPEN.stat().st_size
-            valido, _ = arquivo_regras_valido(REGRAS_ET_OPEN)
+            et_info["tamanho"] = et_arquivo.stat().st_size
+            valido, _ = arquivo_regras_valido(et_arquivo)
             et_info["valido"] = valido
+            et_info["atualizado_em"] = _mtime_iso(et_arquivo)
             if valido:
-                et_info["hash"] = calcular_hash_arquivo(REGRAS_ET_OPEN)
-                et_info["quantidade_regras"] = contar_regras(REGRAS_ET_OPEN)
+                et_info["hash"] = calcular_hash_arquivo(et_arquivo)
+                qtd = contar_regras(et_arquivo)
+                et_info["quantidade_regras"] = qtd
+                et_info["total"] = qtd
         except OSError:
             pass
 
+    et_pronto = bool(et_info["instalada"] and et_info["valido"])
+    if et_pronto:
+        et_info["status"] = "ok" if et_referenciada else "warning"
+        et_info["mensagem"] = (
+            "ET Open instalado, válido e referenciado pelo Suricata."
+            if et_referenciada
+            else "ET Open está válido, mas a referência em rule-files não foi confirmada."
+        )
+    elif et_info["instalada"]:
+        et_info["status"] = "error"
+        et_info["mensagem"] = "O arquivo ET Open existe, porém não passou na validação básica."
+
     conflitos_res = verificar_conflitos_regras()
-    avisos = []
-    
+    avisos: list[str] = []
+
     if not ms_status["instaladas"]:
         avisos.append("Regras exclusivas do MoonShield não estão instaladas no SO.")
     if not ms_status["origem"]["valido"]:
         avisos.append("Arquivo de assinaturas original do MoonShield ausente ou inválido no projeto base.")
+    if ms_status["instaladas"] and not ms_status["referenciadas"]:
+        avisos.append("Regras MoonShield instaladas, porém não referenciadas em rule-files.")
     if not up_disponivel:
         avisos.append("O utilitário suricata-update não está instalado no servidor.")
     if not et_info["instalada"]:
         avisos.append("Assinaturas da comunidade Emerging Threats (ET Open) ausentes.")
     elif not et_info["valido"]:
-        avisos.append("O arquivo de regras da ET Open baixado está corrompido.")
+        avisos.append("O arquivo de regras da ET Open baixado está corrompido ou inválido.")
     if not conflitos_res.sucesso:
         avisos.append("Existem conflitos numéricos graves (SIDs) aplicados entre arquivos de regras.")
+
+    pronto = bool(
+        ms_status["pronto"]
+        and et_pronto
+        and up_disponivel
+        and conflitos_res.sucesso
+    )
 
     return {
         "moonshield": ms_status,
         "et_open": et_info,
         "suricata_update": {
             "instalado": up_disponivel,
+            "disponivel": up_disponivel,
             "versao": up_versao,
+            "status": "ok" if up_disponivel else "warning",
         },
         "conflitos": conflitos_res.dados,
-        "pronto": len(avisos) == 0,
+        "referencias_yaml": referencias,
+
+        # aliases para contratos legados/status.py
+        "moonshield_instalado": bool(ms_status["instaladas"]),
+        "moonshield_referenciado": bool(ms_status["referenciadas"]),
+        "et_open_instalado": bool(et_info["instalada"]),
+        "total_moonshield": int(ms_status["total"]),
+        "total_et_open": int(et_info["total"]),
+
+        "pronto": pronto,
+        "status": "ok" if pronto else "warning" if (ms_status["instaladas"] or et_info["instalada"]) else "error",
         "avisos": avisos,
     }
 
 
-def gerar_checks_regras(origem_moonshield: str | Path | None = None) -> list[DiagnosticoItem]:
-    """Interpreta as métricas do sistema de assinaturas para a interface de Diagnóstico."""
-    itens = []
-    status = obter_status_regras_completo(origem_moonshield)
+def gerar_checks_regras(
+    origem_moonshield: str | Path | None = None,
+    yaml_path: str | Path | None = None,
+) -> list[DiagnosticoItem]:
+    """Interpreta as métricas do sistema de assinaturas para o diagnóstico."""
+    itens: list[DiagnosticoItem] = []
+    status = obter_status_regras_completo(origem_moonshield, yaml_path=yaml_path)
 
     ms = status["moonshield"]
     et = status["et_open"]
@@ -395,7 +683,7 @@ def gerar_checks_regras(origem_moonshield: str | Path | None = None) -> list[Dia
     conf = status["conflitos"]
 
     # 1. Origem
-    ok_origem = ms["origem"]["valido"]
+    ok_origem = bool(ms["origem"]["valido"])
     itens.append(DiagnosticoItem(
         id="regras_moonshield_origem",
         grupo="Regras MoonShield",
@@ -403,73 +691,103 @@ def gerar_checks_regras(origem_moonshield: str | Path | None = None) -> list[Dia
         ok=ok_origem,
         detalhe=f"Presente em {ms['origem']['caminho']}" if ok_origem else "Artefato core ausente.",
         acao="Reinstale ou atualize o pacote do backend MoonShield." if not ok_origem else "",
-        critico=True
+        critico=True,
+        dados={
+            "arquivo": ms["origem"]["caminho"],
+            "valido": ok_origem,
+            "total": ms["origem"].get("total", 0),
+        },
     ))
 
-    # 2. Instalação MS
-    ok_inst_ms = ms["instaladas"]
+    # 2. Instalação + referência efetiva na engine
+    ok_inst_ms = bool(ms["instaladas"] and ms["referenciadas"])
     itens.append(DiagnosticoItem(
         id="regras_moonshield_instaladas",
         grupo="Regras MoonShield",
         titulo="Propagação de Regras Nativas",
         ok=ok_inst_ms,
-        detalhe="Ativo no pipeline Suricata." if ok_inst_ms else "Regras não aplicadas na máquina hospedeira.",
-        acao="Complete a configuração/onboarding para garantir detecções customizadas." if not ok_inst_ms else "",
-        critico=True
+        detalhe=(
+            f"Ativo no pipeline Suricata ({ms['referencia']})."
+            if ok_inst_ms
+            else "Arquivo instalado, mas não referenciado em rule-files."
+            if ms["instaladas"]
+            else "Regras não aplicadas na máquina hospedeira."
+        ),
+        acao=(
+            "Inclua moonshield/ms.rules em rule-files e valide com suricata -T."
+            if ms["instaladas"] and not ms["referenciadas"]
+            else "Complete a configuração/onboarding para garantir detecções customizadas."
+            if not ms["instaladas"]
+            else ""
+        ),
+        critico=True,
+        dados={
+            "instaladas": ms["instaladas"],
+            "referenciadas": ms["referenciadas"],
+            "arquivo": ms["arquivo"],
+            "total": ms["total"],
+        },
     ))
 
     # 3. Sincronia MS
-    sync = False
-    if ms["origem"]["valido"]:
-        if ms["destino_var"]["valido"] and ms["destino_var"]["sincronizado"]:
-            sync = True
-        elif ms["destino_etc"]["valido"] and ms["destino_etc"]["sincronizado"]:
-            sync = True
-            
+    sync = bool(ms["sincronizado"])
     itens.append(DiagnosticoItem(
         id="regras_moonshield_sincronizadas",
         grupo="Regras MoonShield",
         titulo="Assinaturas Atualizadas (Sincronia Hash)",
         ok=sync,
-        detalhe="Hashes SHA256 em paridade." if sync else ("Necessita atualização." if ok_inst_ms else "-"),
-        acao="Regere a cópia das regras no assistente para aplicar o último dataset." if not sync else "",
-        critico=False # Warning
+        detalhe="Hashes SHA256 em paridade." if sync else ("Necessita atualização." if ms["instaladas"] else "-"),
+        acao="Reaplique as regras MoonShield para sincronizar o dataset ativo." if not sync else "",
+        critico=False,
+        dados={
+            "sincronizado": sync,
+            "arquivo": ms["arquivo"],
+            "total": ms["total"],
+        },
     ))
 
-    # 4. Suricata Update Bin
-    ok_up = up["instalado"]
+    # 4. Suricata Update
+    ok_up = bool(up["instalado"])
     itens.append(DiagnosticoItem(
         id="suricata_update_instalado",
         grupo="ET Open",
         titulo="Utilitário de Gestão de Regras",
         ok=ok_up,
-        detalhe=f"Versão {up['versao']}" if ok_up else "Pacote 'suricata-update' ausente.",
-        acao="Instale a dependência para manter o IDS ciente de ataques zero-day." if not ok_up else "",
-        critico=False # Warning, MS rules funciona sem ele.
+        detalhe=f"Versão {up['versao']}" if ok_up and up.get("versao") else "Instalado." if ok_up else "Pacote 'suricata-update' ausente.",
+        acao="Instale a dependência para manter o ruleset ET Open atualizado." if not ok_up else "",
+        critico=False,
+        dados=up,
     ))
 
     # 5. Instalação ET
-    ok_et = et["instalada"]
+    ok_et = bool(et["instalada"])
     itens.append(DiagnosticoItem(
         id="regras_et_open_instaladas",
         grupo="ET Open",
         titulo="Dataset da Comunidade ET Open",
         ok=ok_et,
-        detalhe=f"{et['quantidade_regras']:,} regras detectadas." if ok_et else "Dataset não baixado.",
-        acao="Rode a configuração inicial e permita o download base." if not ok_et else "",
-        critico=False
+        detalhe=f"{int(et['quantidade_regras']):,} regras detectadas." if ok_et else "Dataset não baixado.",
+        acao="Atualize a ET Open pelo painel para baixar o dataset." if not ok_et else "",
+        critico=False,
+        dados={
+            "arquivo": et["arquivo"],
+            "total": et["total"],
+            "referenciada": et["referenciada"],
+            "atualizado_em": et["atualizado_em"],
+        },
     ))
 
     # 6. Validade ET
-    ok_et_val = ok_et and et["valido"]
+    ok_et_val = bool(ok_et and et["valido"])
     itens.append(DiagnosticoItem(
         id="regras_et_open_validas",
         grupo="ET Open",
         titulo="Integridade do Dataset ET Open",
         ok=ok_et_val,
-        detalhe="Assinaturas válidas." if ok_et_val else ("Corrompido." if ok_et else "-"),
-        acao="Realize o download do ruleset novamente caso as assinaturas falhem na inspeção suricata -T." if not ok_et_val else "",
-        critico=False
+        detalhe="Assinaturas válidas." if ok_et_val else ("Corrompido ou inválido." if ok_et else "-"),
+        acao="Baixe novamente o ruleset e execute suricata -T." if not ok_et_val else "",
+        critico=False,
+        dados={"valido": et["valido"], "hash": et["hash"]},
     ))
 
     # 7. Conflitos SIDs globais
@@ -480,8 +798,9 @@ def gerar_checks_regras(origem_moonshield: str | Path | None = None) -> list[Dia
         titulo="Conflitos Cruzados de Assinaturas (SIDs)",
         ok=ok_conf,
         detalhe="Zero conflitos entre provedores." if ok_conf else f"{conf.get('conflitos_et_vs_moonshield')} colisões ativas.",
-        acao="Remova SIDs conflitantes ou desative temporariamente blocos redundantes em et/open." if not ok_conf else "",
-        critico=True
+        acao="Remova SIDs conflitantes ou desative blocos redundantes antes de recarregar o IDS." if not ok_conf else "",
+        critico=True,
+        dados=conf,
     ))
 
     return itens

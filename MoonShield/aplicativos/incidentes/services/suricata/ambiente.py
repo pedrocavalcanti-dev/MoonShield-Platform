@@ -7,6 +7,7 @@ import os
 import platform
 import getpass
 import logging
+import re
 from pathlib import Path
 
 from .tipos import (
@@ -302,10 +303,60 @@ def suricata_instalado() -> bool:
     return comando_existe("suricata")
 
 
+def _extrair_versao_suricata(texto: str) -> str:
+    """
+    Extrai somente a versão semântica da saída do Suricata.
+
+    Compatível com formatos comuns como:
+    - "Suricata 7.0.10"
+    - "This is Suricata version 7.0.10 RELEASE"
+    - "Suricata version 7.0.10"
+
+    Nunca retorna o objeto ResultadoEtapa nem texto de usage/help para o frontend.
+    """
+    conteudo = str(texto or "").strip()
+    if not conteudo:
+        return ""
+
+    padroes = (
+        r"\bThis\s+is\s+Suricata\s+version\s+v?([0-9]+(?:\.[0-9]+){1,3}(?:[-+~._A-Za-z0-9]*)?)",
+        r"\bSuricata\s+version\s+v?([0-9]+(?:\.[0-9]+){1,3}(?:[-+~._A-Za-z0-9]*)?)",
+        r"\bSuricata\s+v?([0-9]+(?:\.[0-9]+){1,3}(?:[-+~._A-Za-z0-9]*)?)",
+    )
+
+    for padrao in padroes:
+        match = re.search(padrao, conteudo, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+    # Fallback conservador: aceita apenas uma versão numérica que esteja
+    # presente em uma linha que mencione Suricata.
+    for linha in conteudo.splitlines():
+        if "suricata" not in linha.lower():
+            continue
+        match = re.search(
+            r"\bv?([0-9]+(?:\.[0-9]+){1,3}(?:[-+~._A-Za-z0-9]*)?)\b",
+            linha,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(1).strip()
+
+    return ""
+
+
 def obter_versao_suricata() -> ResultadoEtapa:
-    """Pede ao binário sua versão atual."""
+    """
+    Consulta a versão do binário Suricata de forma passiva.
+
+    Importante:
+    o Suricata 7 utiliza `-V` para exibir a versão. `--version` não é uma
+    opção válida nessa instalação e pode imprimir VERSION + USAGE enquanto
+    retorna erro, o que fazia o MoonShield serializar um ResultadoEtapa
+    inteiro no painel.
+    """
     etapa_id = "versao_suricata"
-    
+
     if not suricata_instalado():
         return ResultadoEtapa(
             etapa=etapa_id,
@@ -313,46 +364,82 @@ def obter_versao_suricata() -> ResultadoEtapa:
             sucesso=False,
             mensagem="Suricata não está instalado.",
             erro="Comando 'suricata' não foi encontrado no PATH.",
-            dados={"instalado": False}
+            dados={
+                "instalado": False,
+                "versao": "",
+                "caminho_binario": "",
+            },
         )
-        
-    resultado_cmd = executar_comando(["suricata", "--version"], timeout=15.0)
-    
-    if resultado_cmd.sucesso:
-        texto = resultado_cmd.saida.strip()
-        linhas = texto.splitlines()
-        versao_limpa = linhas[0].strip() if linhas else "Desconhecido"
-        
-        res = ResultadoEtapa(
+
+    caminho_binario = localizar_comando("suricata") or ""
+
+    # Forma correta suportada pelo Suricata atual.
+    resultado_cmd = executar_comando(
+        ["suricata", "-V"],
+        timeout=15.0,
+    )
+
+    stdout = str(getattr(resultado_cmd, "saida", "") or "").strip()
+    stderr = str(getattr(resultado_cmd, "erro", "") or "").strip()
+
+    # Algumas versões/distribuições podem escrever a versão em stderr.
+    texto_completo = "\n".join(
+        parte for parte in (stdout, stderr) if parte
+    ).strip()
+
+    versao = _extrair_versao_suricata(texto_completo)
+
+    # A versão é a evidência principal. Mesmo que um wrapper de comando tenha
+    # classificado o retorno de forma inesperada, se `-V` devolveu uma versão
+    # válida não há motivo para contaminar o painel com o objeto de erro.
+    if versao:
+        return ResultadoEtapa(
             etapa=etapa_id,
             status=StatusEtapa.SUCESSO,
             sucesso=True,
             mensagem="Versão do Suricata extraída com sucesso.",
             dados={
                 "instalado": True,
-                "caminho_binario": localizar_comando("suricata"),
-                "versao": versao_limpa,
-                "stdout": texto
-            }
+                "caminho_binario": caminho_binario,
+                "versao": versao,
+                "stdout": stdout,
+            },
         )
-        return res
+
+    detalhe_erro = stderr or stdout or "O comando não retornou uma versão reconhecível."
 
     return ResultadoEtapa(
         etapa=etapa_id,
         status=StatusEtapa.ERRO,
         sucesso=False,
-        mensagem="Falha ao extrair versão do binário suricata.",
-        erro=resultado_cmd.erro or resultado_cmd.saida,
-        dados={"instalado": True}
+        mensagem="Falha ao extrair versão do binário Suricata.",
+        erro=detalhe_erro,
+        dados={
+            "instalado": True,
+            "caminho_binario": caminho_binario,
+            "versao": "",
+        },
     )
 
 
 def obter_versao_suricata_texto() -> str:
-    """Retorna apenas a versão ou string vazia, sem os metadados da ResultadoEtapa."""
+    """
+    Retorna somente a string de versão para status/API/UI.
+
+    Exemplo:
+        "7.0.10"
+
+    Esta função nunca retorna ResultadoEtapa, repr() de DTO, USAGE ou traceback.
+    """
     resultado = obter_versao_suricata()
-    if resultado.sucesso:
-        return resultado.dados.get("versao", "")
-    return ""
+
+    if not resultado.sucesso:
+        return ""
+
+    dados = resultado.dados if isinstance(resultado.dados, dict) else {}
+    versao = dados.get("versao", "")
+
+    return str(versao or "").strip()
 
 
 # ==============================================================================
@@ -413,6 +500,7 @@ def detectar_ambiente_completo(
     distro = detectar_distribuicao_linux()
     gerenciador = detectar_gerenciador_pacotes()
     suricata_ok = suricata_instalado()
+    versao_suricata = obter_versao_suricata_texto() if suricata_ok else ""
     caminhos = verificar_caminhos_suricata(yaml_path, eve_path)
     
     # Compilando capacidades lógicas do MoonShield
@@ -449,7 +537,7 @@ def detectar_ambiente_completo(
         "suricata": {
             "instalado": suricata_ok,
             "binario": localizar_comando("suricata") if suricata_ok else "",
-            "versao": obter_versao_suricata_texto(),
+            "versao": versao_suricata,
         },
         "caminhos": caminhos,
         "capacidades": {
@@ -509,15 +597,22 @@ def gerar_checks_ambiente() -> list[DiagnosticoItem]:
     ))
 
     # 4. Binário do Suricata
+    versao_suricata = str(ambiente["suricata"].get("versao") or "").strip()
     itens.append(DiagnosticoItem(
         id="suricata_instalado",
         grupo="Suricata",
         titulo="Binário do Suricata Instalado",
         ok=is_instalado,
-        detalhe=f"Versão {ambiente['suricata']['versao']}" if is_instalado else "Não detectado no PATH.",
+        detalhe=(
+            f"Versão {versao_suricata}"
+            if is_instalado and versao_suricata
+            else "Binário localizado; versão não identificada."
+            if is_instalado
+            else "Não detectado no PATH."
+        ),
         acao="Execute o onboarding de instalação automatizado." if not is_instalado else "",
-        critico=True, # Operacionalmente crítico
-        dados={"instalado": is_instalado, "versao": ambiente["suricata"]["versao"]}
+        critico=True,  # Operacionalmente crítico
+        dados={"instalado": is_instalado, "versao": versao_suricata},
     ))
 
     # 5. Arquivo Principal de Configuração (suricata.yaml)

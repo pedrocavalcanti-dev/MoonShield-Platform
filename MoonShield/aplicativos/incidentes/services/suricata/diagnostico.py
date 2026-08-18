@@ -62,6 +62,7 @@ GRUPOS_PADRAO = (
     "Regras",
     "Serviços",
     "Monitor MoonShield",
+    "Worker de Tarefas",
 )
 
 TIPOS_EVE_OBRIGATORIOS = {
@@ -204,6 +205,127 @@ def remover_checks_duplicados(itens: list[DiagnosticoItem]) -> list[DiagnosticoI
             mapa[item.id] = item
             
     return list(mapa.values())
+
+
+def _resumir_resultado(resultado: ResultadoDiagnostico) -> dict[str, object]:
+    """
+    Consolida os contadores do diagnóstico usando uma única fonte de verdade.
+
+    Um check não aprovado e não crítico é AVISO. Um check não aprovado e
+    crítico é FALHA CRÍTICA. Dessa forma a soma sempre fecha:
+
+        total = saudáveis + avisos + falhas críticas
+    """
+    itens = list(resultado.itens or [])
+
+    total_checks = len(itens)
+    total_ok = sum(1 for item in itens if item.ok)
+    total_criticos = sum(1 for item in itens if not item.ok and item.critico)
+    total_avisos = sum(1 for item in itens if not item.ok and not item.critico)
+    total_falhas = total_criticos + total_avisos
+
+    score_integridade = (
+        round((total_ok / total_checks) * 100)
+        if total_checks > 0
+        else 0
+    )
+
+    grupos_resumo: dict[str, dict[str, object]] = {}
+    for grupo_nome, checks in resultado.grupos.items():
+        checks_lista = list(checks or [])
+        grupo_total = len(checks_lista)
+        grupo_ok = sum(1 for item in checks_lista if item.ok)
+        grupo_criticos = sum(
+            1 for item in checks_lista if not item.ok and item.critico
+        )
+        grupo_avisos = sum(
+            1 for item in checks_lista if not item.ok and not item.critico
+        )
+        grupo_falhas = grupo_criticos + grupo_avisos
+        grupo_score = (
+            round((grupo_ok / grupo_total) * 100)
+            if grupo_total > 0
+            else 0
+        )
+
+        grupos_resumo[grupo_nome] = {
+            "total": grupo_total,
+            "ok": grupo_ok,
+            "saudaveis": grupo_ok,
+            "avisos": grupo_avisos,
+            "criticos": grupo_criticos,
+            "falhas": grupo_falhas,
+            "score": grupo_score,
+        }
+
+    falhas_criticas = [
+        item.to_dict()
+        for item in itens
+        if not item.ok and item.critico
+    ]
+    avisos = [
+        item.to_dict()
+        for item in itens
+        if not item.ok and not item.critico
+    ]
+
+    executado_em = getattr(resultado, "executado_em", None)
+    executado_em_iso = (
+        executado_em.isoformat()
+        if hasattr(executado_em, "isoformat")
+        else ""
+    )
+
+    return {
+        "pronto": bool(resultado.pronto),
+        "total_checks": total_checks,
+        "total_ok": total_ok,
+        "total_saudaveis": total_ok,
+        "total_avisos": total_avisos,
+        "total_falhas": total_falhas,
+        "total_criticos": total_criticos,
+        "score_integridade": score_integridade,
+        "score": score_integridade,
+        "falhas_criticas": falhas_criticas,
+        "avisos": avisos,
+        "grupos": grupos_resumo,
+        "duracao_segundos": float(getattr(resultado, "duracao_segundos", 0.0) or 0.0),
+        "executado_em": executado_em_iso,
+        "mensagem": (
+            "Infraestrutura pronta; existem apenas avisos operacionais."
+            if resultado.pronto and total_avisos > 0
+            else "Infraestrutura pronta e sem falhas críticas."
+            if resultado.pronto
+            else "Existem falhas críticas determinísticas que exigem correção."
+        ),
+    }
+
+
+def _serializar_resultado(resultado: ResultadoDiagnostico) -> dict[str, object]:
+    """
+    Serializa ResultadoDiagnostico adicionando aliases estáveis para o painel.
+
+    Mantém o contrato legado de ``to_dict()`` e acrescenta os contadores que o
+    frontend precisa, sem obrigar o JavaScript a inferir severidade.
+    """
+    payload = resultado.to_dict()
+    if not isinstance(payload, dict):
+        payload = {}
+
+    resumo = _resumir_resultado(resultado)
+
+    payload["pronto"] = resumo["pronto"]
+    payload["total_checks"] = resumo["total_checks"]
+    payload["total_ok"] = resumo["total_ok"]
+    payload["total_saudaveis"] = resumo["total_saudaveis"]
+    payload["total_avisos"] = resumo["total_avisos"]
+    payload["total_falhas"] = resumo["total_falhas"]
+    payload["total_criticos"] = resumo["total_criticos"]
+    payload["score_integridade"] = resumo["score_integridade"]
+    payload["score"] = resumo["score"]
+    payload["resumo"] = resumo
+
+    return payload
 
 
 # ==============================================================================
@@ -748,6 +870,9 @@ def executar_diagnostico(
         eve_path = configuracao.eve_path if configuracao else None
         eve_path = localizar_eve_json(eve_path) or "/var/log/suricata/eve.json"
 
+    if not cursor_path:
+        cursor_path = configuracao.cursor_path if configuracao else None
+
     # ================== MÓDULOS BASE ==================
     try:
         diag.itens.extend(gerar_checks_ambiente())
@@ -809,48 +934,13 @@ def executar_diagnostico(
 def executar_diagnostico_resumido(
     configuracao: ConfiguracaoSuricataDados | None = None,
 ) -> dict[str, object]:
-    """Resumo separando falhas críticas reais de avisos operacionais."""
-    res = executar_diagnostico(configuracao)
+    """
+    Executa o diagnóstico uma vez e devolve um resumo matematicamente
+    consistente para o painel.
+    """
+    resultado = executar_diagnostico(configuracao)
+    return _resumir_resultado(resultado)
 
-    grupos_resumo = {}
-    for g_nome, checks in res.grupos.items():
-        total_ok = sum(1 for c in checks if c.ok)
-        total_fail = len(checks) - total_ok
-        total_crit = sum(1 for c in checks if not c.ok and c.critico)
-
-        grupos_resumo[g_nome] = {
-            "total": len(checks),
-            "ok": total_ok,
-            "falhas": total_fail,
-            "criticos": total_crit,
-        }
-
-    falhas_criticas = [
-        c.to_dict() for c in res.itens if not c.ok and c.critico
-    ]
-    avisos = [
-        c.to_dict() for c in res.itens if not c.ok and not c.critico
-    ]
-
-    return {
-        "pronto": res.pronto,
-        "total_checks": res.total_checks,
-        "total_ok": res.total_ok,
-        "total_falhas": res.total_falhas,
-        "total_criticos": res.total_criticos,
-        "falhas_criticas": falhas_criticas,
-        "avisos": avisos,
-        "grupos": grupos_resumo,
-        "duracao_segundos": res.duracao_segundos,
-        "executado_em": res.executado_em.isoformat(),
-        "mensagem": (
-            "Infraestrutura pronta; existem apenas avisos de telemetria."
-            if res.pronto and avisos
-            else "Infraestrutura pronta e sem falhas críticas."
-            if res.pronto
-            else "Existem falhas críticas determinísticas que exigem correção."
-        ),
-    }
 
 def obter_acoes_recomendadas(resultado: ResultadoDiagnostico) -> list[dict[str, object]]:
     """Gera um log sequencial de intervenção do usuário extraído dos checks não passados."""
@@ -885,15 +975,23 @@ def obter_acoes_recomendadas(resultado: ResultadoDiagnostico) -> list[dict[str, 
     return acoes
 
 
-def obter_status_diagnostico(configuracao: ConfiguracaoSuricataDados | None = None) -> dict[str, object]:
-    """Integra dados operacionais brutos as conclusões lógicas da execução."""
-    # Evita carregar repetidamente os recursos FS - passamos p/ o executor lidar.
-    res_diag = executar_diagnostico(configuracao)
-    
+def obter_status_diagnostico(
+    configuracao: ConfiguracaoSuricataDados | None = None,
+) -> dict[str, object]:
+    """
+    Integra dados operacionais e diagnóstico usando a MESMA execução.
+
+    Antes este método executava o diagnóstico e, ao montar ``resumo``, executava
+    tudo novamente. Isso podia gerar contadores divergentes e dobrava o custo de
+    I/O. Agora o snapshot é único.
+    """
+    resultado = executar_diagnostico(configuracao)
+    resumo = _resumir_resultado(resultado)
+
     return {
-        "resultado": res_diag.to_dict(),
-        "resumo": executar_diagnostico_resumido(configuracao),
-        "acoes_recomendadas": obter_acoes_recomendadas(res_diag),
+        "resultado": _serializar_resultado(resultado),
+        "resumo": resumo,
+        "acoes_recomendadas": obter_acoes_recomendadas(resultado),
         "ambiente": detectar_ambiente_completo(),
         "topologia": obter_topologia_detectada(incluir_virtuais=True).to_dict(),
         "regras": obter_status_regras_completo(),
@@ -902,27 +1000,60 @@ def obter_status_diagnostico(configuracao: ConfiguracaoSuricataDados | None = No
     }
 
 
-def diagnostico_para_api(configuracao: ConfiguracaoSuricataDados | None = None) -> dict[str, object]:
-    """Interface padronizada para as Views Django exporem via REST mantendo envelopamento."""
+def diagnostico_para_api(
+    configuracao: ConfiguracaoSuricataDados | None = None,
+) -> dict[str, object]:
+    """
+    Contrato REST estável para a interface de diagnóstico do Suricata.
+
+    O frontend recebe contadores explícitos de saudáveis, avisos e críticos.
+    Nenhuma severidade precisa ser inferida no JavaScript.
+    """
     try:
-        diag = executar_diagnostico(configuracao)
-        acoes = obter_acoes_recomendadas(diag)
-        
-        payload = {
+        resultado = executar_diagnostico(configuracao)
+        resumo = _resumir_resultado(resultado)
+        acoes = obter_acoes_recomendadas(resultado)
+
+        return {
             "ok": True,
-            "pronto": diag.pronto,
-            "mensagem": "Diagnóstico concluído." if diag.pronto else "Diagnóstico concluído com falhas.",
-            "diagnostico": diag.to_dict(),
+            "pronto": bool(resultado.pronto),
+            "mensagem": resumo["mensagem"],
+            "diagnostico": _serializar_resultado(resultado),
+            "resumo": resumo,
             "acoes": acoes,
+            # Alias para consumidores antigos.
+            "acoes_recomendadas": acoes,
         }
-        return payload
+
     except Exception as e:
-        logger.exception("Falha não tratada ao compor diagnostico para API web.")
+        logger.exception(
+            "Falha não tratada ao compor diagnóstico para API web."
+        )
         return {
             "ok": False,
             "pronto": False,
-            "mensagem": "Erro estrutural interno durante consolidação de health-checks.",
+            "mensagem": (
+                "Erro estrutural interno durante consolidação de health-checks."
+            ),
             "diagnostico": {},
+            "resumo": {
+                "pronto": False,
+                "total_checks": 0,
+                "total_ok": 0,
+                "total_saudaveis": 0,
+                "total_avisos": 0,
+                "total_falhas": 0,
+                "total_criticos": 0,
+                "score_integridade": 0,
+                "score": 0,
+                "falhas_criticas": [],
+                "avisos": [],
+                "grupos": {},
+                "duracao_segundos": 0.0,
+                "executado_em": "",
+                "mensagem": "Falha ao executar o diagnóstico.",
+            },
             "acoes": [],
-            "erro": str(e)
+            "acoes_recomendadas": [],
+            "erro": str(e),
         }

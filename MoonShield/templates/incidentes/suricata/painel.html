@@ -7,44 +7,111 @@
     <meta name="color-scheme" content="dark light" />
 
     <title>MoonShield — Suricata</title>
+
     <meta
         name="description"
         content="Painel operacional do Suricata IDS integrado ao MoonShield."
     />
 
+    <!-- ============================================================
+         TEMA INICIAL
+         Evita flash do tema incorreto antes do CSS carregar
+    ============================================================= -->
     <script>
         (() => {
+            'use strict';
+
             const savedTheme = localStorage.getItem('moonshield_theme');
+
             if (savedTheme === 'dark' || savedTheme === 'light') {
-                document.documentElement.setAttribute('data-theme', savedTheme);
+                document.documentElement.setAttribute(
+                    'data-theme',
+                    savedTheme
+                );
+
                 return;
             }
+
+            const prefersDark = window.matchMedia(
+                '(prefers-color-scheme: dark)'
+            ).matches;
+
             document.documentElement.setAttribute(
                 'data-theme',
-                window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+                prefersDark ? 'dark' : 'light'
             );
         })();
     </script>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- ============================================================
+         FONTES
+    ============================================================= -->
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    />
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    />
+
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
         rel="stylesheet"
     />
 
-    <!-- CSS Base -->
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/painel.css' %}" />
-    
-    <!-- CSS das Seções e Componentes -->
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/secoes/visao_geral.css' %}" />
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/secoes/saude_stack.css' %}" />
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/secoes/configuracao.css' %}" />
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/secoes/regras.css' %}" />
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/secoes/tarefas.css' %}" />
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/secoes/diagnostico.css' %}" />
-    <link rel="stylesheet" href="{% static 'css/incidentes/suricata/terminal.css' %}" />
+    <!-- ============================================================
+         CSS PRINCIPAL
+    ============================================================= -->
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/painel.css' %}"
+    />
 
+    <!-- ============================================================
+         CSS DAS SEÇÕES
+    ============================================================= -->
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/secoes/visao_geral.css' %}"
+    />
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/secoes/saude_stack.css' %}"
+    />
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/secoes/configuracao.css' %}"
+    />
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/secoes/regras.css' %}"
+    />
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/secoes/tarefas.css' %}"
+    />
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/secoes/diagnostico.css' %}"
+    />
+
+    <!-- Terminal usado pela gaveta/logs -->
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/terminal.css' %}"
+    />
+
+    <!-- ============================================================
+         FAVICON
+    ============================================================= -->
     <link
         rel="icon"
         type="image/png"
@@ -55,137 +122,355 @@
 
 <body>
 
-{{ configuracao_suricata|json_script:"ms-suricata-panel-config" }}
-{{ status_stack|json_script:"ms-suricata-panel-status" }}
-{{ cards_suricata|json_script:"ms-suricata-panel-cards" }}
+    <!-- ============================================================
+         DADOS INICIAIS DO BACKEND
 
-<script>
-    (() => {
-        'use strict';
+         json_script evita problemas como:
+         True / False / None inválidos no JavaScript.
+    ============================================================= -->
 
-        const readJSONScript = (id, fallback) => {
-            const node = document.getElementById(id);
-            if (!node) return fallback;
+    {{ configuracao_suricata|json_script:"ms-suricata-panel-config" }}
+    {{ status_stack|json_script:"ms-suricata-panel-status" }}
+    {{ cards_suricata|json_script:"ms-suricata-panel-cards" }}
 
-            try {
-                return JSON.parse(node.textContent);
-            } catch (error) {
-                console.error(`[MoonShield] JSON inválido em #${id}:`, error);
-                return fallback;
-            }
-        };
-
-        window.MS_SURICATA_PANEL = {
-            csrfToken: "{{ csrf_token }}",
-
-            usuario: {
-                username: "{{ request.user.username|escapejs }}",
-                nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
-            },
-
-            configuracao: readJSONScript("ms-suricata-panel-config", null),
-            statusInicial: readJSONScript("ms-suricata-panel-status", {}),
-            cardsIniciais: readJSONScript("ms-suricata-panel-cards", {}),
-
-            urls: {
-                painel: "{% url 'incidentes:suricata_painel' %}",
-                onboarding: "{% url 'incidentes:suricata_onboarding' %}",
-
-                status: "{% url 'incidentes:api_suricata_status' %}",
-                diagnostico: "{% url 'incidentes:api_suricata_diagnostico' %}",
-                onboardingStatus: "{% url 'incidentes:api_suricata_onboarding_status' %}",
-                detectarInterfaces: "{% url 'incidentes:api_suricata_detectar_interfaces' %}",
-                salvarConfiguracao: "{% url 'incidentes:api_suricata_salvar_configuracao' %}",
-                reabrirOnboarding: "{% url 'incidentes:api_suricata_reabrir_onboarding' %}",
-
-                criarTarefa: "{% url 'incidentes:api_suricata_criar_tarefa' %}",
-                listarTarefas: "{% url 'incidentes:api_suricata_listar_tarefas' %}",
-
-                detalheTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
-
-                executarTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
-
-                cancelarTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
-
-                logsTarefaTemplate:
-                    "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
-            }
-        };
-    })();
-</script>
-
-<!-- Região de notificações -->
-<div
-    class="sp-toasts"
-    id="toastContainer"
-    aria-live="polite"
-    aria-atomic="true"
-></div>
-
-<div class="sp-shell">
-
-    {% include "incidentes/suricata/parciais/_barra_lateral.html" %}
 
     <!-- ============================================================
-         ÁREA PRINCIPAL
+         CONTRATO GLOBAL DO PAINEL
     ============================================================= -->
-    <div class="sp-main">
 
-        {% include "incidentes/suricata/parciais/_barra_superior.html" %}
+    <script>
+        (() => {
+            'use strict';
 
-        <!-- CONTEÚDO -->
-        <main class="sp-content">
+            const readJSONScript = (id, fallback) => {
+                const node = document.getElementById(id);
 
-            {% include "incidentes/suricata/parciais/_visao_geral.html" %}
+                if (!node) {
+                    return fallback;
+                }
 
-            {% include "incidentes/suricata/parciais/_saude_stack.html" %}
+                try {
+                    return JSON.parse(node.textContent);
+                } catch (error) {
+                    console.error(
+                        `[MoonShield] JSON inválido em #${id}:`,
+                        error
+                    );
 
-            {% include "incidentes/suricata/parciais/_configuracao.html" %}
+                    return fallback;
+                }
+            };
 
-            {% include "incidentes/suricata/parciais/_regras.html" %}
 
-            {% include "incidentes/suricata/parciais/_tarefas.html" %}
+            window.MS_SURICATA_PANEL = {
+                csrfToken: "{{ csrf_token }}",
 
-            {% include "incidentes/suricata/parciais/_diagnostico.html" %}
+                usuario: {
+                    username:
+                        "{{ request.user.username|escapejs }}",
 
-        </main>
+                    nome:
+                        "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+                },
+
+
+                /* ==================================================
+                   DADOS INICIAIS
+                ================================================== */
+
+                configuracao: readJSONScript(
+                    "ms-suricata-panel-config",
+                    null
+                ),
+
+                statusInicial: readJSONScript(
+                    "ms-suricata-panel-status",
+                    {}
+                ),
+
+                cardsIniciais: readJSONScript(
+                    "ms-suricata-panel-cards",
+                    {}
+                ),
+
+
+                /* ==================================================
+                   URLS DJANGO
+
+                   Nunca hardcode essas URLs dentro dos módulos JS.
+                ================================================== */
+
+                urls: {
+                    painel:
+                        "{% url 'incidentes:suricata_painel' %}",
+
+                    onboarding:
+                        "{% url 'incidentes:suricata_onboarding' %}",
+
+
+                    /* ----------------------------------------------
+                       STATUS / DIAGNÓSTICO
+                    ---------------------------------------------- */
+
+                    status:
+                        "{% url 'incidentes:api_suricata_status' %}",
+
+                    diagnostico:
+                        "{% url 'incidentes:api_suricata_diagnostico' %}",
+
+
+                    /* ----------------------------------------------
+                       ONBOARDING
+                    ---------------------------------------------- */
+
+                    onboardingStatus:
+                        "{% url 'incidentes:api_suricata_onboarding_status' %}",
+
+                    detectarInterfaces:
+                        "{% url 'incidentes:api_suricata_detectar_interfaces' %}",
+
+                    salvarConfiguracao:
+                        "{% url 'incidentes:api_suricata_salvar_configuracao' %}",
+
+                    reabrirOnboarding:
+                        "{% url 'incidentes:api_suricata_reabrir_onboarding' %}",
+
+
+                    /* ----------------------------------------------
+                       TAREFAS
+                    ---------------------------------------------- */
+
+                    criarTarefa:
+                        "{% url 'incidentes:api_suricata_criar_tarefa' %}",
+
+                    listarTarefas:
+                        "{% url 'incidentes:api_suricata_listar_tarefas' %}",
+
+
+                    /* ----------------------------------------------
+                       TAREFA INDIVIDUAL
+
+                       __ID__ será substituído pelo JavaScript.
+                    ---------------------------------------------- */
+
+                    detalheTarefaTemplate:
+                        "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
+
+                    executarTarefaTemplate:
+                        "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
+
+                    cancelarTarefaTemplate:
+                        "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
+
+                    logsTarefaTemplate:
+                        "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
+                }
+            };
+        })();
+    </script>
+
+
+    <!-- ============================================================
+         NOTIFICAÇÕES
+    ============================================================= -->
+
+    <div
+        class="sp-toasts"
+        id="toastContainer"
+        aria-live="polite"
+        aria-atomic="true"
+    ></div>
+
+
+    <!-- ============================================================
+         ESTRUTURA PRINCIPAL
+    ============================================================= -->
+
+    <div class="sp-shell">
+
+        <!-- ========================================================
+             BARRA LATERAL
+        ========================================================= -->
+
+        {% include "incidentes/suricata/parciais/_barra_lateral.html" %}
+
+
+        <!-- ========================================================
+             ÁREA PRINCIPAL
+        ========================================================= -->
+
+        <div class="sp-main">
+
+
+            <!-- ====================================================
+                 BARRA SUPERIOR
+            ===================================================== -->
+
+            {% include "incidentes/suricata/parciais/_barra_superior.html" %}
+
+
+            <!-- ====================================================
+                 CONTEÚDO
+            ===================================================== -->
+
+            <main class="sp-content">
+
+
+                <!-- =================================================
+                     VISÃO GERAL
+                ================================================== -->
+
+                {% include "incidentes/suricata/parciais/_visao_geral.html" %}
+
+
+                <!-- =================================================
+                     SAÚDE DA STACK
+                ================================================== -->
+
+                {% include "incidentes/suricata/parciais/_saude_stack.html" %}
+
+
+                <!-- =================================================
+                     CONFIGURAÇÃO
+                ================================================== -->
+
+                {% include "incidentes/suricata/parciais/_configuracao.html" %}
+
+
+                <!-- =================================================
+                     REGRAS
+                ================================================== -->
+
+                {% include "incidentes/suricata/parciais/_regras.html" %}
+
+
+                <!-- =================================================
+                     TAREFAS
+                ================================================== -->
+
+                {% include "incidentes/suricata/parciais/_tarefas.html" %}
+
+
+                <!-- =================================================
+                     DIAGNÓSTICO
+                ================================================== -->
+
+                {% include "incidentes/suricata/parciais/_diagnostico.html" %}
+
+            </main>
+
+        </div>
+
     </div>
-</div>
 
-{% include "incidentes/suricata/parciais/_gaveta_tarefa.html" %}
 
-{% include "incidentes/suricata/parciais/_modais.html" %}
+    <!-- ============================================================
+         GAVETA DE TAREFA
+    ============================================================= -->
 
-<script>
-    (() => {
-        'use strict';
+    {% include "incidentes/suricata/parciais/_gaveta_tarefa.html" %}
 
-        const button = document.getElementById('themeToggle');
-        const root = document.documentElement;
-        if (!button) return;
 
-        const syncLabel = () => {
-            const current = root.getAttribute('data-theme') || 'dark';
-            const label = current === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro';
-            button.setAttribute('aria-label', label);
-            button.setAttribute('title', label);
-        };
+    <!-- ============================================================
+         MODAIS
+    ============================================================= -->
 
-        button.addEventListener('click', () => {
-            const current = root.getAttribute('data-theme') || 'dark';
-            const next = current === 'dark' ? 'light' : 'dark';
-            root.setAttribute('data-theme', next);
-            localStorage.setItem('moonshield_theme', next);
+    {% include "incidentes/suricata/parciais/_modais.html" %}
+
+
+    <!-- ============================================================
+         CONTROLE DO TEMA
+
+         Mantido no HTML porque deve funcionar mesmo que algum módulo
+         operacional do painel falhe.
+    ============================================================= -->
+
+    <script>
+        (() => {
+            'use strict';
+
+            const button =
+                document.getElementById('themeToggle');
+
+            const root =
+                document.documentElement;
+
+            if (!button) {
+                return;
+            }
+
+
+            const syncLabel = () => {
+                const current =
+                    root.getAttribute('data-theme') ||
+                    'dark';
+
+                const label =
+                    current === 'dark'
+                        ? 'Ativar tema claro'
+                        : 'Ativar tema escuro';
+
+                button.setAttribute(
+                    'aria-label',
+                    label
+                );
+
+                button.setAttribute(
+                    'title',
+                    label
+                );
+            };
+
+
+            button.addEventListener(
+                'click',
+                () => {
+                    const current =
+                        root.getAttribute('data-theme') ||
+                        'dark';
+
+                    const next =
+                        current === 'dark'
+                            ? 'light'
+                            : 'dark';
+
+                    root.setAttribute(
+                        'data-theme',
+                        next
+                    );
+
+                    localStorage.setItem(
+                        'moonshield_theme',
+                        next
+                    );
+
+                    syncLabel();
+                }
+            );
+
+
             syncLabel();
-        });
+        })();
+    </script>
 
-        syncLabel();
-    })();
-</script>
 
-<script type="module" src="{% static 'js/incidentes/suricata/painel.js' %}"></script>
+    <!-- ============================================================
+         JAVASCRIPT PRINCIPAL
+
+         painel.js é ES Module.
+
+         Ele importa automaticamente:
+         nucleo/
+         componentes/
+         secoes/
+
+         NÃO carregar terminal.js ou tarefas.js antigos aqui.
+    ============================================================= -->
+
+    <script
+        type="module"
+        src="{% static 'js/incidentes/suricata/painel.js' %}"
+    ></script>
+
 </body>
 </html>

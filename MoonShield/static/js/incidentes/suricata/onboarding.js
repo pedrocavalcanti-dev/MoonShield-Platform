@@ -570,11 +570,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!container) return;
 
         container.innerHTML = '';
-        container.style.flexDirection = 'column';
-        container.style.gap = 'var(--spacing-sm)';
-        container.style.alignItems = 'stretch';
-        container.classList.remove('card--highlighted');
-
         const mode = getCaptureMode();
         const manualMode = mode === 'personalizado';
         const mgmt = el('fieldMgmt')?.value || '';
@@ -591,27 +586,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const checked = state.selectedInterfaces.has(item.nome) && !isMgmt;
 
             const label = document.createElement('label');
-            label.className = 'card card--highlighted';
-            label.style.display = 'flex';
-            label.style.alignItems = 'center';
-            label.style.gap = 'var(--spacing-md)';
-            label.style.cursor = disabled ? 'not-allowed' : 'pointer';
-            label.style.padding = 'var(--spacing-md)';
-            label.style.margin = '0';
-            label.style.opacity = disabled ? '0.6' : '1';
+            // NOVO ESTILO: Usa a mesma classe dos cartões de seleção bonitos
+            label.className = 'selectable-card'; 
+            label.style.padding = '12px 16px'; // Um pouco mais compacto
+            if (disabled) label.style.opacity = '0.6';
 
-            const roleText = role ? ` · <span style="font-weight:600; color:var(--color-primary);">${role}</span>` : '';
+            const roleText = role ? `<span class="selectable-card__badge" style="color:var(--color-primary); font-weight:600;">· ${role}</span>` : '';
             const address = item.cidr || item.ipv4 || '';
 
             label.innerHTML = `
-                <input type="checkbox" value="${escapeHtml(item.nome)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} style="width: 16px; height: 16px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; font-size: 14px;">${escapeHtml(item.nome)}</div>
-                    <div style="font-size: 12px; color: var(--color-text-secondary);">${escapeHtml(address)}</div>
-                </div>
-                <div style="font-size: 12px; color: var(--color-text-tertiary); text-align: right;">
-                    ${escapeHtml(isMgmt ? 'gerência' : (item.estado || 'detectada'))}
-                    ${roleText}
+                <input type="checkbox" value="${escapeHtml(item.nome)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+                <div class="selectable-card__content" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span class="selectable-card__title" style="margin-bottom:0;">${escapeHtml(item.nome)}</span>
+                        <span class="selectable-card__desc">${escapeHtml(address)}</span>
+                    </div>
+                    <div style="text-align:right; font-size:12px; color:var(--color-text-tertiary);">
+                        ${escapeHtml(isMgmt ? 'gerência' : (item.estado || 'detectada'))} ${roleText}
+                    </div>
                 </div>
             `;
 
@@ -622,22 +614,51 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderMonitoredInterfaces(state.interfaces);
                     return;
                 }
-
                 if (input.value === (el('fieldMgmt')?.value || '')) {
                     input.checked = false;
                     state.selectedInterfaces.delete(input.value);
                     showNetworkError('A interface de gerenciamento não pode ser monitorada.');
                     return;
                 }
-
                 if (input.checked) state.selectedInterfaces.add(input.value);
                 else state.selectedInterfaces.delete(input.value);
-
                 clearNetworkError();
             });
-
             container.appendChild(label);
         }
+    }
+
+    // AJUSTE PARA O TERMINAL NOVO
+    function appendTerminalLine(log) {
+        const container = el('installLogs');
+        if (!container) return;
+
+        // Limpa estado vazio
+        if (container.children.length === 1 && container.firstElementChild.textContent.includes('Aguardando o início')) {
+            container.innerHTML = '';
+        }
+
+        const level = String(log.nivel || log.level || 'info').toLowerCase();
+        let colorClass = 'info';
+        if (['erro', 'error', 'critical'].includes(level)) colorClass = 'error';
+        if (['aviso', 'warning', 'warn'].includes(level)) colorClass = 'warning';
+        if (['sucesso', 'success', 'ok'].includes(level)) colorClass = 'success';
+
+        const line = document.createElement('div');
+        line.className = 'terminal-line';
+
+        const timestamp = parseDate(log.criado_em || log.timestamp || new Date());
+        const stage = firstText(log.etapa, log.stage);
+        const message = firstText(log.mensagem, log.message, 'Evento sem mensagem');
+        
+        line.innerHTML = `
+            <span class="terminal-time">${formatTime(timestamp)}</span>
+            <span class="terminal-level ${colorClass}">${escapeHtml(level.toUpperCase())}</span>
+            <span>${stage ? `<span style="opacity:0.7;">[${escapeHtml(stage)}]</span> ` : ''}${escapeHtml(message)}</span>
+        `;
+        
+        container.appendChild(line);
+        container.scrollTop = container.scrollHeight;
     }
 
     function updateCaptureModeHint() {

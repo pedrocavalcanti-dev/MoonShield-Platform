@@ -1,276 +1,144 @@
-// tarefas.js
-(() => {
-    'use strict';
+import { fetchJSON, unwrapPayload, apiUrl, handleError } from '../nucleo/api.js';
+import { state, TASK_LABELS, TASK_ICONS } from '../nucleo/estado.js';
+import { safeArray, readPath, numberValue, textValue, capitalize, escapeHTML, formatDate, formatDuration, sanitizeUrl } from '../nucleo/utilitarios.js';
+import { $, setText, setButtonLoading } from '../nucleo/dom.js';
+import { normalizeStatus, statusLabel, iconSVG } from '../nucleo/interface.js';
+import { renderOverviewTasks } from './visao_geral.js';
+import { showToast } from '../componentes/notificacoes.js';
 
-    const config = window.MS_SURICATA_PANEL;
-    if (!config) return;
+export function initTarefas() {
+    $('taskStatusFilter')?.addEventListener('change', () => { state.taskOffset = 0; loadTasks().catch(handleError); });
+    $('taskTypeFilter')?.addEventListener('change', () => { state.taskOffset = 0; loadTasks().catch(handleError); });
 
-    const DOM = {
-        filterStatus: document.getElementById('taskStatusFilter'),
-        filterType: document.getElementById('taskTypeFilter'),
-        btnClearFilters: document.getElementById('btnClearTaskFilters'),
-        btnRefreshTasks: document.getElementById('btnRefreshTasks'),
-        btnUpdateRules: document.getElementById('btnUpdateAllRules'),
-        btnTaskPrev: document.getElementById('btnTaskPrev'),
-        btnTaskNext: document.getElementById('btnTaskNext'),
-        taskTableBody: document.getElementById('taskTableBody'),
-        taskPageText: document.getElementById('taskPageText'),
-        taskPaginationText: document.getElementById('taskPaginationText'),
-        navTaskBadge: document.getElementById('navTaskBadge'),
-        modal: document.getElementById('confirmationModal')
-    };
+    $('btnClearTaskFilters')?.addEventListener('click', () => {
+        if ($('taskStatusFilter')) $('taskStatusFilter').value = '';
+        if ($('taskTypeFilter')) $('taskTypeFilter').value = '';
+        state.taskOffset = 0;
+        loadTasks().catch(handleError);
+    });
 
-    let currentPage = 1;
-    const pageSize = 10;
+    $('btnTaskPrev')?.addEventListener('click', () => {
+        state.taskOffset = Math.max(0, state.taskOffset - state.taskLimit);
+        loadTasks().catch(handleError);
+    });
 
-    const fetchTasks = async (page = 1) => {
+    $('btnTaskNext')?.addEventListener('click', () => {
+        if (state.taskOffset + state.taskLimit >= state.taskTotal) return;
+        state.taskOffset += state.taskLimit;
+        loadTasks().catch(handleError);
+    });
+
+    $('btnRefreshTasks')?.addEventListener('click', async () => {
+        const button = $('btnRefreshTasks');
+        setButtonLoading(button, true);
         try {
-            const params = new URLSearchParams({
-                page,
-                limit: pageSize,
-                status: DOM.filterStatus?.value || '',
-                type: DOM.filterType?.value || ''
-            });
-
-            const res = await fetch(`${config.urls.listarTarefas}?${params}`, {
-                headers: { 'X-CSRFToken': config.csrfToken }
-            });
-
-            const data = await res.json();
-            renderTasks(data.tarefas || []);
-            updatePagination(data.pagina_atual || 1, data.total_paginas || 1, data.total || 0);
-            updateTaskBadge(data.pendentes_count || 0);
+            await loadTasks();
+            showToast('Lista de tarefas atualizada.', 'ok');
         } catch (error) {
-            console.error('[MoonShield] Erro ao buscar tarefas:', error);
-            DOM.taskTableBody.innerHTML = '<tr><td colspan="7">Erro ao carregar tarefas.</td></tr>';
-        }
-    };
-
-    const renderTasks = (tarefas) => {
-        if (!DOM.taskTableBody) return;
-
-        if (!tarefas.length) {
-            DOM.taskTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">Nenhuma tarefa encontrada.</td></tr>';
-            return;
-        }
-
-        DOM.taskTableBody.innerHTML = tarefas.map(t => {
-            const criada = new Date(t.criada_em);
-            const horaCriada = criada.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-            
-            return `
-                <tr data-task-id="${t.id}">
-                    <td>
-                        <strong style="display: block; margin-bottom: 2px;">${t.tipo}</strong>
-                        <small style="color: var(--sp-dim);">${t.descricao || ''}</small>
-                    </td>
-                    <td><span class="ob-chip ob-chip--${t.estado}">${t.estado}</span></td>
-                    <td><span style="font-family: 'DM Mono', monospace;">${t.progresso || 0}%</span></td>
-                    <td><small>${t.etapa || '—'}</small></td>
-                    <td><small>${horaCriada}</small></td>
-                    <td><small>${formatDuration(t.duracao_segundos)}</small></td>
-                    <td>
-                        <button class="ob-icon-btn ob-icon-btn--sm task-open-btn" type="button" title="Ver detalhes">→</button>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-
-        DOM.taskTableBody.querySelectorAll('.task-open-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const taskId = e.target.closest('tr').dataset.taskId;
-                openTaskDrawer(taskId);
-            });
-        });
-    };
-
-    const updatePagination = (current, total, totalItems) => {
-        currentPage = current;
-
-        if (DOM.btnTaskPrev) DOM.btnTaskPrev.disabled = current === 1;
-        if (DOM.btnTaskNext) DOM.btnTaskNext.disabled = current === total;
-        if (DOM.taskPageText) DOM.taskPageText.textContent = `Página ${current} / ${total}`;
-        if (DOM.taskPaginationText) {
-            const start = (current - 1) * pageSize + 1;
-            const end = Math.min(current * pageSize, totalItems);
-            DOM.taskPaginationText.textContent = `${start}–${end} de ${totalItems} tarefas`;
-        }
-    };
-
-    const updateTaskBadge = (count) => {
-        if (!DOM.navTaskBadge) return;
-        if (count > 0) {
-            DOM.navTaskBadge.textContent = count;
-            DOM.navTaskBadge.hidden = false;
-        } else {
-            DOM.navTaskBadge.hidden = true;
-        }
-    };
-
-    const formatDuration = (seconds) => {
-        if (!seconds) return '—';
-        const h = Math.floor(seconds / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = seconds % 60;
-        if (h > 0) return `${h}h ${m}m`;
-        if (m > 0) return `${m}m ${s}s`;
-        return `${s}s`;
-    };
-
-    const openTaskDrawer = async (taskId) => {
-        const drawer = document.getElementById('taskDrawer');
-        if (!drawer) return;
-
-        drawer.classList.add('is-open');
-        drawer.setAttribute('aria-hidden', 'false');
-
-        try {
-            const url = config.urls.detalheTarefaTemplate.replace('__ID__', taskId);
-            const res = await fetch(url, {
-                headers: { 'X-CSRFToken': config.csrfToken }
-            });
-            const task = await res.json();
-
-            document.getElementById('taskDrawerTitle').textContent = `Tarefa #${task.id}`;
-            document.getElementById('drawerTaskStatus').textContent = task.estado;
-            document.getElementById('drawerTaskStatus').className = `ob-pill ob-pill--${task.estado}`;
-            document.getElementById('drawerTaskType').textContent = task.tipo;
-            document.getElementById('drawerTaskId').textContent = `#${task.id}`;
-            document.getElementById('drawerTaskStage').textContent = task.etapa || '—';
-            document.getElementById('drawerTaskPercent').textContent = `${task.progresso || 0}%`;
-            document.getElementById('drawerTaskMessage').textContent = task.mensagem || 'Sem atualizações.';
-
-            const progressBar = document.getElementById('drawerTaskProgressBar');
-            if (progressBar) {
-                progressBar.style.width = `${task.progresso || 0}%`;
-            }
-
-            document.getElementById('drawerTaskCreated').textContent = new Date(task.criada_em).toLocaleString('pt-BR');
-            document.getElementById('drawerTaskStarted').textContent = task.iniciada_em ? new Date(task.iniciada_em).toLocaleString('pt-BR') : '—';
-            document.getElementById('drawerTaskFinished').textContent = task.finalizada_em ? new Date(task.finalizada_em).toLocaleString('pt-BR') : '—';
-            document.getElementById('drawerTaskDuration').textContent = formatDuration(task.duracao_segundos);
-
-            if (task.erro) {
-                document.getElementById('drawerTaskError').hidden = false;
-                document.getElementById('drawerTaskErrorText').textContent = task.erro;
-            } else {
-                document.getElementById('drawerTaskError').hidden = true;
-            }
-
-            const logsContainer = document.getElementById('drawerTaskLogs');
-            if (task.logs && task.logs.length) {
-                logsContainer.innerHTML = task.logs.map(log => 
-                    `<div class="ob-terminal-line">
-                        <span class="ob-terminal-time">${log.timestamp}</span>
-                        <span class="ob-terminal-level">${log.nivel}</span>
-                        <span>${log.mensagem}</span>
-                    </div>`
-                ).join('');
-            } else {
-                logsContainer.innerHTML = '<div class="ob-terminal__empty">Nenhum log disponível.</div>';
-            }
-
-            pollTaskUpdates(taskId);
-        } catch (error) {
-            console.error('[MoonShield] Erro ao carregar tarefa:', error);
-        }
-    };
-
-    let pollInterval = null;
-    const pollTaskUpdates = (taskId) => {
-        if (pollInterval) clearInterval(pollInterval);
-
-        const updateTask = async () => {
-            try {
-                const url = config.urls.detalheTarefaTemplate.replace('__ID__', taskId);
-                const res = await fetch(url, {
-                    headers: { 'X-CSRFToken': config.csrfToken }
-                });
-                const task = await res.json();
-
-                if (['sucesso', 'erro', 'cancelado'].includes(task.estado)) {
-                    clearInterval(pollInterval);
-                }
-
-                document.getElementById('drawerTaskPercent').textContent = `${task.progresso || 0}%`;
-                document.getElementById('drawerTaskStage').textContent = task.etapa || '—';
-                document.getElementById('drawerTaskMessage').textContent = task.mensagem || '—';
-
-                const progressBar = document.getElementById('drawerTaskProgressBar');
-                if (progressBar) {
-                    progressBar.style.width = `${task.progresso || 0}%`;
-                }
-            } catch (error) {
-                console.error('[MoonShield] Erro ao atualizar tarefa:', error);
-            }
-        };
-
-        updateTask();
-        pollInterval = setInterval(updateTask, 1500);
-    };
-
-    // Event listeners
-    DOM.btnRefreshTasks?.addEventListener('click', () => fetchTasks(1));
-    DOM.filterStatus?.addEventListener('change', () => fetchTasks(1));
-    DOM.filterType?.addEventListener('change', () => fetchTasks(1));
-
-    DOM.btnClearFilters?.addEventListener('click', () => {
-        if (DOM.filterStatus) DOM.filterStatus.value = '';
-        if (DOM.filterType) DOM.filterType.value = '';
-        fetchTasks(1);
-    });
-
-    DOM.btnTaskPrev?.addEventListener('click', () => {
-        if (currentPage > 1) fetchTasks(currentPage - 1);
-    });
-
-    DOM.btnTaskNext?.addEventListener('click', () => {
-        fetchTasks(currentPage + 1);
-    });
-
-    DOM.btnUpdateRules?.addEventListener('click', async () => {
-        const confirmed = confirm('Atualizar todas as regras? Isso pode levar alguns minutos.');
-        if (!confirmed) return;
-
-        try {
-            const res = await fetch(config.urls.criarTarefa, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': config.csrfToken
-                },
-                body: JSON.stringify({ tipo: 'atualizacao_regras' })
-            });
-
-            const data = await res.json();
-            if (data.sucesso) {
-                showToast('Tarefa de atualização criada.', 'ok');
-                fetchTasks(1);
-            } else {
-                showToast(`Erro: ${data.erro}`, 'error');
-            }
-        } catch (error) {
-            showToast('Erro ao criar tarefa.', 'error');
-            console.error('[MoonShield] Erro:', error);
+            handleError(error);
+        } finally {
+            setButtonLoading(button, false);
         }
     });
+}
 
-    const showToast = (message, type) => {
-        const toast = document.createElement('div');
-        toast.className = `ob-toast ob-toast--${type}`;
-        toast.setAttribute('role', 'status');
-        toast.innerHTML = `
-            <span class="ob-toast__icon">${type === 'ok' ? '✓' : '!'}</span>
-            <span>${message}</span>
+export async function createTask(tipo, parametros = {}) {
+    const payload = await fetchJSON(apiUrl('criarTarefa'), {
+        method: 'POST',
+        body: { tipo, parametros },
+    });
+
+    const data = unwrapPayload(payload);
+    const task = readPath(data, ['tarefa'], null) || readPath(payload, ['tarefa'], null) || data;
+
+    if (!task || typeof task !== 'object') throw new Error('A API não retornou a tarefa criada.');
+    return task;
+}
+
+export async function confirmTask(config, onCreated) {
+    const task = await createTask(config.tipo, config.parametros || {});
+    showToast('Tarefa criada com sucesso.', 'ok');
+    await loadTasks();
+    if (onCreated) onCreated(task.id || task.pk);
+}
+
+export async function loadTasks() {
+    const query = new URLSearchParams();
+    const status = $('taskStatusFilter')?.value || '';
+    const type = $('taskTypeFilter')?.value || '';
+
+    query.set('offset', String(state.taskOffset));
+    query.set('limite', String(state.taskLimit));
+    if (status) query.set('status', status);
+    if (type) query.set('tipo', type);
+
+    const payload = await fetchJSON(`${apiUrl('listarTarefas')}?${query}`);
+    const data = unwrapPayload(payload);
+    const tasks = safeArray(readPath(data, ['tarefas', 'results'], readPath(payload, ['tarefas'], [])));
+    const total = numberValue(readPath(data, ['total', 'count'], tasks.length), tasks.length);
+
+    state.tasks = tasks;
+    state.taskTotal = total;
+    state.taskPage = Math.floor(state.taskOffset / state.taskLimit) + 1;
+
+    renderTaskTable(tasks);
+    renderOverviewTasks(tasks.slice(0, 5));
+    renderTaskPagination();
+
+    return tasks;
+}
+
+export function renderTaskTable(tasks) {
+    const body = $('taskTableBody');
+    if (!body) return;
+
+    body.innerHTML = '';
+    if (!tasks.length) {
+        body.innerHTML = `<tr><td colspan="7"><div class="sp-empty-state"><span class="sp-empty-state__icon">${iconSVG('task', 22)}</span><div><strong>Nenhuma tarefa encontrada</strong><span>Altere os filtros ou crie uma nova operação.</span></div></div></td></tr>`;
+        return;
+    }
+
+    for (const task of tasks) {
+        const id = task.id || task.pk || '';
+        const status = textValue(task.status, 'pendente').toLowerCase();
+        const normalizedStatus = normalizeStatus(status);
+        const progress = Math.max(0, Math.min(100, numberValue(task.progresso, 0)));
+        const row = document.createElement('tr');
+
+        row.innerHTML = `
+            <td><div class="sp-task-cell"><span class="sp-task-cell__icon">${iconSVG(TASK_ICONS[task.tipo] || 'task', 15)}</span><span class="sp-task-cell__copy"><strong>${escapeHTML(TASK_LABELS[task.tipo] || capitalize(task.tipo))}</strong><span>${escapeHTML(id)}</span></span></div></td>
+            <td><span class="sp-status-pill sp-status-pill--${normalizedStatus}">${escapeHTML(statusLabel(status))}</span></td>
+            <td><div class="sp-progress-mini"><div class="sp-progress-mini__bar"><span style="width:${progress}%"></span></div><span class="sp-progress-mini__text">${progress}%</span></div></td>
+            <td>${escapeHTML(task.etapa_atual || '—')}</td>
+            <td>${escapeHTML(formatDate(task.iniciado_em || task.criado_em))}</td>
+            <td>${escapeHTML(formatDuration(task.duracao_segundos))}</td>
+            <td><button class="sp-icon-btn sp-icon-btn--small" type="button" aria-label="Abrir tarefa" data-task-open="${escapeHTML(id)}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button></td>
         `;
-        document.getElementById('toastContainer')?.appendChild(toast);
-        setTimeout(() => {
-            toast.classList.add('is-closing');
-            setTimeout(() => toast.remove(), 300);
-        }, 3500);
-    };
+        body.appendChild(row);
+    }
+}
 
-    // Init
-    fetchTasks(1);
+export function renderTaskPagination() {
+    const start = state.taskTotal ? state.taskOffset + 1 : 0;
+    const end = Math.min(state.taskOffset + state.taskLimit, state.taskTotal);
+    const totalPages = Math.max(1, Math.ceil(state.taskTotal / state.taskLimit));
 
-})();
+    setText('taskPaginationText', `${start}–${end} de ${state.taskTotal} tarefa(s)`);
+    setText('taskPageText', `Página ${state.taskPage} de ${totalPages}`);
+
+    if ($('btnTaskPrev')) $('btnTaskPrev').disabled = state.taskOffset <= 0;
+    if ($('btnTaskNext')) $('btnTaskNext').disabled = state.taskOffset + state.taskLimit >= state.taskTotal;
+}
+
+export async function loadTaskDetail(taskId) {
+    const detailUrl = sanitizeUrl(apiUrl('detalheTarefaTemplate'), taskId);
+    const payload = await fetchJSON(detailUrl);
+    const data = unwrapPayload(payload);
+    return readPath(data, ['tarefa'], null) || readPath(payload, ['tarefa'], null) || data;
+}
+
+export async function requestTaskCancellation(taskId) {
+    const url = sanitizeUrl(apiUrl('cancelarTarefaTemplate'), taskId);
+    await fetchJSON(url, { method: 'POST', body: {} });
+    showToast('Cancelamento solicitado.', 'warning');
+}

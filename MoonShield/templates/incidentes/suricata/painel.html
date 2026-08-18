@@ -48,12 +48,6 @@
 
 <body>
 
-{# ================================================================
-   DADOS DO BACKEND
-   Nunca injete dicts/booleans Python diretamente dentro de JS.
-   json_script garante JSON válido: true/false/null em vez de
-   True/False/None.
-   ================================================================ #}
 {{ configuracao_suricata|json_script:"ms-suricata-panel-config" }}
 {{ status_stack|json_script:"ms-suricata-panel-status" }}
 {{ cards_suricata|json_script:"ms-suricata-panel-cards" }}

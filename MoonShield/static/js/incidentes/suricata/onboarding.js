@@ -6,6 +6,27 @@
 'use strict';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // ═══════════════════════════════════════════════════════════
+    // CONTROLE DE TEMA (TOGGLE SWITCH)
+    // ═══════════════════════════════════════════════════════════
+    const themeToggle = document.getElementById('themeToggle');
+
+    if (themeToggle) {
+        // Define o estado inicial do interruptor baseado no HTML
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+        themeToggle.checked = currentTheme === 'dark';
+
+        // Escuta as mudanças no interruptor
+        themeToggle.addEventListener('change', (e) => {
+            const newTheme = e.target.checked ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('moonshield_theme', newTheme);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ESTADO E CONFIGURAÇÕES GERAIS
+    // ═══════════════════════════════════════════════════════════
     const CFG = window.MS_SURICATA || {};
     const TOTAL_STEPS = 6;
     const POLL_INTERVAL_MS = 1800;
@@ -264,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setEnvironmentSummary('error', 'Falha ao verificar o ambiente', error.message || 'A API de status não respondeu.');
             showEnvironmentError(error.message || 'Não foi possível consultar o ambiente.');
             updateSidebarSystem('error', 'Falha na verificação');
-            if (el('btnStep2Next')) el('btnStep2Next.disabled = true');
+            if (el('btnStep2Next')) el('btnStep2Next').disabled = true;
         }
     }
 
@@ -291,7 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const row = document.querySelector(`[data-check="${cssEscape(name)}"]`);
         if (!row) return;
         const status = row.querySelector('.info-card__icon');
-        const value = row.querySelector('div[id^="check"]'); // Seleciona a div de valor
+        const value = row.querySelector('div[id^="check"]');
 
         if (status) {
             status.style.background = 'transparent';
@@ -586,9 +607,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const checked = state.selectedInterfaces.has(item.nome) && !isMgmt;
 
             const label = document.createElement('label');
-            // NOVO ESTILO: Usa a mesma classe dos cartões de seleção bonitos
-            label.className = 'selectable-card'; 
-            label.style.padding = '12px 16px'; // Um pouco mais compacto
+            label.className = 'selectable-card';
+            label.style.padding = '12px 16px';
+            label.style.margin = '0';
             if (disabled) label.style.opacity = '0.6';
 
             const roleText = role ? `<span class="selectable-card__badge" style="color:var(--color-primary); font-weight:600;">· ${role}</span>` : '';
@@ -628,39 +649,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // AJUSTE PARA O TERMINAL NOVO
-    function appendTerminalLine(log) {
-        const container = el('installLogs');
-        if (!container) return;
-
-        // Limpa estado vazio
-        if (container.children.length === 1 && container.firstElementChild.textContent.includes('Aguardando o início')) {
-            container.innerHTML = '';
-        }
-
-        const level = String(log.nivel || log.level || 'info').toLowerCase();
-        let colorClass = 'info';
-        if (['erro', 'error', 'critical'].includes(level)) colorClass = 'error';
-        if (['aviso', 'warning', 'warn'].includes(level)) colorClass = 'warning';
-        if (['sucesso', 'success', 'ok'].includes(level)) colorClass = 'success';
-
-        const line = document.createElement('div');
-        line.className = 'terminal-line';
-
-        const timestamp = parseDate(log.criado_em || log.timestamp || new Date());
-        const stage = firstText(log.etapa, log.stage);
-        const message = firstText(log.mensagem, log.message, 'Evento sem mensagem');
-        
-        line.innerHTML = `
-            <span class="terminal-time">${formatTime(timestamp)}</span>
-            <span class="terminal-level ${colorClass}">${escapeHtml(level.toUpperCase())}</span>
-            <span>${stage ? `<span style="opacity:0.7;">[${escapeHtml(stage)}]</span> ` : ''}${escapeHtml(message)}</span>
-        `;
-        
-        container.appendChild(line);
-        container.scrollTop = container.scrollHeight;
-    }
-
     function updateCaptureModeHint() {
         const hint = el('captureModeHint');
         const monitoredHint = el('monitoredInterfacesHint');
@@ -683,11 +671,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderInterfacesLoading() {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-        container.className = 'card card--highlighted';
-        container.style.padding = 'var(--spacing-md)';
         container.innerHTML = `
-            <div style="display: flex; gap: var(--spacing-sm); align-items: center; justify-content: center; width: 100%;">
-                <span class="spinner"></span>
+            <div style="display: flex; gap: var(--spacing-sm); align-items: center; justify-content: center; padding: 20px; background:var(--color-bg-primary); border-radius:var(--radius-md);">
+                <span class="spinner" style="color:var(--color-primary)"></span>
                 <span>Detectando interfaces...</span>
             </div>
         `;
@@ -696,12 +682,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderInterfacesError(message) {
         const container = el('interfacesMonitoradasList');
         if (!container) return;
-        container.className = 'alert alert--error';
-        container.style.padding = 'var(--spacing-md)';
         container.innerHTML = `
-            <div class="alert__icon">⚠</div>
-            <div class="alert__content">
-                <div class="alert__message">${escapeHtml(message)}</div>
+            <div class="alert alert--error" style="margin:0;">
+                <div class="alert__icon">⚠</div>
+                <div class="alert__content">
+                    <div class="alert__message">${escapeHtml(message)}</div>
+                </div>
             </div>
         `;
     }
@@ -749,6 +735,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const token = document.createElement('div');
             token.className = 'card';
             token.style.padding = '4px 8px';
+            token.style.margin = '0';
             token.style.display = 'flex';
             token.style.alignItems = 'center';
             token.style.gap = 'var(--spacing-sm)';
@@ -965,7 +952,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ═══════════════════════════════════════════════════════════
-       INSTALAÇÃO, TAREFAS E LOGS
+       INSTALAÇÃO E TAREFAS
     ═══════════════════════════════════════════════════════════ */
     function bindInstallationActions() {
         el('btnCancelInstall')?.addEventListener('click', cancelActiveTask);
@@ -1161,7 +1148,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const payload = await requestJSON(url, { method: 'GET' });
             const data = unwrapData(payload);
             renderTaskLogs(Array.isArray(data.logs) ? data.logs : []);
-        } catch (_) {}
+        } catch (_) { }
 
         if (state.taskSucceeded) showInstallationSuccess(task);
         else showInstallationFailure(task);
@@ -1211,7 +1198,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!result) return;
         result.hidden = false;
         result.className = `alert alert--${success ? 'success' : 'error'}`;
-        
+
         if (el('resultTitle')) el('resultTitle').textContent = title;
         if (el('resultMessage')) el('resultMessage').textContent = message;
 
@@ -1237,7 +1224,7 @@ document.addEventListener('DOMContentLoaded', () => {
         stages.forEach((item, index) => {
             const marker = item.querySelector('.list__marker');
             const detail = item.querySelector('.list__desc');
-            
+
             if (marker) {
                 marker.style.background = 'var(--color-bg-secondary)';
                 marker.style.color = 'var(--color-text-secondary)';
@@ -1275,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         all('.list__item[data-stage]').forEach((item, index) => {
             const marker = item.querySelector('.list__marker');
             const detail = item.querySelector('.list__desc');
-            
+
             if (marker) {
                 if (index === 0) {
                     marker.style.background = 'var(--color-primary-light)';
@@ -1345,7 +1332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ═══════════════════════════════════════════════════════════
-       LOGS
+       LOGS E TERMINAL REALISTA
     ═══════════════════════════════════════════════════════════ */
     function renderTaskLogs(logs) {
         for (const log of logs) {
@@ -1370,35 +1357,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = el('installLogs');
         if (!container) return;
 
-        // Limpa o placeholder de inicio se existir
+        // Limpa o placeholder inicial
         if (container.children.length === 1 && container.firstElementChild.textContent.includes('Aguardando o início')) {
             container.innerHTML = '';
         }
 
         const level = String(log.nivel || log.level || 'info').toLowerCase();
-        const line = document.createElement('div');
-        
-        let colorLevel = 'var(--color-info)';
-        if (['erro', 'error', 'critical'].includes(level)) colorLevel = 'var(--color-error)';
-        if (['aviso', 'warning', 'warn'].includes(level)) colorLevel = 'var(--color-warning)';
-        if (['sucesso', 'success', 'ok'].includes(level)) colorLevel = 'var(--color-success)';
-        if (['debug'].includes(level)) colorLevel = 'var(--color-text-tertiary)';
+        let colorClass = 'info';
+        if (['erro', 'error', 'critical'].includes(level)) colorClass = 'error';
+        if (['aviso', 'warning', 'warn'].includes(level)) colorClass = 'warning';
+        if (['sucesso', 'success', 'ok'].includes(level)) colorClass = 'success';
 
-        line.style.display = 'flex';
-        line.style.gap = 'var(--spacing-md)';
-        line.style.marginBottom = '4px';
-        line.style.opacity = '0.9';
+        const line = document.createElement('div');
+        line.className = 'terminal-line';
 
         const timestamp = parseDate(log.criado_em || log.timestamp || new Date());
         const stage = firstText(log.etapa, log.stage);
         const message = firstText(log.mensagem, log.message, 'Evento sem mensagem');
-        
+
         line.innerHTML = `
-            <span style="color: var(--color-text-tertiary); min-width: 60px;">${formatTime(timestamp)}</span>
-            <span style="color: ${colorLevel}; min-width: 50px; font-weight: 600;">${escapeHtml(level.toUpperCase())}</span>
-            <span style="flex: 1; word-break: break-all;">${stage ? `<strong style="opacity:0.8;">[${escapeHtml(stage)}]</strong> ` : ''}${escapeHtml(message)}</span>
+            <span class="terminal-time">${formatTime(timestamp)}</span>
+            <span class="terminal-level ${colorClass}">${escapeHtml(level.toUpperCase())}</span>
+            <span>${stage ? `<span style="opacity:0.7;">[${escapeHtml(stage)}]</span> ` : ''}${escapeHtml(message)}</span>
         `;
-        
+
         container.appendChild(line);
         container.scrollTop = container.scrollHeight;
     }
@@ -1407,9 +1389,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = el('installLogs');
         if (!container) return;
         container.innerHTML = `
-            <div style="display: flex; gap: var(--spacing-sm); margin-bottom: 4px; opacity: 0.7;">
-                <span style="color: var(--color-text-tertiary);">--:--:--</span>
-                <span style="color: var(--color-info); font-weight: 600;">INFO</span>
+            <div class="terminal-line">
+                <span class="terminal-time">--:--:--</span>
+                <span class="terminal-level info">INFO</span>
                 <span>Aguardando o início da tarefa...</span>
             </div>
         `;
@@ -1426,11 +1408,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!terminal) return;
         state.logsVisible = !state.logsVisible;
         if (el('installLogs')) el('installLogs').hidden = !state.logsVisible;
-        setText('btnToggleLogs', state.logsVisible ? 'Ocultar logs' : 'Mostrar logs');
+        setText('btnToggleLogs', state.logsVisible ? 'Ocultar' : 'Mostrar');
     }
 
     /* ═══════════════════════════════════════════════════════════
-       TEMPO
+       TEMPO DECORRIDO
     ═══════════════════════════════════════════════════════════ */
     function startElapsedTimer() {
         stopElapsedTimer();
@@ -1471,7 +1453,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /* ═══════════════════════════════════════════════════════════
-       API
+       CHAMADAS DE API (FETCH)
     ═══════════════════════════════════════════════════════════ */
     async function requestJSON(url, { method = 'GET', body = undefined, headers = {}, timeout = 30000 } = {}) {
         if (!url) throw new Error('URL da API não configurada.');
@@ -1532,18 +1514,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = el('toastContainer');
         if (!container || !message) return;
         const toast = document.createElement('div');
-        
+
         toast.className = `alert alert--${type}`;
         toast.style.position = 'relative';
         toast.style.marginBottom = 'var(--spacing-sm)';
         toast.style.boxShadow = 'var(--shadow-md)';
         toast.style.animation = 'fadeIn 0.3s ease';
         toast.style.minWidth = '280px';
-        
+
         toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
-        
+
         const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : type === 'warning' ? '⚠' : 'ℹ';
-        
+
         toast.innerHTML = `
             <div class="alert__icon">${icon}</div>
             <div class="alert__content" style="padding-right: 24px;">
@@ -1551,13 +1533,13 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <button type="button" style="position: absolute; right: 8px; top: 12px; cursor: pointer; opacity: 0.5; font-size: 16px; line-height: 1;" aria-label="Fechar">&times;</button>
         `;
-        
+
         const close = () => {
             toast.style.opacity = '0';
             toast.style.transition = 'opacity 0.2s ease';
             window.setTimeout(() => toast.remove(), 200);
         };
-        
+
         toast.querySelector('button')?.addEventListener('click', close);
         container.appendChild(toast);
         window.setTimeout(close, duration);
@@ -1600,7 +1582,7 @@ document.addEventListener('DOMContentLoaded', () => {
             dot.style.borderColor = 'var(--color-border-light)';
             if (status === 'ok') {
                 dot.style.borderTopColor = 'var(--color-success)';
-                dot.style.animation = 'none'; // Para de girar se estiver ok
+                dot.style.animation = 'none';
                 dot.style.background = 'var(--color-success)';
             } else if (status === 'error') {
                 dot.style.borderTopColor = 'var(--color-error)';
@@ -1624,7 +1606,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function shake(node) {
         if (!node) return;
-        // Injetamos estilo básico de shake caso não exista no CSS base
         if (!document.getElementById('ob-shake-style')) {
             const style = document.createElement('style');
             style.id = 'ob-shake-style';
@@ -1638,7 +1619,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             document.head.appendChild(style);
         }
-        
+
         node.classList.remove('ob-shake');
         void node.offsetWidth;
         node.classList.add('ob-shake');

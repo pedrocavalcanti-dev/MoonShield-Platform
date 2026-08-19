@@ -35,7 +35,6 @@ from .instalador import (
 
 from .diagnostico import (
     executar_diagnostico,
-    executar_diagnostico_resumido,
 )
 
 from .servicos import (
@@ -192,6 +191,141 @@ def _serializar_resultado(valor: object) -> object:
     if isinstance(valor, tuple):
         return tuple(_serializar_resultado(v) for v in valor)
     return valor
+
+
+
+def _resumir_diagnostico_existente(resultado: object) -> dict[str, object]:
+    """
+    Gera o resumo do diagnóstico a partir do MESMO ResultadoDiagnostico já
+    produzido pelo worker.
+
+    Importante:
+    - não chama executar_diagnostico() novamente;
+    - não chama executar_diagnostico_resumido();
+    - mantém total = saudáveis + avisos + críticos;
+    - produz um snapshot JSON-safe adequado para persistência no banco.
+    """
+    itens = list(getattr(resultado, "itens", None) or [])
+
+    total_checks = len(itens)
+    total_saudaveis = sum(
+        1
+        for item in itens
+        if bool(getattr(item, "ok", False))
+    )
+    total_criticos = sum(
+        1
+        for item in itens
+        if (
+            not bool(getattr(item, "ok", False))
+            and bool(getattr(item, "critico", False))
+        )
+    )
+    total_avisos = sum(
+        1
+        for item in itens
+        if (
+            not bool(getattr(item, "ok", False))
+            and not bool(getattr(item, "critico", False))
+        )
+    )
+    total_falhas = total_criticos + total_avisos
+
+    score = (
+        round((total_saudaveis / total_checks) * 100)
+        if total_checks > 0
+        else 0
+    )
+
+    grupos_resumo: dict[str, dict[str, object]] = {}
+    grupos = getattr(resultado, "grupos", {}) or {}
+
+    if isinstance(grupos, dict):
+        for nome_grupo, checks in grupos.items():
+            checks_lista = list(checks or [])
+
+            grupo_total = len(checks_lista)
+            grupo_saudaveis = sum(
+                1
+                for item in checks_lista
+                if bool(getattr(item, "ok", False))
+            )
+            grupo_criticos = sum(
+                1
+                for item in checks_lista
+                if (
+                    not bool(getattr(item, "ok", False))
+                    and bool(getattr(item, "critico", False))
+                )
+            )
+            grupo_avisos = sum(
+                1
+                for item in checks_lista
+                if (
+                    not bool(getattr(item, "ok", False))
+                    and not bool(getattr(item, "critico", False))
+                )
+            )
+
+            grupo_score = (
+                round((grupo_saudaveis / grupo_total) * 100)
+                if grupo_total > 0
+                else 0
+            )
+
+            grupos_resumo[str(nome_grupo)] = {
+                "total": grupo_total,
+                "ok": grupo_saudaveis,
+                "saudaveis": grupo_saudaveis,
+                "avisos": grupo_avisos,
+                "criticos": grupo_criticos,
+                "falhas": grupo_avisos + grupo_criticos,
+                "score": grupo_score,
+            }
+
+    executado_em = getattr(resultado, "executado_em", None)
+    executado_em_serializado = (
+        executado_em.isoformat()
+        if hasattr(executado_em, "isoformat")
+        else ""
+    )
+
+    duracao = float(
+        getattr(resultado, "duracao_segundos", 0.0) or 0.0
+    )
+
+    pronto = bool(
+        getattr(resultado, "pronto", False)
+    )
+
+    if pronto and total_avisos:
+        mensagem = (
+            "Infraestrutura pronta; existem apenas avisos operacionais."
+        )
+    elif pronto:
+        mensagem = (
+            "Infraestrutura pronta e sem falhas críticas."
+        )
+    else:
+        mensagem = (
+            "Existem falhas críticas que exigem correção."
+        )
+
+    return {
+        "pronto": pronto,
+        "total_checks": total_checks,
+        "total_ok": total_saudaveis,
+        "total_saudaveis": total_saudaveis,
+        "total_avisos": total_avisos,
+        "total_falhas": total_falhas,
+        "total_criticos": total_criticos,
+        "score_integridade": score,
+        "score": score,
+        "grupos": grupos_resumo,
+        "duracao_segundos": round(duracao, 3),
+        "executado_em": executado_em_serializado,
+        "mensagem": mensagem,
+    }
 
 
 # ==============================================================================
@@ -409,59 +543,212 @@ def _verificar_cancelamento(progresso: ProgressoTarefa, etapa: str) -> Resultado
 # DELEGATES E EXECUTORES ESPECIALISTAS (WORKFLOWS)
 # ==============================================================================
 
-def executar_tarefa_diagnostico(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
-    """Encapsula a orquestração e medição de saúde dos blocos do IDS."""
-    etapa_id = "tarefa_diagnostico_full"
-    
-    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
-    if chk_cancel: return chk_cancel
+def executar_tarefa_diagnostico(
+    progresso: ProgressoTarefa,
+    parametros: dict[str, object],
+) -> ResultadoEtapa:
+    """
+    Executa o diagnóstico profundo do Suricata UMA ÚNICA VEZ.
 
-    _adicionar_log_progresso(progresso, "Carregando parâmetros base.", NivelLog.INFO, etapa_id)
-    progresso.progresso = 10
-    
+    O resultado completo e o resumo são derivados do mesmo snapshot para:
+    - evitar repetir `suricata -T`;
+    - reduzir significativamente o tempo da tarefa;
+    - impedir divergência entre cards, grupos e resultado completo;
+    - permitir persistência confiável em TarefaSuricata.resultado.
+    """
+    etapa_id = "tarefa_diagnostico_full"
+    iniciado_em = _agora()
+
+    chk_cancel = _verificar_cancelamento(
+        progresso,
+        etapa_id,
+    )
+    if chk_cancel:
+        return chk_cancel
+
+    progresso.progresso = 5
+    _adicionar_log_progresso(
+        progresso,
+        "Preparando diagnóstico profundo do Suricata.",
+        NivelLog.INFO,
+        "preparando_diagnostico",
+    )
+
     cfg = parametros.get("configuracao")
-    inc_val_suri = bool(parametros.get("incluir_validacao_suricata", True))
-    inc_chk_eve = bool(parametros.get("incluir_checks_eve", True))
-    inc_chk_svc = bool(parametros.get("incluir_checks_servicos", True))
+
+    inc_val_suri = bool(
+        parametros.get(
+            "incluir_validacao_suricata",
+            True,
+        )
+    )
+    inc_chk_eve = bool(
+        parametros.get(
+            "incluir_checks_eve",
+            True,
+        )
+    )
+    inc_chk_svc = bool(
+        parametros.get(
+            "incluir_checks_servicos",
+            True,
+        )
+    )
+
+    progresso.progresso = 15
+    _adicionar_log_progresso(
+        progresso,
+        (
+            "Executando verificações de saúde. "
+            "A validação das regras pode levar alguns segundos."
+        ),
+        NivelLog.INFO,
+        "executando_diagnostico",
+    )
 
     try:
         diag_bruto = executar_diagnostico(
             configuracao=cfg,
             incluir_validacao_suricata=inc_val_suri,
             incluir_checks_eve=inc_chk_eve,
-            incluir_checks_servicos=inc_chk_svc
+            incluir_checks_servicos=inc_chk_svc,
         )
-    except Exception as e:
-        logger.exception("Crash interno do pacote diagnostico.")
-        res_fail = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro crítico.", erro=str(e), iniciado_em=_agora())
-        res_fail.finalizar_erro(str(e))
+    except Exception as exc:
+        logger.exception(
+            "Crash interno do pacote diagnóstico."
+        )
+
+        progresso.progresso = max(
+            int(getattr(progresso, "progresso", 0) or 0),
+            15,
+        )
+
+        _adicionar_log_progresso(
+            progresso,
+            "O diagnóstico não pôde ser concluído.",
+            NivelLog.ERRO,
+            "diagnostico",
+        )
+
+        res_fail = ResultadoEtapa(
+            etapa=etapa_id,
+            status=StatusEtapa.ERRO,
+            sucesso=False,
+            mensagem="Falha ao executar diagnóstico profundo.",
+            erro=str(exc),
+            iniciado_em=iniciado_em,
+        )
+
+        res_fail.finalizar_erro(
+            "Falha ao executar diagnóstico profundo.",
+            erro=str(exc),
+        )
+
         return res_fail
 
-    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
-    if chk_cancel: return chk_cancel
-    
+    chk_cancel = _verificar_cancelamento(
+        progresso,
+        etapa_id,
+    )
+    if chk_cancel:
+        return chk_cancel
+
     progresso.progresso = 90
-    _adicionar_log_progresso(progresso, "Consolidando reports de health...", NivelLog.INFO, etapa_id)
-    
+    _adicionar_log_progresso(
+        progresso,
+        "Consolidando o relatório do diagnóstico.",
+        NivelLog.INFO,
+        "consolidando_diagnostico",
+    )
+
+    diagnostico_completo = _serializar_resultado(
+        diag_bruto
+    )
+
+    resumo_rapido = _resumir_diagnostico_existente(
+        diag_bruto
+    )
+
+    diagnostico_pronto = bool(
+        getattr(
+            diag_bruto,
+            "pronto",
+            False,
+        )
+    )
+
     res = ResultadoEtapa(
         etapa=etapa_id,
-        status=StatusEtapa.SUCESSO if diag_bruto.pronto else StatusEtapa.ERRO,
-        sucesso=diag_bruto.pronto,
+        status=(
+            StatusEtapa.SUCESSO
+            if diagnostico_pronto
+            else StatusEtapa.ERRO
+        ),
+        sucesso=diagnostico_pronto,
         mensagem="Checkup operacional completo.",
-        iniciado_em=_agora()
+        iniciado_em=iniciado_em,
     )
-    
+
+    # Mantém o contrato atual consumido pela API/frontend.
+    # Tanto o relatório quanto o resumo pertencem à MESMA execução.
     res.dados = {
-        "diagnostico_completo": _serializar_resultado(diag_bruto),
-        "resumo_rapido": executar_diagnostico_resumido(cfg)
+        "diagnostico_completo": diagnostico_completo,
+        "resumo_rapido": resumo_rapido,
+        "meta": {
+            "execucoes_diagnostico": 1,
+            "resultado_persistivel": True,
+            "incluiu_validacao_suricata": inc_val_suri,
+            "incluiu_checks_eve": inc_chk_eve,
+            "incluiu_checks_servicos": inc_chk_svc,
+        },
     }
 
-    if diag_bruto.pronto:
-        res.finalizar_sucesso("Sem anomalias graves.")
+    if diagnostico_pronto:
+        res.finalizar_sucesso(
+            "Diagnóstico concluído sem falhas críticas."
+        )
+
+        _adicionar_log_progresso(
+            progresso,
+            (
+                f"Diagnóstico aprovado: "
+                f"{resumo_rapido['total_saudaveis']}/"
+                f"{resumo_rapido['total_checks']} verificações saudáveis."
+            ),
+            NivelLog.SUCESSO,
+            "diagnostico_concluido",
+        )
     else:
-        res.finalizar_erro("Constam falhas críticas impeditivas nos laudos coletados.", erro=f"{diag_bruto.total_criticos} críticos identificados.")
-        
+        total_criticos = int(
+            resumo_rapido.get(
+                "total_criticos",
+                0,
+            )
+            or 0
+        )
+
+        res.finalizar_erro(
+            (
+                "O diagnóstico identificou falhas críticas "
+                "que exigem correção."
+            ),
+            erro=(
+                f"{total_criticos} falha(s) crítica(s) identificada(s)."
+            ),
+        )
+
+        _adicionar_log_progresso(
+            progresso,
+            (
+                f"Diagnóstico finalizado com "
+                f"{total_criticos} falha(s) crítica(s)."
+            ),
+            NivelLog.ERRO,
+            "diagnostico_concluido",
+        )
+
     progresso.progresso = 100
+
     return res
 
 

@@ -6,6 +6,130 @@
     id="section-diagnostic"
     data-section="diagnostic"
 >
+    <style>
+        #section-diagnostic [hidden] {
+            display: none !important;
+        }
+
+        .sp-diagnostic-runtime {
+            margin: 18px 0 22px;
+            border: 1px solid var(--sp-border, rgba(148, 163, 184, .18));
+            border-radius: 14px;
+            background: var(--sp-surface, rgba(15, 23, 42, .42));
+            overflow: hidden;
+        }
+
+        .sp-diagnostic-runtime__inner {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: center;
+            padding: 16px 18px;
+        }
+
+        .sp-diagnostic-runtime__spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid rgba(148, 163, 184, .25);
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spDiagnosticSpin .8s linear infinite;
+        }
+
+        .sp-diagnostic-runtime__copy {
+            min-width: 0;
+        }
+
+        .sp-diagnostic-runtime__copy strong,
+        .sp-diagnostic-runtime__copy span {
+            display: block;
+        }
+
+        .sp-diagnostic-runtime__copy strong {
+            margin-bottom: 4px;
+        }
+
+        .sp-diagnostic-runtime__copy span {
+            opacity: .72;
+            font-size: .88rem;
+            line-height: 1.45;
+        }
+
+        .sp-diagnostic-runtime__time {
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .sp-diagnostic-runtime__time span,
+        .sp-diagnostic-runtime__time strong {
+            display: block;
+        }
+
+        .sp-diagnostic-runtime__time span {
+            font-size: .72rem;
+            opacity: .62;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+        }
+
+        .sp-diagnostic-runtime__time strong {
+            margin-top: 3px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sp-diagnostic-runtime__progress {
+            height: 4px;
+            background: rgba(148, 163, 184, .12);
+        }
+
+        .sp-diagnostic-runtime__bar {
+            height: 100%;
+            width: 0;
+            background: currentColor;
+            transition: width .35s ease;
+        }
+
+        .sp-diagnostic-meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px 16px;
+            margin: -4px 0 20px;
+            font-size: .82rem;
+            opacity: .72;
+        }
+
+        .sp-diagnostic-meta strong {
+            font-weight: 600;
+            opacity: 1;
+        }
+
+        .sp-diagnostic-meta__dot::before {
+            content: "•";
+            margin-right: 16px;
+            opacity: .45;
+        }
+
+        @keyframes spDiagnosticSpin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 720px) {
+            .sp-diagnostic-runtime__inner {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .sp-diagnostic-runtime__time {
+                grid-column: 2;
+                text-align: left;
+            }
+
+            .sp-diagnostic-meta__dot::before {
+                display: none;
+            }
+        }
+    </style>
+
     <div class="sp-section-title">
         <div>
             <span class="sp-section-title__eyebrow">
@@ -32,11 +156,83 @@
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
+                aria-hidden="true"
             >
                 <path d="M3 12h4l2-5 4 10 2-5h6" />
             </svg>
-            Executar diagnóstico
+
+            <span id="diagnosticButtonLabel">
+                Executar diagnóstico
+            </span>
         </button>
+    </div>
+
+    <!-- ====================================================
+         FEEDBACK DE OPERAÇÃO DEMORADA
+    ===================================================== -->
+    <div
+        class="sp-diagnostic-runtime"
+        id="diagnosticRuntime"
+        role="status"
+        aria-live="polite"
+        hidden
+    >
+        <div class="sp-diagnostic-runtime__inner">
+            <span
+                class="sp-diagnostic-runtime__spinner"
+                aria-hidden="true"
+            ></span>
+
+            <div class="sp-diagnostic-runtime__copy">
+                <strong id="diagnosticRuntimeTitle">
+                    Executando diagnóstico profundo
+                </strong>
+
+                <span id="diagnosticRuntimeMessage">
+                    Aguarde enquanto o MoonShield verifica o ambiente.
+                    Algumas validações podem levar entre 40 e 90 segundos.
+                </span>
+            </div>
+
+            <div class="sp-diagnostic-runtime__time">
+                <span>Tempo decorrido</span>
+                <strong id="diagnosticElapsed">00:00</strong>
+            </div>
+        </div>
+
+        <div
+            class="sp-diagnostic-runtime__progress"
+            aria-hidden="true"
+        >
+            <div
+                class="sp-diagnostic-runtime__bar"
+                id="diagnosticProgressBar"
+            ></div>
+        </div>
+    </div>
+
+    <!-- ====================================================
+         ÚLTIMA EXECUÇÃO
+    ===================================================== -->
+    <div
+        class="sp-diagnostic-meta"
+        id="diagnosticMeta"
+        hidden
+    >
+        <span>
+            Último diagnóstico:
+            <strong id="diagnosticLastRun">—</strong>
+        </span>
+
+        <span class="sp-diagnostic-meta__dot">
+            Duração:
+            <strong id="diagnosticDuration">—</strong>
+        </span>
+
+        <span class="sp-diagnostic-meta__dot">
+            Origem:
+            <strong id="diagnosticSource">—</strong>
+        </span>
     </div>
 
     <div class="sp-diagnostic-summary">
@@ -44,7 +240,9 @@
             <span class="sp-summary-card__label">
                 Total de checks
             </span>
+
             <strong id="diagnosticTotal">0</strong>
+
             <small>Validações executadas</small>
         </article>
 
@@ -52,7 +250,9 @@
             <span class="sp-summary-card__label">
                 Saudáveis
             </span>
+
             <strong id="diagnosticOk">0</strong>
+
             <small>Checks aprovados</small>
         </article>
 
@@ -60,7 +260,9 @@
             <span class="sp-summary-card__label">
                 Avisos
             </span>
+
             <strong id="diagnosticWarnings">0</strong>
+
             <small>Pontos de atenção</small>
         </article>
 
@@ -68,7 +270,9 @@
             <span class="sp-summary-card__label">
                 Falhas críticas
             </span>
+
             <strong id="diagnosticCritical">0</strong>
+
             <small>Bloqueios encontrados</small>
         </article>
     </div>
@@ -88,7 +292,7 @@
                     class="sp-chip sp-chip--pending"
                     id="diagnosticGeneralChip"
                 >
-                    Não executado
+                    Carregando
                 </span>
             </div>
 
@@ -105,6 +309,7 @@
                             fill="none"
                             stroke="currentColor"
                             stroke-width="1.8"
+                            aria-hidden="true"
                         >
                             <circle cx="11" cy="11" r="7" />
                             <path d="m20 20-4-4" />
@@ -112,10 +317,10 @@
                     </span>
 
                     <div>
-                        <strong>Diagnóstico ainda não executado</strong>
+                        <strong>Carregando último diagnóstico</strong>
+
                         <span>
-                            Inicie uma análise para visualizar
-                            todos os checks técnicos.
+                            Consultando o histórico persistido do MoonShield.
                         </span>
                     </div>
                 </div>
@@ -146,6 +351,7 @@
                             fill="none"
                             stroke="currentColor"
                             stroke-width="1.8"
+                            aria-hidden="true"
                         >
                             <path d="M9 18h6M10 22h4" />
                             <path d="M8.3 14.2A7 7 0 1 1 15.7 14.2C14.8 15 14 16 14 17h-4c0-1-.8-2-1.7-2.8Z" />
@@ -153,9 +359,10 @@
                     </span>
 
                     <div>
-                        <strong>Sem recomendações</strong>
+                        <strong>Aguardando diagnóstico</strong>
+
                         <span>
-                            Execute o diagnóstico para gerar ações.
+                            As recomendações do último checkup aparecerão aqui.
                         </span>
                     </div>
                 </div>

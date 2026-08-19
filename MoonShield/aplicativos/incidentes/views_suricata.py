@@ -54,9 +54,6 @@ from .services.suricata.status import (
 from .services.suricata.instalador import (
     obter_plano_instalacao,
 )
-from .services.suricata.diagnostico import (
-    executar_diagnostico,
-)
 from .services.suricata.interfaces import (
     obter_topologia_detectada,
     montar_configuracao_sugerida,
@@ -239,7 +236,7 @@ def _sincronizar_tarefa(tarefa: TarefaSuricata, progresso, resultado=None) -> No
     if progresso.finalizado_em:
         tarefa.finalizado_em = progresso.finalizado_em
 
-    if resultado:
+    if resultado is not None:
         if hasattr(resultado, "to_dict"):
             tarefa.resultado = resultado.to_dict()
         else:
@@ -254,6 +251,497 @@ def _sincronizar_tarefa(tarefa: TarefaSuricata, progresso, resultado=None) -> No
             
     tarefa.status = novo_status
     tarefa.save()
+
+
+
+def _resumir_diagnostico_serializado(
+    diagnostico: dict | None,
+) -> dict:
+    """
+    Reconstrói os contadores do Doctor a partir de um snapshot já persistido.
+
+    Não executa checks, subprocessos ou `suricata -T`.
+    """
+    diagnostico = (
+        diagnostico
+        if isinstance(diagnostico, dict)
+        else {}
+    )
+
+    itens = diagnostico.get("itens")
+    itens = itens if isinstance(itens, list) else []
+
+    if itens:
+        total_checks = len(itens)
+        total_ok = sum(
+            1
+            for item in itens
+            if isinstance(item, dict)
+            and bool(item.get("ok"))
+        )
+        total_criticos = sum(
+            1
+            for item in itens
+            if isinstance(item, dict)
+            and not bool(item.get("ok"))
+            and bool(item.get("critico"))
+        )
+        total_avisos = sum(
+            1
+            for item in itens
+            if isinstance(item, dict)
+            and not bool(item.get("ok"))
+            and not bool(item.get("critico"))
+        )
+    else:
+        total_checks = int(
+            diagnostico.get("total_checks")
+            or 0
+        )
+        total_ok = int(
+            diagnostico.get("total_ok")
+            or diagnostico.get("total_saudaveis")
+            or 0
+        )
+        total_criticos = int(
+            diagnostico.get("total_criticos")
+            or 0
+        )
+        total_falhas_informado = int(
+            diagnostico.get("total_falhas")
+            or 0
+        )
+        total_avisos = int(
+            diagnostico.get("total_avisos")
+            or max(
+                0,
+                total_falhas_informado - total_criticos,
+            )
+        )
+
+    total_falhas = (
+        total_avisos
+        + total_criticos
+    )
+
+    score_integridade = (
+        round(
+            (total_ok / total_checks) * 100
+        )
+        if total_checks > 0
+        else 0
+    )
+
+    grupos_resumo: dict[str, dict[str, object]] = {}
+
+    if itens:
+        for item in itens:
+            if not isinstance(item, dict):
+                continue
+
+            grupo = str(
+                item.get("grupo")
+                or "Outros"
+            )
+
+            bucket = grupos_resumo.setdefault(
+                grupo,
+                {
+                    "total": 0,
+                    "ok": 0,
+                    "saudaveis": 0,
+                    "avisos": 0,
+                    "criticos": 0,
+                    "falhas": 0,
+                    "score": 0,
+                },
+            )
+
+            bucket["total"] += 1
+
+            if bool(item.get("ok")):
+                bucket["ok"] += 1
+                bucket["saudaveis"] += 1
+            elif bool(item.get("critico")):
+                bucket["criticos"] += 1
+                bucket["falhas"] += 1
+            else:
+                bucket["avisos"] += 1
+                bucket["falhas"] += 1
+
+        for bucket in grupos_resumo.values():
+            total_grupo = int(
+                bucket.get("total")
+                or 0
+            )
+            ok_grupo = int(
+                bucket.get("ok")
+                or 0
+            )
+            bucket["score"] = (
+                round(
+                    (ok_grupo / total_grupo) * 100
+                )
+                if total_grupo > 0
+                else 0
+            )
+
+    elif isinstance(
+        diagnostico.get("grupos"),
+        dict,
+    ):
+        grupos_resumo = (
+            diagnostico.get("grupos")
+            or {}
+        )
+
+    falhas_criticas = [
+        item
+        for item in itens
+        if isinstance(item, dict)
+        and not bool(item.get("ok"))
+        and bool(item.get("critico"))
+    ]
+
+    avisos = [
+        item
+        for item in itens
+        if isinstance(item, dict)
+        and not bool(item.get("ok"))
+        and not bool(item.get("critico"))
+    ]
+
+    pronto = bool(
+        diagnostico.get("pronto")
+        if "pronto" in diagnostico
+        else (
+            total_checks > 0
+            and total_criticos == 0
+        )
+    )
+
+    return {
+        "pronto": pronto,
+        "total_checks": total_checks,
+        "total_ok": total_ok,
+        "total_saudaveis": total_ok,
+        "total_avisos": total_avisos,
+        "total_falhas": total_falhas,
+        "total_criticos": total_criticos,
+        "score_integridade": score_integridade,
+        "score": score_integridade,
+        "falhas_criticas": falhas_criticas,
+        "avisos": avisos,
+        "grupos": grupos_resumo,
+        "duracao_segundos": float(
+            diagnostico.get("duracao_segundos")
+            or 0.0
+        ),
+        "executado_em": str(
+            diagnostico.get("executado_em")
+            or ""
+        ),
+        "mensagem": (
+            "Infraestrutura pronta; existem apenas avisos operacionais."
+            if pronto and total_avisos > 0
+            else "Infraestrutura pronta e sem falhas críticas."
+            if pronto
+            else "Existem falhas críticas que exigem correção."
+        ),
+    }
+
+
+def _extrair_diagnostico_de_resultado_tarefa(
+    resultado: Any,
+) -> tuple[dict, dict, list]:
+    """
+    Normaliza formatos antigos e novos de resultados de diagnóstico.
+
+    Contrato atual do worker:
+        resultado
+          -> dados
+             -> diagnostico_completo
+             -> resumo_rapido
+
+    Também aceita aliases futuros:
+        diagnostico / resumo / acoes_recomendadas
+    """
+    if not isinstance(resultado, dict):
+        return {}, {}, []
+
+    dados = resultado.get("dados")
+    dados = (
+        dados
+        if isinstance(dados, dict)
+        else {}
+    )
+
+    diagnostico = (
+        dados.get("diagnostico_completo")
+        or dados.get("diagnostico")
+        or resultado.get("diagnostico")
+        or {}
+    )
+    diagnostico = (
+        diagnostico
+        if isinstance(diagnostico, dict)
+        else {}
+    )
+
+    resumo_informado = (
+        dados.get("resumo_rapido")
+        or dados.get("resumo")
+        or resultado.get("resumo")
+        or {}
+    )
+    resumo_informado = (
+        resumo_informado
+        if isinstance(resumo_informado, dict)
+        else {}
+    )
+
+    resumo = (
+        _resumir_diagnostico_serializado(
+            diagnostico
+        )
+        if diagnostico
+        else {}
+    )
+
+    if resumo_informado:
+        # Os contadores derivados do mesmo laudo têm precedência.
+        resumo = {
+            **resumo_informado,
+            **resumo,
+        }
+
+    acoes = (
+        dados.get("acoes_recomendadas")
+        or dados.get("acoes")
+        or resultado.get("acoes_recomendadas")
+        or resultado.get("acoes")
+        or []
+    )
+    acoes = (
+        acoes
+        if isinstance(acoes, list)
+        else []
+    )
+
+    return (
+        diagnostico,
+        resumo,
+        acoes,
+    )
+
+
+def _meta_tarefa(
+    tarefa: TarefaSuricata | None,
+) -> dict | None:
+    """Serializa metadados leves para polling da interface."""
+    if not tarefa:
+        return None
+
+    return {
+        "id": str(tarefa.pk),
+        "tipo": tarefa.tipo,
+        "status": tarefa.status,
+        "progresso": tarefa.progresso,
+        "etapa_atual": tarefa.etapa_atual,
+        "mensagem": tarefa.mensagem,
+        "erro": tarefa.erro,
+        "duracao_segundos": tarefa.duracao_segundos,
+        "criado_em": (
+            tarefa.criado_em.isoformat()
+            if tarefa.criado_em
+            else None
+        ),
+        "iniciado_em": (
+            tarefa.iniciado_em.isoformat()
+            if tarefa.iniciado_em
+            else None
+        ),
+        "finalizado_em": (
+            tarefa.finalizado_em.isoformat()
+            if tarefa.finalizado_em
+            else None
+        ),
+        "atualizado_em": (
+            tarefa.atualizado_em.isoformat()
+            if tarefa.atualizado_em
+            else None
+        ),
+    }
+
+
+def _obter_estado_diagnostico_persistido(
+    configuracao: ConfiguracaoSuricata | None,
+) -> dict:
+    """
+    Carrega o último diagnóstico SEM executar o Doctor.
+
+    Prioridade:
+    1. última TarefaSuricata de diagnóstico com resultado válido;
+    2. ConfiguracaoSuricata.ultimo_diagnostico como fallback.
+
+    Também retorna eventual tarefa pendente/em execução para que o frontend
+    consiga retomar o polling após F5 ou troca de seção.
+    """
+    qs = TarefaSuricata.objects.filter(
+        tipo=TipoTarefaSuricataModel.DIAGNOSTICO,
+    )
+
+    if configuracao is not None:
+        qs = qs.filter(
+            configuracao=configuracao,
+        )
+
+    em_andamento = (
+        qs.filter(
+            status__in=[
+                StatusTarefaSuricata.PENDENTE,
+                StatusTarefaSuricata.EXECUTANDO,
+            ]
+        )
+        .order_by("-criado_em")
+        .first()
+    )
+
+    ultima_tentativa = (
+        qs.order_by("-criado_em").first()
+    )
+
+    diagnostico: dict = {}
+    resumo: dict = {}
+    acoes: list = []
+    fonte = "nenhuma"
+    tarefa_fonte: TarefaSuricata | None = None
+
+    sucessos_recentes = (
+        qs.filter(
+            status=StatusTarefaSuricata.SUCESSO,
+        )
+        .order_by(
+            "-finalizado_em",
+            "-criado_em",
+        )[:10]
+    )
+
+    for tarefa in sucessos_recentes:
+        (
+            diag_tarefa,
+            resumo_tarefa,
+            acoes_tarefa,
+        ) = _extrair_diagnostico_de_resultado_tarefa(
+            tarefa.resultado,
+        )
+
+        if diag_tarefa or resumo_tarefa:
+            diagnostico = diag_tarefa
+            resumo = resumo_tarefa
+            acoes = acoes_tarefa
+            fonte = "tarefa"
+            tarefa_fonte = tarefa
+            break
+
+    if (
+        not diagnostico
+        and configuracao
+        and isinstance(
+            configuracao.ultimo_diagnostico,
+            dict,
+        )
+        and configuracao.ultimo_diagnostico
+    ):
+        snapshot = (
+            configuracao.ultimo_diagnostico
+        )
+
+        (
+            diagnostico,
+            resumo,
+            acoes,
+        ) = _extrair_diagnostico_de_resultado_tarefa(
+            snapshot
+        )
+
+        if not diagnostico:
+            # Compatibilidade com snapshot salvo diretamente como laudo.
+            diagnostico = snapshot
+            resumo = _resumir_diagnostico_serializado(
+                diagnostico
+            )
+
+        if diagnostico or resumo:
+            fonte = "configuracao"
+
+    executado_em = ""
+    duracao_segundos = 0.0
+
+    if resumo:
+        executado_em = str(
+            resumo.get("executado_em")
+            or ""
+        )
+        duracao_segundos = float(
+            resumo.get("duracao_segundos")
+            or 0.0
+        )
+
+    if tarefa_fonte:
+        if tarefa_fonte.finalizado_em:
+            executado_em = (
+                tarefa_fonte.finalizado_em.isoformat()
+            )
+
+        if (
+            tarefa_fonte.duracao_segundos
+            is not None
+        ):
+            duracao_segundos = float(
+                tarefa_fonte.duracao_segundos
+            )
+
+    if resumo:
+        resumo = dict(resumo)
+        resumo["executado_em"] = executado_em
+        resumo["duracao_segundos"] = (
+            duracao_segundos
+        )
+
+    return {
+        "executado": bool(
+            diagnostico
+            or resumo
+        ),
+        "fonte": fonte,
+        "diagnostico": diagnostico,
+        "resumo": resumo,
+        "acoes_recomendadas": acoes,
+        "executado_em": (
+            executado_em
+            or None
+        ),
+        "duracao_segundos": duracao_segundos,
+        "tarefa_id": (
+            str(tarefa_fonte.pk)
+            if tarefa_fonte
+            else None
+        ),
+        "em_andamento": (
+            em_andamento is not None
+        ),
+        "tarefa_em_andamento": (
+            _meta_tarefa(
+                em_andamento
+            )
+        ),
+        "ultima_tentativa": (
+            _meta_tarefa(
+                ultima_tentativa
+            )
+        ),
+    }
 
 
 def _serializar_configuracao(configuracao: ConfiguracaoSuricata | None) -> dict | None:
@@ -435,10 +923,23 @@ def painel_suricata(request):
             "detalhes": str(exc),
         }
 
+    try:
+        estado_diagnostico = _obter_estado_diagnostico_persistido(cfg)
+    except Exception as exc:
+        logger.exception(
+            "Falha ao carregar último diagnóstico persistido."
+        )
+        estado_diagnostico = {
+            "executado": False,
+            "em_andamento": False,
+            "mensagem": str(exc),
+        }
+
     context = {
         "configuracao_suricata": _serializar_configuracao(cfg),
         "status_stack": st_stack,
         "cards_suricata": cards,
+        "ultimo_diagnostico_suricata": estado_diagnostico,
         "painel_disponivel": True,
         "modo_reconfiguracao": False,
         "url_painel_suricata": urls_nav["painel"],
@@ -572,24 +1073,73 @@ def api_detectar_interfaces(request):
 @login_required(login_url="autenticacao:login")
 @require_GET
 def api_diagnostico_suricata(request):
-    """Aciona o Doctor Healthcheck com todos os módulos (Deep Scan)."""
-    cfg = _obter_configuracao_ativa(criar=False)
-    dto_cfg = _configuracao_service(cfg)
-    
+    """
+    Retorna o último diagnóstico persistido.
+
+    Esta rota é read-only:
+    - não executa `suricata -T`;
+    - não chama o Doctor;
+    - não abre subprocessos;
+    - não bloqueia a thread HTTP.
+
+    Um novo diagnóstico deve ser criado como TarefaSuricata do tipo
+    `diagnostico` e executado pelo worker automático.
+    """
+    cfg = _obter_configuracao_ativa(
+        criar=False
+    )
+
+    if not cfg:
+        return _json_sucesso(
+            "Diagnóstico ainda não executado.",
+            {
+                "executado": False,
+                "fonte": "nenhuma",
+                "diagnostico": {},
+                "resumo": {},
+                "acoes_recomendadas": [],
+                "executado_em": None,
+                "duracao_segundos": 0.0,
+                "tarefa_id": None,
+                "em_andamento": False,
+                "tarefa_em_andamento": None,
+                "ultima_tentativa": None,
+            },
+        )
+
     try:
-        diag = executar_diagnostico(dto_cfg)
-        from .services.suricata.diagnostico import executar_diagnostico_resumido, obter_acoes_recomendadas
-        resumo = executar_diagnostico_resumido(dto_cfg)
-        acoes = obter_acoes_recomendadas(diag)
-        
-        return _json_sucesso("Healthcheck finalizado.", {
-            "diagnostico": diag.to_dict(),
-            "resumo": resumo,
-            "acoes_recomendadas": acoes
-        })
-    except Exception as e:
-        logger.exception("Crash do módulo diagnóstico HTTP.")
-        return _json_erro("Colapso durante checagem de saúde.", 500, [str(e)])
+        estado = (
+            _obter_estado_diagnostico_persistido(
+                cfg
+            )
+        )
+    except Exception as exc:
+        logger.exception(
+            "Falha ao carregar diagnóstico persistido."
+        )
+        return _json_erro(
+            "Não foi possível consultar o último diagnóstico salvo.",
+            status_http=500,
+            erros=[str(exc)],
+        )
+
+    if estado.get("em_andamento"):
+        mensagem = (
+            "Existe um diagnóstico em processamento pelo worker."
+        )
+    elif estado.get("executado"):
+        mensagem = (
+            "Último diagnóstico persistido carregado."
+        )
+    else:
+        mensagem = (
+            "Diagnóstico ainda não executado."
+        )
+
+    return _json_sucesso(
+        mensagem,
+        estado,
+    )
 
 
 @login_required(login_url="autenticacao:login")
@@ -764,6 +1314,64 @@ def api_criar_tarefa(request):
         return _json_erro(
             "O campo 'parametros' precisa ser um objeto JSON."
         )
+
+    parametros = dict(parametros)
+
+    # Diagnóstico profundo é uma operação longa. Reutiliza uma tarefa já
+    # pendente/em execução para impedir duplo clique, reload ou duas abas
+    # disparando `suricata -T` concorrentemente.
+    if tipo_str == TipoTarefaSuricataModel.DIAGNOSTICO.value:
+        tarefa_existente = (
+            TarefaSuricata.objects.filter(
+                tipo=TipoTarefaSuricataModel.DIAGNOSTICO,
+                status__in=[
+                    StatusTarefaSuricata.PENDENTE,
+                    StatusTarefaSuricata.EXECUTANDO,
+                ],
+            )
+            .order_by("-criado_em")
+            .first()
+        )
+
+        if tarefa_existente:
+            return _json_sucesso(
+                (
+                    "Já existe um diagnóstico em processamento; "
+                    "acompanhando a tarefa atual."
+                ),
+                {
+                    "tarefa_id": str(tarefa_existente.pk),
+                    "tarefa": tarefa_existente.to_dict(
+                        incluir_logs=False
+                    ),
+                    "reutilizada": True,
+                    "processamento": {
+                        "modo": "worker_automatico",
+                        "servico": "moonshield-suricata-worker",
+                        "requer_comando_manual": False,
+                        "status_inicial": tarefa_existente.status,
+                    },
+                },
+            )
+
+    # Doctor e validação usam a configuração canônica já salva no banco quando
+    # o cliente não fornecer explicitamente um snapshot.
+    if (
+        tipo_str
+        in {
+            TipoTarefaSuricataModel.DIAGNOSTICO.value,
+            TipoTarefaSuricataModel.VALIDACAO.value,
+        }
+        and "configuracao" not in parametros
+    ):
+        cfg_ativa = _obter_configuracao_ativa(
+            criar=False
+        )
+
+        if cfg_ativa:
+            parametros["configuracao"] = (
+                cfg_ativa.to_service_dict()
+            )
 
     try:
         tipo_tarefa = converter_tipo_tarefa(tipo_str)

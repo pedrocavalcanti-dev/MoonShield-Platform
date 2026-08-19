@@ -28,6 +28,14 @@
         rel="stylesheet" />
 
     <link rel="stylesheet" href="{% static 'css/incidentes/suricata/onboarding.css' %}" />
+
+    <!-- Garante que elementos controlados pelo atributo `hidden` realmente
+         desapareçam, mesmo que classes como .alert/.btn definam display:flex. -->
+    <style>
+        [hidden] {
+            display: none !important;
+        }
+    </style>
     <link rel="icon" type="image/png" sizes="32x32" href="{% static 'favicon/favicon-32x32.png' %}" />
 </head>
 

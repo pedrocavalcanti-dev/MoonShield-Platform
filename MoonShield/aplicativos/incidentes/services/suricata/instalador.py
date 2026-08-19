@@ -1040,12 +1040,12 @@ def executar_validacao(
     Valida formalmente a configuração ativa do Suricata.
 
     Fluxo:
-    1. Executa suricata -T.
-    2. Executa o diagnóstico profundo.
-    3. Converte o ResultadoDiagnostico para ResultadoEtapa apenas
-       para integração com o mecanismo de tarefas.
+    1. Localiza o YAML ativo.
+    2. Executa `suricata -T`.
+    3. Executa o diagnóstico profundo sem repetir o `suricata -T`.
+    4. Converte o ResultadoDiagnostico para ResultadoEtapa.
+    5. Consolida o resultado para o worker/tarefa.
     """
-
     _atualizar_progresso(
         progresso,
         10,
@@ -1055,10 +1055,9 @@ def executar_validacao(
 
     etapas_rodadas: dict[str, ResultadoEtapa] = {}
 
-    # ----------------------------------------------------------------------
-    # 1. LOCALIZAR YAML
-    # ----------------------------------------------------------------------
-
+    # ------------------------------------------------------------------
+    # 1. Localizar YAML
+    # ------------------------------------------------------------------
     yaml_ativo = (
         configuracao.yaml_path
         if configuracao
@@ -1073,10 +1072,9 @@ def executar_validacao(
             "YAML de configuração do Suricata não encontrado.",
         )
 
-    # ----------------------------------------------------------------------
-    # 2. SURICATA -T
-    # ----------------------------------------------------------------------
-
+    # ------------------------------------------------------------------
+    # 2. Validação nativa: suricata -T
+    # ------------------------------------------------------------------
     res_val = _executar_etapa_segura(
         "validar_configuracao",
         validar_configuracao,
@@ -1093,29 +1091,28 @@ def executar_validacao(
             "A configuração foi rejeitada pelo suricata -T.",
         )
 
-    # ----------------------------------------------------------------------
-    # 3. DIAGNÓSTICO PROFUNDO
-    # ----------------------------------------------------------------------
-
+    # ------------------------------------------------------------------
+    # 3. Diagnóstico profundo
+    #
+    # executar_diagnostico() retorna ResultadoDiagnostico, e não
+    # ResultadoEtapa. Portanto NÃO deve passar por
+    # _executar_etapa_segura().
+    #
+    # Como o suricata -T já foi executado acima, desativamos a validação
+    # duplicada dentro do diagnóstico para não gastar mais ~40 segundos.
+    # ------------------------------------------------------------------
     _atualizar_progresso(
         progresso,
-        50,
+        55,
         "diagnostico",
         "Recolhendo telemetria do sistema para relatório final.",
     )
 
-    /*
-    executar_diagnostico NÃO retorna ResultadoEtapa.
-    Ele retorna ResultadoDiagnostico.
-
-    Portanto ele NÃO deve passar por _executar_etapa_segura().
-    */
-
     try:
         diagnostico = executar_diagnostico(
-            configuracao
+            configuracao=configuracao,
+            incluir_validacao_suricata=False,
         )
-
     except Exception as exc:
         logger.exception(
             "Falha durante diagnóstico profundo da validação."
@@ -1125,11 +1122,10 @@ def executar_validacao(
             "diagnostico",
             "Falha durante diagnóstico profundo.",
         )
-
         res_diag.finalizar_erro(
             mensagem=(
-                "Não foi possível concluir o healthcheck "
-                "interno do Suricata."
+                "Não foi possível concluir o healthcheck interno "
+                "do Suricata."
             ),
             erro=str(exc),
         )
@@ -1143,9 +1139,12 @@ def executar_validacao(
             "Configuração falhou em auditoria profunda.",
         )
 
-    # ----------------------------------------------------------------------
-    # 4. CONVERTER ResultadoDiagnostico → ResultadoEtapa
-    # ----------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 4. Adaptar ResultadoDiagnostico -> ResultadoEtapa
+    # ------------------------------------------------------------------
+    diagnostico_pronto = bool(
+        getattr(diagnostico, "pronto", False)
+    )
 
     res_diag = _criar_resultado_etapa(
         "diagnostico",
@@ -1153,72 +1152,43 @@ def executar_validacao(
     )
 
     try:
-        dados_diagnostico = diagnostico.to_dict()
+        diagnostico_serializado = diagnostico.to_dict()
     except Exception:
-        dados_diagnostico = {}
+        diagnostico_serializado = {}
 
     res_diag.dados = {
-        "pronto": bool(
-            getattr(
-                diagnostico,
-                "pronto",
-                False,
-            )
-        ),
+        "pronto": diagnostico_pronto,
         "total_checks": int(
-            getattr(
-                diagnostico,
-                "total_checks",
-                0,
-            )
-            or 0
+            getattr(diagnostico, "total_checks", 0) or 0
         ),
         "total_ok": int(
-            getattr(
-                diagnostico,
-                "total_ok",
-                0,
-            )
-            or 0
+            getattr(diagnostico, "total_ok", 0) or 0
         ),
         "total_falhas": int(
-            getattr(
-                diagnostico,
-                "total_falhas",
-                0,
-            )
-            or 0
+            getattr(diagnostico, "total_falhas", 0) or 0
         ),
         "total_criticos": int(
-            getattr(
-                diagnostico,
-                "total_criticos",
-                0,
-            )
-            or 0
+            getattr(diagnostico, "total_criticos", 0) or 0
         ),
-        "resultado": dados_diagnostico,
+        "resultado": diagnostico_serializado,
     }
-
-    diagnostico_pronto = bool(
-        getattr(
-            diagnostico,
-            "pronto",
-            False,
-        )
-    )
 
     if diagnostico_pronto:
         res_diag.finalizar_sucesso(
             "Healthcheck interno aprovado."
         )
-
     else:
+        total_criticos = int(
+            getattr(diagnostico, "total_criticos", 0) or 0
+        )
+
         res_diag.finalizar_erro(
             mensagem=(
-                "Healthcheck interno identificou "
-                "falhas críticas."
-            )
+                "Healthcheck interno identificou falhas críticas."
+            ),
+            erro=(
+                f"{total_criticos} falha(s) crítica(s) identificada(s)."
+            ),
         )
 
     etapas_rodadas["diagnostico"] = res_diag
@@ -1231,15 +1201,15 @@ def executar_validacao(
             "Configuração falhou em auditoria profunda.",
         )
 
-    # ----------------------------------------------------------------------
-    # 5. CONCLUSÃO
-    # ----------------------------------------------------------------------
-
+    # ------------------------------------------------------------------
+    # 5. Conclusão
+    # ------------------------------------------------------------------
     _atualizar_progresso(
         progresso,
         100,
         "concluido",
         "Validação concluída com sucesso.",
+        NivelLog.SUCESSO,
     )
 
     return _consolidar_resultados(
@@ -1248,7 +1218,6 @@ def executar_validacao(
         "Ambiente íntegro e validado.",
         "",
     )
-
 
 def executar_reparo(configuracao: ConfiguracaoSuricataDados, progresso: ProgressoTarefa | None = None) -> ResultadoEtapa:
     """Hard-Override: Regera todas as dependências nativas Moonshield sem tocar nos pacotes instalados por Package Managers."""

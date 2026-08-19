@@ -25,7 +25,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections
 from django.utils import timezone
 
-from incidentes.models import StatusTarefaSuricata, TarefaSuricata
+from incidentes.models import (
+    ConfiguracaoSuricata,
+    StatusTarefaSuricata,
+    TarefaSuricata,
+    TipoTarefaSuricataModel,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +41,60 @@ STATUS_FINAIS = {
     StatusTarefaSuricata.CANCELADO,
     StatusTarefaSuricata.IGNORADO,
 }
+
+
+def _extrair_snapshot_diagnostico(resultado: object) -> dict:
+    """
+    Normaliza o payload persistido em TarefaSuricata.resultado para o snapshot
+    canônico de ConfiguracaoSuricata.ultimo_diagnostico.
+
+    Compatível com o contrato atual:
+        resultado
+          -> dados
+             -> diagnostico_completo
+             -> resumo_rapido
+
+    Também aceita formatos futuros já normalizados.
+    """
+    if not isinstance(resultado, dict):
+        return {}
+
+    dados = resultado.get("dados")
+    dados = dados if isinstance(dados, dict) else {}
+
+    diagnostico = (
+        dados.get("diagnostico_completo")
+        or dados.get("diagnostico")
+        or resultado.get("diagnostico")
+        or {}
+    )
+    diagnostico = diagnostico if isinstance(diagnostico, dict) else {}
+
+    resumo = (
+        dados.get("resumo_rapido")
+        or dados.get("resumo")
+        or resultado.get("resumo")
+        or {}
+    )
+    resumo = resumo if isinstance(resumo, dict) else {}
+
+    acoes = (
+        dados.get("acoes_recomendadas")
+        or dados.get("acoes")
+        or resultado.get("acoes_recomendadas")
+        or resultado.get("acoes")
+        or []
+    )
+    acoes = acoes if isinstance(acoes, list) else []
+
+    if not diagnostico and not resumo:
+        return {}
+
+    return {
+        "diagnostico": diagnostico,
+        "resumo": resumo,
+        "acoes_recomendadas": acoes,
+    }
 
 
 class Command(BaseCommand):
@@ -294,6 +353,8 @@ class Command(BaseCommand):
             raise CommandError(mensagem)
 
         if tarefa_atual.status == StatusTarefaSuricata.SUCESSO:
+            self._persistir_snapshot_pos_sucesso(tarefa_atual)
+
             self.stdout.write(
                 self.style.SUCCESS(
                     f"[MoonShield] Tarefa {tarefa_id} concluída com sucesso."
@@ -307,6 +368,75 @@ class Command(BaseCommand):
                 f"{tarefa_atual.status}."
             )
         )
+
+    def _persistir_snapshot_pos_sucesso(
+        self,
+        tarefa: TarefaSuricata,
+    ) -> None:
+        """
+        Atualiza snapshots canônicos depois de uma tarefa concluída.
+
+        Diagnóstico:
+        - mantém TarefaSuricata.resultado como histórico;
+        - copia o laudo mais recente para ConfiguracaoSuricata.ultimo_diagnostico.
+
+        A falha em atualizar o snapshot NÃO rebaixa uma tarefa já concluída com
+        sucesso. O histórico da tarefa permanece a fonte de recuperação.
+        """
+        try:
+            if tarefa.tipo != TipoTarefaSuricataModel.DIAGNOSTICO:
+                return
+
+            snapshot = _extrair_snapshot_diagnostico(
+                tarefa.resultado
+            )
+
+            if not snapshot:
+                logger.warning(
+                    "Tarefa de diagnóstico %s terminou com sucesso, "
+                    "mas não contém snapshot persistível.",
+                    tarefa.pk,
+                )
+                return
+
+            configuracao = tarefa.configuracao
+
+            if configuracao is None:
+                configuracao = (
+                    ConfiguracaoSuricata.objects
+                    .filter(ativo=True)
+                    .order_by("-atualizado_em", "-pk")
+                    .first()
+                )
+
+            if configuracao is None:
+                logger.warning(
+                    "Diagnóstico %s concluído sem configuração associada; "
+                    "snapshot ficará somente no histórico de tarefas.",
+                    tarefa.pk,
+                )
+                return
+
+            configuracao.atualizar_status(
+                diagnostico=snapshot,
+                erro="",
+                salvar=True,
+            )
+
+            logger.info(
+                "Último diagnóstico da configuração %s atualizado "
+                "a partir da tarefa %s.",
+                configuracao.pk,
+                tarefa.pk,
+            )
+
+        except Exception:
+            logger.exception(
+                "Falha ao atualizar ConfiguracaoSuricata.ultimo_diagnostico "
+                "após a tarefa %s.",
+                getattr(tarefa, "pk", "?"),
+            )
+
 
     def _marcar_erro_se_necessario(
         self,

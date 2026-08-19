@@ -1032,33 +1032,222 @@ def executar_atualizacao_regras(
     return _consolidar_resultados("executar_atualizacao_regras", etapas_rodadas, "Assinaturas ativas atualizadas com as ultimas defs.", "Um problema nas branches de repositório impediu atualização fluida.", avisos_globais)
 
 
-def executar_validacao(configuracao: ConfiguracaoSuricataDados | None = None, progresso: ProgressoTarefa | None = None) -> ResultadoEtapa:
-    """Verifica e reporta formalmente via task se a configuração em disco não se degradou."""
-    _atualizar_progresso(progresso, 10, "validar", "Executando inspeções operacionais.")
+def executar_validacao(
+    configuracao: ConfiguracaoSuricataDados | None = None,
+    progresso: ProgressoTarefa | None = None,
+) -> ResultadoEtapa:
+    """
+    Valida formalmente a configuração ativa do Suricata.
+
+    Fluxo:
+    1. Executa suricata -T.
+    2. Executa o diagnóstico profundo.
+    3. Converte o ResultadoDiagnostico para ResultadoEtapa apenas
+       para integração com o mecanismo de tarefas.
+    """
+
+    _atualizar_progresso(
+        progresso,
+        10,
+        "validar",
+        "Executando inspeções operacionais.",
+    )
+
     etapas_rodadas: dict[str, ResultadoEtapa] = {}
-    
-    yaml_ativo = configuracao.yaml_path if configuracao else localizar_suricata_yaml()
+
+    # ----------------------------------------------------------------------
+    # 1. LOCALIZAR YAML
+    # ----------------------------------------------------------------------
+
+    yaml_ativo = (
+        configuracao.yaml_path
+        if configuracao
+        else localizar_suricata_yaml()
+    )
+
     if not yaml_ativo:
-        return _consolidar_resultados("executar_validacao", etapas_rodadas, "", "YAML de cfg não encontrado.")
-        
-    res_val = _executar_etapa_segura("validar_configuracao", validar_configuracao, yaml_ativo)
+        return _consolidar_resultados(
+            "executar_validacao",
+            etapas_rodadas,
+            "",
+            "YAML de configuração do Suricata não encontrado.",
+        )
+
+    # ----------------------------------------------------------------------
+    # 2. SURICATA -T
+    # ----------------------------------------------------------------------
+
+    res_val = _executar_etapa_segura(
+        "validar_configuracao",
+        validar_configuracao,
+        yaml_ativo,
+    )
+
     etapas_rodadas["validar_suricata"] = res_val
+
     if not res_val.sucesso:
-        return _consolidar_resultados("executar_validacao", etapas_rodadas, "", "Yaml malformatado ou corrompido.")
+        return _consolidar_resultados(
+            "executar_validacao",
+            etapas_rodadas,
+            "",
+            "A configuração foi rejeitada pelo suricata -T.",
+        )
 
-    _atualizar_progresso(progresso, 50, "diagnostico", "Recolhendo telemetria do sistema para relatório final.")
-    res_diag = _executar_etapa_segura("executar_diagnostico", executar_diagnostico, configuracao)
-    
-    # Verifica se a entidade retornada possui a property `pronto`
-    is_pronto = getattr(res_diag, "pronto", False)
+    # ----------------------------------------------------------------------
+    # 3. DIAGNÓSTICO PROFUNDO
+    # ----------------------------------------------------------------------
 
-    if not is_pronto:
-         etapas_rodadas["diagnostico"] = _criar_resultado_etapa("diagnostico", "Falhou")
-         etapas_rodadas["diagnostico"].finalizar_erro("Healthcheck interno apontou falhas crônicas inibitivas.")
-         return _consolidar_resultados("executar_validacao", etapas_rodadas, "", "Configuração falhou em auditoria profunda.")
+    _atualizar_progresso(
+        progresso,
+        50,
+        "diagnostico",
+        "Recolhendo telemetria do sistema para relatório final.",
+    )
 
-    _atualizar_progresso(progresso, 100, "concluido", "Validado sem ressalvas.")
-    return _consolidar_resultados("executar_validacao", etapas_rodadas, "Ambiente integro e validado.", "")
+    /*
+    executar_diagnostico NÃO retorna ResultadoEtapa.
+    Ele retorna ResultadoDiagnostico.
+
+    Portanto ele NÃO deve passar por _executar_etapa_segura().
+    */
+
+    try:
+        diagnostico = executar_diagnostico(
+            configuracao
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Falha durante diagnóstico profundo da validação."
+        )
+
+        res_diag = _criar_resultado_etapa(
+            "diagnostico",
+            "Falha durante diagnóstico profundo.",
+        )
+
+        res_diag.finalizar_erro(
+            mensagem=(
+                "Não foi possível concluir o healthcheck "
+                "interno do Suricata."
+            ),
+            erro=str(exc),
+        )
+
+        etapas_rodadas["diagnostico"] = res_diag
+
+        return _consolidar_resultados(
+            "executar_validacao",
+            etapas_rodadas,
+            "",
+            "Configuração falhou em auditoria profunda.",
+        )
+
+    # ----------------------------------------------------------------------
+    # 4. CONVERTER ResultadoDiagnostico → ResultadoEtapa
+    # ----------------------------------------------------------------------
+
+    res_diag = _criar_resultado_etapa(
+        "diagnostico",
+        "Consolidando healthcheck interno.",
+    )
+
+    try:
+        dados_diagnostico = diagnostico.to_dict()
+    except Exception:
+        dados_diagnostico = {}
+
+    res_diag.dados = {
+        "pronto": bool(
+            getattr(
+                diagnostico,
+                "pronto",
+                False,
+            )
+        ),
+        "total_checks": int(
+            getattr(
+                diagnostico,
+                "total_checks",
+                0,
+            )
+            or 0
+        ),
+        "total_ok": int(
+            getattr(
+                diagnostico,
+                "total_ok",
+                0,
+            )
+            or 0
+        ),
+        "total_falhas": int(
+            getattr(
+                diagnostico,
+                "total_falhas",
+                0,
+            )
+            or 0
+        ),
+        "total_criticos": int(
+            getattr(
+                diagnostico,
+                "total_criticos",
+                0,
+            )
+            or 0
+        ),
+        "resultado": dados_diagnostico,
+    }
+
+    diagnostico_pronto = bool(
+        getattr(
+            diagnostico,
+            "pronto",
+            False,
+        )
+    )
+
+    if diagnostico_pronto:
+        res_diag.finalizar_sucesso(
+            "Healthcheck interno aprovado."
+        )
+
+    else:
+        res_diag.finalizar_erro(
+            mensagem=(
+                "Healthcheck interno identificou "
+                "falhas críticas."
+            )
+        )
+
+    etapas_rodadas["diagnostico"] = res_diag
+
+    if not diagnostico_pronto:
+        return _consolidar_resultados(
+            "executar_validacao",
+            etapas_rodadas,
+            "",
+            "Configuração falhou em auditoria profunda.",
+        )
+
+    # ----------------------------------------------------------------------
+    # 5. CONCLUSÃO
+    # ----------------------------------------------------------------------
+
+    _atualizar_progresso(
+        progresso,
+        100,
+        "concluido",
+        "Validação concluída com sucesso.",
+    )
+
+    return _consolidar_resultados(
+        "executar_validacao",
+        etapas_rodadas,
+        "Ambiente íntegro e validado.",
+        "",
+    )
 
 
 def executar_reparo(configuracao: ConfiguracaoSuricataDados, progresso: ProgressoTarefa | None = None) -> ResultadoEtapa:

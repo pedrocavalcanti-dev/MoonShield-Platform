@@ -1,0 +1,132 @@
+<!-- ====================================================
+     OPERAÇÃO LONGA — OVERLAY GLOBAL
+===================================================== -->
+<div
+    class="sp-long-operation"
+    id="longOperationOverlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="longOperationTitle"
+    aria-describedby="longOperationDescription"
+    aria-hidden="true"
+    hidden
+>
+    <div
+        class="sp-long-operation__backdrop"
+        aria-hidden="true"
+    ></div>
+
+    <article
+        class="sp-long-operation__card is-running"
+        id="longOperationCard"
+    >
+        <div class="sp-long-operation__head">
+            <div
+                class="sp-long-operation__spinner"
+                aria-hidden="true"
+            >
+                <span></span>
+            </div>
+
+            <div class="sp-long-operation__heading">
+                <span
+                    class="sp-panel__eyebrow"
+                    id="longOperationEyebrow"
+                >
+                    Operação em andamento
+                </span>
+
+                <h3 id="longOperationTitle">
+                    Processando operação
+                </h3>
+
+                <p id="longOperationDescription">
+                    O MoonShield está executando a tarefa solicitada.
+                </p>
+            </div>
+
+            <span
+                class="sp-long-operation__task"
+                id="longOperationTaskId"
+            >
+                Preparando tarefa
+            </span>
+        </div>
+
+        <div class="sp-long-operation__estimate">
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                aria-hidden="true"
+            >
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 2"></path>
+            </svg>
+
+            <span id="longOperationEstimate">
+                Aguarde a conclusão da operação.
+            </span>
+        </div>
+
+        <div class="sp-long-operation__progress-head">
+            <div>
+                <span>Progresso</span>
+
+                <strong id="longOperationProgressText">
+                    0%
+                </strong>
+            </div>
+
+            <div>
+                <span>Tempo decorrido</span>
+
+                <strong id="longOperationElapsed">
+                    00:00
+                </strong>
+            </div>
+        </div>
+
+        <div
+            class="sp-long-operation__progress"
+            role="progressbar"
+            aria-label="Progresso da operação"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+        >
+            <div
+                class="sp-long-operation__progress-value"
+                id="longOperationProgressBar"
+            ></div>
+        </div>
+
+        <div class="sp-long-operation__status">
+            <div class="sp-long-operation__stage">
+                <span>Etapa atual</span>
+
+                <strong id="longOperationStage">
+                    Preparando
+                </strong>
+            </div>
+
+            <p id="longOperationMessage">
+                Aguardando o worker iniciar a operação.
+            </p>
+        </div>
+
+        <div class="sp-long-operation__footer">
+            <span class="sp-long-operation__pulse">
+                <i aria-hidden="true"></i>
+                Worker automático
+            </span>
+
+            <span>
+                O painel continuará acompanhando a tarefa até a finalização.
+            </span>
+        </div>
+    </article>
+</div>

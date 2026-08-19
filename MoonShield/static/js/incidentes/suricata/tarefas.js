@@ -1,17 +1,19 @@
 import {
     fetchJSON,
     unwrapPayload,
-    apiUrl
+    apiUrl,
+    handleError,
 } from '../nucleo/api.js';
 
 import {
     state,
     TASK_LABELS,
-    TASK_ICONS
+    TASK_ICONS,
 } from '../nucleo/estado.js';
 
 import {
     safeArray,
+    safeObject,
     readPath,
     numberValue,
     textValue,
@@ -19,29 +21,70 @@ import {
     escapeHTML,
     formatDate,
     formatDuration,
-    sanitizeUrl
+    sanitizeUrl,
 } from '../nucleo/utilitarios.js';
 
 import {
     $,
     setText,
-    setButtonLoading
+    setButtonLoading,
 } from '../nucleo/dom.js';
 
 import {
     normalizeStatus,
     statusLabel,
     iconSVG,
-    handleError
 } from '../nucleo/interface.js';
 
 import {
-    renderOverviewTasks
+    renderOverviewTasks,
 } from './visao_geral.js';
 
 import {
-    showToast
+    showToast,
 } from '../componentes/notificacoes.js';
+
+import {
+    confirmOperation,
+} from '../componentes/modal.js';
+
+import {
+    initOperacaoLonga,
+    getLongOperationProfile,
+    trackLongOperationTask,
+    applyTaskToLongOperation,
+    failLongOperation,
+    getTrackedLongOperationTaskId,
+} from '../componentes/operacao_longa.js';
+
+
+const FINAL_TASK_STATUSES = new Set([
+    'sucesso',
+    'erro',
+    'cancelado',
+    'ignorado',
+]);
+
+const RUNNING_TASK_STATUSES = new Set([
+    'pendente',
+    'executando',
+]);
+
+const LONG_OPERATION_TASKS = new Set([
+    'instalacao',
+    'configuracao',
+    'atualizacao_regras',
+    'validacao',
+    'reinicio_suricata',
+    'reinicio_monitor',
+    'reparo',
+]);
+
+const TASK_DETAIL_POLL_INTERVAL = 2500;
+
+let drawerPollTimer = null;
+let drawerPollInFlight = false;
+let operationResumeAttempted = false;
 
 
 /* ==========================================================================
@@ -49,237 +92,144 @@ import {
    ========================================================================== */
 
 export function initTarefas() {
-    /*
-     * Filtro por status
-     */
-    $('taskStatusFilter')?.addEventListener(
-        'change',
-        () => {
-            state.taskOffset = 0;
+    initOperacaoLonga();
 
-            loadTasks().catch(
-                handleError
-            );
-        }
-    );
+    $('taskStatusFilter')
+        ?.addEventListener(
+            'change',
+            () => {
+                state.taskOffset = 0;
 
-
-    /*
-     * Filtro por tipo
-     */
-    $('taskTypeFilter')?.addEventListener(
-        'change',
-        () => {
-            state.taskOffset = 0;
-
-            loadTasks().catch(
-                handleError
-            );
-        }
-    );
-
-
-    /*
-     * Limpar filtros
-     */
-    $('btnClearTaskFilters')?.addEventListener(
-        'click',
-        () => {
-            const statusFilter =
-                $('taskStatusFilter');
-
-            const typeFilter =
-                $('taskTypeFilter');
-
-            if (statusFilter) {
-                statusFilter.value = '';
-            }
-
-            if (typeFilter) {
-                typeFilter.value = '';
-            }
-
-            state.taskOffset = 0;
-
-            loadTasks().catch(
-                handleError
-            );
-        }
-    );
-
-
-    /*
-     * Página anterior
-     */
-    $('btnTaskPrev')?.addEventListener(
-        'click',
-        () => {
-            state.taskOffset = Math.max(
-                0,
-                state.taskOffset - state.taskLimit
-            );
-
-            loadTasks().catch(
-                handleError
-            );
-        }
-    );
-
-
-    /*
-     * Próxima página
-     */
-    $('btnTaskNext')?.addEventListener(
-        'click',
-        () => {
-            if (
-                state.taskOffset +
-                state.taskLimit >=
-                state.taskTotal
-            ) {
-                return;
-            }
-
-            state.taskOffset +=
-                state.taskLimit;
-
-            loadTasks().catch(
-                handleError
-            );
-        }
-    );
-
-
-    /*
-     * Atualização manual
-     */
-    $('btnRefreshTasks')?.addEventListener(
-        'click',
-        async () => {
-            const button =
-                $('btnRefreshTasks');
-
-            setButtonLoading(
-                button,
-                true
-            );
-
-            try {
-                await loadTasks();
-
-                showToast(
-                    'Lista de tarefas atualizada.',
-                    'ok'
-                );
-
-            } catch (error) {
-                handleError(error);
-
-            } finally {
-                setButtonLoading(
-                    button,
-                    false
-                );
-            }
-        }
-    );
-}
-
-
-/* ==========================================================================
-   CRIAÇÃO DE TAREFA
-   ========================================================================== */
-
-export async function createTask(
-    tipo,
-    parametros = {}
-) {
-    if (!tipo) {
-        throw new Error(
-            'O tipo da tarefa não foi informado.'
+                loadTasks()
+                    .catch(
+                        handleError,
+                    );
+            },
         );
-    }
 
-    const payload = await fetchJSON(
-        apiUrl('criarTarefa'),
+    $('taskTypeFilter')
+        ?.addEventListener(
+            'change',
+            () => {
+                state.taskOffset = 0;
+
+                loadTasks()
+                    .catch(
+                        handleError,
+                    );
+            },
+        );
+
+    $('btnClearTaskFilters')
+        ?.addEventListener(
+            'click',
+            () => {
+                if ($('taskStatusFilter')) {
+                    $('taskStatusFilter').value = '';
+                }
+
+                if ($('taskTypeFilter')) {
+                    $('taskTypeFilter').value = '';
+                }
+
+                state.taskOffset = 0;
+
+                loadTasks()
+                    .catch(
+                        handleError,
+                    );
+            },
+        );
+
+    $('btnRefreshTasks')
+        ?.addEventListener(
+            'click',
+            () => {
+                state.taskOffset = 0;
+
+                loadTasks()
+                    .catch(
+                        handleError,
+                    );
+            },
+        );
+
+    $('btnTaskPrev')
+        ?.addEventListener(
+            'click',
+            () => {
+                state.taskOffset = Math.max(
+                    0,
+                    state.taskOffset
+                    - state.taskLimit,
+                );
+
+                loadTasks()
+                    .catch(
+                        handleError,
+                    );
+            },
+        );
+
+    $('btnTaskNext')
+        ?.addEventListener(
+            'click',
+            () => {
+                if (
+                    state.taskOffset
+                    + state.taskLimit
+                    >= state.taskTotal
+                ) {
+                    return;
+                }
+
+                state.taskOffset += (
+                    state.taskLimit
+                );
+
+                loadTasks()
+                    .catch(
+                        handleError,
+                    );
+            },
+        );
+
+    $('btnUpdateAllRules')
+        ?.addEventListener(
+            'click',
+            () => {
+                confirmOperation({
+                    title: 'Atualizar regras do Suricata?',
+                    text: (
+                        'O MoonShield atualizará ET Open e '
+                        + 'reaplicará as regras MoonShield configuradas.'
+                    ),
+                    details: (
+                        'A operação será executada pelo worker automático '
+                        + 'e poderá levar alguns minutos.'
+                    ),
+                    confirmLabel: 'Atualizar regras',
+                    confirmClass: 'sp-btn--primary',
+                    onConfirm: () =>
+                        confirmTask({
+                            tipo: 'atualizacao_regras',
+                            parametros: {
+                                atualizar_et: true,
+                                atualizar_moonshield: true,
+                                validar_depois: true,
+                            },
+                        }),
+                });
+            },
+        );
+
+    window.addEventListener(
+        'beforeunload',
+        cleanupTasks,
         {
-            method: 'POST',
-
-            body: {
-                tipo,
-                parametros
-            }
-        }
+            once: true,
+        },
     );
-
-    const data =
-        unwrapPayload(payload);
-
-    const task =
-        readPath(
-            data,
-            ['tarefa'],
-            null
-        ) ||
-        readPath(
-            payload,
-            ['tarefa'],
-            null
-        ) ||
-        data;
-
-    if (
-        !task ||
-        typeof task !== 'object'
-    ) {
-        throw new Error(
-            'A API não retornou a tarefa criada.'
-        );
-    }
-
-    return task;
-}
-
-
-/* ==========================================================================
-   CONFIRMAÇÃO / CRIAÇÃO
-   ========================================================================== */
-
-export async function confirmTask(
-    config,
-    onCreated = null
-) {
-    if (!config?.tipo) {
-        throw new Error(
-            'Configuração da tarefa inválida.'
-        );
-    }
-
-    const task = await createTask(
-        config.tipo,
-        config.parametros || {}
-    );
-
-    showToast(
-        'Tarefa criada com sucesso.',
-        'ok'
-    );
-
-    await loadTasks();
-
-    const taskId =
-        task.id ||
-        task.pk ||
-        null;
-
-    if (
-        taskId &&
-        typeof onCreated === 'function'
-    ) {
-        await onCreated(taskId);
-    }
-
-    return task;
 }
 
 
@@ -288,112 +238,110 @@ export async function confirmTask(
    ========================================================================== */
 
 export async function loadTasks() {
-    const query =
-        new URLSearchParams();
+    const params = new URLSearchParams();
 
-    const status =
-        $('taskStatusFilter')?.value ||
-        '';
-
-    const type =
-        $('taskTypeFilter')?.value ||
-        '';
-
-    query.set(
-        'offset',
-        String(state.taskOffset)
-    );
-
-    query.set(
+    params.set(
         'limite',
-        String(state.taskLimit)
+        String(
+            state.taskLimit,
+        ),
     );
 
-    if (status) {
-        query.set(
+    params.set(
+        'offset',
+        String(
+            state.taskOffset,
+        ),
+    );
+
+    const statusFilter = (
+        $('taskStatusFilter')
+            ?.value
+        || ''
+    );
+
+    const typeFilter = (
+        $('taskTypeFilter')
+            ?.value
+        || ''
+    );
+
+    if (statusFilter) {
+        params.set(
             'status',
-            status
+            statusFilter,
         );
     }
 
-    if (type) {
-        query.set(
+    if (typeFilter) {
+        params.set(
             'tipo',
-            type
+            typeFilter,
         );
     }
 
-    const payload =
-        await fetchJSON(
-            `${apiUrl('listarTarefas')}?${query.toString()}`
-        );
+    const payload = await fetchJSON(
+        `${apiUrl('listarTarefas')}?${params.toString()}`,
+    );
 
-    const data =
-        unwrapPayload(payload);
+    const data = safeObject(
+        unwrapPayload(
+            payload,
+        ),
+    );
 
-    const tasks =
-        safeArray(
-            readPath(
-                data,
-                [
-                    'tarefas',
-                    'results'
-                ],
-                readPath(
-                    payload,
-                    ['tarefas'],
-                    []
-                )
-            )
-        );
+    const tasks = safeArray(
+        readPath(
+            data,
+            [
+                'tarefas',
+                'results',
+            ],
+            [],
+        ),
+    );
 
-    const total =
-        numberValue(
-            readPath(
-                data,
-                [
-                    'total',
-                    'count'
-                ],
-                tasks.length
-            ),
-            tasks.length
-        );
+    const total = numberValue(
+        readPath(
+            data,
+            [
+                'total',
+                'count',
+            ],
+            tasks.length,
+        ),
+        tasks.length,
+    );
 
-    /*
-     * Estado global
-     */
-    state.tasks =
-        tasks;
+    state.tasks = tasks;
+    state.taskTotal = total;
+    state.taskPage = Math.floor(
+        state.taskOffset
+        / Math.max(
+            1,
+            state.taskLimit,
+        ),
+    ) + 1;
 
-    state.taskTotal =
-        total;
-
-    state.taskPage =
-        Math.floor(
-            state.taskOffset /
-            state.taskLimit
-        ) + 1;
-
-
-    /*
-     * Renderizações
-     */
     renderTaskTable(
-        tasks
+        tasks,
     );
 
     renderOverviewTasks(
         tasks.slice(
             0,
-            5
-        )
+            5,
+        ),
     );
 
     renderTaskPagination();
 
     updateTaskBadge(
-        tasks
+        tasks,
+    );
+
+    resumeRunningLongOperation(
+        tasks,
     );
 
     return tasks;
@@ -401,46 +349,325 @@ export async function loadTasks() {
 
 
 /* ==========================================================================
-   TABELA
+   CRIAÇÃO / CONFIRMAÇÃO
    ========================================================================== */
 
-export function renderTaskTable(
-    tasks
+export async function confirmTask(
+    config,
+    handleOpenDrawer = null,
 ) {
-    const body =
-        $('taskTableBody');
+    const taskType = textValue(
+        config?.tipo,
+        '',
+    );
 
-    if (!body) {
+    if (!taskType) {
+        throw new Error(
+            'Tipo de tarefa não informado.',
+        );
+    }
+
+    const parameters = (
+        config?.parametros
+        && typeof config.parametros === 'object'
+            ? config.parametros
+            : {}
+    );
+
+    const profile = getLongOperationProfile(
+        taskType,
+        parameters,
+    );
+
+    /*
+     * O diagnóstico é tratado pelo módulo diagnostico.js e não passa por
+     * este loader geral.
+     */
+    const shouldUseGlobalLoader = (
+        profile !== null
+        && LONG_OPERATION_TASKS.has(
+            taskType,
+        )
+    );
+
+    let task = null;
+
+    try {
+        const payload = await fetchJSON(
+            apiUrl('criarTarefa'),
+            {
+                method: 'POST',
+                body: {
+                    tipo: taskType,
+                    parametros: parameters,
+                },
+            },
+        );
+
+        const data = safeObject(
+            unwrapPayload(
+                payload,
+            ),
+        );
+
+        task = safeObject(
+            readPath(
+                data,
+                [
+                    'tarefa',
+                ],
+                data,
+            ),
+        );
+
+        const taskId = getTaskId(
+            task,
+        );
+
+        if (!taskId) {
+            throw new Error(
+                'A API criou a operação, mas não retornou o ID da tarefa.',
+            );
+        }
+
+        showToast(
+            'Tarefa criada com sucesso.',
+            'ok',
+        );
+
+        if (shouldUseGlobalLoader) {
+            startGlobalTaskTracking(
+                task,
+                parameters,
+            );
+        }
+
+        await loadTasks();
+
+        if (
+            typeof handleOpenDrawer
+            === 'function'
+        ) {
+            handleOpenDrawer(
+                taskId,
+            );
+        }
+
+        return task;
+
+    } catch (error) {
+        if (shouldUseGlobalLoader) {
+            failLongOperation(
+                error?.payload?.mensagem
+                || error?.payload?.erro
+                || error?.message
+                || 'Não foi possível iniciar a operação.',
+            );
+        }
+
+        throw error;
+    }
+}
+
+
+/* ==========================================================================
+   LOADER GLOBAL
+   ========================================================================== */
+
+function startGlobalTaskTracking(
+    task,
+    parameters = {},
+) {
+    const taskId = getTaskId(
+        task,
+    );
+
+    const taskType = textValue(
+        task?.tipo,
+        '',
+    );
+
+    if (
+        !taskId
+        || !LONG_OPERATION_TASKS.has(
+            taskType,
+        )
+    ) {
+        return false;
+    }
+
+    return trackLongOperationTask({
+        task,
+        taskId,
+        taskType,
+        parameters,
+        fetchTask: fetchTaskById,
+        pollInterval: 1600,
+
+        onUpdate: async (
+            freshTask,
+        ) => {
+            /*
+             * Se a gaveta estiver aberta na mesma tarefa, atualizamos a gaveta
+             * usando o mesmo resultado do polling do loader.
+             */
+            if (
+                state.currentTaskId
+                && String(
+                    state.currentTaskId,
+                ) === String(
+                    getTaskId(
+                        freshTask,
+                    ),
+                )
+            ) {
+                state.currentTask = freshTask;
+
+                renderTaskDrawer(
+                    freshTask,
+                );
+            }
+        },
+
+        onFinish: async (
+            freshTask,
+        ) => {
+            state.currentTask = (
+                freshTask
+            );
+
+            if (
+                state.currentTaskId
+                && String(
+                    state.currentTaskId,
+                ) === String(
+                    getTaskId(
+                        freshTask,
+                    ),
+                )
+            ) {
+                renderTaskDrawer(
+                    freshTask,
+                );
+
+                await loadTaskLogs(
+                    getTaskId(
+                        freshTask,
+                    ),
+                ).catch(
+                    () => {},
+                );
+            }
+
+            await loadTasks()
+                .catch(
+                    () => {},
+                );
+
+            const finalStatus = normalizeStatus(
+                freshTask.status
+                || freshTask.estado,
+            );
+
+            showToast(
+                finalStatus === 'ok'
+                || finalStatus === 'sucesso'
+                    ? 'Operação concluída.'
+                    : finalStatus === 'warning'
+                        ? 'Operação encerrada com atenção.'
+                        : 'Operação finalizada.',
+                finalStatus === 'ok'
+                || finalStatus === 'sucesso'
+                    ? 'ok'
+                    : finalStatus === 'warning'
+                        ? 'warning'
+                        : 'error',
+            );
+        },
+    });
+}
+
+
+function resumeRunningLongOperation(
+    tasks,
+) {
+    if (
+        operationResumeAttempted
+        && getTrackedLongOperationTaskId()
+    ) {
         return;
     }
 
-    body.innerHTML = '';
+    const running = tasks.find(
+        (task) => {
+            const status = normalizeTaskStatus(
+                task.status
+                || task.estado,
+            );
+
+            const type = textValue(
+                task.tipo,
+                '',
+            );
+
+            return (
+                RUNNING_TASK_STATUSES.has(
+                    status,
+                )
+                && LONG_OPERATION_TASKS.has(
+                    type,
+                )
+            );
+        },
+    );
+
+    operationResumeAttempted = true;
+
+    if (!running) {
+        return;
+    }
+
+    if (
+        getTrackedLongOperationTaskId()
+    ) {
+        return;
+    }
+
+    startGlobalTaskTracking(
+        running,
+        safeObject(
+            running.parametros
+            || {},
+        ),
+    );
+}
 
 
-    /*
-     * Estado vazio
-     */
+/* ==========================================================================
+   TABELA / PAGINAÇÃO
+   ========================================================================== */
+
+function renderTaskTable(
+    tasks,
+) {
+    const container = $(
+        'taskTableBody',
+    );
+
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+
     if (!tasks.length) {
-        body.innerHTML = `
+        container.innerHTML = `
             <tr>
-                <td colspan="7">
-                    <div class="sp-empty-state">
-
-                        <span class="sp-empty-state__icon">
-                            ${iconSVG('task', 22)}
-                        </span>
-
-                        <div>
-                            <strong>
-                                Nenhuma tarefa encontrada
-                            </strong>
-
-                            <span>
-                                Altere os filtros ou crie uma nova operação.
-                            </span>
-                        </div>
-
-                    </div>
+                <td
+                    colspan="7"
+                    class="sp-task-table__empty"
+                >
+                    Nenhuma tarefa encontrada.
                 </td>
             </tr>
         `;
@@ -448,333 +675,668 @@ export function renderTaskTable(
         return;
     }
 
-
-    /*
-     * Linhas
-     */
     for (const task of tasks) {
-        const id =
-            task.id ||
-            task.pk ||
-            '';
+        const status = normalizeStatus(
+            task.status
+            || task.estado,
+        );
 
-        const type =
-            textValue(
-                task.tipo,
-                ''
-            );
+        const taskType = textValue(
+            task.tipo,
+            'tarefa',
+        );
 
-        const status =
-            textValue(
-                task.status,
-                'pendente'
-            ).toLowerCase();
+        const taskId = getTaskId(
+            task,
+        );
 
-        const normalizedStatus =
-            normalizeStatus(
-                status
-            );
+        const progress = clampProgress(
+            task.progresso,
+        );
 
-        const progress =
-            Math.max(
-                0,
-                Math.min(
-                    100,
-                    numberValue(
-                        task.progresso,
-                        0
-                    )
-                )
-            );
+        const row = document.createElement(
+            'tr',
+        );
 
-        const label =
-            TASK_LABELS[type] ||
-            capitalize(type) ||
-            'Tarefa';
-
-        const icon =
-            TASK_ICONS[type] ||
-            'task';
-
-        const etapa =
-            task.etapa_atual ||
-            '—';
-
-        const inicio =
-            task.iniciado_em ||
-            task.criado_em ||
-            null;
-
-        const duration =
-            task.duracao_segundos;
-
-        const row =
-            document.createElement(
-                'tr'
-            );
-
+        row.dataset.taskId = (
+            taskId
+        );
 
         row.innerHTML = `
             <td>
-                <div class="sp-task-cell">
-
-                    <span class="sp-task-cell__icon">
-                        ${iconSVG(icon, 15)}
+                <span class="sp-task-type">
+                    <span class="sp-task-type__icon">
+                        ${iconSVG(
+                            TASK_ICONS[taskType]
+                            || 'task',
+                            15,
+                        )}
                     </span>
 
-                    <span class="sp-task-cell__copy">
-
+                    <span>
                         <strong>
-                            ${escapeHTML(label)}
+                            ${escapeHTML(
+                                TASK_LABELS[taskType]
+                                || capitalize(
+                                    taskType,
+                                ),
+                            )}
                         </strong>
 
-                        <span>
-                            ${escapeHTML(id)}
-                        </span>
-
+                        <small>
+                            ${escapeHTML(
+                                task.mensagem
+                                || 'Sem detalhes',
+                            )}
+                        </small>
                     </span>
-
-                </div>
-            </td>
-
-
-            <td>
-                <span
-                    class="sp-status-pill sp-status-pill--${escapeHTML(normalizedStatus)}"
-                >
-                    ${escapeHTML(statusLabel(status))}
                 </span>
             </td>
 
-
             <td>
-                <div class="sp-progress-mini">
-
-                    <div class="sp-progress-mini__bar">
-                        <span
-                            style="width:${progress}%"
-                        ></span>
-                    </div>
-
-                    <span class="sp-progress-mini__text">
-                        ${progress}%
-                    </span>
-
-                </div>
+                <span class="sp-status-pill sp-status-pill--${status}">
+                    ${escapeHTML(
+                        statusLabel(
+                            task.status
+                            || task.estado,
+                        ),
+                    )}
+                </span>
             </td>
 
-
             <td>
-                ${escapeHTML(etapa)}
+                <span class="sp-task-progress-text">
+                    ${progress}%
+                </span>
             </td>
 
-
             <td>
-                ${escapeHTML(formatDate(inicio))}
+                <small>
+                    ${escapeHTML(
+                        task.etapa_atual
+                        || task.etapa
+                        || '—',
+                    )}
+                </small>
             </td>
 
-
             <td>
-                ${escapeHTML(formatDuration(duration))}
+                <small>
+                    ${escapeHTML(
+                        safeFormatDate(
+                            task.criado_em
+                            || task.criada_em,
+                        ),
+                    )}
+                </small>
             </td>
 
+            <td>
+                <small>
+                    ${escapeHTML(
+                        safeFormatDuration(
+                            task.duracao_segundos,
+                        ),
+                    )}
+                </small>
+            </td>
 
             <td>
                 <button
-                    class="sp-icon-btn sp-icon-btn--small"
+                    class="sp-mini-action"
                     type="button"
-                    aria-label="Abrir tarefa"
-                    title="Abrir tarefa"
-                    data-task-open="${escapeHTML(id)}"
+                    data-task-open="${escapeHTML(taskId)}"
                 >
-                    <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                    >
-                        <path d="M5 12h14" />
-                        <path d="M12 5l7 7-7 7" />
-                    </svg>
+                    Detalhes
                 </button>
             </td>
         `;
 
-        body.appendChild(
-            row
+        container.appendChild(
+            row,
         );
     }
 }
 
 
-/* ==========================================================================
-   PAGINAÇÃO
-   ========================================================================== */
+function renderTaskPagination() {
+    const start = state.taskTotal
+        ? state.taskOffset + 1
+        : 0;
 
-export function renderTaskPagination() {
-    const start =
-        state.taskTotal
-            ? state.taskOffset + 1
-            : 0;
+    const end = Math.min(
+        state.taskOffset
+        + state.taskLimit,
+        state.taskTotal,
+    );
 
-    const end =
-        Math.min(
-            state.taskOffset +
-                state.taskLimit,
+    const totalPages = Math.max(
+        1,
+        Math.ceil(
             state.taskTotal
-        );
-
-    const totalPages =
-        Math.max(
-            1,
-            Math.ceil(
-                state.taskTotal /
-                state.taskLimit
-            )
-        );
+            / Math.max(
+                1,
+                state.taskLimit,
+            ),
+        ),
+    );
 
     setText(
         'taskPaginationText',
-        `${start}–${end} de ${state.taskTotal} tarefa(s)`
+        `${start}–${end} de ${state.taskTotal} tarefa(s)`,
     );
 
     setText(
         'taskPageText',
-        `Página ${state.taskPage} de ${totalPages}`
+        `Página ${state.taskPage} de ${totalPages}`,
     );
 
-
-    const prev =
-        $('btnTaskPrev');
-
-    const next =
-        $('btnTaskNext');
-
-
-    if (prev) {
-        prev.disabled =
-            state.taskOffset <= 0;
+    if ($('btnTaskPrev')) {
+        $('btnTaskPrev').disabled = (
+            state.taskOffset <= 0
+        );
     }
 
-    if (next) {
-        next.disabled =
-            state.taskOffset +
-            state.taskLimit >=
-            state.taskTotal;
+    if ($('btnTaskNext')) {
+        $('btnTaskNext').disabled = (
+            state.taskOffset
+            + state.taskLimit
+            >= state.taskTotal
+        );
     }
 }
 
 
-/* ==========================================================================
-   BADGE DA SIDEBAR
-   ========================================================================== */
-
-export function updateTaskBadge(
-    tasks = []
+function updateTaskBadge(
+    tasks,
 ) {
-    const badge =
-        $('navTaskBadge');
+    const running = tasks.filter(
+        (task) =>
+            RUNNING_TASK_STATUSES.has(
+                normalizeTaskStatus(
+                    task.status
+                    || task.estado,
+                ),
+            ),
+    ).length;
+
+    const badge = $(
+        'navTaskBadge',
+    );
 
     if (!badge) {
         return;
     }
 
-    const runningStatuses =
-        new Set([
-            'pendente',
-            'executando'
-        ]);
+    badge.hidden = (
+        running === 0
+    );
 
-    const runningCount =
-        safeArray(tasks)
-            .filter((task) => {
-                const status =
-                    String(
-                        task?.status ||
-                        ''
-                    )
-                        .trim()
-                        .toLowerCase();
-
-                return runningStatuses.has(
-                    status
-                );
-            })
-            .length;
-
-
-    if (runningCount <= 0) {
-        badge.hidden = true;
-        badge.textContent = '0';
-
-        return;
-    }
-
-    badge.textContent =
-        String(runningCount);
-
-    badge.hidden = false;
+    badge.textContent = String(
+        running,
+    );
 }
 
 
 /* ==========================================================================
-   DETALHE
+   DETALHE / GAVETA
    ========================================================================== */
 
 export async function loadTaskDetail(
-    taskId
+    taskId,
 ) {
     if (!taskId) {
-        throw new Error(
-            'ID da tarefa não informado.'
-        );
+        return null;
     }
 
-    const detailUrl =
-        sanitizeUrl(
-            apiUrl(
-                'detalheTarefaTemplate'
-            ),
-            taskId
-        );
+    state.currentTaskId = (
+        String(taskId)
+    );
 
-    const payload =
-        await fetchJSON(
-            detailUrl
-        );
+    const task = await fetchTaskById(
+        taskId,
+    );
 
-    const data =
-        unwrapPayload(
-            payload
-        );
+    state.currentTask = task;
 
-    const task =
-        readPath(
-            data,
-            ['tarefa'],
-            null
-        ) ||
-        readPath(
-            payload,
-            ['tarefa'],
-            null
-        ) ||
-        data;
+    renderTaskDrawer(
+        task,
+    );
 
+    await loadTaskLogs(
+        taskId,
+    ).catch(
+        (error) => {
+            console.error(
+                '[MoonShield] Não foi possível carregar logs da tarefa:',
+                error,
+            );
+        },
+    );
 
-    if (
-        !task ||
-        typeof task !== 'object'
-    ) {
-        throw new Error(
-            'Não foi possível carregar os detalhes da tarefa.'
-        );
-    }
+    startDrawerPolling(
+        taskId,
+    );
 
     return task;
+}
+
+
+async function fetchTaskById(
+    taskId,
+) {
+    const detailUrl = sanitizeUrl(
+        apiUrl(
+            'detalheTarefaTemplate',
+        ),
+        taskId,
+    );
+
+    const payload = await fetchJSON(
+        detailUrl,
+    );
+
+    const data = safeObject(
+        unwrapPayload(
+            payload,
+        ),
+    );
+
+    return safeObject(
+        readPath(
+            data,
+            [
+                'tarefa',
+            ],
+            data,
+        ),
+    );
+}
+
+
+function renderTaskDrawer(
+    task,
+) {
+    const statusRaw = (
+        task.status
+        || task.estado
+        || 'pendente'
+    );
+
+    const status = normalizeStatus(
+        statusRaw,
+    );
+
+    const taskId = getTaskId(
+        task,
+    );
+
+    const taskType = textValue(
+        task.tipo,
+        'tarefa',
+    );
+
+    const progress = clampProgress(
+        task.progresso,
+    );
+
+    setText(
+        'taskDrawerTitle',
+        TASK_LABELS[taskType]
+        || capitalize(
+            taskType,
+        ),
+    );
+
+    setText(
+        'drawerTaskType',
+        TASK_LABELS[taskType]
+        || capitalize(
+            taskType,
+        ),
+    );
+
+    setText(
+        'drawerTaskId',
+        taskId,
+    );
+
+    setText(
+        'drawerTaskStage',
+        task.etapa_atual
+        || task.etapa
+        || '—',
+    );
+
+    setText(
+        'drawerTaskPercent',
+        `${progress}%`,
+    );
+
+    setText(
+        'drawerTaskMessage',
+        task.mensagem
+        || 'Sem atualizações.',
+    );
+
+    setText(
+        'drawerTaskCreated',
+        safeFormatDate(
+            task.criado_em
+            || task.criada_em,
+        ),
+    );
+
+    setText(
+        'drawerTaskStarted',
+        safeFormatDate(
+            task.iniciado_em
+            || task.iniciada_em,
+        ),
+    );
+
+    setText(
+        'drawerTaskFinished',
+        safeFormatDate(
+            task.finalizado_em
+            || task.finalizada_em,
+        ),
+    );
+
+    setText(
+        'drawerTaskDuration',
+        safeFormatDuration(
+            task.duracao_segundos,
+        ),
+    );
+
+    const statusElement = $(
+        'drawerTaskStatus',
+    );
+
+    if (statusElement) {
+        statusElement.textContent = (
+            statusLabel(
+                statusRaw,
+            )
+        );
+
+        statusElement.className = (
+            `sp-status-pill sp-status-pill--${status}`
+        );
+    }
+
+    const bar = $(
+        'drawerTaskProgressBar',
+    );
+
+    if (bar) {
+        bar.style.width = (
+            `${progress}%`
+        );
+    }
+
+    const errorBox = $(
+        'drawerTaskError',
+    );
+
+    if (errorBox) {
+        const errorText = (
+            task.erro
+            || ''
+        );
+
+        errorBox.hidden = (
+            !errorText
+        );
+
+        setText(
+            'drawerTaskErrorText',
+            errorText,
+        );
+    }
+
+    const result = $(
+        'drawerTaskResult',
+    );
+
+    if (result) {
+        result.textContent = formatTaskResult(
+            task.resultado,
+        );
+    }
+
+    const cancelButton = $(
+        'btnCancelTask',
+    );
+
+    if (cancelButton) {
+        cancelButton.hidden = (
+            !RUNNING_TASK_STATUSES.has(
+                normalizeTaskStatus(
+                    statusRaw,
+                ),
+            )
+        );
+    }
+}
+
+
+async function loadTaskLogs(
+    taskId,
+) {
+    const container = $(
+        'drawerTaskLogs',
+    );
+
+    if (!container) {
+        return [];
+    }
+
+    const url = sanitizeUrl(
+        apiUrl(
+            'logsTarefaTemplate',
+        ),
+        taskId,
+    );
+
+    const payload = await fetchJSON(
+        url,
+    );
+
+    const data = safeObject(
+        unwrapPayload(
+            payload,
+        ),
+    );
+
+    const logs = safeArray(
+        readPath(
+            data,
+            [
+                'logs',
+            ],
+            [],
+        ),
+    );
+
+    renderTaskLogs(
+        logs,
+    );
+
+    return logs;
+}
+
+
+function renderTaskLogs(
+    logs,
+) {
+    const container = $(
+        'drawerTaskLogs',
+    );
+
+    if (!container) {
+        return;
+    }
+
+    container.innerHTML = '';
+
+    if (!logs.length) {
+        container.innerHTML = `
+            <div class="sp-terminal__empty">
+                Nenhum log disponível.
+            </div>
+        `;
+
+        return;
+    }
+
+    for (const log of logs) {
+        const line = document.createElement(
+            'div',
+        );
+
+        line.className = (
+            'sp-terminal-line'
+        );
+
+        const level = textValue(
+            log.nivel,
+            'info',
+        ).toUpperCase();
+
+        const time = (
+            log.criado_em
+            ? new Date(
+                log.criado_em,
+            ).toLocaleTimeString(
+                'pt-BR',
+            )
+            : '--:--:--'
+        );
+
+        line.innerHTML = `
+            <span class="sp-terminal-line__time">
+                ${escapeHTML(time)}
+            </span>
+
+            <span class="sp-terminal-line__level">
+                [${escapeHTML(level)}]
+            </span>
+
+            <span class="sp-terminal-line__message">
+                ${escapeHTML(
+                    log.etapa
+                        ? `${log.etapa}: ${log.mensagem}`
+                        : log.mensagem
+                        || '',
+                )}
+            </span>
+        `;
+
+        container.appendChild(
+            line,
+        );
+    }
+
+    container.scrollTop = (
+        container.scrollHeight
+    );
+}
+
+
+/* ==========================================================================
+   POLLING DA GAVETA
+   ========================================================================== */
+
+function startDrawerPolling(
+    taskId,
+) {
+    stopDrawerPolling();
+
+    drawerPollTimer = window.setInterval(
+        async () => {
+            if (
+                drawerPollInFlight
+                || document.hidden
+                || !state.currentTaskId
+                || String(
+                    state.currentTaskId,
+                ) !== String(
+                    taskId,
+                )
+            ) {
+                return;
+            }
+
+            drawerPollInFlight = true;
+
+            try {
+                const task = await fetchTaskById(
+                    taskId,
+                );
+
+                state.currentTask = task;
+
+                renderTaskDrawer(
+                    task,
+                );
+
+                if (
+                    getTrackedLongOperationTaskId()
+                    && String(
+                        getTrackedLongOperationTaskId(),
+                    ) === String(
+                        taskId,
+                    )
+                ) {
+                    applyTaskToLongOperation(
+                        task,
+                    );
+                }
+
+                const status = normalizeTaskStatus(
+                    task.status
+                    || task.estado,
+                );
+
+                if (
+                    FINAL_TASK_STATUSES.has(
+                        status,
+                    )
+                ) {
+                    stopDrawerPolling();
+
+                    await loadTaskLogs(
+                        taskId,
+                    ).catch(
+                        () => {},
+                    );
+                }
+            } catch (error) {
+                console.error(
+                    '[MoonShield] Erro no polling da gaveta:',
+                    error,
+                );
+            } finally {
+                drawerPollInFlight = false;
+            }
+        },
+        TASK_DETAIL_POLL_INTERVAL,
+    );
+}
+
+
+function stopDrawerPolling() {
+    if (drawerPollTimer) {
+        window.clearInterval(
+            drawerPollTimer,
+        );
+
+        drawerPollTimer = null;
+    }
+
+    drawerPollInFlight = false;
 }
 
 
@@ -783,37 +1345,207 @@ export async function loadTaskDetail(
    ========================================================================== */
 
 export async function requestTaskCancellation(
-    taskId
+    taskId,
 ) {
     if (!taskId) {
-        throw new Error(
-            'ID da tarefa não informado.'
-        );
+        return;
     }
 
-    const url =
-        sanitizeUrl(
-            apiUrl(
-                'cancelarTarefaTemplate'
-            ),
-            taskId
-        );
+    const url = sanitizeUrl(
+        apiUrl(
+            'cancelarTarefaTemplate',
+        ),
+        taskId,
+    );
 
-    const payload =
-        await fetchJSON(
-            url,
-            {
-                method: 'POST',
-                body: {}
-            }
-        );
+    await fetchJSON(
+        url,
+        {
+            method: 'POST',
+            body: {},
+        },
+    );
 
     showToast(
         'Cancelamento solicitado.',
-        'warning'
+        'warning',
     );
 
-    return unwrapPayload(
-        payload
+    await loadTaskDetail(
+        taskId,
     );
+}
+
+
+/* ==========================================================================
+   HELPERS
+   ========================================================================== */
+
+function getTaskId(
+    task,
+) {
+    return textValue(
+        task?.id
+        || task?.pk
+        || task?.tarefa_id
+        || '',
+        '',
+    );
+}
+
+
+function normalizeTaskStatus(
+    value,
+) {
+    const status = String(
+        value || '',
+    )
+        .trim()
+        .toLowerCase();
+
+    if (
+        status === 'running'
+        || status === 'processando'
+    ) {
+        return 'executando';
+    }
+
+    if (
+        status === 'pending'
+        || status === 'aguardando'
+    ) {
+        return 'pendente';
+    }
+
+    if (
+        status === 'ok'
+        || status === 'concluido'
+        || status === 'concluida'
+    ) {
+        return 'sucesso';
+    }
+
+    if (
+        status === 'error'
+        || status === 'falha'
+        || status === 'failed'
+    ) {
+        return 'erro';
+    }
+
+    return (
+        status
+        || 'pendente'
+    );
+}
+
+
+function clampProgress(
+    value,
+) {
+    return Math.max(
+        0,
+        Math.min(
+            100,
+            Math.round(
+                numberValue(
+                    value,
+                    0,
+                ),
+            ),
+        ),
+    );
+}
+
+
+function safeFormatDate(
+    value,
+) {
+    if (!value) {
+        return '—';
+    }
+
+    try {
+        return formatDate(
+            value,
+        );
+    } catch {
+        try {
+            return new Date(
+                value,
+            ).toLocaleString(
+                'pt-BR',
+            );
+        } catch {
+            return '—';
+        }
+    }
+}
+
+
+function safeFormatDuration(
+    value,
+) {
+    const seconds = numberValue(
+        value,
+        0,
+    );
+
+    if (!seconds) {
+        return '—';
+    }
+
+    try {
+        return formatDuration(
+            seconds,
+        );
+    } catch {
+        const minutes = Math.floor(
+            seconds / 60,
+        );
+
+        const remaining = (
+            seconds % 60
+        );
+
+        return minutes > 0
+            ? `${minutes}m ${remaining}s`
+            : `${remaining}s`;
+    }
+}
+
+
+function formatTaskResult(
+    result,
+) {
+    if (
+        result === null
+        || result === undefined
+        || result === ''
+    ) {
+        return 'Sem resultado disponível.';
+    }
+
+    if (
+        typeof result === 'string'
+    ) {
+        return result;
+    }
+
+    try {
+        return JSON.stringify(
+            result,
+            null,
+            2,
+        );
+    } catch {
+        return String(
+            result,
+        );
+    }
+}
+
+
+function cleanupTasks() {
+    stopDrawerPolling();
 }

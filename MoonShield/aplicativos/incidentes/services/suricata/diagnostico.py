@@ -871,7 +871,28 @@ def executar_diagnostico(
         eve_path = localizar_eve_json(eve_path) or "/var/log/suricata/eve.json"
 
     if not cursor_path:
-        cursor_path = configuracao.cursor_path if configuracao else None
+        # ConfiguracaoSuricataDados atual não possui cursor_path.
+        # Resolve de forma compatível com versões futuras do DTO e usa
+        # o cursor padrão do projeto quando o campo não estiver disponível.
+        cursor_raw = getattr(configuracao, "cursor_path", "") if configuracao else ""
+
+        raiz_projeto = (
+            Path(__file__)
+            .resolve()
+            .parent
+            .parent
+            .parent
+            .parent
+            .parent
+        )
+
+        if cursor_raw:
+            cursor_resolvido = Path(str(cursor_raw)).expanduser()
+            if not cursor_resolvido.is_absolute():
+                cursor_resolvido = raiz_projeto / cursor_resolvido
+            cursor_path = cursor_resolvido
+        else:
+            cursor_path = raiz_projeto / "var/cursors/suricata_eve.cursor"
 
     # ================== MÓDULOS BASE ==================
     try:

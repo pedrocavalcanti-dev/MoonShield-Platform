@@ -42,11 +42,6 @@ from .servicos import (
     obter_status_stack,
     obter_status_servicos,
 )
-from .diagnostico import (
-    executar_diagnostico_resumido,
-    executar_diagnostico,
-    obter_acoes_recomendadas,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -491,10 +486,21 @@ def _normalizar_regras_para_painel(status_regras: object) -> dict[str, object]:
     moon["instaladas"] = moon_instalada
     moon["instalado"] = moon_instalada
     moon.setdefault("arquivo", moon.get("caminho"))
-    moon.setdefault(
-        "referenciado",
-        bool(moon.get("referenciadas", moon.get("referenciada", moon.get("referenciado", False))))
+    moon_referenciado = bool(
+        moon.get(
+            "referenciado",
+            moon.get(
+                "referenciadas",
+                moon.get(
+                    "referenciada",
+                    False,
+                ),
+            ),
+        )
     )
+    moon["referenciado"] = moon_referenciado
+    moon["referenciada"] = moon_referenciado
+    moon["referenciadas"] = moon_referenciado
     moon.setdefault("total", moon.get("total_regras"))
 
     et_original = regras.get("et_open") or regras.get("etopen")
@@ -507,6 +513,22 @@ def _normalizar_regras_para_painel(status_regras: object) -> dict[str, object]:
     et["instalado"] = et_instalada
     et.setdefault("arquivo", et.get("caminho"))
     et.setdefault("total", et.get("total_regras"))
+
+    et_referenciado = bool(
+        et.get(
+            "referenciado",
+            et.get(
+                "referenciada",
+                et.get(
+                    "referenciadas",
+                    et_instalada,
+                ),
+            ),
+        )
+    )
+    et["referenciado"] = et_referenciado
+    et["referenciada"] = et_referenciado
+    et["referenciadas"] = et_referenciado
 
     regras["moonshield"] = moon
     regras["et_open"] = et
@@ -561,17 +583,58 @@ def obter_status_suricata_local(
     is_instalado = bool(suri_amb.get("instalado", False) or versao)
     is_yaml_ok = bool(st_config.get("moonshield_configurado", False))
     is_ativo = bool(svc_dict.get("ativo", False))
-    is_regras_ms_ok = bool(st_regras.get("moonshield", {}).get("instaladas", False))
+
+    moon_rules = (
+        st_regras.get("moonshield", {})
+        if isinstance(st_regras, dict)
+        else {}
+    )
+    et_rules = (
+        st_regras.get("et_open", {})
+        if isinstance(st_regras, dict)
+        else {}
+    )
+
+    is_regras_ms_instaladas = bool(
+        moon_rules.get(
+            "instaladas",
+            moon_rules.get("instalado", False),
+        )
+    )
+    is_regras_ms_referenciadas = bool(
+        moon_rules.get(
+            "referenciado",
+            moon_rules.get("referenciadas", False),
+        )
+    )
+
+    is_et_open_instalado = bool(
+        et_rules.get(
+            "instalada",
+            et_rules.get("instalado", False),
+        )
+    )
+    is_et_open_referenciado = bool(
+        et_rules.get(
+            "referenciado",
+            et_rules.get("referenciadas", is_et_open_instalado),
+        )
+    )
+
+    eve_disponivel = bool(
+        st_eve.get("existe", False)
+        and st_eve.get("legivel", False)
+    )
 
     pronto = bool(
         is_linux
         and is_instalado
         and st_config.get("existe", False)
         and is_yaml_ok
-        and is_regras_ms_ok
+        and is_regras_ms_instaladas
+        and is_regras_ms_referenciadas
         and is_ativo
-        and st_eve.get("existe", False)
-        and st_eve.get("legivel", False)
+        and eve_disponivel
     )
 
     if not is_linux:
@@ -586,9 +649,12 @@ def obter_status_suricata_local(
     elif not is_yaml_ok:
         status_final = STATUS_ERRO
         mensagem = "O suricata.yaml existe, mas a configuração MoonShield não está completa."
-    elif not is_regras_ms_ok:
+    elif not is_regras_ms_instaladas:
         status_final = STATUS_ERRO
         mensagem = "As regras MoonShield não estão instaladas."
+    elif not is_regras_ms_referenciadas:
+        status_final = STATUS_ERRO
+        mensagem = "As regras MoonShield existem, mas não estão referenciadas pelo Suricata."
     elif not is_ativo:
         status_final = STATUS_ERRO
         mensagem = "O serviço Suricata está parado."
@@ -615,6 +681,34 @@ def obter_status_suricata_local(
         "ativo": is_ativo,
         "configurado": is_yaml_ok,
         "pronto": pronto,
+        "operacional": bool(
+            pronto
+            and status_final == STATUS_OK
+        ),
+        "componentes": {
+            "binario": {
+                "instalado": is_instalado,
+                "versao": versao,
+            },
+            "yaml": {
+                "existe": bool(st_config.get("existe", False)),
+                "configurado": is_yaml_ok,
+            },
+            "eve": {
+                "disponivel": eve_disponivel,
+                "atualizando": bool(st_eve.get("atualizando", False)),
+            },
+            "moonshield_rules": {
+                "instaladas": is_regras_ms_instaladas,
+                "referenciadas": is_regras_ms_referenciadas,
+                "total": moon_rules.get("total"),
+            },
+            "et_open": {
+                "instalado": is_et_open_instalado,
+                "referenciado": is_et_open_referenciado,
+                "total": et_rules.get("total"),
+            },
+        },
         "status": status_final,
         "mensagem": mensagem,
     }
@@ -715,13 +809,15 @@ def obter_status_stack_completo(
     )
 
     worker_conhecido = bool(worker)
-    worker_instalado = bool(worker.get("instalado", True)) if worker_conhecido else True
-    worker_ativo = bool(worker.get("ativo", False)) if worker_conhecido else True
+    worker_instalado = bool(worker.get("instalado", False)) if worker_conhecido else False
+    worker_ativo = bool(worker.get("ativo", False)) if worker_conhecido else False
 
     stack_pronta = bool(
         st_suri.get("pronto")
         and monitor_instalado
+        and worker_conhecido
         and worker_instalado
+        and worker_ativo
     )
 
     avisos: list[str] = []
@@ -737,11 +833,12 @@ def obter_status_stack_completo(
     elif st_mon.get("status") == STATUS_AVISO:
         avisos.append(f"Monitor: {st_mon.get('mensagem', 'aviso não detalhado')}")
 
-    if worker_conhecido:
-        if not worker_instalado:
-            avisos.append("Worker de tarefas do Suricata não está instalado.")
-        elif not worker_ativo:
-            avisos.append("Worker de tarefas do Suricata está parado.")
+    if not worker_conhecido:
+        erros.append("Worker de tarefas do Suricata não foi identificado pelo status de serviços.")
+    elif not worker_instalado:
+        erros.append("Worker de tarefas do Suricata não está instalado.")
+    elif not worker_ativo:
+        erros.append("Worker de tarefas do Suricata está parado.")
 
     if stack_ativa and not st_mon.get("lendo_eve"):
         avisos.append("Os serviços estão ativos, porém o monitor não confirmou leitura contínua do EVE.")
@@ -754,6 +851,27 @@ def obter_status_stack_completo(
         and stack_pronta
         and st_mon.get("saudavel")
         and st_suri.get("pronto")
+        and worker_conhecido
+        and worker_instalado
+        and worker_ativo
+    )
+
+    instalado = bool(
+        st_suri.get("instalado")
+        and monitor_instalado
+        and worker_conhecido
+        and worker_instalado
+    )
+
+    configurado = bool(
+        st_suri.get("configurado")
+        and st_suri.get("pronto")
+    )
+
+    operacional = bool(
+        saudavel
+        and instalado
+        and configurado
     )
 
     if status_final == STATUS_OK:
@@ -773,7 +891,17 @@ def obter_status_stack_completo(
         "diagnostico": None,
         "stack_ativa": stack_ativa,
         "stack_pronta": stack_pronta,
+        "instalado": instalado,
+        "configurado": configurado,
+        "operacional": operacional,
         "saudavel": saudavel,
+        "estado_operacional": (
+            "operacional"
+            if operacional
+            else "atencao"
+            if status_final == STATUS_AVISO
+            else "indisponivel"
+        ),
         "status": status_final,
         "mensagem": mensagem,
         "avisos": avisos,
@@ -784,9 +912,16 @@ def obter_status_stack_completo(
     dados["resumo_saude"] = _gerar_resumo_saude(dados)
 
     if incluir_diagnostico:
-        dados["diagnostico"] = _validar_serializacao_status(
-            executar_diagnostico_resumido(configuracao)
-        )
+        # Compatibilidade com chamadas antigas:
+        # status é uma operação leve e NÃO executa Doctor profundo.
+        dados["diagnostico"] = {
+            "executado": False,
+            "persistido": True,
+            "mensagem": (
+                "O diagnóstico profundo é executado exclusivamente "
+                "por TarefaSuricata e consultado pela API de diagnóstico."
+            ),
+        }
 
     return _validar_serializacao_status(dados)
 
@@ -829,9 +964,15 @@ def obter_resumo_cards(
     et = regras.get("et_open", {}) if isinstance(regras, dict) else {}
 
     moon_ok = bool(
-        moon.get("instaladas", moon.get("instalado", False))
-        if isinstance(moon, dict)
-        else False
+        isinstance(moon, dict)
+        and moon.get(
+            "instaladas",
+            moon.get("instalado", False),
+        )
+        and moon.get(
+            "referenciado",
+            moon.get("referenciadas", False),
+        )
     )
     et_ok = bool(
         et.get("instalada", et.get("instalado", False))

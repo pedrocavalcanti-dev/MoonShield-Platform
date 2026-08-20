@@ -386,12 +386,15 @@ def _obter_estado_suricata(
 
     try:
         cfg_suricata = (
-            ConfiguracaoSuricata.get_solo()
+            ConfiguracaoSuricata.objects
+            .filter(ativo=True)
+            .order_by("-atualizado_em")
+            .first()
         )
 
     except Exception as exc:
         logger.exception(
-            "Erro ao obter ConfiguracaoSuricata.get_solo(): %s",
+            "Erro ao obter configuração ativa do Suricata: %s",
             exc,
         )
 
@@ -401,7 +404,7 @@ def _obter_estado_suricata(
             status="erro",
             status_label="Erro",
 
-            acao="instalar",
+            acao="painel",
 
             saudavel=False,
 
@@ -1394,10 +1397,26 @@ def api_testar_provider(request):
         result = _testar_dns(cfg)
     elif provider == "ids":
         estado = _obter_estado_suricata(modo_api)
+
+        operacional = bool(
+            estado.get("status") == "operacional"
+            and estado.get("saudavel", False)
+        )
+
         result = {
-            "ok": estado.get("ativo", False),
-            "status": estado.get("status", "desconhecido"),
-            "msg": f"Suricata status: {estado.get('status')}",
+            "ok": operacional,
+            "status": estado.get(
+                "status",
+                "desconhecido",
+            ),
+            "msg": (
+                "Suricata local operacional e integrado ao MoonShield."
+                if operacional
+                else (
+                    estado.get("erro")
+                    or "A stack local do Suricata requer atenção."
+                )
+            ),
             "detalhes": estado,
         }
     elif provider == "fw":

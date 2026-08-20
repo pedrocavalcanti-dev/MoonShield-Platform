@@ -310,10 +310,14 @@
         renderStatusBar();
 
         logDiag("OK", `Configurações carregadas. Modo: ${STATE.modo}`);
+        return STATE;
       }
+
+      return null;
     } catch (e) {
       logDiag("ERRO", `Falha ao carregar config: ${e.message}`);
       showToast("Falha ao carregar configurações", "erro");
+      return null;
     }
   }
 
@@ -670,8 +674,8 @@
   function _updateDiagLabels() {
     const gw = STATE.rede?.gateway || "—";
     const dns1 = STATE.rede?.dns1 || "1.1.1.1";
-    if ($("#diagGateway")) $("#diagGateway").textContent = `Gateway: ${gw}`;
-    if ($("#diagDns1")) $("#diagDns1").textContent = `DNS: ${dns1}`;
+    if ($("diagGateway")) $("diagGateway").textContent = `Gateway: ${gw}`;
+    if ($("diagDns1")) $("diagDns1").textContent = `DNS: ${dns1}`;
   }
 
   function _updateUrlIndicator(inputId, statusId, url) {
@@ -689,16 +693,16 @@
   ════════════════════════════════════════════════════════════ */
 
   function renderStatusBar() {
-    if ($("#cfgNodeName"))
-      $("#cfgNodeName").textContent = STATE.node?.name || "MS-NODE-01";
-    if ($("#cfgNodeSub"))
-      $("#cfgNodeSub").textContent = `Modo: ${
+    if ($("cfgNodeName"))
+      $("cfgNodeName").textContent = STATE.node?.name || "MS-NODE-01";
+    if ($("cfgNodeSub"))
+      $("cfgNodeSub").textContent = `Modo: ${
         STATE.modo === MODO_REAL ? "Real" : "Simulação"
       }`;
-    if ($("#pillRedeLabel"))
-      $("#pillRedeLabel").textContent = `Rede: ${STATE.rede?.cidr || "—"}`;
-    if ($("#pillInterfaceLabel"))
-      $("#pillInterfaceLabel").textContent = `Interface: ${
+    if ($("pillRedeLabel"))
+      $("pillRedeLabel").textContent = `Rede: ${STATE.rede?.cidr || "—"}`;
+    if ($("pillInterfaceLabel"))
+      $("pillInterfaceLabel").textContent = `Interface: ${
         STATE.rede?.iface_principal || "—"
       }`;
 
@@ -709,7 +713,7 @@
     const connected = Object.values(PROV_STATUS).filter(
       (s) => s === "ok"
     ).length;
-    const badge = $("#tabBadgeIntegracoes");
+    const badge = $("tabBadgeIntegracoes");
     if (badge) {
       badge.textContent = `${connected}/3`;
       badge.style.background =
@@ -769,7 +773,7 @@
 
   let _toastTimer;
   function showToast(msg, type = "ok") {
-    const t = $("#cfgToast");
+    const t = $("cfgToast");
     if (!t) return;
     t.textContent = msg;
     t.className = `cfg-toast cfg-toast--${type} show`;
@@ -778,7 +782,7 @@
   }
 
   function logDiag(level, msg) {
-    const log = $("#diagLog");
+    const log = $("diagLog");
     if (!log) return;
     log.querySelector(".cfg-diag-log__empty")?.remove();
     const row = document.createElement("div");

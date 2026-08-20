@@ -267,17 +267,45 @@
 
       try {
         const data = await apiFetch("/configuracoes/api/salvar/", "POST", payload);
+
         if (data.ok) {
-          const fresh = await apiFetch("/configuracoes/api/config/");
-          if (fresh.ok) {
-            n().STATE = fresh.config;
-            window.CfgConexoes.applyMode(n().STATE.modo, { silent: true });
-            fillFormFromState();
+          /*
+           * Fonte de verdade:
+           * 1. salva no backend;
+           * 2. loadConfig() relê /api/config/;
+           * 3. loadConfig() também relê /api/servicos/;
+           * 4. só então a UI é renderizada.
+           *
+           * Isso impede o Suricata de voltar para "Simulado" após salvar
+           * Modo Real por causa de STATE.servicos ausente/stale.
+           */
+          const loadedState = await n().loadConfig();
+
+          if (!loadedState) {
+            throw new Error("Configuração salva, mas não foi possível recarregar o estado.");
           }
+
+          window.CfgConexoes.applyMode(
+            n().STATE.modo,
+            { silent: true }
+          );
+
           renderStatusBar();
-          _updateUrlIndicator("dnsUrl", "dnsUrlStatus", n().STATE.providers?.dns?.url || "");
-          showToast("✓ Configurações salvas!");
-          logDiag("OK", `Salvo — modo: ${data.modo}`);
+          renderDiagProviders();
+
+          _updateUrlIndicator(
+            "dnsUrl",
+            "dnsUrlStatus",
+            n().STATE.providers?.dns?.url || ""
+          );
+
+          showToast("✓ Configurações salvas e serviços sincronizados!");
+          logDiag(
+            "OK",
+            `Salvo e sincronizado — modo: ${n().STATE.modo} · IDS: ${
+              n().STATE.servicos?.suricata?.status || "desconhecido"
+            }`
+          );
         } else {
           showToast(data.erro || "Erro ao salvar", "erro");
           logDiag("ERRO", data.erro || "Falha no POST /api/salvar/");
@@ -337,15 +365,16 @@
     const el = $("diagProviders"); if (!el) return;
     const items = [
       { name: "DNS / AdGuard",  key: "dns", icon: "bi-globe2",             infoFn: () => STATE.providers?.dns?.url || "—" },
-      { name: "IDS / Suricata", key: "ids", icon: "bi-shield-exclamation", infoFn: () => "sensor Linux via jg_sensor.py" },
+      { name: "IDS / Suricata", key: "ids", icon: "bi-shield-exclamation", infoFn: () => `Suricata local · ${STATE.servicos?.suricata?.status || "desconhecido"}` },
       { name: "Firewall",       key: "fw",  icon: "bi-fire",               infoFn: () => STATE.providers?.fw?.host || "local" },
     ];
 
     el.innerHTML = items.map(c => {
-      const s      = PROV_STATUS[c.key];
-      const sel    = $(PROVIDER_CFG[c.key].selectId);
-      const mode   = sel ? sel.value : (STATE.providers?.[c.key]?.mode || "mock");
-      const isReal = mode !== "mock";
+      const s = PROV_STATUS[c.key];
+
+      // O modo é global. Não inferir REAL/MOCK a partir de selects
+      // legados ocultos, que podem estar vazios.
+      const isReal = STATE.modo === n().MODO_REAL;
 
       const dotCls = { ok: "ok", mock: "mock", warn: "warn", erro: "erro" }[s] || "off";
       const statusLabel = {
@@ -383,7 +412,7 @@
   /* ════════════════════════════════════════════════════════════
      INICIALIZAÇÃO
   ════════════════════════════════════════════════════════════ */
-  document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("DOMContentLoaded", async () => {
     const { showToast, logDiag } = n();
 
     initTabs();
@@ -450,11 +479,41 @@
       log.innerHTML = `<p class="cfg-diag-log__empty">Nenhuma entrada ainda.</p>`;
     });
 
-    // Orquestra carregamento inicial
-    n().loadConfig();
-    loadSysInfo();
-    loadInterfaces();  // já auto-seleciona principal + aplica ao STATE silenciosamente
-    logDiag("INFO", "MoonShield Configurações v11.1 inicializado.");
+    // Orquestra carregamento inicial de forma determinística.
+    //
+    // Antes estes três carregamentos eram disparados em paralelo.
+    // O select podia receber "Real" do backend enquanto o card do Suricata
+    // permanecia com a renderização inicial "Simulado".
+    try {
+      const loadedState = await n().loadConfig();
+
+      if (loadedState) {
+        window.CfgConexoes.applyMode(
+          n().STATE.modo,
+          { silent: true }
+        );
+      }
+
+      // Só depois da configuração global estar carregada permitimos que
+      // interfaces/sysinfo atualizem o STATE.
+      await Promise.all([
+        loadSysInfo(),
+        loadInterfaces(),
+      ]);
+
+      n().renderStatusBar();
+      renderDiagProviders();
+
+      logDiag(
+        "INFO",
+        `MoonShield Configurações inicializado — modo: ${n().STATE.modo} · IDS: ${
+          n().STATE.servicos?.suricata?.status || "desconhecido"
+        }`
+      );
+    } catch (e) {
+      logDiag("ERRO", `Falha no bootstrap das Configurações: ${e.message}`);
+      showToast("Falha ao sincronizar a tela de Configurações", "erro");
+    }
   });
 
 })();

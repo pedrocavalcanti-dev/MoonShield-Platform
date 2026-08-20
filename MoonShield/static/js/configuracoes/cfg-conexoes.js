@@ -447,10 +447,14 @@
     if (modeBadge) {
       const realLocal = isProd && state.fonte === "local";
 
+      const realSelected = isProd;
+
       modeBadge.textContent =
         realLocal
           ? "LOCAL"
-          : "SIMULAÇÃO";
+          : realSelected
+            ? "PENDENTE"
+            : "SIMULAÇÃO";
 
       modeBadge.className =
         `cfg-provider-mode-badge cfg-provider-mode-badge--${
@@ -462,7 +466,9 @@
       modeBadge.title =
         realLocal
           ? "Componente local detectado automaticamente"
-          : "Componente bloqueado pelo modo de simulação";
+          : realSelected
+            ? "Modo Real selecionado — salve para sincronizar o backend"
+            : "Componente bloqueado pelo modo de simulação";
     }
 
     // O switch legado agora é somente indicador visual.
@@ -500,6 +506,77 @@
         state.versao
           ? `v${state.versao}`
           : "";
+    }
+
+    // Resumo amigável do estado consolidado
+    const summaryIcon = $("suricataSummaryIcon");
+    const summaryTitle = $("suricataSummaryTitle");
+    const summaryText = $("suricataSummaryText");
+    const sourceLabel = $("suricataSourceLabel");
+
+    const realPersisted = (
+      isProd
+      && state.modo === MODO_REAL
+      && state.fonte === "local"
+    );
+
+    if (summaryIcon) {
+      const summaryColor =
+        state.status === "operacional"
+          ? "#22c55e"
+          : state.status === "erro" || state.status === "nao_instalado"
+            ? "#ef4444"
+            : state.status === "simulado"
+              ? "#eab308"
+              : "#f97316";
+
+      summaryIcon.style.color = summaryColor;
+      summaryIcon.style.borderColor = `${summaryColor}33`;
+      summaryIcon.style.background = `${summaryColor}0D`;
+    }
+
+    if (summaryTitle) {
+      if (!isProd) {
+        summaryTitle.textContent = "Modo Simulação";
+      } else if (!realPersisted && state.status === "simulado") {
+        summaryTitle.textContent = "Modo Real selecionado";
+      } else if (state.status === "operacional") {
+        summaryTitle.textContent = "Stack Suricata operacional";
+      } else if (state.status === "nao_instalado") {
+        summaryTitle.textContent = "Suricata não instalado";
+      } else if (state.status === "configuracao_pendente") {
+        summaryTitle.textContent = "Configuração pendente";
+      } else {
+        summaryTitle.textContent = state.statusLabel || "Stack requer atenção";
+      }
+    }
+
+    if (summaryText) {
+      if (!isProd) {
+        summaryText.textContent =
+          "O Suricata real permanece bloqueado enquanto o MoonShield estiver em Modo Simulação.";
+      } else if (!realPersisted && state.status === "simulado") {
+        summaryText.textContent =
+          "Clique em Salvar Tudo para persistir o Modo Real e consultar a stack local.";
+      } else if (state.status === "operacional") {
+        summaryText.textContent =
+          "Motor IDS, monitor, worker e EVE estão ativos e integrados ao pipeline do MoonShield.";
+      } else if (state.status === "nao_instalado") {
+        summaryText.textContent =
+          "O componente local ainda precisa ser instalado neste servidor.";
+      } else {
+        summaryText.textContent =
+          state.statusLabel || "Consulte o painel do Suricata para revisar o estado da stack.";
+      }
+    }
+
+    if (sourceLabel) {
+      sourceLabel.textContent =
+        realPersisted
+          ? "local"
+          : isProd
+            ? "aguardando sincronização"
+            : "simulada";
     }
 
     // Componentes da stack
@@ -555,6 +632,12 @@
 
         resultEl.className =
           "cfg-test-result cfg-test-result--mock";
+      } else if (state.status === "simulado") {
+        resultEl.textContent =
+          "Modo Real selecionado — clique em Salvar Tudo para sincronizar a stack local.";
+
+        resultEl.className =
+          "cfg-test-result";
       } else if (state.saudavel && state.status === "operacional") {
         resultEl.textContent =
           "✓ Stack local operacional e integrada ao MoonShield.";
@@ -888,9 +971,17 @@
      13. EXPORTS PÚBLICOS
   ════════════════════════════════════════════════════════════ */
 
+  function refreshFromState() {
+    applyMode(
+      n().STATE.modo,
+      { silent: true }
+    );
+  }
+
   window.CfgConexoes = {
     // Modo
     applyMode,
+    refreshFromState,
     isSimulationMode,
     isRealMode,
 

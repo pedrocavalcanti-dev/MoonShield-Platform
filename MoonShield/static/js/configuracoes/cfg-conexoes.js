@@ -229,20 +229,126 @@
     const connector = $("connectorDns");
     if (!connector) return;
 
-    const state = n().STATE.providers?.dns || {};
-    const isActive = state.active || false;
-    const isUrl = state.url && state.url.startsWith("http");
+    /*
+     * Fonte de verdade visual:
+     * - modo global vem de STATE.modo;
+     * - configuração/saúde vem de STATE.servicos.adguard;
+     * - STATE.providers.dns fica somente para campos/preferências legadas.
+     *
+     * Regra importante:
+     * em Modo Real este card NUNCA deve exibir "MOCK".
+     */
+    const service = n().STATE.servicos?.adguard || {};
+    const provider = n().STATE.providers?.dns || {};
 
-    // Status do conector
-    if (isProd && isActive) {
-      connector.style.borderColor = isUrl
-        ? "rgba(34,197,94,.3)"
-        : "rgba(234,179,8,.2)";
-    } else if (isProd) {
-      connector.style.borderColor = "rgba(255,255,255,.06)";
-    } else {
-      connector.style.borderColor = "rgba(234,179,8,.12)";
+    const configurado = service.configurado === true || !!provider.url;
+    const ativo = service.ativo === true || provider.active === true;
+    const saudavel = service.saudavel === true;
+    const operacional =
+      service.status === "operacional"
+      || (configurado && ativo && saudavel);
+
+    let visualStatus = "simulado";
+    let statusLabel = "Simulado";
+    let badgeLabel = "SIMULAÇÃO";
+    let color = "#eab308";
+    let borderColor = "rgba(234,179,8,.12)";
+
+    if (isProd) {
+      if (!configurado) {
+        visualStatus = "pendente";
+        statusLabel = "Não configurado";
+        badgeLabel = "PENDENTE";
+        color = "#f59e0b";
+        borderColor = "rgba(245,158,11,.22)";
+      } else if (operacional) {
+        visualStatus = "operacional";
+        statusLabel = "Operacional";
+        badgeLabel = "REMOTO";
+        color = "#22c55e";
+        borderColor = "rgba(34,197,94,.30)";
+      } else if (!ativo) {
+        visualStatus = "desativado";
+        statusLabel = "Desativado";
+        badgeLabel = "REAL";
+        color = "#94a3b8";
+        borderColor = "rgba(148,163,184,.18)";
+      } else {
+        visualStatus = "pendente";
+        statusLabel = service.status_label || "Pendente";
+        badgeLabel = "PENDENTE";
+        color = "#f59e0b";
+        borderColor = "rgba(245,158,11,.22)";
+      }
     }
+
+    connector.style.borderColor = borderColor;
+
+    const statusEl = $("statusDns");
+    if (statusEl) {
+      statusEl.innerHTML = `
+        <span
+          class="cfg-conn-dot"
+          style="background:${color};box-shadow:0 0 6px ${color}88"
+        ></span>
+        ${statusLabel}
+      `;
+    }
+
+    const badge = $("badgeModeDns");
+    if (badge) {
+      badge.textContent = badgeLabel;
+
+      // Mantém as classes existentes do projeto, mas sem semântica "MOCK"
+      // em modo real.
+      badge.className =
+        `cfg-provider-mode-badge cfg-provider-mode-badge--${
+          visualStatus === "operacional" || visualStatus === "desativado"
+            ? "real"
+            : "mock"
+        }`;
+
+      if (isProd && visualStatus === "pendente") {
+        badge.style.background = "rgba(245,158,11,.10)";
+        badge.style.borderColor = "rgba(245,158,11,.35)";
+        badge.style.color = "#f59e0b";
+      } else if (isProd) {
+        badge.style.background = "";
+        badge.style.borderColor = "";
+        badge.style.color = "";
+      } else {
+        badge.style.background = "";
+        badge.style.borderColor = "";
+        badge.style.color = "";
+      }
+
+      badge.title =
+        !isProd
+          ? "Integração bloqueada pelo Modo Simulação"
+          : !configurado
+            ? "Modo Real ativo — configure o AdGuard para concluir a integração"
+            : operacional
+              ? "Integração remota do AdGuard operacional"
+              : "Integração real configurada, porém ainda não operacional";
+    }
+
+    /*
+     * O switch do AdGuard continua sendo configurável pelo usuário em Modo Real.
+     * Em simulação ele é bloqueado pela lógica global de applyMode().
+     */
+    const toggle = $("toggleDnsProvider");
+    if (toggle && isProd) {
+      toggle.checked = !!provider.active;
+      toggle.title =
+        configurado
+          ? "Ativar ou desativar a integração AdGuard"
+          : "Configure URL e credenciais antes de ativar";
+    }
+
+    n().logDiag(
+      operacional ? "OK" : "INFO",
+      `AdGuard: ${visualStatus} · modo=${isProd ? "real" : "simulacao"}`
+    );
   }
 
   /**
@@ -778,30 +884,89 @@
 
     const state = getFirewallState();
 
-    const borderColors = {
-      simulado: "rgba(234,179,8,.12)",
-      em_breve: "rgba(255,255,255,.06)",
-    };
-    connector.style.borderColor = borderColors[state.status] || "";
+    const visualStatus = isProd ? "em_breve" : "simulado";
+    const statusLabel = isProd ? "Em desenvolvimento" : "Simulado";
+    const badgeLabel = isProd ? "EM BREVE" : "SIMULAÇÃO";
+    const color = isProd ? "#3b82f6" : "#eab308";
+
+    connector.style.borderColor =
+      isProd
+        ? "rgba(59,130,246,.18)"
+        : "rgba(234,179,8,.12)";
 
     const statusEl = $("statusFw");
     if (statusEl) {
-      const dotColors = {
-        simulado: "#eab308",
-        em_breve: "#3b82f6",
-      };
-      const dotColor = dotColors[state.status] || "#888";
       statusEl.innerHTML = `
-        <span class="cfg-conn-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}88"></span>
-        ${state.label}
+        <span
+          class="cfg-conn-dot"
+          style="background:${color};box-shadow:0 0 6px ${color}88"
+        ></span>
+        ${statusLabel}
       `;
+    }
+
+    /*
+     * O badge antigo era hardcoded como MOCK no HTML.
+     * Agora ele sempre reflete o modo global:
+     *
+     * Simulação -> SIMULAÇÃO
+     * Real      -> EM BREVE
+     *
+     * Enquanto nftables não for integrado, não mostramos REAL/LOCAL como se
+     * houvesse uma implementação operacional.
+     */
+    const badge = $("badgeModeFw");
+    if (badge) {
+      badge.textContent = badgeLabel;
+      badge.className =
+        `cfg-provider-mode-badge cfg-provider-mode-badge--${
+          isProd ? "real" : "mock"
+        }`;
+
+      if (isProd) {
+        badge.style.background = "rgba(59,130,246,.10)";
+        badge.style.borderColor = "rgba(59,130,246,.28)";
+        badge.style.color = "#3b82f6";
+        badge.title = "Integração local via nftables ainda em desenvolvimento";
+      } else {
+        badge.style.background = "";
+        badge.style.borderColor = "";
+        badge.style.color = "";
+        badge.title = "Componente bloqueado pelo Modo Simulação";
+      }
+    }
+
+    /*
+     * O Firewall ainda não está implementado.
+     * O switch não deve sugerir que o usuário pode ativar um recurso inexistente.
+     */
+    const fwToggle = $("toggleFwProvider");
+    if (fwToggle) {
+      fwToggle.checked = false;
+      fwToggle.disabled = true;
+      fwToggle.setAttribute(
+        "aria-label",
+        isProd
+          ? "Firewall em desenvolvimento"
+          : "Firewall indisponível no Modo Simulação"
+      );
+
+      const switchLabel = fwToggle.closest(".cfg-switch");
+      if (switchLabel) {
+        switchLabel.style.opacity = ".55";
+        switchLabel.style.cursor = "not-allowed";
+        switchLabel.title =
+          isProd
+            ? "Integração nftables será disponibilizada em uma próxima etapa"
+            : "Disponível somente quando a integração estiver implementada";
+      }
     }
 
     // Não há sensores de firewall (sem agente Flask :8765)
     const sensorPanel = $("fwSensorPanel");
     if (sensorPanel) sensorPanel.style.display = "none";
 
-    n().logDiag("INFO", `Firewall: ${state.status}`);
+    n().logDiag("INFO", `Firewall: ${visualStatus}`);
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -951,18 +1116,13 @@
       idsToggle.disabled = true;
     }
 
-    // Toggle de Firewall (compatibilidade)
+    // Firewall ainda é placeholder: o switch é somente visual e permanece
+    // desabilitado até a integração nftables existir de fato.
     const fwToggle = $("toggleFwProvider");
-    fwToggle?.addEventListener("change", function () {
-      if (this.checked) {
-        showToast("Firewall preparado");
-        logDiag("INFO", "Firewall habilitado");
-      } else {
-        showToast("Firewall desabilitado");
-        logDiag("INFO", "Firewall desabilitado");
-      }
-      _renderFirewallPanel(isRealMode());
-    });
+    if (fwToggle) {
+      fwToggle.checked = false;
+      fwToggle.disabled = true;
+    }
 
     logDiag("INFO", "MoonShield Conexões v5 inicializado.");
   });

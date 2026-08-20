@@ -32,13 +32,20 @@
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
+                aria-hidden="true"
             >
                 <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
                 <path d="M20 4v7h-7" />
             </svg>
+
             Atualizar regras
         </button>
     </div>
+
+
+    <!-- =================================================
+         CARDS DE REGRAS
+    ================================================== -->
 
     <div class="sp-rules-grid">
         <article class="sp-panel sp-rule-card">
@@ -50,6 +57,7 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.6"
+                    aria-hidden="true"
                 >
                     <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
                 </svg>
@@ -77,7 +85,12 @@
             <dl class="sp-rule-metrics">
                 <div>
                     <dt>Arquivo</dt>
-                    <dd class="sp-mono" id="rulesMoonFile">—</dd>
+                    <dd
+                        class="sp-mono"
+                        id="rulesMoonFile"
+                    >
+                        —
+                    </dd>
                 </div>
 
                 <div>
@@ -105,6 +118,7 @@
             </button>
         </article>
 
+
         <article class="sp-panel sp-rule-card">
             <div class="sp-rule-card__icon sp-rule-card__icon--et">
                 <svg
@@ -114,6 +128,7 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.6"
+                    aria-hidden="true"
                 >
                     <path d="M4 4h16v16H4z" />
                     <path d="M8 8h8M8 12h8M8 16h5" />
@@ -171,6 +186,11 @@
         </article>
     </div>
 
+
+    <!-- =================================================
+         VALIDAÇÃO DO SURICATA
+    ================================================== -->
+
     <article class="sp-panel sp-wide-panel">
         <div class="sp-panel__head">
             <div>
@@ -190,22 +210,41 @@
             </button>
         </div>
 
+
         <div class="sp-validation-state">
+            <!--
+                IMPORTANTE:
+                estado inicial pendente NÃO usa spinner.
+
+                O spinner agora só é inserido via regras.js
+                quando existe uma tarefa de validação realmente
+                em "pendente" ou "executando".
+            -->
             <span
                 class="sp-validation-state__icon sp-validation-state__icon--pending"
                 id="rulesValidationIcon"
+                aria-hidden="true"
             >
-                <span class="sp-spinner"></span>
+                <svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                >
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                </svg>
             </span>
 
             <div class="sp-validation-state__copy">
                 <strong id="rulesValidationTitle">
-                    Validação ainda não executada
+                    Verificando última validação
                 </strong>
 
                 <p id="rulesValidationText">
-                    Execute uma validação para confirmar se o YAML
-                    e todas as referências de regras estão corretos.
+                    Consultando o histórico de tarefas do Suricata.
                 </p>
             </div>
 
@@ -213,9 +252,60 @@
                 class="sp-chip sp-chip--pending"
                 id="rulesValidationChip"
             >
-                Pendente
+                Verificando
             </span>
         </div>
+
+
+        <!-- =================================================
+             METADADOS DA ÚLTIMA VALIDAÇÃO
+        ================================================== -->
+
+        <dl
+            class="sp-rule-metrics"
+            id="rulesValidationMeta"
+            hidden
+        >
+            <div>
+                <dt>Tarefa</dt>
+
+                <dd
+                    class="sp-mono"
+                    id="rulesValidationTaskId"
+                >
+                    —
+                </dd>
+            </div>
+
+            <div>
+                <dt>Iniciada</dt>
+
+                <dd id="rulesValidationStartedAt">
+                    —
+                </dd>
+            </div>
+
+            <div>
+                <dt>Finalizada</dt>
+
+                <dd id="rulesValidationFinishedAt">
+                    —
+                </dd>
+            </div>
+
+            <div>
+                <dt>Duração</dt>
+
+                <dd id="rulesValidationDuration">
+                    —
+                </dd>
+            </div>
+        </dl>
+
+
+        <!-- =================================================
+             SAÍDA DO SURICATA -T
+        ================================================== -->
 
         <div
             class="sp-validation-output"
@@ -223,7 +313,9 @@
             hidden
         >
             <div class="sp-validation-output__head">
-                <span>Saída da validação</span>
+                <span>
+                    Saída da validação
+                </span>
 
                 <button
                     class="sp-copy-btn"

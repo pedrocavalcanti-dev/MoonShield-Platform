@@ -465,83 +465,463 @@
     </div>
 
     <!-- ──────────────────────────────────────────────────
-         SURICATA IDS (componente local — sem sensor remoto)
+         SURICATA IDS — COMPONENTE LOCAL REAL
          ────────────────────────────────────────────────── -->
     <div class="cfg-connector" id="connectorIds">
       <div class="cfg-connector__header">
         <div class="cfg-connector__title-group">
           <div class="cfg-connector__icon">
-            <img src="{% static 'imagens/configuraçoes/logos-sistemas/suricata.png' %}" class="cfg-connector__logo" alt="Suricata">
+            <img
+              src="{% static 'imagens/configuraçoes/logos-sistemas/suricata.png' %}"
+              class="cfg-connector__logo"
+              alt="Suricata"
+            >
           </div>
+
           <div>
             <p class="cfg-connector__name">Suricata IDS</p>
-            <p class="cfg-connector__sub">Detecção de ameaças e análise de tráfego</p>
+            <p class="cfg-connector__sub">
+              Detecção de ameaças e análise de tráfego local
+            </p>
           </div>
         </div>
+
         <div class="cfg-connector__header-right">
-          <span class="cfg-conn-status" id="statusIds"><span class="cfg-conn-dot"></span> Desconectado</span>
-          <span class="cfg-provider-mode-badge cfg-provider-mode-badge--mock" id="badgeModeIds">MOCK</span>
-          <label class="cfg-switch"><input type="checkbox" id="toggleIdsProvider" class="provider-toggle" data-provider="ids"><span class="cfg-switch-slider"></span></label>
+          <span
+            class="cfg-conn-status"
+            id="statusIds"
+          >
+            <span class="cfg-conn-dot"></span>
+            Verificando
+          </span>
+
+          <span
+            class="cfg-provider-mode-badge cfg-provider-mode-badge--local"
+            id="badgeModeIds"
+          >
+            LOCAL
+          </span>
+
+          <!--
+            Mantido por compatibilidade com o JS atual.
+            No modo real este controle é sincronizado automaticamente
+            com o estado da stack e não representa um provider remoto.
+          -->
+          <label
+            class="cfg-switch"
+            id="suricataCompatToggleWrap"
+            title="Estado sincronizado automaticamente pelo serviço local"
+          >
+            <input
+              type="checkbox"
+              id="toggleIdsProvider"
+              class="provider-toggle"
+              data-provider="ids"
+              tabindex="-1"
+              aria-label="Estado operacional do Suricata"
+            >
+            <span class="cfg-switch-slider"></span>
+          </label>
         </div>
       </div>
+
+
       <div class="cfg-connector__body">
-        <!-- Container de URLs reais do Suricata (Django) — usado por cfg-conexoes.js -->
+        <!-- URLs reais do módulo Suricata -->
         <div
           id="suricataUrls"
           data-onboarding-url="{% url 'incidentes:suricata_onboarding' %}"
           data-painel-url="{% url 'incidentes:suricata_painel' %}"
-          hidden>
+          hidden
+        ></div>
+
+
+        <!-- Resumo simples para o usuário -->
+        <div
+          class="cfg-suricata-summary"
+          style="
+            display:grid;
+            grid-template-columns:auto minmax(0,1fr);
+            gap:12px;
+            align-items:center;
+            padding:14px;
+            margin-bottom:12px;
+            border:1px solid var(--border-soft);
+            border-radius:var(--r-md);
+            background:rgba(34,197,94,.035);
+          "
+        >
+          <div
+            id="suricataSummaryIcon"
+            style="
+              width:40px;
+              height:40px;
+              display:grid;
+              place-items:center;
+              border-radius:10px;
+              color:#22c55e;
+              border:1px solid rgba(34,197,94,.18);
+              background:rgba(34,197,94,.07);
+            "
+          >
+            <i class="bi bi-shield-check"></i>
+          </div>
+
+          <div>
+            <p
+              id="suricataSummaryTitle"
+              style="
+                margin:0 0 3px;
+                color:var(--text-primary);
+                font-size:11px;
+                font-weight:600;
+              "
+            >
+              Verificando stack local
+            </p>
+
+            <p
+              id="suricataSummaryText"
+              style="
+                margin:0;
+                color:var(--text-muted);
+                font-size:10px;
+                line-height:1.55;
+              "
+            >
+              O MoonShield detecta automaticamente instalação, configuração,
+              serviços e telemetria do Suricata.
+            </p>
+          </div>
         </div>
 
-        <!-- Descrição do status -->
-        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:var(--r-md);padding:12px 14px;margin-bottom:12px">
-          <p style="font-size:11px;color:var(--text-muted);line-height:1.6;margin:0">
-            Suricata é um componente <strong>local</strong> desta máquina. O MoonShield detecta automaticamente seu estado de instalação, configuração e saúde operacional.
+
+        <!-- Estado operacional consolidado -->
+        <div
+          class="cfg-suricata-health"
+          style="
+            padding:14px;
+            margin-bottom:12px;
+            border:1px solid var(--border-soft);
+            border-radius:var(--r-md);
+            background:var(--bg-mid);
+          "
+        >
+          <div
+            style="
+              display:flex;
+              align-items:center;
+              justify-content:space-between;
+              gap:12px;
+              margin-bottom:12px;
+            "
+          >
+            <div>
+              <p
+                style="
+                  margin:0;
+                  color:var(--text-primary);
+                  font-size:11px;
+                  font-weight:600;
+                "
+              >
+                Status operacional
+              </p>
+
+              <p
+                style="
+                  margin:3px 0 0;
+                  color:var(--text-dim);
+                  font-size:9px;
+                "
+              >
+                Componentes necessários para o pipeline IDS → MoonShield
+              </p>
+            </div>
+
+            <span
+              id="suricataVersionLabel"
+              style="
+                color:var(--text-dim);
+                font-family:var(--font-mono);
+                font-size:10px;
+                white-space:nowrap;
+              "
+            ></span>
+          </div>
+
+
+          <div
+            style="
+              display:grid;
+              grid-template-columns:repeat(4,minmax(0,1fr));
+              gap:8px;
+            "
+          >
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                Motor IDS
+              </span>
+
+              <div
+                style="
+                  display:flex;
+                  gap:6px;
+                  align-items:center;
+                "
+              >
+                <span
+                  class="cfg-service-status-dot"
+                  id="suricataServiceDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="suricataServiceText"
+                  style="
+                    color:var(--text-muted);
+                    font-size:10px;
+                  "
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+
+
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                Monitor
+              </span>
+
+              <div
+                style="
+                  display:flex;
+                  gap:6px;
+                  align-items:center;
+                "
+              >
+                <span
+                  class="cfg-service-status-dot"
+                  id="suricataMonitorDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="suricataMonitorText"
+                  style="
+                    color:var(--text-muted);
+                    font-size:10px;
+                  "
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+
+
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                Worker
+              </span>
+
+              <div
+                style="
+                  display:flex;
+                  gap:6px;
+                  align-items:center;
+                "
+              >
+                <span
+                  class="cfg-service-status-dot"
+                  id="suricataWorkerDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="suricataWorkerText"
+                  style="
+                    color:var(--text-muted);
+                    font-size:10px;
+                  "
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+
+
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                EVE
+              </span>
+
+              <div
+                style="
+                  display:flex;
+                  gap:6px;
+                  align-items:center;
+                "
+              >
+                <span
+                  class="cfg-service-status-dot"
+                  id="suricataEveDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="suricataEveText"
+                  style="
+                    color:var(--text-muted);
+                    font-size:10px;
+                  "
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Overlay exclusivo do modo simulação -->
+        <div
+          class="cfg-demo-overlay"
+          id="overlayIds"
+          style="display:none"
+        >
+          <i class="bi bi-lock-fill"></i>
+
+          <p>
+            Bloqueado no Modo Simulação
+          </p>
+
+          <p class="cfg-demo-overlay__sub">
+            Mude para <strong>Modo Real</strong> para usar a stack local do Suricata.
           </p>
         </div>
 
-        <!-- Status do Suricata -->
-        <div style="background:var(--bg-mid);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:12px 14px;margin-bottom:12px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <p style="font-size:11px;font-weight:600;color:var(--text-primary);margin:0">Status Operacional</p>
-            <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-dim)" id="suricataVersionLabel"></span>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:10px;font-family:var(--font-mono)">
-            <div style="display:flex;align-items:center;gap:4px">
-              <span class="cfg-service-status-dot" id="suricataServiceDot" style="background:var(--text-dim)"></span>
-              <span style="color:var(--text-dim)">Serviço: <strong id="suricataServiceText" style="color:var(--text-muted)">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:4px">
-              <span class="cfg-service-status-dot" id="suricataMonitorDot" style="background:var(--text-dim)"></span>
-              <span style="color:var(--text-dim)">Monitor: <strong id="suricataMonitorText" style="color:var(--text-muted)">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:4px">
-              <span class="cfg-service-status-dot" id="suricataWorkerDot" style="background:var(--text-dim)"></span>
-              <span style="color:var(--text-dim)">Worker: <strong id="suricataWorkerText" style="color:var(--text-muted)">—</strong></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:4px">
-              <span class="cfg-service-status-dot" id="suricataEveDot" style="background:var(--text-dim)"></span>
-              <span style="color:var(--text-dim)">EVE: <strong id="suricataEveText" style="color:var(--text-muted)">—</strong></span>
-            </div>
-          </div>
-        </div>
 
-        <div class="cfg-demo-overlay" id="overlayIds" style="display:none">
-          <i class="bi bi-lock-fill"></i>
-          <p>Bloqueado no Modo Simulação</p>
-          <p class="cfg-demo-overlay__sub">Mude para <strong>Modo Real</strong> para gerenciar Suricata</p>
-        </div>
-
-        <!-- Ação (botão único) -->
+        <!-- Ação principal -->
         <div class="cfg-connector__actions">
-          <button class="cfg-test-btn" id="suricataActionBtn" data-provider="ids"><i class="bi bi-play-circle"></i> Abrir Painel</button>
-          <div class="cfg-test-result" id="testResultIds"></div>
+          <button
+            class="cfg-test-btn"
+            id="suricataActionBtn"
+            data-provider="ids"
+            type="button"
+          >
+            <i class="bi bi-shield-check"></i>
+            Abrir painel do Suricata
+          </button>
+
+          <div
+            class="cfg-test-result"
+            id="testResultIds"
+          ></div>
         </div>
+
 
         <!-- Meta -->
         <div class="cfg-connector__meta">
-          <span class="cfg-meta-item"><i class="bi bi-clock"></i> Última verificação: <strong id="idsLastSync">nunca</strong></span>
+          <span class="cfg-meta-item">
+            <i class="bi bi-clock"></i>
+
+            Última verificação:
+
+            <strong id="idsLastSync">
+              agora
+            </strong>
+          </span>
+
+          <span class="cfg-meta-item">
+            <i class="bi bi-hdd-network"></i>
+
+            Fonte:
+
+            <strong id="suricataSourceLabel">
+              local
+            </strong>
+          </span>
         </div>
+
+
+        <!--
+          Compatibilidade legada:
+          permanece oculto porque o Suricata atual é local e não usa
+          uma lista de sensores remotos nesta tela.
+        -->
+        <div
+          id="idsSensorPanel"
+          hidden
+        ></div>
       </div>
     </div>
 

@@ -1,7 +1,7 @@
 /**
- * MOONSHIELD — cfg-conexoes.js  v4
+ * MOONSHIELD — cfg-conexoes.js  v5
  * ─────────────────────────────────────────────────────────────────────
- * v4: Navegação real do Suricata + correção do bug do helper $
+ * v5: Serviços reais + Suricata local como fonte operacional
  *   - $ = document.getElementById(id) → NUNCA usar "#" nas chamadas
  *   - AdGuard: integração remota isolada, teste real (INALTERADO)
  *   - Suricata: componente local, navegação por STATE.servicos.suricata.acao
@@ -201,15 +201,17 @@
       hint.innerHTML = `
         <i class="bi bi-lock-fill"></i>
         <span>
-          Modo <strong>Simulação</strong> — dados mockados.
-          Mude para <strong>Modo Real</strong> para integrar com AdGuard real, Suricata e Firewall.
+          Modo <strong>Simulação</strong> — integrações reais permanecem bloqueadas.
+          Mude para <strong>Modo Real</strong> para utilizar os serviços deste nó.
         </span>`;
     } else {
       hint.className = "cfg-integrations-hint cfg-integrations-hint--prod";
       hint.innerHTML = `
         <i class="bi bi-unlock-fill"></i>
         <span>
-          Modo <strong>Real</strong> ativo — configure as credenciais de AdGuard e conecte.
+          Modo <strong>Real</strong> ativo.
+          O <strong>Suricata local é detectado automaticamente</strong>;
+          o AdGuard continua sendo uma integração configurada separadamente.
         </span>`;
     }
   }
@@ -345,15 +347,25 @@
 
     return {
       status,
+      statusLabel: suricata.status_label || ui.label,
       acao: suricata.acao || "painel_simulado",
-      label: ui.label,
+      label: suricata.status_label || ui.label,
       botao: ui.botao,
       icon: ui.icon,
+      modo: suricata.modo || n().STATE.modo,
+      fonte: suricata.fonte || (isRealMode() ? "local" : "simulada"),
       versao: suricata.versao || null,
+      instalado: !!suricata.instalado,
+      configurado: !!suricata.configurado,
+      saudavel: suricata.saudavel === true || status === "operacional",
       ativo: !!suricata.ativo,
       monitorAtivo: !!suricata.monitor_ativo,
       workerAtivo: !!suricata.worker_ativo,
       eveAtivo: !!suricata.eve_ativo,
+      atualizadoEm:
+        n().STATE.servicos_atualizado_em
+        || suricata.ultima_verificacao
+        || null,
     };
   }
 
@@ -405,46 +417,221 @@
     const state = getSuricataState();
 
     // Borda do conector
-    connector.style.borderColor = SURICATA_BORDER_COLORS[state.status] || "";
+    connector.style.borderColor =
+      SURICATA_BORDER_COLORS[state.status]
+      || "";
 
-    // Status visual (dot + label) no cabeçalho do card
+    // Status principal do card
     const statusEl = $("statusIds");
+
     if (statusEl) {
-      const dotColor = SURICATA_DOT_COLORS[state.status] || "#888";
+      const dotColor =
+        SURICATA_DOT_COLORS[state.status]
+        || "#888";
+
       statusEl.innerHTML = `
-        <span class="cfg-conn-dot" style="background:${dotColor};box-shadow:0 0 6px ${dotColor}88"></span>
+        <span
+          class="cfg-conn-dot"
+          style="
+            background:${dotColor};
+            box-shadow:0 0 6px ${dotColor}88
+          "
+        ></span>
         ${state.label}
       `;
     }
 
-    // Status detalhado (Serviço / Monitor / Worker / EVE / Versão)
-    const versionLabel = $("suricataVersionLabel");
-    if (versionLabel)
-      versionLabel.textContent = state.versao ? `v${state.versao}` : "";
+    // O badge deixa de representar provider MOCK no modo real.
+    const modeBadge = $("badgeModeIds");
 
-    _renderSuricataDetailDot("suricataServiceDot", "suricataServiceText", state.ativo);
-    _renderSuricataDetailDot("suricataMonitorDot", "suricataMonitorText", state.monitorAtivo);
-    _renderSuricataDetailDot("suricataWorkerDot", "suricataWorkerText", state.workerAtivo);
-    _renderSuricataDetailDot("suricataEveDot", "suricataEveText", state.eveAtivo);
+    if (modeBadge) {
+      const realLocal = isProd && state.fonte === "local";
 
-    // Texto e ícone do botão de ação
-    const actionBtn = $("suricataActionBtn");
-    if (actionBtn) {
-      actionBtn.innerHTML = `<i class="bi ${state.icon}"></i> ${state.botao}`;
+      modeBadge.textContent =
+        realLocal
+          ? "LOCAL"
+          : "SIMULAÇÃO";
+
+      modeBadge.className =
+        `cfg-provider-mode-badge cfg-provider-mode-badge--${
+          realLocal
+            ? "real"
+            : "mock"
+        }`;
+
+      modeBadge.title =
+        realLocal
+          ? "Componente local detectado automaticamente"
+          : "Componente bloqueado pelo modo de simulação";
     }
 
-    // Painel de sensores legado — permanece oculto (sem sensor externo)
-    const sensorPanel = $("idsSensorPanel");
-    if (sensorPanel) sensorPanel.style.display = "none";
+    // O switch legado agora é somente indicador visual.
+    // Ele NÃO liga/desliga o daemon do Suricata.
+    const idsToggle = $("toggleIdsProvider");
 
-    n().logDiag("INFO", `Suricata: ${state.status} (ação: ${state.acao})`);
+    if (idsToggle) {
+      idsToggle.checked =
+        isProd
+        && state.ativo;
+
+      idsToggle.disabled = true;
+      idsToggle.setAttribute(
+        "aria-label",
+        "Estado do Suricata gerenciado automaticamente"
+      );
+
+      const switchLabel = idsToggle.closest(".cfg-switch");
+
+      if (switchLabel) {
+        switchLabel.style.opacity = "1";
+        switchLabel.style.cursor = "default";
+        switchLabel.title =
+          isProd
+            ? "Estado automático do serviço local"
+            : "Disponível apenas no Modo Real";
+      }
+    }
+
+    // Versão
+    const versionLabel = $("suricataVersionLabel");
+
+    if (versionLabel) {
+      versionLabel.textContent =
+        state.versao
+          ? `v${state.versao}`
+          : "";
+    }
+
+    // Componentes da stack
+    _renderSuricataDetailDot(
+      "suricataServiceDot",
+      "suricataServiceText",
+      state.ativo,
+      "Ativo",
+      "Inativo"
+    );
+
+    _renderSuricataDetailDot(
+      "suricataMonitorDot",
+      "suricataMonitorText",
+      state.monitorAtivo,
+      "Ativo",
+      "Inativo"
+    );
+
+    _renderSuricataDetailDot(
+      "suricataWorkerDot",
+      "suricataWorkerText",
+      state.workerAtivo,
+      "Ativo",
+      "Inativo"
+    );
+
+    _renderSuricataDetailDot(
+      "suricataEveDot",
+      "suricataEveText",
+      state.eveAtivo,
+      "Atualizando",
+      "Inativo"
+    );
+
+    // Botão contextual
+    const actionBtn = $("suricataActionBtn");
+
+    if (actionBtn) {
+      actionBtn.innerHTML =
+        `<i class="bi ${state.icon}"></i> ${state.botao}`;
+
+      actionBtn.disabled = false;
+    }
+
+    // Resultado amigável no corpo do card
+    const resultEl = $("testResultIds");
+
+    if (resultEl) {
+      if (!isProd) {
+        resultEl.textContent =
+          "Modo Simulação — o serviço real não é consultado.";
+
+        resultEl.className =
+          "cfg-test-result cfg-test-result--mock";
+      } else if (state.saudavel && state.status === "operacional") {
+        resultEl.textContent =
+          "✓ Stack local operacional e integrada ao MoonShield.";
+
+        resultEl.className =
+          "cfg-test-result cfg-test-result--ok";
+      } else if (state.status === "nao_instalado") {
+        resultEl.textContent =
+          "Suricata ainda não está instalado neste nó.";
+
+        resultEl.className =
+          "cfg-test-result cfg-test-result--err";
+      } else {
+        resultEl.textContent =
+          state.statusLabel || "Requer atenção";
+
+        resultEl.className =
+          "cfg-test-result cfg-test-result--err";
+      }
+    }
+
+    // Última verificação da API agregadora
+    const lastSync = $("idsLastSync");
+
+    if (lastSync) {
+      lastSync.textContent =
+        state.atualizadoEm
+          ? n().fmtLastSync(state.atualizadoEm)
+          : "agora";
+    }
+
+    // Sensores externos legados não fazem parte desta arquitetura
+    const sensorPanel = $("idsSensorPanel");
+
+    if (sensorPanel) {
+      sensorPanel.style.display = "none";
+    }
+
+    n().logDiag(
+      state.saudavel ? "OK" : "INFO",
+      `Suricata: ${state.status} · local=${state.fonte === "local"} · ação=${state.acao}`
+    );
   }
 
-  function _renderSuricataDetailDot(dotId, textId, ativo) {
+  function _renderSuricataDetailDot(
+    dotId,
+    textId,
+    ativo,
+    activeLabel = "Ativo",
+    inactiveLabel = "Inativo"
+  ) {
     const dot = $(dotId);
     const text = $(textId);
-    if (dot) dot.style.background = ativo ? "#22c55e" : "var(--text-dim)";
-    if (text) text.textContent = ativo ? "Ativo" : "Inativo";
+
+    if (dot) {
+      dot.style.background =
+        ativo
+          ? "#22c55e"
+          : "var(--text-dim)";
+
+      dot.style.boxShadow =
+        ativo
+          ? "0 0 6px rgba(34,197,94,.35)"
+          : "none";
+    }
+
+    if (text) {
+      text.textContent =
+        ativo
+          ? activeLabel
+          : inactiveLabel;
+
+      text.style.color =
+        ativo
+          ? "#22c55e"
+          : "var(--text-muted)";
+    }
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -561,12 +748,33 @@
     const suricataDot = $("systemSuricataDot");
     const suricataStatus = $("systemSuricataStatus");
     const suricataVersion = $("systemSuricataVersion");
-    const suricataUi = SURICATA_STATUS_UI[suricata.status] || SURICATA_STATUS_UI.simulado;
-    if (suricataDot)
-      suricataDot.style.background = SURICATA_DOT_COLORS[suricata.status] || "var(--text-dim)";
-    if (suricataStatus) suricataStatus.textContent = suricataUi.label;
-    if (suricataVersion)
-      suricataVersion.textContent = suricata.versao ? `v${suricata.versao}` : "";
+    const suricataUi =
+      SURICATA_STATUS_UI[suricata.status]
+      || SURICATA_STATUS_UI.simulado;
+
+    if (suricataDot) {
+      suricataDot.style.background =
+        SURICATA_DOT_COLORS[suricata.status]
+        || "var(--text-dim)";
+
+      suricataDot.style.boxShadow =
+        suricata.saudavel
+          ? "0 0 6px rgba(34,197,94,.35)"
+          : "none";
+    }
+
+    if (suricataStatus) {
+      suricataStatus.textContent =
+        suricata.status_label
+        || suricataUi.label;
+    }
+
+    if (suricataVersion) {
+      suricataVersion.textContent =
+        suricata.versao
+          ? `v${suricata.versao}`
+          : "";
+    }
 
     // Firewall
     const fwDot = $("systemFirewallDot");
@@ -652,18 +860,13 @@
       _renderAdGuardPanel(isRealMode());
     });
 
-    // Toggle de Suricata (compatibilidade — não representa "conexão")
+    // Suricata é um serviço local auto-detectado.
+    // O switch legado permanece apenas como indicador de estado e não possui
+    // listener de ativação/desativação.
     const idsToggle = $("toggleIdsProvider");
-    idsToggle?.addEventListener("change", function () {
-      if (this.checked) {
-        showToast("Suricata preparado");
-        logDiag("INFO", "Suricata habilitado");
-      } else {
-        showToast("Suricata desabilitado");
-        logDiag("INFO", "Suricata desabilitado");
-      }
-      _renderSuricataPanel(isRealMode());
-    });
+    if (idsToggle) {
+      idsToggle.disabled = true;
+    }
 
     // Toggle de Firewall (compatibilidade)
     const fwToggle = $("toggleFwProvider");
@@ -678,7 +881,7 @@
       _renderFirewallPanel(isRealMode());
     });
 
-    logDiag("INFO", "MoonShield Conexões v4 inicializado.");
+    logDiag("INFO", "MoonShield Conexões v5 inicializado.");
   });
 
   /* ════════════════════════════════════════════════════════════

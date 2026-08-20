@@ -1,13 +1,13 @@
 /**
- * MOONSHIELD — cfg-nucleo.js  v4
+ * MOONSHIELD — cfg-nucleo.js  v5
  * ─────────────────────────────────────────────────────────────────────
- * v4: Arquitetura de modo global + Serviços reais
+ * v5: Estado global + serviços reais como fonte de verdade
  *   - Modo global: "simulacao" | "real" (internamente)
  *   - Compatibilidade: aceita "demo"/"prod" do backend e formulário
- *   - STATE.servicos: adguard, suricata, firewall (dados do backend)
- *   - STATE.providers: mantido para compatibilidade com cfg-conexoes.js
- *   - Nova função: loadServicosStatus() carrega estado real dos serviços
- *   - Sincronização: STATE.servicos ↔ STATE.providers
+ *   - STATE.servicos: fonte de verdade para AdGuard, Suricata e Firewall
+ *   - STATE.providers: somente camada de compatibilidade com o frontend legado
+ *   - Suricata real nunca volta para MOCK quando a stack está operacional
+ *   - PROV_STATUS é derivado do health consolidado retornado pelo backend
  * ─────────────────────────────────────────────────────────────────────
  */
 
@@ -82,8 +82,12 @@
         ultima_coleta: null,
       },
 
-      // Suricata IDS — Sensor Linux local
+      // Suricata IDS — componente Linux local
       suricata: {
+        tipo: "suricata",
+        nome: "Suricata IDS",
+        modo: MODO_SIMULACAO,
+        fonte: "simulada",
         instalado: false,
         versao: null,
         onboarding_concluido: false,
@@ -93,8 +97,11 @@
         monitor_ativo: false,
         worker_ativo: false,
         eve_ativo: false,
+        saudavel: false,
         status: "simulado",
+        status_label: "Simulado",
         acao: "painel_simulado",
+        componentes: {},
         interval: 5,
         minSeverity: 2,
         ultima_verificacao: null,
@@ -269,9 +276,11 @@
           remoteConfig.servicos = remoteConfig.servicos || {};
           remoteConfig.servicos.suricata = {
             ...(remoteConfig.servicos.suricata || {}),
+            // Apenas preferências de consumo permanecem no provider legado.
+            // O estado ativo/configurado/saudável virá exclusivamente de
+            // GET /configuracoes/api/servicos/.
             interval: remoteConfig.providers.ids.interval || 5,
             minSeverity: remoteConfig.providers.ids.minSeverity || 2,
-            ativo: remoteConfig.providers.ids.active || false,
           };
         }
 
@@ -294,7 +303,7 @@
         if (!PROV_STATUS.ids) PROV_STATUS.ids = "off";
         if (!PROV_STATUS.fw) PROV_STATUS.fw = "off";
 
-        // NOVO v4: Carrega também status real dos serviços
+        // v5: Carrega também status real dos serviços
         await loadServicosStatus();
 
         fillFormFromState();
@@ -309,9 +318,10 @@
   }
 
   /**
-   * NOVO v4: Carrega estado real dos serviços do backend
-   * GET /configuracoes/api/servicos/
-   * Preenche STATE.servicos com dados atualizados
+   * v5: Carrega o estado consolidado dos serviços.
+   *
+   * A API /configuracoes/api/servicos/ é a fonte de verdade operacional.
+   * Este método não executa Doctor, suricata -T, instalação ou reinício.
    */
   async function loadServicosStatus() {
     try {
@@ -319,62 +329,141 @@
 
       if (!data.ok) {
         logDiag("WARN", "Não foi possível carregar status dos serviços");
-        return;
+        return null;
       }
 
-      // Sincroniza modo (por segurança)
       STATE.modo = normalizeMode(data.modo);
 
-      // Preenche STATE.servicos com dados reais do backend
       if (data.servicos) {
+        const previous = STATE.servicos || {};
+
         STATE.servicos = {
-          ...(STATE.servicos || {}),
-          adguard: data.servicos.adguard || STATE.servicos?.adguard || {},
-          suricata: data.servicos.suricata || STATE.servicos?.suricata || {},
-          firewall: data.servicos.firewall || STATE.servicos?.firewall || {},
+          ...previous,
+
+          adguard: {
+            ...(previous.adguard || {}),
+            ...(data.servicos.adguard || {}),
+          },
+
+          suricata: {
+            ...(previous.suricata || {}),
+            ...(data.servicos.suricata || {}),
+            // Preferências locais que não fazem parte do health do backend.
+            interval:
+              previous.suricata?.interval
+              ?? STATE.providers?.ids?.interval
+              ?? 5,
+            minSeverity:
+              previous.suricata?.minSeverity
+              ?? STATE.providers?.ids?.minSeverity
+              ?? 2,
+          },
+
+          firewall: {
+            ...(previous.firewall || {}),
+            ...(data.servicos.firewall || {}),
+          },
         };
       }
 
-      // Sincroniza STATE.servicos → STATE.providers para compatibilidade
+      STATE.resumo_servicos = data.resumo || {};
+      STATE.servicos_atualizado_em = data.atualizado_em || null;
+
       _syncServicosToProviders();
 
-      logDiag("OK", `Status dos serviços carregado — modo: ${STATE.modo}`);
+      logDiag(
+        "OK",
+        `Status dos serviços carregado — modo: ${STATE.modo} · IDS: ${
+          STATE.servicos?.suricata?.status || "desconhecido"
+        }`
+      );
+
+      return data;
     } catch (e) {
       logDiag("WARN", `Falha ao carregar status dos serviços: ${e.message}`);
-      // Não lança erro — permite continuar mesmo se falhar
+      return null;
     }
   }
 
   /**
-   * NOVO v4: Sincroniza STATE.servicos → STATE.providers para compatibilidade
-   * Chamada após loadServicosStatus() para manter cfg-conexoes.js funcionando
+   * Converte o status consolidado de um serviço para o indicador simples
+   * utilizado pela barra superior.
+   */
+  function _providerHealthFromService(service, kind) {
+    if (STATE.modo === MODO_SIMULACAO) return "mock";
+
+    const status = String(service?.status || "").toLowerCase();
+
+    if (kind === "ids") {
+      if (status === "operacional" && service?.saudavel !== false) return "ok";
+      if (status === "erro" || status === "nao_instalado") return "erro";
+      if (status === "atencao" || status === "configuracao_pendente") return "warn";
+      return "off";
+    }
+
+    if (kind === "dns") {
+      if (status === "operacional" && service?.saudavel !== false) return "ok";
+      if (status === "erro") return "erro";
+      if (service?.configurado && status !== "operacional") return "warn";
+      return "off";
+    }
+
+    if (kind === "fw") {
+      if (status === "operacional" && service?.saudavel !== false) return "ok";
+      if (status === "erro") return "erro";
+      if (status === "atencao") return "warn";
+      return "off";
+    }
+
+    return "off";
+  }
+
+  /**
+   * STATE.servicos é a fonte de verdade.
+   * STATE.providers existe apenas para manter os módulos legados funcionando.
    */
   function _syncServicosToProviders() {
-    if (STATE.servicos?.adguard) {
-      STATE.providers.dns = {
-        ...(STATE.providers.dns || {}),
-        url: STATE.servicos.adguard.url || "",
-        active: STATE.servicos.adguard.conectado || false,
-        interval: STATE.servicos.adguard.interval || 30,
-      };
-    }
-    if (STATE.servicos?.suricata) {
-      STATE.providers.ids = {
-        ...(STATE.providers.ids || {}),
-        active: STATE.servicos.suricata.ativo || false,
-        interval: STATE.servicos.suricata.interval || 5,
-        minSeverity: STATE.servicos.suricata.minSeverity || 2,
-      };
-    }
-    if (STATE.servicos?.firewall) {
-      STATE.providers.fw = {
-        ...(STATE.providers.fw || {}),
-        active: STATE.servicos.firewall.configurado || false,
-        target: STATE.servicos.firewall.target || "local",
-        host: STATE.servicos.firewall.host || "",
-        agente_porta: STATE.servicos.firewall.agente_porta || 8765,
-      };
-    }
+    STATE.providers = STATE.providers || {};
+
+    const adguard = STATE.servicos?.adguard || {};
+    const suricata = STATE.servicos?.suricata || {};
+    const firewall = STATE.servicos?.firewall || {};
+
+    const isReal = STATE.modo === MODO_REAL;
+
+    STATE.providers.dns = {
+      ...(STATE.providers.dns || {}),
+      active: isReal ? !!adguard.ativo : false,
+      mode: isReal ? "real" : "mock",
+      url: adguard.url || STATE.providers.dns?.url || "",
+      interval: adguard.interval || STATE.providers.dns?.interval || 30,
+    };
+
+    STATE.providers.ids = {
+      ...(STATE.providers.ids || {}),
+      // O toggle legado não controla o daemon. Em modo real ele apenas
+      // espelha o estado verdadeiro da stack local.
+      active: isReal ? !!suricata.ativo : false,
+      mode: isReal ? "eve" : "mock",
+      interval: suricata.interval || STATE.providers.ids?.interval || 5,
+      minSeverity: suricata.minSeverity || STATE.providers.ids?.minSeverity || 2,
+    };
+
+    STATE.providers.fw = {
+      ...(STATE.providers.fw || {}),
+      active: isReal ? !!firewall.ativo : false,
+      mode: isReal ? "nftables" : "mock",
+      target: firewall.target || STATE.providers.fw?.target || "local",
+      host: firewall.host || STATE.providers.fw?.host || "",
+      agente_porta:
+        firewall.agente_porta
+        || STATE.providers.fw?.agente_porta
+        || 8765,
+    };
+
+    PROV_STATUS.dns = _providerHealthFromService(adguard, "dns");
+    PROV_STATUS.ids = _providerHealthFromService(suricata, "ids");
+    PROV_STATUS.fw = _providerHealthFromService(firewall, "fw");
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -527,10 +616,25 @@
           interval: gi("dnsInterval", 30),
         },
         ids: {
-          active: gb("toggleIdsProvider", false),
-          mode: g("idsMode", "mock"),
-          interval: gi("idsInterval", 5),
-          minSeverity: gi("idsMinSeverity", 2),
+          // Suricata é local e auto-detectado. Em modo real o provider
+          // legado espelha o runtime e nunca deve ser salvo como MOCK
+          // por causa de um toggle visual antigo.
+          active:
+            normalizedMode === MODO_REAL
+              ? !!STATE.servicos?.suricata?.ativo
+              : false,
+          mode:
+            normalizedMode === MODO_REAL
+              ? "eve"
+              : "mock",
+          interval: gi(
+            "idsInterval",
+            STATE.providers?.ids?.interval || 5
+          ),
+          minSeverity: gi(
+            "idsMinSeverity",
+            STATE.providers?.ids?.minSeverity || 2
+          ),
         },
         fw: {
           active: gb("toggleFwProvider", false),
@@ -772,6 +876,7 @@
     loadConfig,
     loadServicosStatus,
     _syncServicosToProviders,
+    _providerHealthFromService,
 
     // Formulário
     fillFormFromState,

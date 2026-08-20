@@ -99,228 +99,756 @@ def _normalizar_modo_para_api(modo_banco):
     """
     return "real" if modo_banco == "prod" else "simulacao"
 
-
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # 04. HELPERS DE SERVIÇOS
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 def _obter_estado_adguard(cfg):
     """
-    Retorna o status consolidado do serviço AdGuard (DNS).
+    Retorna o estado consolidado do AdGuard Home.
+
+    Regras:
+    - Modo Simulação nunca tenta representar integração real.
+    - Modo Real informa se o conector está configurado/ativado.
+    - A conexão real continua sendo validada pela ação de teste do provider.
     """
+
     modo_api = _normalizar_modo_para_api(cfg.modo)
 
     if modo_api == "simulacao":
         return {
+            "tipo": "adguard",
+            "nome": "AdGuard Home",
+            "modo": "simulacao",
+            "fonte": "simulada",
+
             "disponivel": True,
             "configurado": False,
+            "conectado": False,
             "ativo": False,
+            "saudavel": False,
+
             "status": "simulado",
+            "status_label": "Simulado",
+
             "url": cfg.adguard_url or None,
+            "ultima_verificacao": None,
         }
 
-    # Modo Real
-    configurado = bool(cfg.adguard_url)
-    ativo = bool(cfg.dns_enabled)
+    configurado = bool(
+        cfg.adguard_url
+    )
+
+    ativo = bool(
+        cfg.dns_enabled
+    )
+
+    operacional = bool(
+        configurado
+        and ativo
+    )
 
     return {
+        "tipo": "adguard",
+        "nome": "AdGuard Home",
+        "modo": "real",
+        "fonte": "remota",
+
         "disponivel": True,
         "configurado": configurado,
+        "conectado": operacional,
         "ativo": ativo,
-        "status": "operacional" if (configurado and ativo) else "desativado",
-        "url": cfg.adguard_url or None,
+        "saudavel": operacional,
+
+        "status": (
+            "operacional"
+            if operacional
+            else "desativado"
+        ),
+
+        "status_label": (
+            "Operacional"
+            if operacional
+            else "Desativado"
+        ),
+
+        "url": (
+            cfg.adguard_url
+            or None
+        ),
+
+        "ultima_verificacao": None,
     }
 
 
-def _obter_estado_suricata(modo_api):
+def _estado_suricata_base(
+    *,
+    modo,
+    status,
+    status_label,
+    acao,
+    instalado=False,
+    configurado=False,
+    onboarding_concluido=False,
+    instalacao_concluida=False,
+    ativo=False,
+    monitor_ativo=False,
+    worker_ativo=False,
+    eve_ativo=False,
+    versao=None,
+    saudavel=False,
+    erro="",
+):
     """
-    Retorna o estado operacional e rápido do Suricata local.
-    Reutiliza DTO e status do módulo incidentes.services.suricata.
-    """
-    if modo_api == "simulacao":
-        return {
-            "instalado": False,
-            "onboarding_concluido": False,
-            "instalacao_concluida": False,
-            "configurado": False,
-            "ativo": False,
-            "monitor_ativo": False,
-            "worker_ativo": False,
-            "eve_ativo": False,
-            "versao": None,
-            "status": "simulado",
-            "acao": "painel_simulado",
-        }
+    Monta o contrato único de estado do Suricata.
 
-    # Modo Real
+    O objetivo é impedir que cada tela do frontend tente descobrir
+    por conta própria se o Suricata está instalado, ativo ou saudável.
+
+    Toda decisão operacional deve nascer no backend.
+    """
+
+    return {
+        "tipo": "suricata",
+        "nome": "Suricata IDS",
+
+        "modo": modo,
+
+        # Suricata é um componente local deste host.
+        "fonte": (
+            "simulada"
+            if modo == "simulacao"
+            else "local"
+        ),
+
+        # Estado de instalação / preparação.
+        "instalado": bool(
+            instalado
+        ),
+
+        "configurado": bool(
+            configurado
+        ),
+
+        "onboarding_concluido": bool(
+            onboarding_concluido
+        ),
+
+        "instalacao_concluida": bool(
+            instalacao_concluida
+        ),
+
+        # Componentes operacionais.
+        "ativo": bool(
+            ativo
+        ),
+
+        "monitor_ativo": bool(
+            monitor_ativo
+        ),
+
+        "worker_ativo": bool(
+            worker_ativo
+        ),
+
+        "eve_ativo": bool(
+            eve_ativo
+        ),
+
+        # Saúde consolidada.
+        "saudavel": bool(
+            saudavel
+        ),
+
+        # Estado já decidido pelo backend.
+        "status": status,
+        "status_label": status_label,
+
+        # Ação que o frontend deve executar.
+        "acao": acao,
+
+        # Informações auxiliares.
+        "versao": versao,
+
+        "erro": (
+            erro
+            or ""
+        ),
+
+        # Estrutura pronta para cards/resumos.
+        "componentes": {
+            "suricata": {
+                "ativo": bool(
+                    ativo
+                ),
+            },
+
+            "monitor": {
+                "ativo": bool(
+                    monitor_ativo
+                ),
+            },
+
+            "worker": {
+                "ativo": bool(
+                    worker_ativo
+                ),
+            },
+
+            "eve": {
+                "ativo": bool(
+                    eve_ativo
+                ),
+            },
+        },
+    }
+
+
+def _obter_estado_suricata(
+    modo_api,
+):
+    """
+    Retorna o estado consolidado do Suricata local.
+
+    IMPORTANTE:
+
+    Esta função é a fonte de verdade do Suricata para o módulo
+    Configurações.
+
+    Ela NÃO:
+
+    - executa diagnóstico profundo;
+    - executa suricata -T;
+    - instala componentes;
+    - reinicia serviços.
+
+    Apenas consulta o estado operacional rápido já implementado no
+    módulo incidentes.services.suricata.status.
+    """
+
+    # ------------------------------------------------------------------
+    # MODO SIMULAÇÃO
+    # ------------------------------------------------------------------
+
+    if modo_api == "simulacao":
+        return _estado_suricata_base(
+            modo="simulacao",
+
+            status="simulado",
+            status_label="Simulado",
+
+            acao="painel_simulado",
+
+            instalado=False,
+            configurado=False,
+
+            onboarding_concluido=False,
+            instalacao_concluida=False,
+
+            ativo=False,
+            monitor_ativo=False,
+            worker_ativo=False,
+            eve_ativo=False,
+
+            versao=None,
+
+            saudavel=False,
+        )
+
+    # ------------------------------------------------------------------
+    # MODO REAL — IMPORT DO MÓDULO
+    # ------------------------------------------------------------------
+
     if not ConfiguracaoSuricata:
-        logger.error("Módulo incidentes.models.ConfiguracaoSuricata não está disponível para import.")
-        return {
-            "instalado": False,
-            "status": "erro",
-            "acao": "instalar",
-            "erro": "Módulo Suricata não carregado no Django",
-        }
+        logger.error(
+            "ConfiguracaoSuricata não está disponível para import."
+        )
+
+        return _estado_suricata_base(
+            modo="real",
+
+            status="erro",
+            status_label="Erro",
+
+            acao="instalar",
+
+            saudavel=False,
+
+            erro=(
+                "Módulo ConfiguracaoSuricata "
+                "não pôde ser carregado."
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # CARREGA CONFIGURAÇÃO DO SENSOR
+    # ------------------------------------------------------------------
 
     try:
-        cfg_suricata = ConfiguracaoSuricata.get_solo()
+        cfg_suricata = (
+            ConfiguracaoSuricata.get_solo()
+        )
+
     except Exception as exc:
-        logger.exception("Erro ao obter ConfiguracaoSuricata.get_solo(): %s", exc)
-        return {
-            "instalado": False,
-            "status": "erro",
-            "acao": "instalar",
-        }
+        logger.exception(
+            "Erro ao obter ConfiguracaoSuricata.get_solo(): %s",
+            exc,
+        )
 
-    # ESTADO 1 — NÃO INSTALADO
-    if not cfg_suricata or not getattr(cfg_suricata, "suricata_instalado", False):
-        return {
-            "instalado": False,
-            "status": "nao_instalado",
-            "acao": "instalar",
-        }
+        return _estado_suricata_base(
+            modo="real",
 
-    # ESTADO 2 — CONFIGURAÇÃO PENDENTE
-    onboarding_concluido = getattr(cfg_suricata, "onboarding_concluido", False)
-    instalacao_concluida = getattr(cfg_suricata, "instalacao_concluida", False)
+            status="erro",
+            status_label="Erro",
 
-    if not onboarding_concluido or not instalacao_concluida:
-        return {
-            "instalado": True,
-            "onboarding_concluido": onboarding_concluido,
-            "instalacao_concluida": instalacao_concluida,
-            "status": "configuracao_pendente",
-            "acao": "continuar_instalacao",
-        }
+            acao="instalar",
 
-    # Tenta obter o status rápido usando a implementação REAL existente em
-    # incidentes.services.suricata.status.
-    #
-    # A função do projeto aceita configuração opcional (há chamadas internas sem
-    # argumento), portanto não inventamos/construímos DTO aqui. O módulo de
-    # Configurações só consulta o health da stack e nunca executa Doctor.
+            saudavel=False,
+
+            erro=str(
+                exc
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # NÃO INSTALADO
+    # ------------------------------------------------------------------
+
+    instalado = bool(
+        cfg_suricata
+        and getattr(
+            cfg_suricata,
+            "suricata_instalado",
+            False,
+        )
+    )
+
+    if not instalado:
+        return _estado_suricata_base(
+            modo="real",
+
+            status="nao_instalado",
+            status_label="Não instalado",
+
+            acao="instalar",
+
+            instalado=False,
+
+            saudavel=False,
+        )
+
+    # ------------------------------------------------------------------
+    # ESTADO PERSISTIDO
+    # ------------------------------------------------------------------
+
+    onboarding_concluido = bool(
+        getattr(
+            cfg_suricata,
+            "onboarding_concluido",
+            False,
+        )
+    )
+
+    instalacao_concluida = bool(
+        getattr(
+            cfg_suricata,
+            "instalacao_concluida",
+            False,
+        )
+    )
+
+    configurado = bool(
+        getattr(
+            cfg_suricata,
+            "suricata_configurado",
+            False,
+        )
+    )
+
+    versao_persistida = getattr(
+        cfg_suricata,
+        "versao_suricata",
+        None,
+    )
+
+    # ------------------------------------------------------------------
+    # INSTALADO MAS ONBOARDING/INSTALAÇÃO NÃO CONCLUÍDOS
+    # ------------------------------------------------------------------
+
+    if (
+        not onboarding_concluido
+        or not instalacao_concluida
+    ):
+        return _estado_suricata_base(
+            modo="real",
+
+            status="configuracao_pendente",
+            status_label="Configuração pendente",
+
+            acao="continuar_instalacao",
+
+            instalado=True,
+            configurado=configurado,
+
+            onboarding_concluido=(
+                onboarding_concluido
+            ),
+
+            instalacao_concluida=(
+                instalacao_concluida
+            ),
+
+            versao=versao_persistida,
+
+            saudavel=False,
+        )
+
+    # ------------------------------------------------------------------
+    # CONSULTA RÁPIDA DA STACK REAL
+    # ------------------------------------------------------------------
+
     try:
         if not obter_status_stack_completo:
             raise RuntimeError(
-                "obter_status_stack_completo não está disponível em "
-                "incidentes.services.suricata.status"
+                "obter_status_stack_completo "
+                "não está disponível."
             )
 
-        status_stack = obter_status_stack_completo(
-            incluir_diagnostico=False
-        ) or {}
+        status_stack = (
+            obter_status_stack_completo(
+                incluir_diagnostico=False
+            )
+            or {}
+        )
 
-        if not isinstance(status_stack, dict):
+        if not isinstance(
+            status_stack,
+            dict,
+        ):
             logger.warning(
                 "Status Suricata retornou formato inesperado: %s",
-                type(status_stack).__name__,
+                type(
+                    status_stack
+                ).__name__,
             )
+
             status_stack = {}
 
     except Exception as exc:
-        logger.exception("Erro ao consultar status rápido do Suricata: %s", exc)
-        return {
-            "instalado": True,
-            "onboarding_concluido": onboarding_concluido,
-            "instalacao_concluida": instalacao_concluida,
-            "configurado": bool(getattr(cfg_suricata, "suricata_configurado", False)),
-            "ativo": False,
-            "monitor_ativo": False,
-            "worker_ativo": False,
-            "eve_ativo": False,
-            "versao": getattr(cfg_suricata, "versao_suricata", None),
-            "status": "atencao",
-            "acao": "painel",
-        }
+        logger.exception(
+            "Erro ao consultar status rápido do Suricata: %s",
+            exc,
+        )
 
-    # Avalia os componentes conforme o formato REAL retornado por
-    # obter_status_stack_completo():
-    #
-    # status_stack["suricata"]["ativo"]
-    # status_stack["suricata"]["eve"]
-    # status_stack["monitor"]["ativo"]
-    # status_stack["servicos"]["worker_tarefas"]["ativo"]
-    suricata_info = status_stack.get("suricata", {})
-    monitor_info = status_stack.get("monitor", {})
-    servicos_info = status_stack.get("servicos", {})
+        return _estado_suricata_base(
+            modo="real",
 
-    if not isinstance(suricata_info, dict):
-        suricata_info = {}
-    if not isinstance(monitor_info, dict):
-        monitor_info = {}
-    if not isinstance(servicos_info, dict):
-        servicos_info = {}
+            status="atencao",
+            status_label="Requer atenção",
 
-    worker_info = servicos_info.get("worker_tarefas", {})
-    if not isinstance(worker_info, dict):
-        worker_info = {}
+            acao="painel",
 
-    eve_info = suricata_info.get("eve", {})
-    if not isinstance(eve_info, dict):
-        eve_info = {}
+            instalado=True,
+            configurado=configurado,
 
-    suricata_ativo = bool(suricata_info.get("ativo", False))
-    monitor_ativo = bool(monitor_info.get("ativo", False))
-    worker_ativo = bool(worker_info.get("ativo", False))
+            onboarding_concluido=(
+                onboarding_concluido
+            ),
 
-    # No status.py real, o EVE informa se o arquivo existe/é legível e se está
-    # atualizando. Para considerar o pipeline operacional, exigimos EVE presente,
-    # legível e atualizando.
-    eve_ativo = bool(
-        eve_info.get("existe", False)
-        and eve_info.get("legivel", False)
-        and eve_info.get("atualizando", False)
+            instalacao_concluida=(
+                instalacao_concluida
+            ),
+
+            ativo=False,
+            monitor_ativo=False,
+            worker_ativo=False,
+            eve_ativo=False,
+
+            versao=versao_persistida,
+
+            saudavel=False,
+
+            erro=(
+                "Não foi possível consultar "
+                "o estado operacional da stack."
+            ),
+        )
+
+    # ------------------------------------------------------------------
+    # COMPONENTES DA STACK
+    # ------------------------------------------------------------------
+
+    suricata_info = status_stack.get(
+        "suricata",
+        {},
     )
 
-    versao = getattr(cfg_suricata, "versao_suricata", None)
+    monitor_info = status_stack.get(
+        "monitor",
+        {},
+    )
 
-    # ESTADO 3 — OPERACIONAL
-    if suricata_ativo and monitor_ativo and worker_ativo and eve_ativo:
-        return {
-            "instalado": True,
-            "configurado": True,
-            "ativo": True,
-            "monitor_ativo": True,
-            "worker_ativo": True,
-            "eve_ativo": True,
-            "versao": versao,
-            "status": "operacional",
-            "acao": "painel",
-        }
+    servicos_info = status_stack.get(
+        "servicos",
+        {},
+    )
 
-    # ESTADO 4 — INSTALADO COM PROBLEMA
-    return {
-        "instalado": True,
-        "configurado": True,
-        "ativo": suricata_ativo,
-        "monitor_ativo": monitor_ativo,
-        "worker_ativo": worker_ativo,
-        "eve_ativo": eve_ativo,
-        "versao": versao,
-        "status": "atencao",
-        "acao": "painel",
-    }
+    if not isinstance(
+        suricata_info,
+        dict,
+    ):
+        suricata_info = {}
+
+    if not isinstance(
+        monitor_info,
+        dict,
+    ):
+        monitor_info = {}
+
+    if not isinstance(
+        servicos_info,
+        dict,
+    ):
+        servicos_info = {}
+
+    worker_info = servicos_info.get(
+        "worker_tarefas",
+        {},
+    )
+
+    if not isinstance(
+        worker_info,
+        dict,
+    ):
+        worker_info = {}
+
+    eve_info = suricata_info.get(
+        "eve",
+        {},
+    )
+
+    if not isinstance(
+        eve_info,
+        dict,
+    ):
+        eve_info = {}
+
+    # ------------------------------------------------------------------
+    # MOTOR SURICATA
+    # ------------------------------------------------------------------
+
+    suricata_ativo = bool(
+        suricata_info.get(
+            "ativo",
+            False,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # MONITOR MOONSHIELD
+    # ------------------------------------------------------------------
+
+    monitor_ativo = bool(
+        monitor_info.get(
+            "ativo",
+            False,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # WORKER DE TAREFAS
+    # ------------------------------------------------------------------
+
+    worker_ativo = bool(
+        worker_info.get(
+            "ativo",
+            False,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # EVE
+    # ------------------------------------------------------------------
+
+    eve_ativo = bool(
+        eve_info.get(
+            "existe",
+            False,
+        )
+        and eve_info.get(
+            "legivel",
+            False,
+        )
+        and eve_info.get(
+            "atualizando",
+            False,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # VERSÃO
+    # ------------------------------------------------------------------
+
+    versao = (
+        suricata_info.get(
+            "versao"
+        )
+        or versao_persistida
+    )
+
+    # ------------------------------------------------------------------
+    # CONFIGURAÇÃO
+    # ------------------------------------------------------------------
+
+    configurado = bool(
+        configurado
+        or status_stack.get(
+            "configurado",
+            False,
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # SAÚDE CONSOLIDADA
+    # ------------------------------------------------------------------
+
+    saudavel = bool(
+        instalado
+        and configurado
+        and onboarding_concluido
+        and instalacao_concluida
+        and suricata_ativo
+        and monitor_ativo
+        and worker_ativo
+        and eve_ativo
+    )
+
+    # ------------------------------------------------------------------
+    # OPERACIONAL
+    # ------------------------------------------------------------------
+
+    if saudavel:
+        return _estado_suricata_base(
+            modo="real",
+
+            status="operacional",
+            status_label="Operacional",
+
+            acao="painel",
+
+            instalado=True,
+            configurado=True,
+
+            onboarding_concluido=True,
+            instalacao_concluida=True,
+
+            ativo=True,
+            monitor_ativo=True,
+            worker_ativo=True,
+            eve_ativo=True,
+
+            versao=versao,
+
+            saudavel=True,
+        )
+
+    # ------------------------------------------------------------------
+    # INSTALADO, MAS ALGUM COMPONENTE PRECISA DE ATENÇÃO
+    # ------------------------------------------------------------------
+
+    return _estado_suricata_base(
+        modo="real",
+
+        status="atencao",
+        status_label="Requer atenção",
+
+        acao="painel",
+
+        instalado=True,
+
+        configurado=(
+            configurado
+        ),
+
+        onboarding_concluido=(
+            onboarding_concluido
+        ),
+
+        instalacao_concluida=(
+            instalacao_concluida
+        ),
+
+        ativo=(
+            suricata_ativo
+        ),
+
+        monitor_ativo=(
+            monitor_ativo
+        ),
+
+        worker_ativo=(
+            worker_ativo
+        ),
+
+        eve_ativo=(
+            eve_ativo
+        ),
+
+        versao=(
+            versao
+        ),
+
+        saudavel=False,
+    )
 
 
-def _obter_estado_firewall(modo_api):
+def _obter_estado_firewall(
+    modo_api,
+):
     """
-    Retorna o status placeholder do Firewall local (nftables).
+    Retorna o estado consolidado do Firewall.
+
+    A integração nftables ainda não foi implementada.
+    Portanto o backend deve ser explícito e nunca apresentar
+    o Firewall como operacional artificialmente.
     """
+
     if modo_api == "simulacao":
         return {
+            "tipo": "firewall",
+            "nome": "Firewall",
+
+            "modo": "simulacao",
+            "fonte": "simulada",
+
             "disponivel": False,
             "configurado": False,
             "ativo": False,
+            "saudavel": False,
+
             "status": "simulado",
+            "status_label": "Simulado",
+
+            "ultima_verificacao": None,
         }
 
     return {
+        "tipo": "firewall",
+        "nome": "Firewall",
+
+        "modo": "real",
+        "fonte": "local",
+
         "disponivel": False,
         "configurado": False,
         "ativo": False,
-        "status": "em_breve",
-    }
+        "saudavel": False,
 
+        "status": "em_breve",
+        "status_label": "Em desenvolvimento",
+
+        "ultima_verificacao": None,
+    }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 05. PÁGINA PRINCIPAL
@@ -494,29 +1022,178 @@ def api_salvar_config(request):
 # ─────────────────────────────────────────────────────────────────────────────
 # 07. SERVIÇOS API
 # ─────────────────────────────────────────────────────────────────────────────
-
 @require_GET
 def api_servicos(request):
     """
-    API agregadora principal para o status de todos os serviços monitorados.
+    API agregadora principal dos serviços do MoonShield.
+
+    Esta rota é a fonte de verdade para a tela de Configurações.
+
+    Em Modo Simulação:
+        retorna estados simulados.
+
+    Em Modo Real:
+        AdGuard   -> integração remota;
+        Suricata  -> stack Linux local real;
+        Firewall  -> placeholder nftables enquanto não implementado.
+
+    IMPORTANTE:
+        esta API nunca executa diagnóstico profundo,
+        suricata -T, instalação ou reinício.
     """
-    cfg = ConfigSistema.get_solo()
-    modo_api = _normalizar_modo_para_api(cfg.modo)
+
+    cfg = (
+        ConfigSistema.get_solo()
+    )
+
+    modo_api = (
+        _normalizar_modo_para_api(
+            cfg.modo
+        )
+    )
+
+    adguard = (
+        _obter_estado_adguard(
+            cfg
+        )
+    )
+
+    suricata = (
+        _obter_estado_suricata(
+            modo_api
+        )
+    )
+
+    firewall = (
+        _obter_estado_firewall(
+            modo_api
+        )
+    )
 
     servicos = {
-        "adguard": _obter_estado_adguard(cfg),
-        "suricata": _obter_estado_suricata(modo_api),
-        "firewall": _obter_estado_firewall(modo_api),
+        "adguard": adguard,
+        "suricata": suricata,
+        "firewall": firewall,
     }
+
+    # ----------------------------------------------------------
+    # RESUMO GLOBAL
+    # ----------------------------------------------------------
+
+    if modo_api == "simulacao":
+        resumo = {
+            "modo": "simulacao",
+
+            "ids_operacional": False,
+            "dns_operacional": False,
+            "firewall_operacional": False,
+
+            "ids_saudavel": False,
+
+            "servicos_operacionais": 0,
+
+            "status": "simulado",
+        }
+
+    else:
+        ids_operacional = bool(
+            suricata.get(
+                "status"
+            ) == "operacional"
+            and suricata.get(
+                "saudavel",
+                False,
+            )
+        )
+
+        dns_operacional = bool(
+            adguard.get(
+                "status"
+            ) == "operacional"
+            and adguard.get(
+                "saudavel",
+                False,
+            )
+        )
+
+        firewall_operacional = bool(
+            firewall.get(
+                "status"
+            ) == "operacional"
+            and firewall.get(
+                "saudavel",
+                False,
+            )
+        )
+
+        servicos_operacionais = sum(
+            [
+                ids_operacional,
+                dns_operacional,
+                firewall_operacional,
+            ]
+        )
+
+        resumo = {
+            "modo": "real",
+
+            "ids_operacional": (
+                ids_operacional
+            ),
+
+            "dns_operacional": (
+                dns_operacional
+            ),
+
+            "firewall_operacional": (
+                firewall_operacional
+            ),
+
+            "ids_saudavel": bool(
+                suricata.get(
+                    "saudavel",
+                    False,
+                )
+            ),
+
+            "servicos_operacionais": (
+                servicos_operacionais
+            ),
+
+            "status": (
+                "operacional"
+                if ids_operacional
+                else "atencao"
+            ),
+        }
 
     return JsonResponse(
         {
             "ok": True,
-            "modo": modo_api,
-            "servicos": servicos,
+
+            "modo": (
+                modo_api
+            ),
+
+            "modo_label": (
+                "Modo Real"
+                if modo_api == "real"
+                else "Modo Simulação"
+            ),
+
+            "servicos": (
+                servicos
+            ),
+
+            "resumo": (
+                resumo
+            ),
+
+            "atualizado_em": (
+                timezone.now().isoformat()
+            ),
         }
     )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 08. SYSINFO

@@ -48,7 +48,7 @@ let lastValidationTaskId = null;
 
 
 /* ==========================================================================
-   INICIALIZAÇÃO
+   INIT
    ========================================================================== */
 
 export function initRegras(onConfirmTask) {
@@ -57,22 +57,15 @@ export function initRegras(onConfirmTask) {
         () => {
             onConfirmTask({
                 tipo: 'atualizacao_regras',
-
                 parametros: {
                     atualizar_et: true,
                     atualizar_moonshield: true,
                     validar_depois: true,
                     reiniciar_depois: false,
                 },
-
-                title:
-                    'Atualizar todas as regras?',
-
-                text:
-                    'O MoonShield atualizará ET Open e reaplicará as regras MoonShield.',
-
-                details:
-                    'A operação pode levar alguns minutos e exige execução pelo worker do Suricata.',
+                title: 'Atualizar todas as regras?',
+                text: 'O MoonShield atualizará ET Open e reaplicará as regras MoonShield.',
+                details: 'A operação pode levar alguns minutos e será acompanhada pelo worker do Suricata.',
             });
         },
     );
@@ -82,19 +75,15 @@ export function initRegras(onConfirmTask) {
         () => {
             onConfirmTask({
                 tipo: 'atualizacao_regras',
-
                 parametros: {
                     atualizar_et: false,
                     atualizar_moonshield: true,
                     validar_depois: true,
                     reiniciar_depois: false,
                 },
-
-                title:
-                    'Reaplicar regras MoonShield?',
-
-                text:
-                    'As regras locais do MoonShield serão copiadas novamente e validadas.',
+                title: 'Reaplicar MoonShield Rules?',
+                text: 'As regras locais serão copiadas novamente, verificadas e validadas.',
+                details: 'Use esta opção quando quiser garantir que o pacote MoonShield está sincronizado com o Suricata.',
             });
         },
     );
@@ -104,19 +93,15 @@ export function initRegras(onConfirmTask) {
         () => {
             onConfirmTask({
                 tipo: 'atualizacao_regras',
-
                 parametros: {
                     atualizar_et: true,
                     atualizar_moonshield: false,
                     validar_depois: true,
                     reiniciar_depois: false,
                 },
-
-                title:
-                    'Atualizar ET Open?',
-
-                text:
-                    'O suricata-update será executado para atualizar as assinaturas comunitárias.',
+                title: 'Atualizar ET Open?',
+                text: 'O suricata-update será executado para buscar as assinaturas comunitárias mais recentes.',
+                details: 'Ao final, o MoonShield valida novamente a configuração.',
             });
         },
     );
@@ -124,61 +109,41 @@ export function initRegras(onConfirmTask) {
     $('btnValidateRules')?.addEventListener(
         'click',
         () => {
-            /*
-             * Feedback imediato:
-             * não deixa mais o card parecer "pendente" enquanto a tarefa
-             * está sendo criada/executada.
-             */
-            renderValidationRunning({
-                status: 'pendente',
-                progresso: 0,
-                etapa_atual: 'Aguardando worker',
-                mensagem: 'Criando tarefa de validação do Suricata...',
-            });
-
             onConfirmTask({
                 tipo: 'validacao',
                 parametros: {},
-
-                title:
-                    'Validar configuração?',
-
-                text:
-                    'O MoonShield verificará o YAML e executará o suricata -T.',
-
-                details:
-                    'A validação costuma levar cerca de 40–60 segundos.',
+                title: 'Validar configuração?',
+                text: 'O MoonShield executará o suricata -T para confirmar se o YAML e todas as referências de regras podem ser carregados.',
+                details: 'A validação costuma levar cerca de 40–60 segundos.',
             });
+        },
+    );
 
-            /*
-             * O modal ainda precisa ser confirmado pelo usuário.
-             * Depois da confirmação, a tarefa aparecerá na API.
-             */
-            window.setTimeout(
-                () => {
-                    refreshLatestValidationTask({
-                        startPollingIfRunning: true,
-                    }).catch(
-                        (error) => {
-                            console.debug(
-                                '[MoonShield] Validação ainda não disponível após confirmação:',
-                                error,
-                            );
-                        },
-                    );
-                },
-                1200,
+    $('btnToggleValidationOutput')?.addEventListener(
+        'click',
+        () => {
+            const output = $('rulesValidationOutput');
+
+            if (!output) {
+                return;
+            }
+
+            const hidden = output.hidden;
+
+            setHidden(
+                'rulesValidationOutput',
+                !hidden,
+            );
+
+            setText(
+                'btnToggleValidationOutputLabel',
+                hidden
+                    ? 'Ocultar detalhes técnicos'
+                    : 'Ver detalhes técnicos',
             );
         },
     );
 
-    /*
-     * Busca a última validação real já executada.
-     *
-     * Isso resolve o problema do card permanecer em:
-     * "Validação ainda não executada"
-     * mesmo quando uma tarefa de validação já terminou com sucesso.
-     */
     refreshLatestValidationTask({
         startPollingIfRunning: true,
     }).catch(
@@ -201,7 +166,7 @@ export function initRegras(onConfirmTask) {
 
 
 /* ==========================================================================
-   RENDERIZAÇÃO GERAL DA SEÇÃO
+   RENDER PRINCIPAL
    ========================================================================== */
 
 export function renderRulesSection(
@@ -211,14 +176,10 @@ export function renderRulesSection(
     const rules = safeObject(
         readPath(
             suricata,
-            [
-                'regras',
-            ],
+            ['regras'],
             readPath(
                 stack,
-                [
-                    'regras',
-                ],
+                ['regras'],
                 {},
             ),
         ),
@@ -264,7 +225,7 @@ export function renderRulesSection(
 
 
     /* ------------------------------------------------------------------
-       MoonShield Rules
+       MoonShield
        ------------------------------------------------------------------ */
 
     const moonInstalled = boolValue(
@@ -291,13 +252,23 @@ export function renderRulesSection(
         ),
     );
 
+    const moonHealthy = (
+        moonInstalled
+        && moonReferenced
+    );
+
     applyPill(
         'rulesMoonStatus',
-        moonInstalled && moonReferenced
+        moonHealthy
             ? 'ok'
             : moonInstalled
                 ? 'warning'
                 : 'error',
+        moonHealthy
+            ? 'Saudável'
+            : moonInstalled
+                ? 'Atenção'
+                : 'Indisponível',
     );
 
     setText(
@@ -339,6 +310,15 @@ export function renderRulesSection(
         ),
     );
 
+    setText(
+        'rulesMoonSummary',
+        moonHealthy
+            ? 'Pacote instalado e carregado pelo Suricata.'
+            : moonInstalled
+                ? 'Pacote instalado, mas a referência no YAML precisa ser revisada.'
+                : 'Pacote MoonShield não confirmado neste sensor.',
+    );
+
 
     /* ------------------------------------------------------------------
        ET Open
@@ -355,6 +335,17 @@ export function renderRulesSection(
         ),
     );
 
+    const etReferenced = boolValue(
+        readPath(
+            et,
+            [
+                'referenciado',
+                'referenciada',
+            ],
+            etInstalled,
+        ),
+    );
+
     const updaterInstalled = boolValue(
         readPath(
             updater,
@@ -364,19 +355,30 @@ export function renderRulesSection(
             ],
             readPath(
                 rules,
-                [
-                    'suricata_update_instalado',
-                ],
+                ['suricata_update_instalado'],
                 false,
             ),
         ),
     );
 
+    const etHealthy = (
+        etInstalled
+        && etReferenced
+        && updaterInstalled
+    );
+
     applyPill(
         'rulesEtStatus',
-        etInstalled
+        etHealthy
             ? 'ok'
-            : 'warning',
+            : etInstalled
+                ? 'warning'
+                : 'error',
+        etHealthy
+            ? 'Saudável'
+            : etInstalled
+                ? 'Atenção'
+                : 'Indisponível',
     );
 
     setText(
@@ -411,27 +413,35 @@ export function renderRulesSection(
         'rulesEtSummary',
         readPath(
             et,
-            [
-                'mensagem',
-            ],
-            etInstalled
-                ? 'Disponível'
-                : 'Não confirmado',
+            ['mensagem'],
+            etHealthy
+                ? 'ET Open instalado, válido e referenciado pelo Suricata.'
+                : etInstalled
+                    ? 'ET Open encontrado, mas requer atenção.'
+                    : 'ET Open não confirmado.',
         ),
     );
+
+
+    /* ------------------------------------------------------------------
+       Resumo
+       ------------------------------------------------------------------ */
+
+    renderRulesSummary({
+        moonHealthy,
+        etHealthy,
+        moonInstalled,
+        etInstalled,
+        moonReferenced,
+        etReferenced,
+        updaterInstalled,
+    });
 
 
     /* ------------------------------------------------------------------
        Validação
        ------------------------------------------------------------------ */
 
-    /*
-     * Se o endpoint de status já passar uma validação persistida,
-     * usamos imediatamente.
-     *
-     * Caso contrário, NÃO sobrescrevemos uma validação de tarefa que
-     * já tenha sido recuperada pela API de tarefas.
-     */
     if (
         Object.keys(
             validation,
@@ -441,13 +451,9 @@ export function renderRulesSection(
             validation,
         );
     } else if (!lastValidationTaskId) {
-        renderValidationPending();
+        renderValidationChecking();
     }
 
-    /*
-     * A API de tarefas é a fonte de verdade complementar para a última
-     * execução manual de suricata -T.
-     */
     refreshLatestValidationTask({
         startPollingIfRunning: true,
     }).catch(
@@ -457,7 +463,101 @@ export function renderRulesSection(
 
 
 /* ==========================================================================
-   RECUPERAÇÃO DA ÚLTIMA TAREFA DE VALIDAÇÃO
+   RESUMO DA TELA
+   ========================================================================== */
+
+function renderRulesSummary({
+    moonHealthy,
+    etHealthy,
+    moonInstalled,
+    etInstalled,
+    moonReferenced,
+    etReferenced,
+    updaterInstalled,
+}) {
+    const healthyCount = [
+        moonHealthy,
+        etHealthy,
+    ].filter(Boolean).length;
+
+    let tone = 'warning';
+    let title = 'Regras precisam de atenção';
+    let text = 'Há componentes do mecanismo de detecção que ainda precisam ser revisados.';
+
+    if (
+        moonHealthy
+        && etHealthy
+    ) {
+        tone = 'ok';
+        title = 'Mecanismos de detecção prontos';
+        text = 'MoonShield Rules e ET Open estão disponíveis e referenciados pelo Suricata.';
+    } else if (
+        !moonInstalled
+        && !etInstalled
+    ) {
+        tone = 'error';
+        title = 'Regras indisponíveis';
+        text = 'Nenhum dos conjuntos de regras principais foi confirmado neste sensor.';
+    }
+
+    applyChip(
+        'rulesOverviewChip',
+        tone,
+        tone === 'ok'
+            ? 'Operacional'
+            : tone === 'error'
+                ? 'Crítico'
+                : 'Atenção',
+    );
+
+    setText(
+        'rulesOverviewTitle',
+        title,
+    );
+
+    setText(
+        'rulesOverviewText',
+        text,
+    );
+
+    setText(
+        'rulesOverviewHealthyCount',
+        `${healthyCount}/2`,
+    );
+
+    setText(
+        'rulesOverviewMoonValue',
+        moonHealthy
+            ? 'Pronta'
+            : moonInstalled
+                ? 'Revisar'
+                : 'Ausente',
+    );
+
+    setText(
+        'rulesOverviewEtValue',
+        etHealthy
+            ? 'Pronta'
+            : etInstalled
+                ? 'Revisar'
+                : 'Ausente',
+    );
+
+    setText(
+        'rulesOverviewEngineValue',
+        (
+            moonReferenced
+            && etReferenced
+            && updaterInstalled
+        )
+            ? 'Sincronizada'
+            : 'Revisar',
+    );
+}
+
+
+/* ==========================================================================
+   BUSCA DA ÚLTIMA VALIDAÇÃO
    ========================================================================== */
 
 async function refreshLatestValidationTask({
@@ -502,38 +602,25 @@ async function refreshLatestValidationTask({
 
     stopValidationPolling();
 
-    if (status === 'sucesso') {
-        const detailedTask = lastValidationTaskId
-            ? await fetchValidationTaskDetail(
-                lastValidationTaskId,
-            ).catch(
-                () => task,
-            )
-            : task;
-
-        renderValidationFromTask(
-            detailedTask,
-        );
-
-        return detailedTask;
-    }
+    const detailedTask = lastValidationTaskId
+        ? await fetchValidationTaskDetail(
+            lastValidationTaskId,
+        ).catch(
+            () => task,
+        )
+        : task;
 
     renderValidationFromTask(
-        task,
+        detailedTask,
     );
 
-    return task;
+    return detailedTask;
 }
 
 
 async function fetchLatestValidationTask() {
     const params = new URLSearchParams();
 
-    /*
-     * O backend atual aceita "tipo" e paginação por limite/offset.
-     * Mandamos as duas convenções de limite para manter compatibilidade
-     * com versões anteriores do endpoint.
-     */
     params.set(
         'tipo',
         'validacao',
@@ -629,9 +716,7 @@ async function fetchValidationTaskDetail(
     return safeObject(
         readPath(
             data,
-            [
-                'tarefa',
-            ],
+            ['tarefa'],
             data,
         ),
     );
@@ -639,7 +724,7 @@ async function fetchValidationTaskDetail(
 
 
 /* ==========================================================================
-   POLLING DA VALIDAÇÃO
+   POLLING
    ========================================================================== */
 
 function startValidationPolling(
@@ -676,9 +761,12 @@ function startValidationPolling(
                     || task.estado,
                 );
 
-                lastValidationTaskId = getTaskId(
-                    task,
-                ) || taskId;
+                lastValidationTaskId = (
+                    getTaskId(
+                        task,
+                    )
+                    || taskId
+                );
 
                 if (
                     RUNNING_VALIDATION_STATUSES.has(
@@ -726,14 +814,57 @@ function stopValidationPolling() {
 
 
 /* ==========================================================================
-   RENDER DA VALIDAÇÃO
+   VALIDAÇÃO — ESTADOS
    ========================================================================== */
+
+function renderValidationChecking() {
+    applyChip(
+        'rulesValidationChip',
+        'pending',
+        'Consultando',
+    );
+
+    setValidationIcon(
+        'checking',
+    );
+
+    setText(
+        'rulesValidationTitle',
+        'Verificando a última validação',
+    );
+
+    setText(
+        'rulesValidationText',
+        'Consultando o histórico para mostrar o último resultado confirmado do Suricata.',
+    );
+
+    setText(
+        'rulesValidationGuidance',
+        'Aguarde alguns instantes.',
+    );
+
+    setHidden(
+        'rulesValidationMeta',
+        true,
+    );
+
+    setHidden(
+        'rulesValidationActions',
+        true,
+    );
+
+    setHidden(
+        'rulesValidationOutput',
+        true,
+    );
+}
+
 
 function renderValidationPending() {
     applyChip(
         'rulesValidationChip',
         'pending',
-        'Pendente',
+        'Não validada',
     );
 
     setValidationIcon(
@@ -747,11 +878,21 @@ function renderValidationPending() {
 
     setText(
         'rulesValidationText',
-        'Execute uma validação para confirmar se o YAML e todas as referências de regras estão corretos.',
+        'Ainda não existe um resultado salvo do suricata -T para esta configuração.',
+    );
+
+    setText(
+        'rulesValidationGuidance',
+        'Execute a validação antes de considerar o conjunto de regras pronto para produção.',
     );
 
     setHidden(
         'rulesValidationMeta',
+        true,
+    );
+
+    setHidden(
+        'rulesValidationActions',
         true,
     );
 
@@ -774,8 +915,8 @@ function renderValidationRunning(
         'rulesValidationChip',
         'pending',
         progress > 0
-            ? `Validando ${progress}%`
-            : 'Validando',
+            ? `${progress}%`
+            : 'Em andamento',
     );
 
     setValidationIcon(
@@ -784,7 +925,7 @@ function renderValidationRunning(
 
     setText(
         'rulesValidationTitle',
-        'Validação em andamento',
+        'Validando a configuração',
     );
 
     setText(
@@ -795,8 +936,18 @@ function renderValidationRunning(
         || 'O Suricata está carregando o YAML e as assinaturas configuradas.',
     );
 
+    setText(
+        'rulesValidationGuidance',
+        'Aguarde a conclusão. Esta etapa costuma levar cerca de 40–60 segundos.',
+    );
+
     setValidationMeta(
         task,
+    );
+
+    setHidden(
+        'rulesValidationActions',
+        true,
     );
 
     setHidden(
@@ -832,14 +983,6 @@ function renderValidationFromTask(
         || {},
     );
 
-    /*
-     * A tarefa de validação que você mostrou retorna:
-     *
-     * resultado.dados.etapas.validar_suricata
-     *
-     * contendo sucesso, mensagem, dados.stdout, dados.stderr,
-     * iniciado_em e finalizado_em.
-     */
     const validation = safeObject(
         readPath(
             result,
@@ -857,9 +1000,7 @@ function renderValidationFromTask(
         || boolValue(
             readPath(
                 validation,
-                [
-                    'sucesso',
-                ],
+                ['sucesso'],
                 false,
             ),
         )
@@ -898,9 +1039,7 @@ function renderValidationData(
     const status = normalizeTaskStatus(
         readPath(
             validation,
-            [
-                'status',
-            ],
+            ['status'],
             success
                 ? 'sucesso'
                 : 'erro',
@@ -942,7 +1081,7 @@ function renderValidationSuccess(
     applyChip(
         'rulesValidationChip',
         'ok',
-        'Válida',
+        'Aprovada',
     );
 
     setValidationIcon(
@@ -951,19 +1090,17 @@ function renderValidationSuccess(
 
     setText(
         'rulesValidationTitle',
-        'Configuração validada',
+        'Configuração pronta para carregar',
     );
 
     setText(
         'rulesValidationText',
-        readPath(
-            validation,
-            [
-                'mensagem',
-            ],
-            task?.mensagem
-            || 'O Suricata aceitou o YAML e todas as referências de regras.',
-        ),
+        'O Suricata aceitou o YAML e todas as referências de regras sem erros.',
+    );
+
+    setText(
+        'rulesValidationGuidance',
+        'Nenhuma ação é necessária neste momento.',
     );
 
     setValidationMeta(
@@ -981,6 +1118,11 @@ function renderValidationSuccess(
     renderValidationOutput(
         output,
     );
+
+    setHidden(
+        'rulesValidationActions',
+        false,
+    );
 }
 
 
@@ -988,10 +1130,12 @@ function renderValidationFailure(
     validation,
     task = {},
 ) {
-    const cancelled = normalizeTaskStatus(
-        task?.status
-        || task?.estado,
-    ) === 'cancelado';
+    const cancelled = (
+        normalizeTaskStatus(
+            task?.status
+            || task?.estado,
+        ) === 'cancelado'
+    );
 
     applyChip(
         'rulesValidationChip',
@@ -1000,7 +1144,7 @@ function renderValidationFailure(
             : 'error',
         cancelled
             ? 'Cancelada'
-            : 'Inválida',
+            : 'Reprovada',
     );
 
     setValidationIcon(
@@ -1013,7 +1157,7 @@ function renderValidationFailure(
         'rulesValidationTitle',
         cancelled
             ? 'Validação cancelada'
-            : 'Falha na validação',
+            : 'Configuração precisa de correção',
     );
 
     setText(
@@ -1028,10 +1172,17 @@ function renderValidationFailure(
             || task?.mensagem
             || (
                 cancelled
-                    ? 'A validação foi cancelada.'
-                    : 'O Suricata não conseguiu validar a configuração.'
+                    ? 'A operação foi cancelada antes da conclusão.'
+                    : 'O Suricata encontrou um problema ao carregar a configuração.'
             ),
         ),
+    );
+
+    setText(
+        'rulesValidationGuidance',
+        cancelled
+            ? 'Execute novamente quando quiser concluir a verificação.'
+            : 'Revise a saída técnica abaixo, corrija o problema e execute a validação novamente.',
     );
 
     setValidationMeta(
@@ -1047,8 +1198,17 @@ function renderValidationFailure(
             task,
         ),
     );
+
+    setHidden(
+        'rulesValidationActions',
+        false,
+    );
 }
 
+
+/* ==========================================================================
+   VALIDAÇÃO — UI
+   ========================================================================== */
 
 function setValidationIcon(
     status,
@@ -1065,7 +1225,10 @@ function setValidationIcon(
         `sp-validation-state__icon sp-validation-state__icon--${status}`
     );
 
-    if (status === 'running') {
+    if (
+        status === 'running'
+        || status === 'checking'
+    ) {
         icon.innerHTML = (
             '<span class="sp-spinner" aria-hidden="true"></span>'
         );
@@ -1076,7 +1239,7 @@ function setValidationIcon(
     if (status === 'ok') {
         icon.innerHTML = iconSVG(
             'check',
-            22,
+            24,
         );
 
         return;
@@ -1085,8 +1248,8 @@ function setValidationIcon(
     if (status === 'error') {
         icon.innerHTML = `
             <svg
-                width="22"
-                height="22"
+                width="24"
+                height="24"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1104,8 +1267,8 @@ function setValidationIcon(
     if (status === 'warning') {
         icon.innerHTML = `
             <svg
-                width="22"
-                height="22"
+                width="24"
+                height="24"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1120,14 +1283,10 @@ function setValidationIcon(
         return;
     }
 
-    /*
-     * Pendente não gira.
-     * O spinner é reservado exclusivamente para tarefa realmente ativa.
-     */
     icon.innerHTML = `
         <svg
-            width="22"
-            height="22"
+            width="24"
+            height="24"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -1163,9 +1322,12 @@ function setValidationMeta(
         0,
     );
 
-    const taskId = getTaskId(
-        source,
-    ) || lastValidationTaskId;
+    const taskId = (
+        getTaskId(
+            source,
+        )
+        || lastValidationTaskId
+    );
 
     const hasAny = Boolean(
         startedAt
@@ -1216,7 +1378,16 @@ function setValidationMeta(
 function renderValidationOutput(
     output,
 ) {
-    if (!output) {
+    const hasOutput = Boolean(
+        output,
+    );
+
+    setHidden(
+        'btnToggleValidationOutput',
+        !hasOutput,
+    );
+
+    if (!hasOutput) {
         setHidden(
             'rulesValidationOutput',
             true,
@@ -1230,9 +1401,18 @@ function renderValidationOutput(
         return;
     }
 
+    /*
+     * Detalhe técnico fica recolhido por padrão.
+     * O usuário comum vê primeiro a conclusão em linguagem simples.
+     */
     setHidden(
         'rulesValidationOutput',
-        false,
+        true,
+    );
+
+    setText(
+        'btnToggleValidationOutputLabel',
+        'Ver detalhes técnicos',
     );
 
     setText(
@@ -1249,7 +1429,7 @@ function renderValidationOutput(
 
 
 /* ==========================================================================
-   EXTRAÇÃO DE RESULTADOS
+   EXTRAÇÃO / HELPERS
    ========================================================================== */
 
 function resolveValidationFromStatus(
@@ -1377,10 +1557,6 @@ function extractValidationOutput(
     );
 }
 
-
-/* ==========================================================================
-   HELPERS
-   ========================================================================== */
 
 function getTaskId(
     task,

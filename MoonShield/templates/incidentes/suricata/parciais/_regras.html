@@ -6,7 +6,7 @@
     id="section-rules"
     data-section="rules"
 >
-    <div class="sp-section-title">
+    <div class="sp-section-title sp-rules-page-head">
         <div>
             <span class="sp-section-title__eyebrow">
                 Mecanismos de detecção
@@ -15,8 +15,8 @@
             <h2>Regras do Suricata</h2>
 
             <p>
-                Acompanhe a disponibilidade das regras MoonShield,
-                ET Open e a validação do arquivo de configuração.
+                Veja de forma simples se os conjuntos de regras estão
+                prontos e quando a configuração foi validada pela última vez.
             </p>
         </div>
 
@@ -44,30 +44,92 @@
 
 
     <!-- =================================================
-         CARDS DE REGRAS
+         RESUMO RÁPIDO
     ================================================== -->
 
-    <div class="sp-rules-grid">
-        <article class="sp-panel sp-rule-card">
-            <div class="sp-rule-card__icon sp-rule-card__icon--moon">
+    <article class="sp-panel sp-rules-overview">
+        <div class="sp-rules-overview__main">
+            <span
+                class="sp-rules-overview__icon"
+                aria-hidden="true"
+            >
                 <svg
                     width="24"
                     height="24"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    stroke-width="1.6"
-                    aria-hidden="true"
+                    stroke-width="1.7"
                 >
-                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
+                    <path d="M12 3 4 7v5c0 4.7 3.3 8.8 8 10 4.7-1.2 8-5.3 8-10V7l-8-4Z" />
+                    <path d="m9 12 2 2 4-4" />
                 </svg>
+            </span>
+
+            <div>
+                <div class="sp-rules-overview__title-row">
+                    <h3 id="rulesOverviewTitle">
+                        Verificando mecanismos de detecção
+                    </h3>
+
+                    <span
+                        class="sp-chip sp-chip--pending"
+                        id="rulesOverviewChip"
+                    >
+                        Verificando
+                    </span>
+                </div>
+
+                <p id="rulesOverviewText">
+                    Aguarde enquanto o MoonShield consulta o estado das regras.
+                </p>
+            </div>
+        </div>
+
+        <div class="sp-rules-overview__metrics">
+            <div>
+                <span>Conjuntos prontos</span>
+                <strong id="rulesOverviewHealthyCount">—</strong>
             </div>
 
-            <div class="sp-rule-card__head">
-                <div>
-                    <span>Pacote proprietário</span>
-                    <h3>MoonShield Rules</h3>
-                </div>
+            <div>
+                <span>MoonShield</span>
+                <strong id="rulesOverviewMoonValue">—</strong>
+            </div>
+
+            <div>
+                <span>ET Open</span>
+                <strong id="rulesOverviewEtValue">—</strong>
+            </div>
+
+            <div>
+                <span>Engine</span>
+                <strong id="rulesOverviewEngineValue">—</strong>
+            </div>
+        </div>
+    </article>
+
+
+    <!-- =================================================
+         CONJUNTOS DE REGRAS
+    ================================================== -->
+
+    <div class="sp-rules-grid">
+        <article class="sp-panel sp-rule-card">
+            <div class="sp-rule-card__top">
+                <span class="sp-rule-card__icon sp-rule-card__icon--moon">
+                    <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                        aria-hidden="true"
+                    >
+                        <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
+                    </svg>
+                </span>
 
                 <span
                     class="sp-status-pill sp-status-pill--pending"
@@ -77,69 +139,72 @@
                 </span>
             </div>
 
-            <p id="rulesMoonDescription">
-                Regras focadas em reconhecimento, autenticação,
-                movimento lateral, DNS, web, TLS e anomalias.
-            </p>
+            <div class="sp-rule-card__identity">
+                <span>Pacote proprietário</span>
+                <h3>MoonShield Rules</h3>
 
-            <dl class="sp-rule-metrics">
+                <p id="rulesMoonSummary">
+                    Verificando disponibilidade do pacote local.
+                </p>
+            </div>
+
+            <div class="sp-rule-card__facts">
                 <div>
-                    <dt>Arquivo</dt>
-                    <dd
-                        class="sp-mono"
-                        id="rulesMoonFile"
-                    >
-                        —
-                    </dd>
+                    <span>Instalada</span>
+                    <strong id="rulesMoonInstalled">—</strong>
                 </div>
 
                 <div>
-                    <dt>Instaladas</dt>
-                    <dd id="rulesMoonInstalled">—</dd>
+                    <span>Referenciada</span>
+                    <strong id="rulesMoonReferenced">—</strong>
                 </div>
 
                 <div>
-                    <dt>Referenciadas</dt>
-                    <dd id="rulesMoonReferenced">—</dd>
+                    <span>Total de regras</span>
+                    <strong id="rulesMoonCount">—</strong>
                 </div>
+            </div>
 
-                <div>
-                    <dt>Total</dt>
-                    <dd id="rulesMoonCount">—</dd>
-                </div>
-            </dl>
+            <div class="sp-rule-card__path">
+                <span>Arquivo em uso</span>
 
-            <button
-                class="sp-btn sp-btn--ghost sp-btn--small"
-                id="btnUpdateMoonRules"
-                type="button"
-            >
-                Reaplicar MoonShield
-            </button>
+                <code id="rulesMoonFile">
+                    —
+                </code>
+            </div>
+
+            <div class="sp-rule-card__footer">
+                <p>
+                    Use apenas se precisar reaplicar o pacote local.
+                </p>
+
+                <button
+                    class="sp-btn sp-btn--ghost sp-btn--small"
+                    id="btnUpdateMoonRules"
+                    type="button"
+                >
+                    Reaplicar MoonShield
+                </button>
+            </div>
         </article>
 
 
         <article class="sp-panel sp-rule-card">
-            <div class="sp-rule-card__icon sp-rule-card__icon--et">
-                <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.6"
-                    aria-hidden="true"
-                >
-                    <path d="M4 4h16v16H4z" />
-                    <path d="M8 8h8M8 12h8M8 16h5" />
-                </svg>
-            </div>
-
-            <div class="sp-rule-card__head">
-                <div>
-                    <span>Threat intelligence</span>
-                    <h3>Emerging Threats Open</h3>
-                </div>
+            <div class="sp-rule-card__top">
+                <span class="sp-rule-card__icon sp-rule-card__icon--et">
+                    <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                        aria-hidden="true"
+                    >
+                        <path d="M4 4h16v16H4z" />
+                        <path d="M8 8h8M8 12h8M8 16h5" />
+                    </svg>
+                </span>
 
                 <span
                     class="sp-status-pill sp-status-pill--pending"
@@ -149,56 +214,69 @@
                 </span>
             </div>
 
-            <p id="rulesEtDescription">
-                Conjunto comunitário de assinaturas atualizado
-                pelo suricata-update.
-            </p>
+            <div class="sp-rule-card__identity">
+                <span>Threat intelligence</span>
+                <h3>Emerging Threats Open</h3>
 
-            <dl class="sp-rule-metrics">
+                <p id="rulesEtSummary">
+                    Verificando disponibilidade do conjunto comunitário.
+                </p>
+            </div>
+
+            <div class="sp-rule-card__facts">
                 <div>
-                    <dt>suricata-update</dt>
-                    <dd id="rulesUpdaterInstalled">—</dd>
+                    <span>suricata-update</span>
+                    <strong id="rulesUpdaterInstalled">—</strong>
                 </div>
 
                 <div>
-                    <dt>ET Open</dt>
-                    <dd id="rulesEtInstalled">—</dd>
+                    <span>ET Open</span>
+                    <strong id="rulesEtInstalled">—</strong>
                 </div>
 
                 <div>
-                    <dt>Atualização</dt>
-                    <dd id="rulesEtUpdatedAt">—</dd>
+                    <span>Última atualização</span>
+                    <strong id="rulesEtUpdatedAt">—</strong>
                 </div>
+            </div>
 
-                <div>
-                    <dt>Status</dt>
-                    <dd id="rulesEtSummary">—</dd>
-                </div>
-            </dl>
+            <div class="sp-rule-card__footer">
+                <p>
+                    Atualize quando quiser sincronizar novas assinaturas.
+                </p>
 
-            <button
-                class="sp-btn sp-btn--ghost sp-btn--small"
-                id="btnUpdateEtRules"
-                type="button"
-            >
-                Atualizar ET Open
-            </button>
+                <button
+                    class="sp-btn sp-btn--ghost sp-btn--small"
+                    id="btnUpdateEtRules"
+                    type="button"
+                >
+                    Atualizar ET Open
+                </button>
+            </div>
         </article>
     </div>
 
 
     <!-- =================================================
-         VALIDAÇÃO DO SURICATA
+         VALIDAÇÃO
     ================================================== -->
 
-    <article class="sp-panel sp-wide-panel">
-        <div class="sp-panel__head">
+    <article class="sp-panel sp-rules-validation">
+        <div class="sp-rules-validation__head">
             <div>
                 <span class="sp-panel__eyebrow">
-                    Validação das regras
+                    Validação técnica
                 </span>
 
-                <h3>Configuração carregável</h3>
+                <h3>
+                    O Suricata consegue carregar esta configuração?
+                </h3>
+
+                <p>
+                    O teste <code>suricata -T</code> confirma o YAML,
+                    as interfaces e as referências das regras antes
+                    de uma operação real.
+                </p>
             </div>
 
             <button
@@ -206,63 +284,80 @@
                 id="btnValidateRules"
                 type="button"
             >
-                Executar suricata -T
+                Executar nova validação
             </button>
         </div>
 
 
-        <div class="sp-validation-state">
-            <!--
-                IMPORTANTE:
-                estado inicial pendente NÃO usa spinner.
-
-                O spinner agora só é inserido via regras.js
-                quando existe uma tarefa de validação realmente
-                em "pendente" ou "executando".
-            -->
+        <div class="sp-validation-result">
             <span
-                class="sp-validation-state__icon sp-validation-state__icon--pending"
+                class="sp-validation-state__icon sp-validation-state__icon--checking"
                 id="rulesValidationIcon"
                 aria-hidden="true"
             >
-                <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 7v5l3 2" />
-                </svg>
+                <span class="sp-spinner"></span>
             </span>
 
-            <div class="sp-validation-state__copy">
-                <strong id="rulesValidationTitle">
-                    Verificando última validação
-                </strong>
+            <div class="sp-validation-result__copy">
+                <div class="sp-validation-result__title-row">
+                    <strong id="rulesValidationTitle">
+                        Verificando a última validação
+                    </strong>
+
+                    <span
+                        class="sp-chip sp-chip--pending"
+                        id="rulesValidationChip"
+                    >
+                        Consultando
+                    </span>
+                </div>
 
                 <p id="rulesValidationText">
-                    Consultando o histórico de tarefas do Suricata.
+                    Consultando o histórico para mostrar o último resultado.
                 </p>
-            </div>
 
-            <span
-                class="sp-chip sp-chip--pending"
-                id="rulesValidationChip"
-            >
-                Verificando
-            </span>
+                <span
+                    class="sp-validation-result__guidance"
+                    id="rulesValidationGuidance"
+                >
+                    Aguarde alguns instantes.
+                </span>
+            </div>
         </div>
 
 
-        <!-- =================================================
-             METADADOS DA ÚLTIMA VALIDAÇÃO
-        ================================================== -->
+        <div class="sp-validation-explainer">
+            <div>
+                <span class="sp-validation-explainer__number">1</span>
+
+                <div>
+                    <strong>YAML</strong>
+                    <span>Confirma se o arquivo pode ser carregado.</span>
+                </div>
+            </div>
+
+            <div>
+                <span class="sp-validation-explainer__number">2</span>
+
+                <div>
+                    <strong>Regras</strong>
+                    <span>Confirma se todas as referências existem.</span>
+                </div>
+            </div>
+
+            <div>
+                <span class="sp-validation-explainer__number">3</span>
+
+                <div>
+                    <strong>Engine</strong>
+                    <span>Confirma se o Suricata aceita o conjunto final.</span>
+                </div>
+            </div>
+        </div>
+
 
         <dl
-            class="sp-rule-metrics"
+            class="sp-validation-meta"
             id="rulesValidationMeta"
             hidden
         >
@@ -279,33 +374,50 @@
 
             <div>
                 <dt>Iniciada</dt>
-
-                <dd id="rulesValidationStartedAt">
-                    —
-                </dd>
+                <dd id="rulesValidationStartedAt">—</dd>
             </div>
 
             <div>
                 <dt>Finalizada</dt>
-
-                <dd id="rulesValidationFinishedAt">
-                    —
-                </dd>
+                <dd id="rulesValidationFinishedAt">—</dd>
             </div>
 
             <div>
                 <dt>Duração</dt>
-
-                <dd id="rulesValidationDuration">
-                    —
-                </dd>
+                <dd id="rulesValidationDuration">—</dd>
             </div>
         </dl>
 
 
-        <!-- =================================================
-             SAÍDA DO SURICATA -T
-        ================================================== -->
+        <div
+            class="sp-validation-actions"
+            id="rulesValidationActions"
+            hidden
+        >
+            <button
+                class="sp-btn sp-btn--ghost sp-btn--small"
+                id="btnToggleValidationOutput"
+                type="button"
+                hidden
+            >
+                <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    aria-hidden="true"
+                >
+                    <path d="m8 9 4 4 4-4" />
+                </svg>
+
+                <span id="btnToggleValidationOutputLabel">
+                    Ver detalhes técnicos
+                </span>
+            </button>
+        </div>
+
 
         <div
             class="sp-validation-output"
@@ -313,9 +425,10 @@
             hidden
         >
             <div class="sp-validation-output__head">
-                <span>
-                    Saída da validação
-                </span>
+                <div>
+                    <span>Saída técnica</span>
+                    <small>Resposta completa do suricata -T</small>
+                </div>
 
                 <button
                     class="sp-copy-btn"

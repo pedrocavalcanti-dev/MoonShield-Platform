@@ -1,4 +1,4 @@
-/* MOONSHIELD — SURICATA PANEL | Core e Layout Principal */
+/* MOONSHIELD — SURICATA PANEL | Core e Layout Principal - AJUSTADO */
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root,
@@ -191,6 +191,7 @@ svg {
     min-width: 0;
     flex: 1;
     margin-left: var(--sp-sidebar-w);
+    transition: margin-left .32s cubic-bezier(.16, 1, .3, 1);
 }
 
 .sp-content {
@@ -235,6 +236,7 @@ svg {
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
     box-shadow: 20px 0 50px rgba(0, 0, 0, .18);
+    transition: transform .32s cubic-bezier(.16, 1, .3, 1);
 }
 
 .sp-sidebar::after {
@@ -341,7 +343,7 @@ svg {
     font-size: 12px;
     font-weight: 500;
     text-align: left;
-    transition: color var(--sp-fast), background var(--sp-fast), border-color var(--sp-fast), transform var(--sp-fast);
+    transition: color .12s ease, background .12s ease, border-color .12s ease;
 }
 
 .sp-nav__item:hover {
@@ -365,7 +367,7 @@ svg {
     width: 19px;
     flex: 0 0 19px;
     color: var(--sp-dim);
-    transition: color var(--sp-fast);
+    transition: color .12s ease;
 }
 
 .sp-nav__item:hover .sp-nav__icon,
@@ -444,7 +446,10 @@ svg {
     backdrop-filter: blur(5px);
 }
 
-/* Topbar */
+/* ================================================================
+   TOPBAR - AJUSTADA E ESTÁVEL
+================================================================ */
+
 .sp-topbar {
     position: sticky;
     top: 0;
@@ -461,18 +466,20 @@ svg {
     -webkit-backdrop-filter: blur(24px);
 }
 
-.sp-topbar__left,
+.sp-topbar__left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex: 1;
+    min-width: 0;
+}
+
 .sp-topbar__right {
     display: flex;
     align-items: center;
-}
-
-.sp-topbar__left {
-    gap: 14px;
-}
-
-.sp-topbar__right {
     gap: 10px;
+    flex: 0 1 auto;
+    min-height: 38px;
 }
 
 .sp-topbar__menu {
@@ -483,6 +490,8 @@ svg {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
+    flex: 0 1 auto;
 }
 
 .sp-page-heading__eyebrow {
@@ -491,12 +500,18 @@ svg {
     color: var(--sp-dim);
     letter-spacing: .1em;
     text-transform: uppercase;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
 }
 
 .sp-page-heading__line {
     display: flex;
     align-items: center;
     gap: 10px;
+    height: 32px;
+    min-width: 0;
 }
 
 .sp-page-heading h1 {
@@ -504,6 +519,9 @@ svg {
     font-size: 22px;
     font-weight: 500;
     letter-spacing: -.025em;
+    line-height: 1;
+    white-space: nowrap;
+    flex: 0 0 auto;
 }
 
 .sp-last-update {
@@ -512,6 +530,9 @@ svg {
     align-items: flex-end;
     gap: 1px;
     margin-right: 4px;
+    min-height: 22px;
+    justify-content: center;
+    flex-shrink: 0;
 }
 
 .sp-last-update span {
@@ -519,6 +540,10 @@ svg {
     color: var(--sp-dim);
     letter-spacing: .06em;
     text-transform: uppercase;
+    height: 10px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
 }
 
 .sp-last-update strong {
@@ -526,6 +551,10 @@ svg {
     font-size: 9px;
     font-weight: 500;
     color: var(--sp-muted);
+    height: 10px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
 }
 
 /* Buttons & Chips */
@@ -534,7 +563,7 @@ svg {
 .sp-link-btn,
 .sp-mini-action,
 .sp-copy-btn {
-    transition: transform var(--sp-fast), border-color var(--sp-fast), color var(--sp-fast), background var(--sp-fast), box-shadow var(--sp-fast), opacity var(--sp-fast);
+    transition: border-color .08s ease, background .08s ease, color .08s ease;
 }
 
 .sp-btn {
@@ -549,6 +578,16 @@ svg {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: .01em;
+}
+
+.sp-topbar .sp-btn,
+.sp-topbar .sp-icon-btn {
+    height: 38px;
+    flex-shrink: 0;
+}
+
+.sp-topbar .sp-icon-btn {
+    width: 38px;
 }
 
 .sp-btn:hover,
@@ -685,6 +724,7 @@ svg {
     gap: 6px;
     border-radius: 999px;
     white-space: nowrap;
+    transition: none;
 }
 
 .sp-chip {
@@ -897,7 +937,7 @@ svg {
     border: 1px solid var(--sp-border);
     border-radius: 11px;
     background: rgba(255, 255, 255, .025);
-    transition: border-color var(--sp-fast), background var(--sp-fast);
+    transition: border-color .12s ease, background .12s ease;
 }
 
 .sp-activity-item:hover {
@@ -1265,6 +1305,10 @@ svg {
 }
 
 .is-loading svg {
+    animation: none;
+}
+
+.is-loading .sp-spinner {
     animation: sp-spin .8s linear infinite;
 }
 
@@ -1478,7 +1522,6 @@ svg {
 
     .sp-sidebar {
         transform: translateX(-100%);
-        transition: transform .32s var(--sp-ease);
     }
 
     .sp-sidebar.is-open {
@@ -1586,7 +1629,6 @@ svg {
 }
 
 @media (prefers-reduced-motion: reduce) {
-
     *,
     *::before,
     *::after {
@@ -1594,25 +1636,5 @@ svg {
         animation-duration: .01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: .01ms !important;
-    }
-}
-
-/* Torna o botão hambúrguer visível também no desktop */
-.sp-topbar__menu {
-    display: grid !important;
-}
-
-/* Adiciona transição suave para recolher o painel */
-.sp-sidebar, .sp-main {
-    transition: transform var(--sp-medium) var(--sp-ease), margin-left var(--sp-medium) var(--sp-ease);
-}
-
-/* Regra que oculta a sidebar apenas no desktop quando a classe estiver ativa */
-@media (min-width: 861px) {
-    body.is-sidebar-collapsed .sp-sidebar {
-        transform: translateX(-100%);
-    }
-    body.is-sidebar-collapsed .sp-main {
-        margin-left: 0;
     }
 }

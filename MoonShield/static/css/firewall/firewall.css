@@ -1,5 +1,5 @@
 /* ==========================================================================
-   MOONSHIELD — FIREWALL DASHBOARD v7
+   MOONSHIELD — FIREWALL DASHBOARD v8
    Dashboard limpo e integrado ao backend local/Agent.
    ========================================================================== */
 
@@ -279,6 +279,18 @@
     margin-top: 3px;
     color: var(--text-muted);
     font-size: 10px;
+}
+
+
+/*
+ * IMPORTANTE:
+ * Os callouts usam o atributo HTML `hidden`.
+ * Como as classes abaixo também usam `display:flex`, esta regra precisa
+ * prevalecer sobre o display declarado pelo dashboard.
+ */
+.fw-setup-callout[hidden],
+.fw-sync[hidden] {
+    display: none !important;
 }
 
 /* TOOLBAR ================================================================= */

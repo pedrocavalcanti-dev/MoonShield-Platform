@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — FIREWALL.JS v7
+ * MOONSHIELD — FIREWALL.JS v8
  * Dashboard integrado ao backend local do Firewall.
  *
  * Endpoints utilizados:
@@ -103,7 +103,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (statusResult.status === "rejected") {
             console.error("Firewall status:", statusResult.reason);
-            renderStatusError(statusResult.reason);
+
+            /*
+             * /api/data/ também devolve `firewall` com o estado consolidado.
+             * Se essa cópia estiver válida, ela é suficiente para manter o
+             * dashboard coerente e evitar um falso "Firewall não configurado"
+             * por uma falha momentânea apenas no endpoint /api/status/.
+             */
+            const fallbackStatus =
+                dataResult.status === "fulfilled"
+                    ? dataResult.value?.firewall
+                    : null;
+
+            if (isUsableFirewallStatus(fallbackStatus)) {
+                state.status = fallbackStatus;
+                renderStatus(fallbackStatus);
+            } else {
+                renderStatusError(statusResult.reason);
+            }
         }
 
         updateTimestamp();
@@ -115,6 +132,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         state.logs = Array.isArray(data.logs) ? data.logs : [];
         state.sync = data.sync || null;
+
+        /*
+         * O backend já inclui o estado real consolidado em data.firewall.
+         * Renderizamos esse estado imediatamente. O /api/status/ continua
+         * sendo consultado em paralelo para atualização dedicada.
+         */
+        if (isUsableFirewallStatus(data.firewall)) {
+            state.status = data.firewall;
+            renderStatus(data.firewall);
+        }
 
         renderKPIs(data.metrics || {});
         renderCharts(data.charts || {});
@@ -158,6 +185,20 @@ document.addEventListener("DOMContentLoaded", () => {
     /* ======================================================================
        STATUS REAL
        ====================================================================== */
+
+    function isUsableFirewallStatus(status) {
+        if (!status || typeof status !== "object") return false;
+
+        /*
+         * `ok=true` é o contrato normal. Também aceitamos objetos que tragam
+         * explicitamente os campos operacionais para compatibilidade com
+         * respostas consolidadas do /api/data/.
+         */
+        return status.ok === true ||
+            "operacional" in status ||
+            "instalado" in status ||
+            "agent_disponivel" in status;
+    }
 
     function renderStatus(status) {
         const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
@@ -213,7 +254,13 @@ document.addEventListener("DOMContentLoaded", () => {
             status.operacional
         );
 
-        if (status.operacional) {
+        const configured = Boolean(status.configurado);
+        const healthyInstalled = Boolean(
+            status.operacional ||
+            (installed && configured && status.chains_ok)
+        );
+
+        if (healthyInstalled) {
             callout.hidden = true;
             return;
         }

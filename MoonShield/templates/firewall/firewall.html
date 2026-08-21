@@ -14,7 +14,7 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-<link rel="stylesheet" href="{% static 'css/firewall/firewall.css' %}?v=8">
+<link rel="stylesheet" href="{% static 'css/firewall/firewall.css' %}?v=9">
 {% endblock %}
 
 {% block conteudo %}
@@ -70,7 +70,7 @@
     </section>
 
     <!-- ALERTA DE CONFIGURAÇÃO -->
-    <section class="fw-setup-callout" id="fwSetupCallout" hidden>
+    <section class="fw-setup-callout" id="fwSetupCallout" hidden style="display:none">
         <div class="fw-setup-callout__icon">
             <i class="bi bi-shield-exclamation"></i>
         </div>
@@ -85,7 +85,7 @@
     </section>
 
     <!-- REGRAS PENDENTES -->
-    <section class="fw-sync" id="fwSyncBar" hidden>
+    <section class="fw-sync" id="fwSyncBar" hidden style="display:none">
         <div class="fw-sync__icon">
             <i class="bi bi-arrow-repeat"></i>
         </div>
@@ -388,5 +388,5 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="{% static 'js/firewall/firewall.js' %}?v=8"></script>
+<script src="{% static 'js/firewall/firewall.js' %}?v=9"></script>
 {% endblock %}

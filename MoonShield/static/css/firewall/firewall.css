@@ -1,5 +1,5 @@
 /* ==========================================================================
-   MOONSHIELD — FIREWALL DASHBOARD v8
+   MOONSHIELD — FIREWALL DASHBOARD v9
    Dashboard limpo e integrado ao backend local/Agent.
    ========================================================================== */
 
@@ -282,16 +282,44 @@
 }
 
 
-/*
- * IMPORTANTE:
- * Os callouts usam o atributo HTML `hidden`.
- * Como as classes abaixo também usam `display:flex`, esta regra precisa
- * prevalecer sobre o display declarado pelo dashboard.
- */
+/* ==========================================================================
+   VISIBILIDADE / MODOS — v9
+   ========================================================================== */
+
+/* hidden sempre vence qualquer display declarado no componente */
 .fw-setup-callout[hidden],
-.fw-sync[hidden] {
+.fw-sync[hidden],
+.fw-is-hidden {
     display: none !important;
 }
+
+/* Estado visual de simulação: informativo, nunca erro/offline */
+.fw-status-badge--sim {
+    color: var(--fw-blue);
+    background: var(--fw-blue-bg);
+    border-color: var(--fw-blue-bd);
+}
+
+.fw-status-badge--sim .fw-status-badge__dot {
+    background: var(--fw-blue);
+}
+
+.fw-health-pill--sim {
+    color: var(--fw-blue);
+    background: var(--fw-blue-bg);
+    border: 1px solid var(--fw-blue-bd);
+}
+
+.fw-health-row strong.is-sim {
+    color: var(--fw-blue);
+}
+
+/* Em simulação não exibimos callouts operacionais */
+#fwDashboard[data-runtime-mode="simulacao"] .fw-setup-callout,
+#fwDashboard[data-runtime-mode="simulacao"] .fw-sync {
+    display: none !important;
+}
+
 
 /* TOOLBAR ================================================================= */
 

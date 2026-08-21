@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — FIREWALL.JS v8
+ * MOONSHIELD — FIREWALL.JS v9
  * Dashboard integrado ao backend local do Firewall.
  *
  * Endpoints utilizados:
@@ -29,9 +29,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const state = {
         period: "24h",
+        mode: "desconhecido",
         logs: [],
         sync: null,
         status: null,
+        lastData: null,
         charts: {
             traffic: null,
             blocks: null,
@@ -91,75 +93,141 @@ document.addEventListener("DOMContentLoaded", () => {
     async function refreshAll() {
         setRefreshing(true);
 
-        const [dataResult, statusResult] = await Promise.allSettled([
-            loadData(state.period),
-            loadStatus(),
-        ]);
+        let data = null;
 
-        if (dataResult.status === "rejected") {
-            console.error("Firewall data:", dataResult.reason);
-            showToast("Não foi possível carregar os dados do Firewall.", "err");
-        }
+        try {
+            /*
+             * Primeiro carregamos /api/data/.
+             *
+             * Isso é intencional: o endpoint informa o modo atual.
+             * Em SIMULAÇÃO não devemos consultar /api/status/, porque o
+             * MoonShield-Agent real pode nem existir nesse host.
+             */
+            data = await loadData(state.period);
 
-        if (statusResult.status === "rejected") {
-            console.error("Firewall status:", statusResult.reason);
+            if (isSimulationData(data)) {
+                renderSimulationState(data);
+                updateTimestamp();
+                return;
+            }
 
             /*
-             * /api/data/ também devolve `firewall` com o estado consolidado.
-             * Se essa cópia estiver válida, ela é suficiente para manter o
-             * dashboard coerente e evitar um falso "Firewall não configurado"
-             * por uma falha momentânea apenas no endpoint /api/status/.
+             * Modo REAL:
+             * /api/data/ já traz `firewall` como estado consolidado.
+             * Renderizamos esse estado imediatamente e depois tentamos o
+             * endpoint dedicado /api/status/ para obter a leitura mais recente.
              */
-            const fallbackStatus =
-                dataResult.status === "fulfilled"
-                    ? dataResult.value?.firewall
-                    : null;
-
-            if (isUsableFirewallStatus(fallbackStatus)) {
-                state.status = fallbackStatus;
-                renderStatus(fallbackStatus);
-            } else {
-                renderStatusError(statusResult.reason);
+            if (isUsableFirewallStatus(data?.firewall)) {
+                state.status = data.firewall;
+                renderStatus(data.firewall);
             }
-        }
 
-        updateTimestamp();
-        setRefreshing(false);
+            try {
+                await loadStatus();
+            } catch (error) {
+                console.error("Firewall status:", error);
+
+                /*
+                 * Nunca transformar um Firewall operacional em
+                 * "não configurado" só porque /api/status/ falhou uma vez.
+                 */
+                if (isUsableFirewallStatus(data?.firewall)) {
+                    state.status = data.firewall;
+                    renderStatus(data.firewall);
+                } else {
+                    renderStatusError(error);
+                }
+            }
+
+        } catch (error) {
+            console.error("Firewall data:", error);
+
+            /*
+             * Se já temos um estado real operacional em memória, preserva a
+             * tela e apenas informa a falha de atualização via toast.
+             */
+            if (state.mode === "real" && isUsableFirewallStatus(state.status)) {
+                renderStatus(state.status);
+            } else if (state.mode !== "simulacao") {
+                renderStatusError(error);
+            }
+
+            showToast("Não foi possível atualizar os dados do Firewall.", "err");
+        } finally {
+            updateTimestamp();
+            setRefreshing(false);
+        }
     }
 
     async function loadData(period) {
         const data = await apiJson(`${URLS.data}?period=${encodeURIComponent(period)}`);
 
+        state.lastData = data;
         state.logs = Array.isArray(data.logs) ? data.logs : [];
         state.sync = data.sync || null;
+        state.mode = isSimulationData(data) ? "simulacao" : "real";
 
-        /*
-         * O backend já inclui o estado real consolidado em data.firewall.
-         * Renderizamos esse estado imediatamente. O /api/status/ continua
-         * sendo consultado em paralelo para atualização dedicada.
-         */
-        if (isUsableFirewallStatus(data.firewall)) {
-            state.status = data.firewall;
-            renderStatus(data.firewall);
-        }
+        root.dataset.runtimeMode = state.mode;
 
         renderKPIs(data.metrics || {});
         renderCharts(data.charts || {});
         renderTopIps(data.top_ips || fallbackTopIp(data.metrics));
         renderFeed(state.logs);
-        renderSync(data.sync || {});
-
         renderDataSource(data);
+
+        if (state.mode === "simulacao") {
+            /*
+             * Simulação é somente visual/demonstração.
+             * Não mostramos:
+             * - Agent offline;
+             * - Firewall não configurado;
+             * - regras pendentes reais do banco;
+             * - botão Aplicar.
+             */
+            renderSync({});
+            renderSimulationState(data);
+        } else {
+            renderSync(data.sync || {});
+
+            if (isUsableFirewallStatus(data.firewall)) {
+                state.status = data.firewall;
+                renderStatus(data.firewall);
+            }
+        }
 
         return data;
     }
 
     async function loadStatus() {
+        if (state.mode === "simulacao") {
+            return null;
+        }
+
         const status = await apiJson(URLS.status);
         state.status = status;
 
         renderStatus(status);
         return status;
+    }
+
+    function isSimulationData(data) {
+        const modo = String(data?.modo || "").trim().toLowerCase();
+        const mode = String(data?.mode || "").trim().toLowerCase();
+
+        return modo === "simulacao" ||
+            modo === "simulação" ||
+            mode === "demo" ||
+            mode === "simulation" ||
+            mode === "simulacao";
+    }
+
+    function isUsableFirewallStatus(status) {
+        if (!status || typeof status !== "object") return false;
+
+        return status.ok === true ||
+            Object.prototype.hasOwnProperty.call(status, "operacional") ||
+            Object.prototype.hasOwnProperty.call(status, "instalado") ||
+            Object.prototype.hasOwnProperty.call(status, "agent_disponivel");
     }
 
     function renderDataSource(data) {
@@ -170,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         dot.className = "fw-toolbar__source-dot";
 
-        if (data.modo === "simulacao" || data.mode === "demo") {
+        if (isSimulationData(data)) {
             dot.classList.add("is-warn");
             text.textContent = "Dados simulados";
             return;
@@ -182,29 +250,59 @@ document.addEventListener("DOMContentLoaded", () => {
             : "Eventos locais";
     }
 
+    function renderSimulationState(data = {}) {
+        state.mode = "simulacao";
+        root.dataset.runtimeMode = "simulacao";
+
+        hideOperationalAlerts();
+
+        setMainStatus("sim", "Simulação");
+        setHealthPill("sim", "SIMULAÇÃO");
+
+        setSimulationHealthValue("fwAgentStatus", "SIMULADO");
+        setSimulationHealthValue("fwNftStatus", "SIMULADO");
+        setSimulationHealthValue("fwTableStatus", "SIMULADO");
+        setSimulationHealthValue("fwChainsStatus", "SIMULADO");
+
+        setText("fwAgentDetail", "modo de demonstração");
+        setText("fwNftDetail", "sem consulta ao host Linux");
+
+        /*
+         * Se a simulação trouxer topologia própria, podemos mostrá-la.
+         * Caso contrário não reaproveitamos topologia real/antiga.
+         */
+        const fw = data?.firewall || {};
+        setText("fwIfaceWan", fw.interface_wan || "—");
+        setText("fwIfaceMgmt", fw.interface_mgmt || "—");
+        setText("fwIfaceLan", fw.interface_lan || "—");
+        setText("fwHomeNet", fw.home_net || "rede simulada");
+    }
+
+    function hideOperationalAlerts() {
+        setElementVisible($("fwSetupCallout"), false);
+        setElementVisible($("fwSyncBar"), false);
+    }
+
     /* ======================================================================
        STATUS REAL
        ====================================================================== */
 
-    function isUsableFirewallStatus(status) {
-        if (!status || typeof status !== "object") return false;
-
-        /*
-         * `ok=true` é o contrato normal. Também aceitamos objetos que tragam
-         * explicitamente os campos operacionais para compatibilidade com
-         * respostas consolidadas do /api/data/.
-         */
-        return status.ok === true ||
-            "operacional" in status ||
-            "instalado" in status ||
-            "agent_disponivel" in status;
-    }
-
     function renderStatus(status) {
+        if (state.mode === "simulacao") {
+            renderSimulationState(state.lastData || {});
+            return;
+        }
+
         const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
         const nftOk = Boolean(status.nftables_instalado);
         const tableOk = Boolean(status.tabela_instalada || status.ativo);
         const chainsOk = Boolean(status.chains_ok);
+        const installed = Boolean(
+            status.instalado ||
+            status.tabela_instalada ||
+            status.ativo
+        );
+        const configured = Boolean(status.configurado);
         const operational = Boolean(status.operacional);
 
         setMainStatus(
@@ -231,14 +329,38 @@ document.addEventListener("DOMContentLoaded", () => {
             status.ipc?.caminho ||
             "/run/moonshield/agent.sock";
 
-        if ($("fwAgentDetail")) $("fwAgentDetail").textContent = socketPath;
-        if ($("fwNftDetail")) $("fwNftDetail").textContent =
-            status.nftables_versao ? `versão ${status.nftables_versao}` : "versão —";
+        setText("fwAgentDetail", socketPath);
+        setText(
+            "fwNftDetail",
+            status.nftables_versao
+                ? `versão ${status.nftables_versao}`
+                : "versão —"
+        );
 
-        if ($("fwIfaceWan")) $("fwIfaceWan").textContent = status.interface_wan || "—";
-        if ($("fwIfaceMgmt")) $("fwIfaceMgmt").textContent = status.interface_mgmt || "—";
-        if ($("fwIfaceLan")) $("fwIfaceLan").textContent = status.interface_lan || "—";
-        if ($("fwHomeNet")) $("fwHomeNet").textContent = status.home_net || "rede protegida";
+        setText("fwIfaceWan", status.interface_wan || "—");
+        setText("fwIfaceMgmt", status.interface_mgmt || "—");
+        setText("fwIfaceLan", status.interface_lan || "—");
+        setText("fwHomeNet", status.home_net || "rede protegida");
+
+        /*
+         * Um status operacional nunca pode coexistir visualmente com o
+         * callout "Firewall não configurado".
+         */
+        const fullyReady = Boolean(
+            operational ||
+            (
+                status.ok === true &&
+                installed &&
+                configured &&
+                tableOk &&
+                chainsOk
+            )
+        );
+
+        if (fullyReady) {
+            setElementVisible($("fwSetupCallout"), false);
+            return;
+        }
 
         renderSetupCallout(status);
     }
@@ -247,60 +369,96 @@ document.addEventListener("DOMContentLoaded", () => {
         const callout = $("fwSetupCallout");
         if (!callout) return;
 
+        if (state.mode === "simulacao") {
+            setElementVisible(callout, false);
+            return;
+        }
+
         const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
         const installed = Boolean(
             status.instalado ||
             status.tabela_instalada ||
-            status.operacional
+            status.ativo
         );
 
         const configured = Boolean(status.configurado);
-        const healthyInstalled = Boolean(
-            status.operacional ||
-            (installed && configured && status.chains_ok)
-        );
+        const tableOk = Boolean(status.tabela_instalada || status.ativo);
+        const chainsOk = Boolean(status.chains_ok);
 
-        if (healthyInstalled) {
-            callout.hidden = true;
+        if (
+            status.operacional ||
+            (
+                status.ok === true &&
+                installed &&
+                configured &&
+                tableOk &&
+                chainsOk
+            )
+        ) {
+            setElementVisible(callout, false);
             return;
         }
 
-        callout.hidden = false;
+        setElementVisible(callout, true);
 
         if (!agentOk) {
-            $("fwSetupTitle").textContent = "MoonShield-Agent indisponível";
-            $("fwSetupText").textContent =
-                "O Django não consegue acessar o socket local do Agent.";
+            setText("fwSetupTitle", "MoonShield-Agent indisponível");
+            setText(
+                "fwSetupText",
+                "O Django não consegue acessar o socket local do Agent."
+            );
             return;
         }
 
         if (!installed) {
-            $("fwSetupTitle").textContent = "Firewall ainda não instalado";
-            $("fwSetupText").textContent =
-                "Conclua a configuração de WAN, MGMT, LAN e HOME_NET.";
+            setText("fwSetupTitle", "Firewall ainda não instalado");
+            setText(
+                "fwSetupText",
+                "Conclua a instalação do Firewall para ativar a proteção local."
+            );
             return;
         }
 
-        $("fwSetupTitle").textContent = "Firewall requer validação";
-        $("fwSetupText").textContent =
-            status.status_label || "A estrutura existe, mas ainda não está totalmente operacional.";
+        setText("fwSetupTitle", "Firewall requer validação");
+        setText(
+            "fwSetupText",
+            status.status_label ||
+            "A estrutura existe, mas ainda não está totalmente operacional."
+        );
     }
 
     function renderStatusError(error) {
+        if (state.mode === "simulacao") {
+            renderSimulationState(state.lastData || {});
+            return;
+        }
+
+        /*
+         * Se o último estado conhecido é operacional, uma falha transitória
+         * não deve pintar toda a interface como OFFLINE.
+         */
+        if (isUsableFirewallStatus(state.status) && state.status.operacional) {
+            renderStatus(state.status);
+            return;
+        }
+
         setMainStatus("error", "Indisponível");
         setHealthPill("error", "OFFLINE");
 
         ["fwAgentStatus", "fwNftStatus", "fwTableStatus", "fwChainsStatus"].forEach((id) => {
             setText(id, "—");
-            $(id)?.classList.remove("is-ok", "is-warn");
+            $(id)?.classList.remove("is-ok", "is-warn", "is-error", "is-sim");
             $(id)?.classList.add("is-error");
         });
 
         const callout = $("fwSetupCallout");
         if (callout) {
-            callout.hidden = false;
-            setText("fwSetupTitle", "Não foi possível consultar o Firewall");
-            setText("fwSetupText", error?.message || "Verifique o backend e o MoonShield-Agent.");
+            setElementVisible(callout, true);
+            setText("fwSetupTitle", "MoonShield-Agent indisponível");
+            setText(
+                "fwSetupText",
+                error?.message || "Não foi possível consultar o Firewall local."
+            );
         }
     }
 
@@ -325,7 +483,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!el) return;
 
         el.textContent = text;
-        el.classList.remove("is-ok", "is-warn", "is-error");
+        el.classList.remove("is-ok", "is-warn", "is-error", "is-sim");
 
         if (ok) {
             el.classList.add("is-ok");
@@ -336,6 +494,23 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    function setSimulationHealthValue(id, text) {
+        const el = $(id);
+        if (!el) return;
+
+        el.textContent = text;
+        el.classList.remove("is-ok", "is-warn", "is-error");
+        el.classList.add("is-sim");
+    }
+
+    function setElementVisible(el, visible, display = "flex") {
+        if (!el) return;
+
+        el.hidden = !visible;
+        el.classList.toggle("fw-is-hidden", !visible);
+        el.style.display = visible ? display : "none";
+    }
+
     /* ======================================================================
        SYNC
        ====================================================================== */
@@ -344,16 +519,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const bar = $("fwSyncBar");
         if (!bar) return;
 
+        if (state.mode === "simulacao") {
+            setElementVisible(bar, false);
+            return;
+        }
+
         const pending = Number(sync.pendentes || 0);
         const deleted = Number(sync.deletadas_pendentes || 0);
         const totalPending = pending + deleted;
 
         if (totalPending <= 0) {
-            bar.hidden = true;
+            setElementVisible(bar, false);
             return;
         }
 
-        bar.hidden = false;
+        setElementVisible(bar, true);
 
         setText(
             "fwSyncTitle",
@@ -794,7 +974,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 try {
                     setRefreshing(true);
-                    await loadData(state.period);
+                    const data = await loadData(state.period);
+
+                    if (!isSimulationData(data)) {
+                        try {
+                            await loadStatus();
+                        } catch (error) {
+                            if (!isUsableFirewallStatus(data?.firewall)) {
+                                renderStatusError(error);
+                            }
+                        }
+                    }
+
                     updateTimestamp();
                 } catch (error) {
                     console.error(error);

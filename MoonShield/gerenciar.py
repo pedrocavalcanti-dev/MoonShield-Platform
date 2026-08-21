@@ -6,13 +6,23 @@ import sys
 from pathlib import Path
 
 
-def _deve_bootstrap_worker() -> bool:
-    """Executa o bootstrap uma única vez no processo pai do runserver."""
-    if len(sys.argv) < 2 or sys.argv[1] != "runserver":
+def _eh_runserver() -> bool:
+    return (
+        len(sys.argv) >= 2
+        and sys.argv[1] == "runserver"
+    )
+
+
+def _processo_pai_runserver() -> bool:
+    """
+    O autoreload do Django cria um processo filho com RUN_MAIN=true.
+
+    Os bootstraps de infraestrutura rodam apenas no processo pai para
+    evitar duas tentativas simultâneas de systemctl/socket.
+    """
+    if not _eh_runserver():
         return False
 
-    # O autoreload do Django cria um processo filho com RUN_MAIN=true.
-    # Fazemos o bootstrap somente no processo pai.
     return os.environ.get("RUN_MAIN") != "true"
 
 
@@ -48,7 +58,11 @@ def _bootstrap_worker_suricata() -> None:
         if resultado.get("sucesso"):
             pid = resultado.get("pid")
 
-            sufixo_pid = f" PID={pid}" if pid else ""
+            sufixo_pid = (
+                f" PID={pid}"
+                if pid
+                else ""
+            )
 
             print(
                 "[MoonShield] Worker Suricata pronto: "
@@ -77,6 +91,59 @@ def _bootstrap_worker_suricata() -> None:
         )
 
 
+def _bootstrap_moonshield_agent() -> None:
+    """
+    Garante automaticamente a infraestrutura mínima do MoonShield-Agent.
+
+    Importante:
+    - só atua em Linux;
+    - requer root para criar grupo/service/diretórios;
+    - é idempotente;
+    - NÃO instala o Firewall;
+    - NÃO cria regras nftables;
+    - NÃO impede o Django de subir caso falhe.
+
+    O instalador web do Firewall continua sendo responsável por nftables,
+    topologia, tabela/chains e regras.
+    """
+    try:
+        from django.core.management import call_command
+
+        print(
+            "[MoonShield] Verificando MoonShield-Agent local..."
+        )
+
+        call_command(
+            "instalar_moonshield",
+            automatico=True,
+            verbosity=0,
+        )
+
+        print(
+            "[MoonShield] Bootstrap do MoonShield-Agent finalizado."
+        )
+
+    except Exception as exc:
+        print(
+            "[MoonShield] ATENÇÃO: falha no bootstrap "
+            f"do MoonShield-Agent: {exc}"
+        )
+
+
+def _bootstrap_runserver() -> None:
+    """
+    Bootstraps seguros executados uma única vez antes do runserver.
+
+    A ordem é intencional:
+      1. infraestrutura do Agent;
+      2. worker do Suricata.
+
+    Nenhum deles pode impedir o servidor Django de iniciar.
+    """
+    _bootstrap_moonshield_agent()
+    _bootstrap_worker_suricata()
+
+
 def main() -> None:
     """Run administrative tasks."""
     os.environ.setdefault(
@@ -95,10 +162,25 @@ def main() -> None:
             "forget to activate a virtual environment?"
         ) from exc
 
-    if _deve_bootstrap_worker():
-        _bootstrap_worker_suricata()
+    if _processo_pai_runserver():
+        try:
+            import django
 
-    execute_from_command_line(sys.argv)
+            django.setup()
+
+            _bootstrap_runserver()
+
+        except Exception as exc:
+            # Última barreira de proteção:
+            # infraestrutura nunca deve impedir o runserver de subir.
+            print(
+                "[MoonShield] ATENÇÃO: bootstrap inicial "
+                f"não concluído: {exc}"
+            )
+
+    execute_from_command_line(
+        sys.argv
+    )
 
 
 if __name__ == "__main__":

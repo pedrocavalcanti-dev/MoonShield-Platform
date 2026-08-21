@@ -1,1111 +1,1189 @@
 /**
- * MOONSHIELD — firewall/regras.js  v5
- * v5: todos os alert/confirm/prompt nativos substituídos por modais JS
+ * MOONSHIELD — FIREWALL / REGRAS v7
+ * Fonte de verdade do frontend: APIs Django da arquitetura local.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
+    "use strict";
 
-  const $ = id => document.getElementById(id);
+    const root = document.getElementById("fwrApp");
+    if (!root) return;
 
-  function getCsrf() {
-    return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || '';
-  }
-  function getCsrfHeader() {
-    return { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() };
-  }
+    const $ = (id) => document.getElementById(id);
 
-  /* ══ ESTADO ══ */
-  let RULES = [], BLOCKLIST = [], ALLOWLIST = [], GEOBLOCK = [], NAT = [];
-  let INTERFACES = [];
-  let editingRuleId = null;
-  let editingNatId = null;
-  let filterAction = 'all';
-  let filterIface = 'all';
-  let searchRegras = '';
-  let syncTimer = null;
+    const URLS = {
+        status: root.dataset.urlStatus,
+        interfaces: root.dataset.urlInterfaces,
+        rules: root.dataset.urlRules,
+        apply: root.dataset.urlApply,
+        block: root.dataset.urlBlock,
+        blocklist: root.dataset.urlBlocklist,
+        allowlist: root.dataset.urlAllowlist,
+        geoblock: root.dataset.urlGeoblock,
+        nat: root.dataset.urlNat,
+        exportNft: root.dataset.urlExport,
+        install: root.dataset.urlInstall,
+    };
 
-  /* ══ ESTADO: BLOCK DETAIL MODAL ══ */
-  let blockDetailIp = null;
-  let blockDetailEntry = null;
+    const state = {
+        status: {},
+        interfaces: [],
+        rules: [],
+        blocklist: [],
+        allowlist: [],
+        geoblock: [],
+        nat: [],
+        sync: {},
+        editingRuleId: null,
+        editingNatId: null,
+        modalResolve: null,
+    };
 
-  /* ══ TOAST ══ */
-  let toastTimer;
-  function showToast(msg, type = 'ok') {
-    const t = $('fwrToast'); if (!t) return;
-    t.innerHTML = msg;
-    t.className = `fwr-toast fwr-toast--${type} show`;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
-  }
+    let toastTimer = null;
 
-  function showApplyToast(agente_ok) {
-    if (agente_ok) {
-      showToast('<i class="bi bi-lightning-charge-fill" style="margin-right:5px"></i>Aplicado no Linux agora', 'ok');
-    } else {
-      showToast('<i class="bi bi-hourglass-split" style="margin-right:5px"></i>Salvo — aguardando sync (até 30s)', 'warn');
+    bindStaticEvents();
+    refreshAll();
+    openFromQueryString();
+
+    /* =====================================================================
+       API
+       ===================================================================== */
+
+    async function api(url, options = {}) {
+        if (!url) throw new Error("Endpoint não configurado.");
+
+        const method = String(options.method || "GET").toUpperCase();
+        const headers = new Headers(options.headers || {});
+        headers.set("Accept", "application/json");
+
+        if (!["GET", "HEAD"].includes(method)) {
+            headers.set("Content-Type", "application/json");
+            headers.set("X-CSRFToken", getCsrf());
+        }
+
+        let response;
+        try {
+            response = await fetch(url, {
+                credentials: "same-origin",
+                ...options,
+                method,
+                headers,
+            });
+        } catch (_) {
+            throw new Error("Não foi possível conectar ao backend do MoonShield.");
+        }
+
+        let payload = {};
+        try {
+            payload = await response.json();
+        } catch (_) {
+            payload = {};
+        }
+
+        if (!response.ok) {
+            const message =
+                payload?.erro?.mensagem ||
+                payload?.erro ||
+                payload?.mensagem ||
+                extractValidationError(payload?.detalhes) ||
+                `HTTP ${response.status}`;
+
+            const error = new Error(String(message));
+            error.status = response.status;
+            error.payload = payload;
+            throw error;
+        }
+
+        return payload;
     }
-  }
 
-  /* ══ BOTÃO PUSH ══ */
-  function setPushBtnState(state) {
-    const btn = $('fwrPushBtn'); if (!btn) return;
-    if (state === 'loading') {
-      btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Aplicando…';
-      btn.disabled = true;
-      btn.className = 'fwr-btn fwr-btn--orange';
-    } else if (state === 'ok') {
-      btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Aplicar no Linux';
-      btn.disabled = false;
-      btn.className = 'fwr-btn fwr-btn--orange';
-    } else if (state === 'offline') {
-      btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Aplicar no Linux';
-      btn.disabled = false;
-      btn.className = 'fwr-btn fwr-btn--orange';
-      btn.title = 'Agente offline — será aplicado no próximo poll (30s)';
+    function getCsrf() {
+        const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : "";
     }
-  }
 
-  /* ══ API ══ */
-  async function apiFetch(url, method = 'GET', body = null) {
-    const opts = { method, headers: getCsrfHeader() };
-    if (body) opts.body = JSON.stringify(body);
-    const r = await fetch(url, opts);
-    return r.json();
-  }
+    function detailUrl(base, id) {
+        return `${String(base).replace(/\/$/, "")}/${encodeURIComponent(id)}/`;
+    }
 
-  /* ══════════════════════════════════════════════════════════
-     SISTEMA DE MODAIS GENÉRICOS
-     Substitui todos os alert / confirm / prompt nativos
-  ══════════════════════════════════════════════════════════ */
+    /* =====================================================================
+       LOAD
+       ===================================================================== */
 
-  // Injeta o HTML dos modais uma única vez
-  function _injectModalHtml() {
-    if ($('msModalOverlay')) return;
-    document.body.insertAdjacentHTML('beforeend', `
-      <div id="msModalOverlay" style="
-        display:none;position:fixed;inset:0;z-index:9999;
-        background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
-        align-items:center;justify-content:center;
-      ">
-        <div id="msModalBox" style="
-          background:var(--bg-card,#1a1f2e);border:1px solid var(--border,#2a2f3e);
-          border-radius:10px;padding:28px 28px 22px;width:100%;max-width:420px;
-          box-shadow:0 24px 60px rgba(0,0,0,.5);position:relative;
-          animation:msModalIn .15s ease;
-        ">
-          <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:18px">
-            <div id="msModalIcon" style="font-size:22px;flex-shrink:0;margin-top:1px"></div>
-            <div style="flex:1">
-              <p id="msModalTitle" style="font-size:14px;font-weight:700;color:var(--text,#e2e8f0);margin-bottom:5px"></p>
-              <p id="msModalMsg" style="font-size:12px;color:var(--text-muted,#94a3b8);line-height:1.6"></p>
+    async function refreshAll() {
+        setRuntime("loading", "Verificando");
+
+        const requests = [
+            ["status", () => api(URLS.status)],
+            ["interfaces", () => api(URLS.interfaces)],
+            ["rules", () => api(URLS.rules)],
+            ["blocklist", () => api(URLS.blocklist)],
+            ["allowlist", () => api(URLS.allowlist)],
+            ["geoblock", () => api(URLS.geoblock)],
+            ["nat", () => api(URLS.nat)],
+        ];
+
+        const results = await Promise.allSettled(requests.map(([, fn]) => fn()));
+
+        results.forEach((result, index) => {
+            const key = requests[index][0];
+            if (result.status === "fulfilled") {
+                absorbResponse(key, result.value || {});
+            } else {
+                console.warn(`[firewall/regras] ${key}:`, result.reason);
+                if (key === "status") renderStatusError(result.reason);
+            }
+        });
+
+        renderAll();
+    }
+
+    function absorbResponse(key, data) {
+        if (key === "status") {
+            state.status = data;
+            renderStatus(data);
+            return;
+        }
+
+        if (key === "interfaces") {
+            state.interfaces = normalizeInterfaces(data.interfaces || []);
+            renderTopologyMini();
+            updatePhysicalIfaceHint();
+            return;
+        }
+
+        if (key === "rules") {
+            state.rules = Array.isArray(data.rules) ? data.rules : [];
+            state.sync = data.sync || {};
+            renderSync(state.sync);
+            return;
+        }
+
+        if (key === "blocklist") state.blocklist = Array.isArray(data.entries) ? data.entries : [];
+        if (key === "allowlist") state.allowlist = Array.isArray(data.entries) ? data.entries : [];
+        if (key === "geoblock") state.geoblock = Array.isArray(data.entries) ? data.entries : [];
+        if (key === "nat") state.nat = Array.isArray(data.entries) ? data.entries : [];
+    }
+
+    async function reloadRules() {
+        const data = await api(URLS.rules);
+        state.rules = Array.isArray(data.rules) ? data.rules : [];
+        state.sync = data.sync || {};
+        renderRules();
+        updateCounts();
+        renderSync(state.sync);
+    }
+
+    async function reloadBlocklist() {
+        const data = await api(URLS.blocklist);
+        state.blocklist = Array.isArray(data.entries) ? data.entries : [];
+        renderBlocklist();
+        updateCounts();
+    }
+
+    /* =====================================================================
+       STATUS / TOPOLOGIA
+       ===================================================================== */
+
+    function renderStatus(status) {
+        const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
+        const operational = Boolean(status.operacional);
+        const installed = Boolean(status.instalado || status.tabela_instalada || operational);
+
+        if (operational) {
+            setRuntime("ok", "Operacional");
+            $("fwrSetupCallout").hidden = true;
+        } else if (agentOk) {
+            setRuntime("warn", installed ? "Requer atenção" : "Não instalado");
+            showSetup(
+                installed ? "Firewall requer validação" : "Firewall ainda não instalado",
+                installed
+                    ? (status.status_label || "A estrutura existe, mas não está totalmente operacional.")
+                    : "Conclua a instalação antes de administrar regras reais."
+            );
+        } else {
+            setRuntime("error", "Agent offline");
+            showSetup(
+                "MoonShield-Agent indisponível",
+                getStatusError(status) || "O Django não conseguiu acessar o socket local do Agent."
+            );
+        }
+
+        renderTopologyMini();
+    }
+
+    function renderStatusError(error) {
+        setRuntime("error", "Indisponível");
+        showSetup("Não foi possível consultar o Firewall", error?.message || "Verifique o backend e o Agent.");
+    }
+
+    function setRuntime(type, text) {
+        const badge = $("fwrRuntimeBadge");
+        if (!badge) return;
+        badge.className = `fwr-runtime fwr-runtime--${type}`;
+        setText("fwrRuntimeText", text);
+    }
+
+    function showSetup(title, text) {
+        const el = $("fwrSetupCallout");
+        if (!el) return;
+        el.hidden = false;
+        setText("fwrSetupTitle", title);
+        setText("fwrSetupText", text);
+    }
+
+    function renderTopologyMini() {
+        const status = state.status || {};
+        const wan = status.interface_wan || logicalPhysical("WAN") || "—";
+        const mgmt = status.interface_mgmt || logicalPhysical("MGMT") || "—";
+        const lan = status.interface_lan || logicalPhysical("LAN") || "—";
+        setText("fwrTopologyMini", `WAN ${wan} · MGMT ${mgmt} · LAN ${lan}`);
+    }
+
+    function logicalPhysical(role) {
+        const status = state.status || {};
+        const direct = {
+            WAN: status.interface_wan,
+            MGMT: status.interface_mgmt,
+            LAN: status.interface_lan,
+        }[role];
+        if (direct) return direct;
+
+        const item = state.interfaces.find((iface) => iface.roles.includes(role));
+        return item?.name || "";
+    }
+
+    function normalizeInterfaces(items) {
+        if (!Array.isArray(items)) return [];
+        return items.map((item) => {
+            if (typeof item === "string") return { name: item, ip: "", roles: [] };
+            const roles = item.papeis || item.roles || item.papel || [];
+            return {
+                name: String(item.nome || item.name || item.interface || item.iface || ""),
+                ip: String(item.ip || item.ipv4 || item.endereco || ""),
+                roles: (Array.isArray(roles) ? roles : [roles]).filter(Boolean).map((r) => String(r).toUpperCase()),
+            };
+        }).filter((i) => i.name && i.name !== "lo");
+    }
+
+    function getStatusError(status) {
+        const err = status?.erro;
+        if (typeof err === "string") return err;
+        if (err && typeof err === "object") return err.mensagem || err.erro || "";
+        return "";
+    }
+
+    /* =====================================================================
+       RENDER GERAL
+       ===================================================================== */
+
+    function renderAll() {
+        renderRules();
+        renderBlocklist();
+        renderAllowlist();
+        renderGeoblock();
+        renderNat();
+        updateCounts();
+        renderSync(state.sync);
+        renderTopologyMini();
+    }
+
+    function updateCounts() {
+        setText("tabCountRegras", state.rules.filter((r) => !r.deletado).length);
+        setText("tabCountBloqueados", state.blocklist.length);
+        setText("tabCountLiberados", state.allowlist.length);
+        setText("tabCountGeoblock", state.geoblock.length);
+        setText("tabCountNat", state.nat.length);
+        setText("natCount", state.nat.length);
+    }
+
+    /* =====================================================================
+       SYNC / APPLY
+       ===================================================================== */
+
+    function renderSync(sync) {
+        const bar = $("fwrSyncBar");
+        if (!bar) return;
+
+        const pending = Number(sync?.pendentes || state.rules.filter((r) => r.pendente).length || 0);
+        const deleted = Number(sync?.deletadas_pendentes || 0);
+        const total = pending + deleted;
+
+        if (total <= 0) {
+            bar.hidden = true;
+            return;
+        }
+
+        bar.hidden = false;
+        setText("fwrSyncTitle", `${total} alteração${total === 1 ? "" : "ões"} pendente${total === 1 ? "" : "s"}`);
+        setText("fwrSyncMsg", "O Django mantém a alteração pendente até o MoonShield-Agent confirmar a aplicação.");
+    }
+
+    async function applyPending() {
+        const buttons = [$("fwrApplyBtn"), $("fwrSyncApplyBtn")].filter(Boolean);
+        buttons.forEach((b) => setButtonLoading(b, true, "Aplicando"));
+
+        try {
+            const data = await api(URLS.apply, { method: "POST" });
+            const ok = Boolean(data.ok && (data.resultado?.ok ?? true));
+            if (!ok) throw new Error(data.resultado?.erro || "Falha ao aplicar regras.");
+
+            toast("Regras aplicadas pelo MoonShield-Agent.");
+            await reloadRules();
+            await refreshStatusOnly();
+        } catch (error) {
+            toast(error.message || "Falha ao aplicar regras.", "err");
+        } finally {
+            buttons.forEach((b) => setButtonLoading(b, false));
+            if ($("fwrApplyBtn")) $("fwrApplyBtn").innerHTML = '<i class="bi bi-lightning-charge"></i> Aplicar pendentes';
+            if ($("fwrSyncApplyBtn")) $("fwrSyncApplyBtn").innerHTML = '<i class="bi bi-lightning-charge"></i> Aplicar agora';
+        }
+    }
+
+    async function refreshStatusOnly() {
+        try {
+            const status = await api(URLS.status);
+            state.status = status;
+            renderStatus(status);
+        } catch (error) {
+            renderStatusError(error);
+        }
+    }
+
+    /* =====================================================================
+       RULES
+       ===================================================================== */
+
+    function filteredRules() {
+        const q = ($("fwrSearchRegras")?.value || "").trim().toLowerCase();
+        const action = $("fwrFilterAction")?.value || "all";
+        const iface = $("fwrFilterIface")?.value || "all";
+
+        return state.rules
+            .filter((r) => !r.deletado)
+            .filter((r) => action === "all" || r.action === action)
+            .filter((r) => iface === "all" || r.iface === iface)
+            .filter((r) => {
+                if (!q) return true;
+                return [r.desc, r.src, r.dst, r.port, r.proto, r.iface]
+                    .some((value) => String(value || "").toLowerCase().includes(q));
+            })
+            .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0));
+    }
+
+    function renderRules() {
+        const body = $("fwrRulesBody");
+        if (!body) return;
+        const rows = filteredRules();
+
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="12"><div class="fwr-empty">Nenhuma regra encontrada.</div></td></tr>';
+            return;
+        }
+
+        body.innerHTML = rows.map((r) => `
+            <tr class="${r.enabled ? "" : "fwr-row-disabled"}">
+                <td class="fwr-cell-mono">${escapeHtml(r.priority ?? "—")}</td>
+                <td><span class="fwr-action-badge fwr-action-badge--${r.action === "allow" ? "allow" : "deny"}">${escapeHtml(String(r.action || "deny").toUpperCase())}</span></td>
+                <td><span class="fwr-iface-badge">${escapeHtml(r.iface || "any")}</span></td>
+                <td class="fwr-cell-mono fwr-cell-muted">${escapeHtml(String(r.dir || "in").toUpperCase())}</td>
+                <td class="fwr-cell-mono">${escapeHtml(r.proto || "any")}</td>
+                <td class="fwr-cell-mono" title="${escapeAttr(r.src || "any")}">${escapeHtml(r.src || "any")}</td>
+                <td class="fwr-cell-mono" title="${escapeAttr(r.dst || "any")}">${escapeHtml(r.dst || "any")}</td>
+                <td class="fwr-cell-mono">${escapeHtml(r.port || "any")}</td>
+                <td class="fwr-cell-muted" title="${escapeAttr(r.desc || "")}">${escapeHtml(truncate(r.desc || "—", 34))}</td>
+                <td>${ruleStateBadge(r)}</td>
+                <td>
+                    <label class="fwr-toggle" title="${r.enabled ? "Desativar" : "Ativar"}">
+                        <input type="checkbox" class="rule-toggle" data-id="${r.id}" ${r.enabled ? "checked" : ""}>
+                        <span></span>
+                    </label>
+                </td>
+                <td>
+                    <div class="fwr-row-actions">
+                        <button class="fwr-icon-btn" type="button" data-rule-action="edit" data-id="${r.id}" title="Editar"><i class="bi bi-pencil"></i></button>
+                        <button class="fwr-icon-btn" type="button" data-rule-action="copy" data-id="${r.id}" title="Duplicar"><i class="bi bi-copy"></i></button>
+                        <button class="fwr-icon-btn fwr-icon-btn--danger" type="button" data-rule-action="delete" data-id="${r.id}" title="Remover"><i class="bi bi-trash3"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `).join("");
+
+        body.querySelectorAll("[data-rule-action]").forEach((button) => {
+            button.addEventListener("click", () => {
+                const id = Number(button.dataset.id);
+                const action = button.dataset.ruleAction;
+                if (action === "edit") openRuleDrawer(id);
+                if (action === "copy") duplicateRule(id);
+                if (action === "delete") deleteRule(id);
+            });
+        });
+
+        body.querySelectorAll(".rule-toggle").forEach((toggle) => {
+            toggle.addEventListener("change", async () => {
+                const id = Number(toggle.dataset.id);
+                const previous = !toggle.checked;
+                toggle.disabled = true;
+                try {
+                    await updateRule(id, { enabled: toggle.checked }, false);
+                    toast(`Regra ${toggle.checked ? "ativada" : "desativada"}.`);
+                } catch (error) {
+                    toggle.checked = previous;
+                    toast(error.message, "err");
+                } finally {
+                    toggle.disabled = false;
+                }
+            });
+        });
+    }
+
+    function ruleStateBadge(rule) {
+        if (rule.ultimo_erro) {
+            return `<span class="fwr-state-badge fwr-state-badge--error" title="${escapeAttr(rule.ultimo_erro)}"><i class="bi bi-exclamation-circle"></i> ERRO</span>`;
+        }
+        if (rule.pendente) {
+            return '<span class="fwr-state-badge fwr-state-badge--pending"><i class="bi bi-hourglass-split"></i> PENDENTE</span>';
+        }
+        if (rule.sincronizada) {
+            return '<span class="fwr-state-badge fwr-state-badge--ok"><i class="bi bi-check-circle"></i> APLICADA</span>';
+        }
+        return '<span class="fwr-state-badge">—</span>';
+    }
+
+    function openRuleDrawer(id = null) {
+        const rule = id ? state.rules.find((r) => Number(r.id) === Number(id)) : null;
+        state.editingRuleId = rule?.id || null;
+
+        $("fwrRuleDrawerTitle").textContent = rule ? "Editar regra" : "Nova regra";
+        $("fwrRuleDrawerDup").hidden = !rule;
+        hideFormError("fwrRuleFormError");
+
+        $("rfDesc").value = rule?.desc || "";
+        $("rfAction").value = rule?.action || "deny";
+        $("rfPriority").value = rule?.priority ?? 100;
+        $("rfIface").value = rule?.iface || "WAN";
+        $("rfDir").value = rule?.dir || "in";
+        $("rfProto").value = rule?.proto || "TCP";
+        $("rfSrc").value = rule?.src || "any";
+        $("rfDst").value = rule?.dst || "any";
+        $("rfPort").value = rule?.port || "any";
+        $("rfEnabled").checked = rule ? Boolean(rule.enabled) : true;
+        $("rfLog").checked = rule ? Boolean(rule.log) : true;
+
+        updateRulePreview();
+        updateProtocolPortState();
+        updatePhysicalIfaceHint();
+        setDrawer("fwrRuleDrawer", "fwrRuleDrawerOverlay", true);
+        window.setTimeout(() => $("rfDesc")?.focus(), 180);
+    }
+
+    function closeRuleDrawer() {
+        state.editingRuleId = null;
+        setDrawer("fwrRuleDrawer", "fwrRuleDrawerOverlay", false);
+    }
+
+    function collectRule() {
+        return {
+            desc: ($("rfDesc").value || "").trim(),
+            action: $("rfAction").value,
+            priority: Number.parseInt($("rfPriority").value, 10) || 100,
+            iface: $("rfIface").value,
+            dir: $("rfDir").value,
+            proto: $("rfProto").value,
+            src: ($("rfSrc").value || "").trim() || "any",
+            dst: ($("rfDst").value || "").trim() || "any",
+            port: ($("rfPort").value || "").trim() || "any",
+            enabled: $("rfEnabled").checked,
+            log: $("rfLog").checked,
+        };
+    }
+
+    function validateRule(payload) {
+        if (!["allow", "deny"].includes(payload.action)) return "Ação inválida.";
+        if (!["WAN", "MGMT", "LAN", "any"].includes(payload.iface)) return "Interface inválida.";
+        if (!["in", "out"].includes(payload.dir)) return "Direção inválida.";
+        if (!["TCP", "UDP", "ICMP", "any"].includes(payload.proto)) return "Protocolo inválido.";
+        if (payload.priority < 1 || payload.priority > 10000) return "Prioridade deve ficar entre 1 e 10000.";
+        if (!validAddressOrAny(payload.src)) return "Origem inválida. Use IP, rede CIDR ou 'any'.";
+        if (!validAddressOrAny(payload.dst)) return "Destino inválido. Use IP, rede CIDR ou 'any'.";
+        if (["TCP", "UDP"].includes(payload.proto) && !validPort(payload.port)) return "Porta inválida. Use any, uma porta ou intervalo (ex.: 8000-8010).";
+        return "";
+    }
+
+    async function saveRule() {
+        const payload = collectRule();
+        const validation = validateRule(payload);
+        if (validation) {
+            showFormError("fwrRuleFormError", validation);
+            return;
+        }
+
+        const button = $("fwrRuleSaveBtn");
+        setButtonLoading(button, true, "Salvando");
+        hideFormError("fwrRuleFormError");
+
+        try {
+            const data = state.editingRuleId
+                ? await api(detailUrl(URLS.rules, state.editingRuleId), { method: "PATCH", body: JSON.stringify(payload) })
+                : await api(URLS.rules, { method: "POST", body: JSON.stringify(payload) });
+
+            const applied = Boolean(data.aplicado ?? data.sync_result?.ok ?? false);
+            toast(applied ? "Regra salva e aplicada." : "Regra salva; aplicação pendente.", applied ? "ok" : "warn");
+            closeRuleDrawer();
+            await reloadRules();
+        } catch (error) {
+            showFormError("fwrRuleFormError", error.message);
+        } finally {
+            setButtonLoading(button, false);
+            button.innerHTML = '<i class="bi bi-floppy"></i> Salvar regra';
+        }
+    }
+
+    async function updateRule(id, patch, notify = true) {
+        const data = await api(detailUrl(URLS.rules, id), {
+            method: "PATCH",
+            body: JSON.stringify(patch),
+        });
+        await reloadRules();
+        if (notify) toast(data.aplicado ? "Regra atualizada e aplicada." : "Regra atualizada; aplicação pendente.", data.aplicado ? "ok" : "warn");
+        return data;
+    }
+
+    async function duplicateRule(id) {
+        const source = state.rules.find((r) => Number(r.id) === Number(id));
+        if (!source) return;
+
+        const payload = {
+            desc: `${source.desc || "Regra"} (cópia)`,
+            action: source.action,
+            iface: source.iface,
+            dir: source.dir,
+            proto: source.proto,
+            src: source.src,
+            dst: source.dst,
+            port: source.port,
+            priority: Number(source.priority || 100) + 1,
+            enabled: source.enabled,
+            log: source.log,
+        };
+
+        try {
+            const data = await api(URLS.rules, { method: "POST", body: JSON.stringify(payload) });
+            toast(data.aplicado ? "Regra duplicada e aplicada." : "Regra duplicada; aplicação pendente.", data.aplicado ? "ok" : "warn");
+            await reloadRules();
+        } catch (error) {
+            toast(error.message, "err");
+        }
+    }
+
+    async function deleteRule(id) {
+        const rule = state.rules.find((r) => Number(r.id) === Number(id));
+        const confirmed = await confirmModal({
+            title: "Remover regra",
+            text: `Remover ${rule?.desc ? `“${rule.desc}”` : `a regra #${id}`}? O Agent receberá o novo conjunto de regras.`,
+            danger: true,
+            confirmText: "Remover",
+        });
+        if (!confirmed) return;
+
+        try {
+            const data = await api(detailUrl(URLS.rules, id), { method: "DELETE" });
+            toast(data.aplicado ? "Regra removida do runtime." : "Remoção registrada; aplicação pendente.", data.aplicado ? "ok" : "warn");
+            await reloadRules();
+        } catch (error) {
+            toast(error.message, "err");
+        }
+    }
+
+    function updateRulePreview() {
+        const rule = collectRule();
+        const pieces = [];
+        const physical = logicalPhysical(rule.iface);
+        const iface = physical || rule.iface;
+
+        if (rule.iface !== "any") pieces.push(`${rule.dir === "in" ? "iifname" : "oifname"} \"${iface}\"`);
+        if (rule.src !== "any") pieces.push(`ip saddr ${rule.src}`);
+        if (rule.dst !== "any") pieces.push(`ip daddr ${rule.dst}`);
+        if (rule.proto !== "any") pieces.push(rule.proto.toLowerCase());
+        if (["TCP", "UDP"].includes(rule.proto) && rule.port !== "any") pieces.push(`dport ${rule.port}`);
+        pieces.push(rule.action === "allow" ? "accept" : "drop");
+
+        setText("fwrNftPreviewCode", pieces.join(" ") || "—");
+        const badge = $("fwrRuleSummaryAction");
+        badge.textContent = rule.action.toUpperCase();
+        badge.className = `fwr-action-badge fwr-action-badge--${rule.action}`;
+    }
+
+    function updateProtocolPortState() {
+        const proto = $("rfProto")?.value;
+        const disabled = !["TCP", "UDP"].includes(proto);
+        $("rfPort").disabled = disabled;
+        if (disabled) $("rfPort").value = "any";
+        setText("rfPortHint", disabled ? "Este protocolo não usa porta TCP/UDP." : "Usada como porta de destino.");
+        updateRulePreview();
+    }
+
+    function updatePhysicalIfaceHint() {
+        const role = $("rfIface")?.value || "any";
+        const physical = role === "any" ? "Todas as interfaces" : (logicalPhysical(role) || "não mapeada");
+        setText("rfIfacePhysical", role === "any" ? physical : `${role} → ${physical}`);
+    }
+
+    /* =====================================================================
+       QUICK BLOCK / BLOCKLIST
+       ===================================================================== */
+
+    function updateQuickPreview() {
+        const ip = ($("qbIp")?.value || "").trim();
+        const box = $("qbPreview");
+        if (!box) return;
+        box.hidden = !ip;
+        if (ip) setText("qbPreviewCode", `block ${ip} → ms_emergency`);
+    }
+
+    async function quickBlock() {
+        const ip = ($("qbIp").value || "").trim();
+        const reason = ($("qbReason").value || "").trim() || "Bloqueio manual";
+        const expires = $("qbExpires").value || "∞";
+
+        if (!validIpOrCidr(ip)) {
+            toast("Informe um IP ou rede CIDR válida.", "err");
+            $("qbIp").focus();
+            return;
+        }
+
+        const button = $("qbSubmitBtn");
+        setButtonLoading(button, true, "Bloqueando");
+
+        try {
+            const data = await api(URLS.block, {
+                method: "POST",
+                body: JSON.stringify({ ip, motivo: reason, source: "Manual", expires }),
+            });
+            if (!data.ok) throw new Error(data.erro || "Bloqueio não confirmado.");
+            toast(`${ip} bloqueado pelo Agent.`);
+            $("qbIp").value = "";
+            $("qbReason").value = "";
+            $("qbExpires").value = "∞";
+            updateQuickPreview();
+            await reloadBlocklist();
+        } catch (error) {
+            toast(error.message, "err");
+        } finally {
+            setButtonLoading(button, false);
+            button.innerHTML = '<i class="bi bi-ban"></i> Bloquear agora';
+        }
+    }
+
+    function renderBlocklist() {
+        const body = $("fwrBlockBody");
+        if (!body) return;
+        const q = ($("fwrSearchBlock")?.value || "").trim().toLowerCase();
+        const rows = state.blocklist.filter((b) => !q || [b.ip, b.reason, b.source].some((v) => String(v || "").toLowerCase().includes(q)));
+
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="6"><div class="fwr-empty">Nenhum IP bloqueado.</div></td></tr>';
+            return;
+        }
+
+        body.innerHTML = rows.map((b) => `
+            <tr>
+                <td class="fwr-cell-mono">${escapeHtml(b.ip || "—")}</td>
+                <td class="fwr-cell-muted">${escapeHtml(b.reason || "—")}</td>
+                <td>${sourceBadge(b.source)}</td>
+                <td class="fwr-cell-mono">${escapeHtml(b.expires || "∞")}</td>
+                <td class="fwr-cell-mono fwr-cell-muted">${escapeHtml(b.date || b.criado_em || "—")}</td>
+                <td><div class="fwr-row-actions"><button class="fwr-icon-btn fwr-icon-btn--danger" type="button" data-unblock-id="${b.id}" data-unblock-ip="${escapeAttr(b.ip || "")}" title="Desbloquear"><i class="bi bi-unlock"></i></button></div></td>
+            </tr>
+        `).join("");
+
+        body.querySelectorAll("[data-unblock-id]").forEach((button) => {
+            button.addEventListener("click", () => unblockEntry(button.dataset.unblockId, button.dataset.unblockIp));
+        });
+    }
+
+    async function addBlockWithModal() {
+        const result = await promptModal({
+            title: "Bloquear IP ou rede",
+            icon: "bi-ban",
+            fields: [
+                { id: "ip", label: "IP / CIDR", placeholder: "1.2.3.4 ou 203.0.113.0/24" },
+                { id: "reason", label: "Motivo", placeholder: "Bloqueio manual" },
+            ],
+            confirmText: "Bloquear",
+            danger: true,
+        });
+        if (!result) return;
+        const ip = String(result.ip || "").trim();
+        if (!validIpOrCidr(ip)) return toast("IP ou rede inválida.", "err");
+
+        try {
+            const data = await api(URLS.blocklist, {
+                method: "POST",
+                body: JSON.stringify({ ip, reason: result.reason || "Bloqueio manual", source: "Manual", expires: "∞" }),
+            });
+            if (!data.ok) throw new Error(data.erro || "Falha no bloqueio.");
+            toast(`${ip} bloqueado.`);
+            await reloadBlocklist();
+        } catch (error) {
+            toast(error.message, "err");
+        }
+    }
+
+    async function unblockEntry(id, ip) {
+        const confirmed = await confirmModal({ title: "Desbloquear IP", text: `Remover ${ip} da blocklist e solicitar desbloqueio ao Agent?`, confirmText: "Desbloquear" });
+        if (!confirmed) return;
+        try {
+            const data = await api(detailUrl(URLS.blocklist, id), { method: "DELETE" });
+            if (!data.ok) throw new Error(data.erro || "Desbloqueio não confirmado.");
+            toast(`${ip} desbloqueado.`);
+            await reloadBlocklist();
+        } catch (error) {
+            toast(error.message, "err");
+        }
+    }
+
+    function sourceBadge(source) {
+        const value = String(source || "Manual");
+        const klass = value.toLowerCase() === "auto" ? "auto" : value.toLowerCase() === "soc" ? "soc" : "manual";
+        return `<span class="fwr-source-badge fwr-source-badge--${klass}">${escapeHtml(value)}</span>`;
+    }
+
+    /* =====================================================================
+       ALLOWLIST — persistence only
+       ===================================================================== */
+
+    function renderAllowlist() {
+        const body = $("fwrAllowBody");
+        if (!body) return;
+        const q = ($("fwrSearchAllow")?.value || "").trim().toLowerCase();
+        const rows = state.allowlist.filter((a) => !q || [a.ip, a.reason].some((v) => String(v || "").toLowerCase().includes(q)));
+
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="5"><div class="fwr-empty">Nenhum cadastro na allowlist.</div></td></tr>';
+            return;
+        }
+
+        body.innerHTML = rows.map((a) => `
+            <tr>
+                <td class="fwr-cell-mono">${escapeHtml(a.ip || "—")}</td>
+                <td class="fwr-cell-muted">${escapeHtml(a.reason || "—")}</td>
+                <td class="fwr-cell-mono fwr-cell-muted">${escapeHtml(a.date || a.criado_em || "—")}</td>
+                <td><span class="fwr-runtime-badge fwr-runtime-badge--off">NÃO APLICADO</span></td>
+                <td><div class="fwr-row-actions"><button class="fwr-icon-btn fwr-icon-btn--danger" type="button" data-allow-delete="${a.id}" title="Remover"><i class="bi bi-trash3"></i></button></div></td>
+            </tr>
+        `).join("");
+
+        body.querySelectorAll("[data-allow-delete]").forEach((button) => {
+            button.addEventListener("click", () => deleteAllow(Number(button.dataset.allowDelete)));
+        });
+    }
+
+    async function addAllow() {
+        const result = await promptModal({
+            title: "Adicionar à allowlist",
+            icon: "bi-check2-circle",
+            fields: [
+                { id: "ip", label: "IP / rede", placeholder: "10.10.0.10 ou 10.10.0.0/24" },
+                { id: "reason", label: "Motivo", placeholder: "Servidor confiável" },
+            ],
+            confirmText: "Salvar cadastro",
+        });
+        if (!result) return;
+        if (!String(result.ip || "").trim()) return toast("Informe um IP ou rede.", "err");
+
+        try {
+            const data = await api(URLS.allowlist, { method: "POST", body: JSON.stringify({ ip: result.ip, reason: result.reason || "Liberação manual" }) });
+            if (!data.ok) throw new Error(data.erro || "Falha ao salvar allowlist.");
+            state.allowlist.push(data.entry);
+            renderAllowlist(); updateCounts();
+            toast("Cadastro salvo. Ainda não aplicado ao runtime.", "warn");
+        } catch (error) { toast(error.message, "err"); }
+    }
+
+    async function deleteAllow(id) {
+        if (!await confirmModal({ title: "Remover da allowlist", text: "Remover este cadastro?", danger: true, confirmText: "Remover" })) return;
+        try {
+            await api(detailUrl(URLS.allowlist, id), { method: "DELETE" });
+            state.allowlist = state.allowlist.filter((a) => Number(a.id) !== id);
+            renderAllowlist(); updateCounts(); toast("Cadastro removido.");
+        } catch (error) { toast(error.message, "err"); }
+    }
+
+    /* =====================================================================
+       GEOBLOCK — persistence only
+       ===================================================================== */
+
+    function renderGeoblock() {
+        const body = $("fwrGeoBody");
+        if (!body) return;
+        const q = ($("fwrSearchGeo")?.value || "").trim().toLowerCase();
+        const rows = state.geoblock.filter((g) => !q || [g.country, g.code].some((v) => String(v || "").toLowerCase().includes(q)));
+
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="6"><div class="fwr-empty">Nenhum país cadastrado.</div></td></tr>';
+            return;
+        }
+
+        body.innerHTML = rows.map((g) => `
+            <tr class="${g.enabled ? "" : "fwr-row-disabled"}">
+                <td>${escapeHtml(g.country || "—")}</td>
+                <td class="fwr-cell-mono">${escapeHtml(g.code || "—")}</td>
+                <td class="fwr-cell-mono">${escapeHtml(g.dir || "IN")}</td>
+                <td><label class="fwr-toggle"><input class="geo-toggle" type="checkbox" data-id="${g.id}" ${g.enabled ? "checked" : ""}><span></span></label></td>
+                <td><span class="fwr-runtime-badge fwr-runtime-badge--off">NÃO APLICADO</span></td>
+                <td><div class="fwr-row-actions"><button class="fwr-icon-btn fwr-icon-btn--danger" type="button" data-geo-delete="${g.id}" title="Remover"><i class="bi bi-trash3"></i></button></div></td>
+            </tr>
+        `).join("");
+
+        body.querySelectorAll(".geo-toggle").forEach((toggle) => toggle.addEventListener("change", () => updateGeo(Number(toggle.dataset.id), toggle.checked, toggle)));
+        body.querySelectorAll("[data-geo-delete]").forEach((button) => button.addEventListener("click", () => deleteGeo(Number(button.dataset.geoDelete))));
+    }
+
+    async function addGeo() {
+        const select = $("geoCountrySelect");
+        const code = select.value;
+        if (!code) return toast("Selecione um país.", "err");
+        const country = select.options[select.selectedIndex].text.replace(/\s*\([A-Z]{2}\)\s*$/, "");
+        const dir = $("geoDirSelect").value;
+
+        try {
+            const data = await api(URLS.geoblock, { method: "POST", body: JSON.stringify({ code, country, dir, enabled: true }) });
+            if (!data.ok) throw new Error(data.erro || "Falha ao salvar GeoBlock.");
+            if (data.created === false) toast("Esse país já estava cadastrado.", "warn");
+            const refreshed = await api(URLS.geoblock);
+            state.geoblock = refreshed.entries || [];
+            renderGeoblock(); updateCounts();
+            $("fwrGeoAddPanel").hidden = true;
+            toast("GeoBlock salvo no Django; runtime ainda não aplicado.", "warn");
+        } catch (error) { toast(error.message, "err"); }
+    }
+
+    async function updateGeo(id, enabled, toggle) {
+        try {
+            const data = await api(detailUrl(URLS.geoblock, id), { method: "PATCH", body: JSON.stringify({ enabled }) });
+            const idx = state.geoblock.findIndex((g) => Number(g.id) === id);
+            if (idx >= 0 && data.entry) state.geoblock[idx] = data.entry;
+            renderGeoblock();
+            toast("Cadastro GeoBlock atualizado; runtime ainda não aplicado.", "warn");
+        } catch (error) {
+            toggle.checked = !enabled;
+            toast(error.message, "err");
+        }
+    }
+
+    async function deleteGeo(id) {
+        if (!await confirmModal({ title: "Remover GeoBlock", text: "Remover este país do cadastro?", danger: true, confirmText: "Remover" })) return;
+        try {
+            await api(detailUrl(URLS.geoblock, id), { method: "DELETE" });
+            state.geoblock = state.geoblock.filter((g) => Number(g.id) !== id);
+            renderGeoblock(); updateCounts(); toast("Cadastro removido.");
+        } catch (error) { toast(error.message, "err"); }
+    }
+
+    /* =====================================================================
+       NAT — persistence only
+       ===================================================================== */
+
+    function renderNat() {
+        const body = $("fwrNatBody");
+        if (!body) return;
+        setText("natCount", state.nat.length);
+
+        if (!state.nat.length) {
+            body.innerHTML = '<tr><td colspan="8"><div class="fwr-empty">Nenhum port forward cadastrado.</div></td></tr>';
+            return;
+        }
+
+        body.innerHTML = state.nat.map((n) => `
+            <tr class="${n.enabled ? "" : "fwr-row-disabled"}">
+                <td>${escapeHtml(n.name || "—")}</td>
+                <td><span class="fwr-iface-badge">${escapeHtml(n.iface || "WAN")}</span></td>
+                <td class="fwr-cell-mono">:${escapeHtml(n.wan_port || "—")}</td>
+                <td class="fwr-cell-mono">${escapeHtml(n.lan_ip || "—")}:${escapeHtml(n.lan_port || "—")}</td>
+                <td class="fwr-cell-mono">${escapeHtml(n.proto || "TCP")}</td>
+                <td><label class="fwr-toggle"><input class="nat-toggle" type="checkbox" data-id="${n.id}" ${n.enabled ? "checked" : ""}><span></span></label></td>
+                <td><span class="fwr-runtime-badge fwr-runtime-badge--off">NÃO APLICADO</span></td>
+                <td><div class="fwr-row-actions"><button class="fwr-icon-btn" type="button" data-nat-edit="${n.id}" title="Editar"><i class="bi bi-pencil"></i></button><button class="fwr-icon-btn fwr-icon-btn--danger" type="button" data-nat-delete="${n.id}" title="Remover"><i class="bi bi-trash3"></i></button></div></td>
+            </tr>
+        `).join("");
+
+        body.querySelectorAll(".nat-toggle").forEach((toggle) => toggle.addEventListener("change", () => patchNat(Number(toggle.dataset.id), { enabled: toggle.checked }, toggle)));
+        body.querySelectorAll("[data-nat-edit]").forEach((button) => button.addEventListener("click", () => openNatDrawer(Number(button.dataset.natEdit))));
+        body.querySelectorAll("[data-nat-delete]").forEach((button) => button.addEventListener("click", () => deleteNat(Number(button.dataset.natDelete))));
+    }
+
+    function openNatDrawer(id = null) {
+        const entry = id ? state.nat.find((n) => Number(n.id) === id) : null;
+        state.editingNatId = entry?.id || null;
+        setText("fwrNatDrawerTitle", entry ? "Editar port forward" : "Novo port forward");
+        $("natName").value = entry?.name || "";
+        $("natIface").value = entry?.iface || "WAN";
+        $("natProto").value = entry?.proto || "TCP";
+        $("natWanPort").value = entry?.wan_port || "";
+        $("natLanIp").value = entry?.lan_ip || "";
+        $("natLanPort").value = entry?.lan_port || "";
+        $("natEnabled").checked = entry ? Boolean(entry.enabled) : true;
+        hideFormError("fwrNatFormError");
+        setDrawer("fwrNatDrawer", "fwrNatDrawerOverlay", true);
+    }
+
+    function closeNatDrawer() { state.editingNatId = null; setDrawer("fwrNatDrawer", "fwrNatDrawerOverlay", false); }
+
+    function collectNat() {
+        return {
+            name: ($("natName").value || "").trim() || "Port Forward",
+            iface: $("natIface").value,
+            proto: $("natProto").value,
+            wan_port: ($("natWanPort").value || "").trim(),
+            lan_ip: ($("natLanIp").value || "").trim(),
+            lan_port: ($("natLanPort").value || "").trim(),
+            enabled: $("natEnabled").checked,
+        };
+    }
+
+    async function saveNat() {
+        const payload = collectNat();
+        if (!validSinglePort(payload.wan_port) || !validSinglePort(payload.lan_port)) return showFormError("fwrNatFormError", "As portas devem ficar entre 1 e 65535.");
+        if (!validIpv4(payload.lan_ip)) return showFormError("fwrNatFormError", "Informe um IPv4 interno válido.");
+
+        const button = $("fwrNatSaveBtn"); setButtonLoading(button, true, "Salvando");
+        try {
+            const data = state.editingNatId
+                ? await api(detailUrl(URLS.nat, state.editingNatId), { method: "PATCH", body: JSON.stringify(payload) })
+                : await api(URLS.nat, { method: "POST", body: JSON.stringify(payload) });
+            if (!data.ok) throw new Error(data.erro || "Falha ao salvar NAT.");
+            const refreshed = await api(URLS.nat); state.nat = refreshed.entries || [];
+            renderNat(); updateCounts(); closeNatDrawer();
+            toast("Port forward salvo no Django; runtime ainda não aplicado.", "warn");
+        } catch (error) { showFormError("fwrNatFormError", error.message); }
+        finally { setButtonLoading(button, false); button.innerHTML = '<i class="bi bi-floppy"></i> Salvar cadastro'; }
+    }
+
+    async function patchNat(id, patch, toggle) {
+        try {
+            const data = await api(detailUrl(URLS.nat, id), { method: "PATCH", body: JSON.stringify(patch) });
+            const idx = state.nat.findIndex((n) => Number(n.id) === id);
+            if (idx >= 0 && data.nat) state.nat[idx] = data.nat;
+            renderNat(); toast("Cadastro NAT atualizado; runtime ainda não aplicado.", "warn");
+        } catch (error) { if (toggle) toggle.checked = !toggle.checked; toast(error.message, "err"); }
+    }
+
+    async function deleteNat(id) {
+        if (!await confirmModal({ title: "Remover port forward", text: "Remover este cadastro NAT?", danger: true, confirmText: "Remover" })) return;
+        try {
+            await api(detailUrl(URLS.nat, id), { method: "DELETE" });
+            state.nat = state.nat.filter((n) => Number(n.id) !== id);
+            renderNat(); updateCounts(); toast("Cadastro NAT removido.");
+        } catch (error) { toast(error.message, "err"); }
+    }
+
+    /* =====================================================================
+       TABS / EVENTS
+       ===================================================================== */
+
+    function bindStaticEvents() {
+        document.querySelectorAll(".fwr-tab").forEach((button) => button.addEventListener("click", () => switchTab(button.dataset.tab)));
+
+        $("fwrApplyBtn")?.addEventListener("click", applyPending);
+        $("fwrSyncApplyBtn")?.addEventListener("click", applyPending);
+        $("fwrExportNftBtn")?.addEventListener("click", () => { if (URLS.exportNft) window.location.href = URLS.exportNft; });
+
+        $("qbIp")?.addEventListener("input", updateQuickPreview);
+        $("qbSubmitBtn")?.addEventListener("click", quickBlock);
+        $("fwrAddBlockBtn")?.addEventListener("click", addBlockWithModal);
+
+        $("fwrSearchRegras")?.addEventListener("input", renderRules);
+        $("fwrFilterAction")?.addEventListener("change", renderRules);
+        $("fwrFilterIface")?.addEventListener("change", renderRules);
+        $("fwrSearchBlock")?.addEventListener("input", renderBlocklist);
+        $("fwrSearchAllow")?.addEventListener("input", renderAllowlist);
+        $("fwrSearchGeo")?.addEventListener("input", renderGeoblock);
+
+        $("fwrNewRuleBtn")?.addEventListener("click", () => openRuleDrawer());
+        $("fwrRuleSaveBtn")?.addEventListener("click", saveRule);
+        $("fwrRuleDrawerCancel")?.addEventListener("click", closeRuleDrawer);
+        $("fwrRuleDrawerClose")?.addEventListener("click", closeRuleDrawer);
+        $("fwrRuleDrawerOverlay")?.addEventListener("click", closeRuleDrawer);
+        $("fwrRuleDrawerDup")?.addEventListener("click", () => { const id = state.editingRuleId; if (id) { closeRuleDrawer(); duplicateRule(id); } });
+
+        ["rfDesc", "rfAction", "rfPriority", "rfIface", "rfDir", "rfProto", "rfSrc", "rfDst", "rfPort", "rfEnabled", "rfLog"].forEach((id) => {
+            $(id)?.addEventListener("input", updateRulePreview);
+            $(id)?.addEventListener("change", updateRulePreview);
+        });
+        $("rfProto")?.addEventListener("change", updateProtocolPortState);
+        $("rfIface")?.addEventListener("change", updatePhysicalIfaceHint);
+
+        $("fwrAddAllowBtn")?.addEventListener("click", addAllow);
+        $("fwrAddGeoBtn")?.addEventListener("click", () => { $("fwrGeoAddPanel").hidden = !$("fwrGeoAddPanel").hidden; });
+        $("geoAddCancelBtn")?.addEventListener("click", () => { $("fwrGeoAddPanel").hidden = true; });
+        $("geoAddConfirmBtn")?.addEventListener("click", addGeo);
+
+        $("fwrNewNatBtn")?.addEventListener("click", () => openNatDrawer());
+        $("fwrNatSaveBtn")?.addEventListener("click", saveNat);
+        $("fwrNatDrawerCancel")?.addEventListener("click", closeNatDrawer);
+        $("fwrNatDrawerClose")?.addEventListener("click", closeNatDrawer);
+        $("fwrNatDrawerOverlay")?.addEventListener("click", closeNatDrawer);
+
+        $("fwrModalOverlay")?.addEventListener("click", (event) => {
+            if (event.target === $("fwrModalOverlay")) closeModal(null);
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            if ($("fwrModalOverlay")?.classList.contains("open")) return closeModal(null);
+            if ($("fwrRuleDrawer")?.classList.contains("open")) return closeRuleDrawer();
+            if ($("fwrNatDrawer")?.classList.contains("open")) return closeNatDrawer();
+        });
+    }
+
+    function switchTab(name) {
+        document.querySelectorAll(".fwr-tab").forEach((button) => button.classList.toggle("fwr-tab--active", button.dataset.tab === name));
+        document.querySelectorAll(".fwr-panel").forEach((panel) => panel.classList.remove("fwr-panel--active"));
+        const map = { regras: "panelRegras", bloqueados: "panelBloqueados", liberados: "panelLiberados", geoblock: "panelGeoblock", nat: "panelNat" };
+        $(map[name])?.classList.add("fwr-panel--active");
+    }
+
+    /* =====================================================================
+       MODAL
+       ===================================================================== */
+
+    function confirmModal({ title, text, confirmText = "Confirmar", danger = false }) {
+        return openModal({ title, text, fields: [], confirmText, danger });
+    }
+
+    function promptModal({ title, icon = "bi-pencil", fields = [], confirmText = "Confirmar", danger = false }) {
+        return openModal({ title, text: "", icon, fields, confirmText, danger, collect: true });
+    }
+
+    function openModal({ title, text, icon = "bi-exclamation-triangle", fields = [], confirmText, danger, collect = false }) {
+        setText("fwrModalTitle", title || "Confirmação");
+        setText("fwrModalText", text || "");
+        $("fwrModalIcon").innerHTML = `<i class="bi ${escapeAttr(icon)}"></i>`;
+
+        const fieldsBox = $("fwrModalFields");
+        fieldsBox.innerHTML = fields.map((field) => `
+            <div class="fwr-modal-field">
+                <label for="fwrModal_${escapeAttr(field.id)}">${escapeHtml(field.label)}</label>
+                <input class="fwr-input" id="fwrModal_${escapeAttr(field.id)}" data-modal-field="${escapeAttr(field.id)}" type="text" placeholder="${escapeAttr(field.placeholder || "")}">
             </div>
-          </div>
+        `).join("");
 
-          <!-- campos de input (para prompt) -->
-          <div id="msModalFields" style="margin-bottom:16px"></div>
+        const actions = $("fwrModalActions");
+        actions.innerHTML = "";
 
-          <div id="msModalBtns" style="display:flex;justify-content:flex-end;gap:8px"></div>
-        </div>
-      </div>
-      <style>
-        @keyframes msModalIn{from{opacity:0;transform:scale(.96) translateY(6px)}to{opacity:1;transform:none}}
-        .ms-modal-input{
-          width:100%;box-sizing:border-box;
-          background:var(--bg-hover,#252b3b);
-          border:1px solid var(--border,#2a2f3e);
-          border-radius:6px;padding:8px 10px;
-          color:var(--text,#e2e8f0);font-size:13px;
-          margin-bottom:10px;outline:none;
-          transition:border-color .15s;
-        }
-        .ms-modal-input:focus{border-color:#3b82f6}
-        .ms-modal-input:last-child{margin-bottom:0}
-        .ms-modal-label{
-          font-size:11px;color:var(--text-dim,#64748b);
-          margin-bottom:4px;display:block;font-weight:500;
-        }
-        .ms-modal-btn{
-          padding:7px 16px;border-radius:6px;font-size:12px;
-          font-weight:600;cursor:pointer;border:none;
-          transition:opacity .15s,transform .1s;
-        }
-        .ms-modal-btn:hover{opacity:.85;transform:translateY(-1px)}
-        .ms-modal-btn--cancel{background:var(--bg-hover,#252b3b);color:var(--text-muted,#94a3b8);border:1px solid var(--border,#2a2f3e)}
-        .ms-modal-btn--confirm{background:#3b82f6;color:#fff}
-        .ms-modal-btn--danger{background:#ef4444;color:#fff}
-        .ms-modal-btn--ok{background:#22c55e;color:#fff}
-      </style>
-    `);
+        const cancel = document.createElement("button");
+        cancel.type = "button"; cancel.className = "fwr-btn"; cancel.textContent = "Cancelar";
+        cancel.addEventListener("click", () => closeModal(null));
 
-    // Fecha clicando fora
-    $('msModalOverlay').addEventListener('click', e => {
-      if (e.target === $('msModalOverlay')) _closeModal(null);
-    });
-  }
-
-  let _modalResolve = null;
-
-  function _closeModal(value) {
-    const ov = $('msModalOverlay');
-    if (ov) ov.style.display = 'none';
-    if (_modalResolve) { _modalResolve(value); _modalResolve = null; }
-  }
-
-  function _openModal({ icon = '', title = '', msg = '', fields = [], buttons = [] }) {
-    _injectModalHtml();
-    $('msModalIcon').innerHTML = icon;
-    $('msModalTitle').textContent = title;
-    $('msModalMsg').innerHTML = msg;
-
-    // Campos de input
-    const fieldsDiv = $('msModalFields');
-    fieldsDiv.innerHTML = '';
-    fieldsDiv.style.display = fields.length ? 'block' : 'none';
-    fields.forEach(f => {
-      if (f.label) {
-        const lbl = document.createElement('label');
-        lbl.className = 'ms-modal-label';
-        lbl.textContent = f.label;
-        fieldsDiv.appendChild(lbl);
-      }
-      const inp = document.createElement('input');
-      inp.className = 'ms-modal-input';
-      inp.type = f.type || 'text';
-      inp.placeholder = f.placeholder || '';
-      inp.id = f.id || `msField_${Math.random()}`;
-      if (f.value) inp.value = f.value;
-      fieldsDiv.appendChild(inp);
-    });
-
-    // Botões
-    const btnsDiv = $('msModalBtns');
-    btnsDiv.innerHTML = '';
-    buttons.forEach(b => {
-      const btn = document.createElement('button');
-      btn.className = `ms-modal-btn ms-modal-btn--${b.style || 'confirm'}`;
-      btn.innerHTML = b.label;
-      btn.addEventListener('click', () => {
-        if (b.collect) {
-          // Coleta valores dos inputs
-          const vals = {};
-          fields.forEach(f => { vals[f.id] = $(f.id)?.value?.trim() || ''; });
-          _closeModal(b.collect(vals));
-        } else {
-          _closeModal(b.value !== undefined ? b.value : null);
-        }
-      });
-      btnsDiv.appendChild(btn);
-    });
-
-    $('msModalOverlay').style.display = 'flex';
-
-    return new Promise(res => { _modalResolve = res; });
-  }
-
-  /* ── confirm genérico ── */
-  function msConfirm({ icon = '<i class="bi bi-exclamation-triangle-fill" style="color:#f97316"></i>', title, msg, confirmLabel = 'Confirmar', confirmStyle = 'danger' } = {}) {
-    return _openModal({
-      icon, title, msg,
-      buttons: [
-        { label: 'Cancelar', style: 'cancel', value: false },
-        { label: confirmLabel, style: confirmStyle, value: true },
-      ],
-    });
-  }
-
-  /* ── prompt duplo: IP + motivo ── */
-  function msPromptIpMotivo({ title, iconColor = '#ef4444', ipLabel = 'IP ou subnet', ipPlaceholder = 'ex: 1.2.3.4 ou 10.0.0.0/24', motivoLabel = 'Motivo (opcional)', motivoPlaceholder = '' } = {}) {
-    return _openModal({
-      icon: `<i class="bi bi-slash-circle" style="color:${iconColor}"></i>`,
-      title,
-      msg: '',
-      fields: [
-        { id: 'msIpField', label: ipLabel, placeholder: ipPlaceholder },
-        { id: 'msMotivField', label: motivoLabel, placeholder: motivoPlaceholder },
-      ],
-      buttons: [
-        { label: 'Cancelar', style: 'cancel', value: null },
-        {
-          label: 'Confirmar', style: 'danger',
-          collect: vals => vals,
-        },
-      ],
-    });
-  }
-
-  /* ── prompt simples: IP + motivo para allowlist ── */
-  function msPromptAllow() {
-    return _openModal({
-      icon: '<i class="bi bi-check2-circle" style="color:#22c55e"></i>',
-      title: 'Liberar IP / Domínio',
-      msg: '',
-      fields: [
-        { id: 'msIpField', label: 'IP, subnet ou domínio', placeholder: 'ex: 8.8.8.8 ou partner.com' },
-        { id: 'msMotivField', label: 'Motivo (opcional)', placeholder: 'ex: Parceiro confiável' },
-      ],
-      buttons: [
-        { label: 'Cancelar', style: 'cancel', value: null },
-        { label: '<i class="bi bi-plus-circle"></i> Liberar', style: 'ok', collect: vals => vals },
-      ],
-    });
-  }
-
-  /* ══ LOAD ══ */
-  async function loadAll() {
-    try {
-      const d = await apiFetch('/firewall/api/data/');
-      if (!d.ok) return;
-      RULES = d.rules || [];
-      BLOCKLIST = d.blocklist || [];
-      ALLOWLIST = d.allowlist || [];
-      GEOBLOCK = d.geoblock || [];
-      NAT = d.nat || [];
-
-      const badge = $('fwrModeBadge');
-      if (badge) {
-        badge.style.display = 'inline-block';
-        badge.textContent = (d.mode || 'demo').toUpperCase();
-        badge.style.cssText = d.mode === 'prod'
-          ? 'display:inline-block;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(59,130,246,.18);color:#3b82f6;border:1px solid rgba(59,130,246,.3)'
-          : 'display:inline-block;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(234,179,8,.18);color:#eab308;border:1px solid rgba(234,179,8,.3)';
-      }
-      if (d.sync) renderSyncBar(d.sync);
-      renderAll();
-    } catch (e) { console.error('[regras]', e); }
-  }
-
-  async function loadInterfaces() {
-    try {
-      const d = await apiFetch('/firewall/api/interfaces/');
-      if (!d.ok || !d.interfaces) return;
-      INTERFACES = d.interfaces;
-      populateIfaceSelects();
-      const status = $('fwrIfaceStatus');
-      if (status && INTERFACES.length)
-        status.textContent = `Interfaces detectadas: ${INTERFACES.map(i => `${i.nome} (${i.ip || '—'})`).join(' · ')}`;
-    } catch (e) { console.warn('[regras] interfaces:', e); }
-  }
-
-  function populateIfaceSelects() {
-    [$('qbIface'), $('fwrFilterIface')].forEach(sel => {
-      if (!sel) return;
-      const cur = sel.value, first = sel.options[0];
-      sel.innerHTML = ''; sel.appendChild(first);
-      (INTERFACES.length ? INTERFACES : [{ nome: 'WAN' }, { nome: 'LAN' }, { nome: 'VPN' }]).forEach(i => {
-        const o = document.createElement('option');
-        o.value = i.nome; o.textContent = i.ip ? `${i.nome}  (${i.ip})` : i.nome;
-        sel.appendChild(o);
-      });
-      if (cur) sel.value = cur;
-    });
-    const rfIface = $('rfIface');
-    if (rfIface) {
-      const cur = rfIface.value; rfIface.innerHTML = '';
-      (INTERFACES.length ? INTERFACES : [{ nome: 'WAN' }, { nome: 'LAN' }, { nome: 'VPN' }]).forEach(i => {
-        const o = document.createElement('option');
-        o.value = i.nome; o.textContent = i.ip ? `${i.nome}  (${i.ip})` : i.nome;
-        rfIface.appendChild(o);
-      });
-      const any = document.createElement('option'); any.value = 'any'; any.textContent = 'Qualquer (any)';
-      rfIface.appendChild(any);
-      if (cur) rfIface.value = cur;
-    }
-  }
-
-  /* ══ SYNC BAR ══ */
-  function renderSyncBar(sync) {
-    const bar = $('fwrSyncBar'); if (!bar) return;
-    if (!sync || sync.pendentes === 0) {
-      bar.classList.remove('visible');
-      clearInterval(syncTimer);
-      return;
-    }
-    bar.classList.add('visible');
-    $('fwrSyncMsg').innerHTML =
-      `<i class="bi bi-hourglass-split"></i> ${sync.pendentes} regra(s) pendente(s) de ${sync.total} — aguardando sincronização com o sensor Linux.`;
-    clearInterval(syncTimer);
-    let countdown = 30;
-    syncTimer = setInterval(() => {
-      countdown--;
-      const msg = $('fwrSyncMsg');
-      if (msg && countdown > 0)
-        msg.innerHTML = `<i class="bi bi-hourglass-split"></i> ${sync.pendentes} regra(s) pendente(s) de ${sync.total} — próximo poll em ${countdown}s`;
-      if (countdown <= 0) { clearInterval(syncTimer); loadAll(); }
-    }, 1000);
-  }
-
-  function _currentSync() {
-    return {
-      pendentes: RULES.filter(r => r.pendente).length,
-      total: RULES.length,
-      aplicadas: RULES.filter(r => r.sincronizada).length,
-    };
-  }
-
-  /* ══ RENDER ══ */
-  function renderAll() { renderRules(); renderBlocklist(); renderAllowlist(); renderGeoblock(); renderNat(); updateCounts(); }
-
-  function updateCounts() {
-    $('tabCountRegras').textContent = RULES.filter(r => !r.deletado).length;
-    $('tabCountBloqueados').textContent = BLOCKLIST.length;
-    $('tabCountLiberados').textContent = ALLOWLIST.length;
-    $('tabCountGeoblock').textContent = GEOBLOCK.length;
-    $('tabCountNat').textContent = NAT.length;
-  }
-
-  /* ══ PREVIEW NFT ══ */
-  function buildNftPreview() {
-    const action = $('rfAction')?.value, iface = $('rfIface')?.value;
-    const dir = $('rfDir')?.value, proto = $('rfProto')?.value;
-    const src = $('rfSrc')?.value.trim() || 'any', dst = $('rfDst')?.value.trim() || 'any';
-    const port = $('rfPort')?.value.trim() || 'any';
-    const parts = [];
-    if (iface && iface !== 'any') parts.push(`${dir === 'in' ? 'iifname' : 'oifname'} "${iface}"`);
-    if (src && src !== 'any') parts.push(`ip saddr ${src}`);
-    if (dst && dst !== 'any') parts.push(`ip daddr ${dst}`);
-    if (proto && proto !== 'any') parts.push(proto.toLowerCase());
-    if (port && port !== 'any' && (proto === 'TCP' || proto === 'UDP')) parts.push(`dport ${port}`);
-    parts.push(action === 'allow' ? 'accept' : 'drop');
-    const c = $('fwrNftPreviewCode'); if (c) c.textContent = parts.join(' ') || '—';
-  }
-  ['rfAction', 'rfIface', 'rfDir', 'rfProto', 'rfSrc', 'rfDst', 'rfPort'].forEach(id => {
-    $(id)?.addEventListener('input', buildNftPreview);
-    $(id)?.addEventListener('change', buildNftPreview);
-  });
-
-  /* ══ PREVIEW QB ══ */
-  function updateQbPreview() {
-    const ip = $('qbIp')?.value.trim(), iface = $('qbIface')?.value;
-    const port = $('qbPort')?.value.trim(), proto = $('qbProto')?.value;
-    const prev = $('qbPreview'); if (!prev) return;
-    if (!ip) { prev.style.display = 'none'; return; }
-    const parts = [];
-    if (iface) parts.push(`iifname "${iface}"`);
-    parts.push(`ip saddr ${ip}`);
-    if (proto) parts.push(proto.toLowerCase());
-    if (port) parts.push(`dport ${port}`);
-    parts.push('drop');
-    prev.style.display = 'block';
-    prev.innerHTML = `<i class="bi bi-terminal" style="opacity:.5"></i> <code>${parts.join(' ')}</code>`;
-  }
-  $('qbIp')?.addEventListener('input', updateQbPreview);
-  $('qbIface')?.addEventListener('change', updateQbPreview);
-  $('qbPort')?.addEventListener('input', updateQbPreview);
-  $('qbProto')?.addEventListener('change', updateQbPreview);
-
-  /* ══ REGRAS ══ */
-  function filteredRules() {
-    return RULES.filter(r => {
-      if (r.deletado) return false;
-      if (filterAction !== 'all' && r.action !== filterAction) return false;
-      if (filterIface !== 'all' && r.iface !== filterIface) return false;
-      if (searchRegras) {
-        const q = searchRegras.toLowerCase();
-        if (!r.desc?.toLowerCase().includes(q) && !r.src?.includes(q) && !r.dst?.includes(q) && !String(r.port).includes(q)) return false;
-      }
-      return true;
-    }).sort((a, b) => a.priority - b.priority);
-  }
-
-  function syncBadge(r) {
-    if (r.pendente) return `<span class="fwr-sync-icon fwr-sync-icon--pending" title="Pendente — aguardando sync"><i class="bi bi-hourglass-split"></i></span>`;
-    if (r.sincronizada) return `<span class="fwr-sync-icon fwr-sync-icon--ok" title="Aplicada no Linux"><i class="bi bi-check-circle-fill"></i></span>`;
-    return `<span class="fwr-sync-icon" style="color:var(--text-dim)">—</span>`;
-  }
-
-  function buildNftInline(r) {
-    const parts = [];
-    if (r.iface && r.iface !== 'any') parts.push(`${r.dir === 'in' ? 'iifname' : 'oifname'} "${r.iface}"`);
-    if (r.src && r.src !== 'any') parts.push(`saddr ${r.src}`);
-    if (r.dst && r.dst !== 'any') parts.push(`daddr ${r.dst}`);
-    if (r.proto && r.proto !== 'any') parts.push(r.proto.toLowerCase());
-    if (r.port && r.port !== 'any') parts.push(`dport ${r.port}`);
-    parts.push(r.action === 'allow' ? 'accept' : 'drop');
-    return parts.join(' ');
-  }
-
-  function truncate(str, n) { return str?.length > n ? str.slice(0, n) + '…' : (str || '—'); }
-
-  function renderRules() {
-    const body = $('fwrRulesBody'); if (!body) return;
-    const rows = filteredRules();
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="12"><div class="fwr-empty">
-        <i class="bi bi-list-check" style="font-size:24px;opacity:.3"></i>
-        <span>Nenhuma regra encontrada</span>
-        <button class="fwr-btn fwr-btn--primary" onclick="document.getElementById('fwrNewRuleBtn').click()" style="margin-top:8px">
-          <i class="bi bi-plus-circle"></i> Criar primeira regra
-        </button>
-      </div></td></tr>`;
-      return;
-    }
-    body.innerHTML = rows.map((r, i) => `
-      <tr style="animation:fwrRowIn .18s ${i * 12}ms both;opacity:${r.enabled ? 1 : .4}">
-        <td style="font-family:var(--font-mono);font-size:12px">${r.priority}</td>
-        <td><span class="fwr-action-badge fwr-action-badge--${r.action}">${r.action.toUpperCase()}</span></td>
-        <td><span class="fwr-iface-badge">${r.iface}</span></td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${r.proto}</td>
-        <td style="font-family:var(--font-mono);font-size:11px" title="${r.src}">${truncate(r.src, 16)}</td>
-        <td style="font-family:var(--font-mono);font-size:11px" title="${r.dst}">${truncate(r.dst, 16)}</td>
-        <td style="font-family:var(--font-mono);font-size:11px">${r.port}</td>
-        <td style="color:var(--text-muted);font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.desc}">${r.desc || '—'}</td>
-        <td style="max-width:150px;overflow:hidden">
-          <code class="fwr-nft-inline" title="${buildNftInline(r)}">${truncate(buildNftInline(r), 20)}</code>
-        </td>
-        <td style="text-align:center">${syncBadge(r)}</td>
-        <td>
-          <label class="fwr-toggle" title="${r.enabled ? 'Desativar' : 'Ativar'}">
-            <input type="checkbox" ${r.enabled ? 'checked' : ''} data-rid="${r.id}" class="rule-toggle"/>
-            <span class="fwr-toggle-slider"></span>
-          </label>
-        </td>
-        <td>
-          <div class="fwr-row-actions">
-            <button class="fwr-row-btn" data-rid="${r.id}" data-act="edit" title="Editar"><i class="bi bi-pencil"></i></button>
-            <button class="fwr-row-btn" data-rid="${r.id}" data-act="dup"  title="Duplicar"><i class="bi bi-copy"></i></button>
-            <button class="fwr-row-btn fwr-row-btn--danger" data-rid="${r.id}" data-act="del" title="Remover"><i class="bi bi-trash3"></i></button>
-          </div>
-        </td>
-      </tr>`).join('');
-
-    body.querySelectorAll('[data-act]').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const id = +btn.dataset.rid, act = btn.dataset.act;
-        if (act === 'edit') openRuleDrawer(id);
-        if (act === 'dup') dupRule(id);
-        if (act === 'del') deleteRule(id);
-      });
-    });
-    body.querySelectorAll('.rule-toggle').forEach(chk => {
-      chk.addEventListener('change', () => {
-        const r = RULES.find(x => x.id === +chk.dataset.rid);
-        if (r) { r.enabled = chk.checked; patchRule(r); }
-      });
-    });
-  }
-
-  /* ══ CRUD REGRAS ══ */
-  function openRuleDrawer(id) {
-    const r = id ? RULES.find(x => x.id === id) : null;
-    editingRuleId = id || null;
-    $('fwrRuleDrawerTitle').textContent = r ? 'Editar Regra' : 'Nova Regra';
-    $('fwrRuleDrawerDup').style.display = r ? 'flex' : 'none';
-    if (r) {
-      $('rfDesc').value = r.desc || ''; $('rfAction').value = r.action || 'deny';
-      $('rfIface').value = r.iface || 'any'; $('rfDir').value = r.dir || 'in';
-      $('rfProto').value = r.proto || 'TCP'; $('rfSrc').value = r.src || 'any';
-      $('rfDst').value = r.dst || 'any'; $('rfPort').value = r.port || 'any';
-      $('rfPriority').value = r.priority || 100;
-    } else { $('fwrRuleForm').reset(); }
-    buildNftPreview();
-    $('fwrRuleDrawer').classList.add('open');
-    $('fwrRuleDrawerOverlay').classList.add('open');
-    setTimeout(() => $('rfDesc')?.focus(), 200);
-  }
-
-  function closeRuleDrawer() {
-    $('fwrRuleDrawer').classList.remove('open');
-    $('fwrRuleDrawerOverlay').classList.remove('open');
-    editingRuleId = null;
-  }
-
-  async function saveRule() {
-    const saveBtn = $('fwrRuleSaveBtn');
-    saveBtn.disabled = true;
-    saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Salvando…';
-    const payload = {
-      desc: $('rfDesc').value.trim() || 'Sem descrição',
-      action: $('rfAction').value,
-      iface: $('rfIface').value,
-      dir: $('rfDir').value,
-      proto: $('rfProto').value,
-      src: $('rfSrc').value.trim() || 'any',
-      dst: $('rfDst').value.trim() || 'any',
-      port: $('rfPort').value.trim() || 'any',
-      priority: parseInt($('rfPriority').value) || 500,
-    };
-    try {
-      if (editingRuleId) {
-        const d = await apiFetch(`/firewall/api/rules/${editingRuleId}/`, 'PUT', payload);
-        if (d.ok) {
-          const idx = RULES.findIndex(r => r.id === editingRuleId);
-          if (idx !== -1) RULES[idx] = d.rule;
-          showApplyToast(d.agente_ok);
-        } else {
-          showToast(`<i class="bi bi-x-circle" style="margin-right:5px"></i>${d.erro || 'Erro ao salvar'}`, 'err');
-        }
-      } else {
-        const d = await apiFetch('/firewall/api/rules/', 'POST', payload);
-        if (d.ok) {
-          RULES.push(d.rule);
-          showApplyToast(d.agente_ok);
-        } else {
-          showToast(`<i class="bi bi-x-circle" style="margin-right:5px"></i>${d.erro || 'Erro ao salvar'}`, 'err');
-        }
-      }
-      closeRuleDrawer();
-      renderRules();
-      updateCounts();
-      renderSyncBar(_currentSync());
-    } finally {
-      saveBtn.disabled = false;
-      saveBtn.innerHTML = '<i class="bi bi-floppy"></i> Salvar Regra';
-    }
-  }
-
-  async function patchRule(r) {
-    const d = await apiFetch(`/firewall/api/rules/${r.id}/`, 'PATCH', { enabled: r.enabled });
-    if (d.ok) {
-      if (d.rule) { const idx = RULES.findIndex(x => x.id === r.id); if (idx !== -1) RULES[idx] = d.rule; }
-      else { r.pendente = true; r.sincronizada = false; }
-      const label = r.enabled ? 'ativada' : 'desativada';
-      if (d.agente_ok) {
-        showToast(`<i class="bi bi-lightning-charge-fill" style="margin-right:5px"></i>Regra ${label} e aplicada no Linux`, 'ok');
-      } else {
-        showToast(`<i class="bi bi-hourglass-split" style="margin-right:5px"></i>Regra ${label} — aguardando sync`, 'warn');
-      }
-      renderRules();
-      renderSyncBar(_currentSync());
-    }
-  }
-
-  async function dupRule(id) {
-    const r = RULES.find(x => x.id === id); if (!r) return;
-    const d = await apiFetch('/firewall/api/rules/', 'POST', { ...r, id: undefined, desc: `${r.desc} (cópia)`, priority: r.priority + 1 });
-    if (d.ok) {
-      RULES.push(d.rule);
-      renderRules();
-      updateCounts();
-      showApplyToast(d.agente_ok);
-    }
-  }
-
-  async function deleteRule(id) {
-    const r = RULES.find(x => x.id === id);
-    const confirmed = await msConfirm({
-      icon: '<i class="bi bi-trash3-fill" style="color:#ef4444"></i>',
-      title: 'Remover regra',
-      msg: `Tem certeza que deseja remover a regra <strong>${r?.desc || `#${id}`}</strong>? Esta ação não pode ser desfeita.`,
-      confirmLabel: '<i class="bi bi-trash3"></i> Remover',
-      confirmStyle: 'danger',
-    });
-    if (!confirmed) return;
-
-    const d = await apiFetch(`/firewall/api/rules/${id}/`, 'DELETE');
-    if (d.ok) {
-      if (r) r.deletado = true;
-      renderRules();
-      updateCounts();
-      if (d.agente_ok) {
-        showToast('<i class="bi bi-trash3" style="margin-right:5px"></i>Regra removida do Linux', 'ok');
-      } else {
-        showToast('<i class="bi bi-hourglass-split" style="margin-right:5px"></i>Regra removida — aguardando sync', 'warn');
-      }
-      renderSyncBar(_currentSync());
-    }
-  }
-
-  $('fwrNewRuleBtn')?.addEventListener('click', () => openRuleDrawer(null));
-  $('fwrRuleSaveBtn')?.addEventListener('click', saveRule);
-  $('fwrRuleDrawerCancel')?.addEventListener('click', closeRuleDrawer);
-  $('fwrRuleDrawerClose')?.addEventListener('click', closeRuleDrawer);
-  $('fwrRuleDrawerOverlay')?.addEventListener('click', closeRuleDrawer);
-  $('fwrRuleDrawerDup')?.addEventListener('click', () => { if (editingRuleId) { dupRule(editingRuleId); closeRuleDrawer(); } });
-
-  /* ══ BLOCKLIST ══ */
-  function renderBlocklist() {
-    const body = $('fwrBlockBody'); if (!body) return;
-    const q = $('fwrSearchBlock')?.value.toLowerCase() || '';
-    const rows = BLOCKLIST.filter(b => !q || b.ip?.includes(q) || b.reason?.toLowerCase().includes(q));
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="6"><div class="fwr-empty"><i class="bi bi-slash-circle" style="font-size:24px;opacity:.3"></i><span>${q ? 'Nenhum resultado' : 'Nenhum IP bloqueado'}</span></div></td></tr>`;
-      return;
-    }
-    const sbadge = s => { const m = { Auto: 'orange', SOC: 'blue', Manual: 'gray' }; return `<span class="fwr-source-badge fwr-source-badge--${m[s] || 'gray'}">${s || 'Manual'}</span>`; };
-    body.innerHTML = rows.map((b, i) => `
-      <tr style="animation:fwrRowIn .15s ${i * 10}ms both">
-        <td style="font-family:var(--font-mono);font-size:12px">${b.ip}</td>
-        <td style="color:var(--text-muted);font-size:11px">${b.reason || '—'}</td>
-        <td>${sbadge(b.source)}</td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${b.date || '—'}</td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:${b.expires === '∞' ? 'var(--text-dim)' : '#f97316'}">${b.expires || '∞'}</td>
-        <td>
-          <button class="fwr-row-btn" data-bid-detail="${b.id}" title="Ver detalhes"><i class="bi bi-pencil"></i></button>
-          <button class="fwr-row-btn fwr-row-btn--danger" data-bid="${b.id || b.ip}" title="Remover"><i class="bi bi-trash3"></i></button>
-        </td>
-      </tr>`).join('');
-    body.querySelectorAll('[data-bid]').forEach(btn => btn.addEventListener('click', () => removeBlock(btn.dataset.bid)));
-    body.querySelectorAll('[data-bid-detail]').forEach(btn => {
-      btn.addEventListener('click', () => openBlockDetail(btn.dataset.bidDetail));
-    });
-  }
-
-  async function removeBlock(idOrIp) {
-    const e = BLOCKLIST.find(b => String(b.id) === String(idOrIp) || b.ip === idOrIp);
-    if (!e?.id) return;
-
-    const confirmed = await msConfirm({
-      icon: '<i class="bi bi-slash-circle" style="color:#ef4444"></i>',
-      title: 'Remover da blocklist',
-      msg: `Remover <strong>${e.ip}</strong> da blocklist? O IP voltará a ter acesso.`,
-      confirmLabel: '<i class="bi bi-trash3"></i> Remover',
-      confirmStyle: 'danger',
-    });
-    if (!confirmed) return;
-
-    const d = await apiFetch(`/firewall/api/blocklist/${e.id}/`, 'DELETE');
-    if (d.ok) {
-      BLOCKLIST = BLOCKLIST.filter(b => b.id !== e.id);
-      renderBlocklist();
-      updateCounts();
-      showToast('<i class="bi bi-check-circle" style="margin-right:5px"></i>IP removido da blocklist');
-    }
-  }
-
-  $('fwrSearchBlock')?.addEventListener('input', renderBlocklist);
-
-  $('fwrAddBlockBtn')?.addEventListener('click', async () => {
-    const result = await msPromptIpMotivo({
-      title: 'Bloquear IP / Subnet',
-      ipPlaceholder: 'ex: 1.2.3.4 ou 10.0.0.0/24',
-      motivoPlaceholder: 'ex: Port scan, Brute force…',
-    });
-    if (!result || !result.msIpField) return;
-    const ip = result.msIpField;
-    const reason = result.msMotivField || 'Bloqueio manual';
-    const d = await apiFetch('/firewall/api/blocklist/', 'POST', { ip, reason });
-    if (d.ok) {
-      BLOCKLIST.unshift(d.entry);
-      renderBlocklist();
-      updateCounts();
-      showToast(`<i class="bi bi-slash-circle" style="margin-right:5px"></i>${ip} bloqueado`);
-    }
-  });
-
-  /* ══ BLOCK DETAIL MODAL ══ */
-  function openBlockDetail(blockId) {
-    const entry = BLOCKLIST.find(b => String(b.id) === String(blockId));
-    if (!entry) return;
-    blockDetailEntry = entry;
-    blockDetailIp = entry.ip;
-    $('fwrBlockDetailTitle').textContent = `Detalhes: ${entry.ip}`;
-    $('bdInfoSource').textContent = entry.source || '—';
-    $('bdInfoDate').textContent = entry.date || '—';
-    $('bdInfoExpires').textContent = entry.expires || '∞';
-    $('bdInfoReason').textContent = entry.reason || '—';
-    if ($('bdExcPort')) $('bdExcPort').value = '';
-    if ($('bdExcPriority')) $('bdExcPriority').value = '10';
-    if ($('bdExcAction')) $('bdExcAction').value = 'allow';
-    if ($('bdExcProto')) $('bdExcProto').value = 'TCP';
-    if ($('bdExcPreview')) $('bdExcPreview').innerHTML = '';
-    renderBlockDetailRules();
-    $('fwrBlockDetailOverlay').classList.add('open');
-  }
-
-  function renderBlockDetailRules() {
-    const container = $('fwrBlockDetailRules'); if (!container) return;
-    const regrasDoIp = RULES.filter(r => !r.deletado && (r.src === blockDetailIp || r.src === blockDetailEntry?.ip));
-    if (!regrasDoIp.length) {
-      container.innerHTML = `<p style="color:var(--text-dim);font-size:12px;padding:4px 0">Nenhuma regra encontrada para este IP.</p>`;
-      return;
-    }
-    container.innerHTML = regrasDoIp.map(r => `
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;background:var(--bg-hover);border-radius:5px;border:1px solid var(--border)">
-        <span class="fwr-action-badge fwr-action-badge--${r.action}" style="font-size:10px;padding:1px 6px">${r.action.toUpperCase()}</span>
-        <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim)">${r.iface}</span>
-        <span style="font-family:var(--font-mono);font-size:11px">${r.proto} port ${r.port}</span>
-        <code style="font-size:10px;color:var(--text-dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${buildNftInline(r)}</code>
-        <label class="fwr-toggle" style="transform:scale(.8)">
-          <input type="checkbox" ${r.enabled ? 'checked' : ''} data-rid-bd="${r.id}" class="bd-rule-toggle"/>
-          <span class="fwr-toggle-slider"></span>
-        </label>
-        <button class="fwr-row-btn fwr-row-btn--danger" data-rid-del="${r.id}" title="Remover" style="padding:3px 6px">
-          <i class="bi bi-trash3"></i>
-        </button>
-      </div>`).join('');
-    container.querySelectorAll('.bd-rule-toggle').forEach(chk => {
-      chk.addEventListener('change', () => {
-        const r = RULES.find(x => x.id === +chk.dataset.ridBd);
-        if (r) { r.enabled = chk.checked; patchRule(r); }
-      });
-    });
-    container.querySelectorAll('[data-rid-del]').forEach(btn => {
-      btn.addEventListener('click', async () => { await deleteRule(+btn.dataset.ridDel); renderBlockDetailRules(); });
-    });
-  }
-
-  function updateBdExcPreview() {
-    const action = $('bdExcAction')?.value, proto = $('bdExcProto')?.value;
-    const port = $('bdExcPort')?.value.trim() || 'any';
-    const prev = $('bdExcPreview'); if (!prev || !blockDetailIp) return;
-    const parts = [];
-    if (proto !== 'any') parts.push(proto.toLowerCase());
-    parts.push(`ip saddr ${blockDetailIp}`);
-    if (port !== 'any') parts.push(`dport ${port}`);
-    parts.push(action === 'allow' ? 'accept' : 'drop');
-    prev.innerHTML = `<i class="bi bi-terminal" style="opacity:.5"></i> <code>${parts.join(' ')}</code>`;
-  }
-  ['bdExcAction', 'bdExcProto', 'bdExcPort'].forEach(id => {
-    $(id)?.addEventListener('input', updateBdExcPreview);
-    $(id)?.addEventListener('change', updateBdExcPreview);
-  });
-
-  $('bdExcAddBtn')?.addEventListener('click', async () => {
-    if (!blockDetailIp) return;
-    const payload = {
-      action: $('bdExcAction').value, iface: blockDetailEntry?.iface || 'any', dir: 'in',
-      proto: $('bdExcProto').value, src: blockDetailIp, dst: 'any',
-      port: $('bdExcPort').value.trim() || 'any',
-      priority: parseInt($('bdExcPriority').value) || 10,
-      desc: `Exceção para ${blockDetailIp}`,
-    };
-    const d = await apiFetch('/firewall/api/rules/', 'POST', payload);
-    if (d.ok) {
-      RULES.push(d.rule);
-      renderBlockDetailRules();
-      renderRules();
-      updateCounts();
-      $('bdExcPort').value = '';
-      showApplyToast(d.agente_ok);
-    }
-  });
-
-  $('fwrBlockDetailClose')?.addEventListener('click', () => {
-    $('fwrBlockDetailOverlay').classList.remove('open');
-    blockDetailIp = null; blockDetailEntry = null;
-  });
-  $('fwrBlockDetailOverlay')?.addEventListener('click', e => {
-    if (e.target === $('fwrBlockDetailOverlay')) {
-      $('fwrBlockDetailOverlay').classList.remove('open');
-      blockDetailIp = null; blockDetailEntry = null;
-    }
-  });
-
-  /* ══ ALLOWLIST ══ */
-  function renderAllowlist() {
-    const body = $('fwrAllowBody'); if (!body) return;
-    const q = $('fwrSearchAllow')?.value.toLowerCase() || '';
-    const rows = ALLOWLIST.filter(a => !q || a.ip?.includes(q) || a.reason?.toLowerCase().includes(q));
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="4"><div class="fwr-empty"><i class="bi bi-check2-circle" style="font-size:24px;opacity:.3"></i><span>${q ? 'Nenhum resultado' : 'Nenhum IP liberado'}</span></div></td></tr>`;
-      return;
-    }
-    body.innerHTML = rows.map((a, i) => `
-      <tr style="animation:fwrRowIn .15s ${i * 10}ms both">
-        <td style="font-family:var(--font-mono);font-size:12px">${a.ip}</td>
-        <td style="color:var(--text-muted);font-size:11px">${a.reason || '—'}</td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${a.date || '—'}</td>
-        <td><button class="fwr-row-btn fwr-row-btn--danger" data-aid="${a.id || a.ip}" title="Remover"><i class="bi bi-trash3"></i></button></td>
-      </tr>`).join('');
-    body.querySelectorAll('[data-aid]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const e = ALLOWLIST.find(a => String(a.id) === btn.dataset.aid || a.ip === btn.dataset.aid);
-        if (!e?.id) return;
-
-        const confirmed = await msConfirm({
-          icon: '<i class="bi bi-check2-circle" style="color:#22c55e"></i>',
-          title: 'Remover da allowlist',
-          msg: `Remover <strong>${e.ip}</strong> da allowlist? Ele ficará sujeito às regras normais de firewall.`,
-          confirmLabel: '<i class="bi bi-trash3"></i> Remover',
-          confirmStyle: 'danger',
+        const confirm = document.createElement("button");
+        confirm.type = "button"; confirm.className = `fwr-btn ${danger ? "fwr-btn--danger" : "fwr-btn--primary"}`; confirm.textContent = confirmText || "Confirmar";
+        confirm.addEventListener("click", () => {
+            if (!collect) return closeModal(true);
+            const values = {};
+            fieldsBox.querySelectorAll("[data-modal-field]").forEach((input) => { values[input.dataset.modalField] = input.value.trim(); });
+            closeModal(values);
         });
-        if (!confirmed) return;
 
-        const d = await apiFetch(`/firewall/api/allowlist/${e.id}/`, 'DELETE');
-        if (d.ok) {
-          ALLOWLIST = ALLOWLIST.filter(a => a.id !== e.id);
-          renderAllowlist();
-          updateCounts();
-          showToast('<i class="bi bi-check-circle" style="margin-right:5px"></i>IP removido da allowlist');
-        }
-      });
-    });
-  }
-  $('fwrSearchAllow')?.addEventListener('input', renderAllowlist);
+        actions.append(cancel, confirm);
+        $("fwrModalOverlay").classList.add("open");
+        $("fwrModalOverlay").setAttribute("aria-hidden", "false");
+        window.setTimeout(() => fieldsBox.querySelector("input")?.focus(), 60);
 
-  $('fwrAddAllowBtn')?.addEventListener('click', async () => {
-    const result = await msPromptAllow();
-    if (!result || !result.msIpField) return;
-    const ip = result.msIpField;
-    const reason = result.msMotivField || 'Liberação manual';
-    const d = await apiFetch('/firewall/api/allowlist/', 'POST', { ip, reason });
-    if (d.ok) {
-      ALLOWLIST.push(d.entry);
-      renderAllowlist();
-      updateCounts();
-      showToast(`<i class="bi bi-check2-circle" style="margin-right:5px"></i>${ip} liberado`);
+        return new Promise((resolve) => { state.modalResolve = resolve; });
     }
-  });
 
-  /* ══ GEOBLOCK ══ */
-  function renderGeoblock() {
-    const body = $('fwrGeoBody'); if (!body) return;
-    const q = $('fwrSearchGeo')?.value.toLowerCase() || '';
-    const rows = GEOBLOCK.filter(g => !q || g.country?.toLowerCase().includes(q) || g.code?.toLowerCase().includes(q));
-    if (!rows.length) {
-      body.innerHTML = `<tr><td colspan="5"><div class="fwr-empty"><i class="bi bi-globe2" style="font-size:24px;opacity:.3"></i><span>${q ? 'Nenhum resultado' : 'Nenhum país bloqueado'}</span></div></td></tr>`;
-      return;
+    function closeModal(value) {
+        $("fwrModalOverlay")?.classList.remove("open");
+        $("fwrModalOverlay")?.setAttribute("aria-hidden", "true");
+        if (state.modalResolve) { const resolve = state.modalResolve; state.modalResolve = null; resolve(value); }
     }
-    body.innerHTML = rows.map((g, i) => `
-      <tr style="animation:fwrRowIn .15s ${i * 10}ms both">
-        <td style="font-weight:500">${g.country}</td>
-        <td><span style="font-family:var(--font-mono);font-size:11px;padding:2px 6px;background:var(--bg-hover);border-radius:3px">${g.code}</span></td>
-        <td style="font-family:var(--font-mono);font-size:11px">${g.dir}</td>
-        <td><label class="fwr-toggle"><input type="checkbox" ${g.enabled ? 'checked' : ''} data-gid="${g.id || g.code}" class="geo-toggle"/><span class="fwr-toggle-slider"></span></label></td>
-        <td><button class="fwr-row-btn fwr-row-btn--danger" data-gid="${g.id || g.code}" data-act="del" title="Remover"><i class="bi bi-trash3"></i></button></td>
-      </tr>`).join('');
-    body.querySelectorAll('.geo-toggle').forEach(chk => {
-      chk.addEventListener('change', async () => {
-        const g = GEOBLOCK.find(x => String(x.id) === chk.dataset.gid || x.code === chk.dataset.gid);
-        if (g?.id) {
-          const d = await apiFetch(`/firewall/api/geoblock/${g.id}/`, 'PATCH', { enabled: chk.checked });
-          if (d.ok) { g.enabled = chk.checked; showToast(`GeoBlock ${g.country}: ${g.enabled ? 'ativado' : 'desativado'}`); }
-        }
-      });
-    });
-    body.querySelectorAll('[data-act="del"]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const g = GEOBLOCK.find(x => String(x.id) === btn.dataset.gid || x.code === btn.dataset.gid);
-        if (!g?.id) return;
 
-        const confirmed = await msConfirm({
-          icon: '<i class="bi bi-globe2" style="color:#a855f7"></i>',
-          title: 'Remover GeoBlock',
-          msg: `Remover bloqueio de <strong>${g.country}</strong>? Tráfego deste país voltará a ser permitido.`,
-          confirmLabel: '<i class="bi bi-trash3"></i> Remover',
-          confirmStyle: 'danger',
-        });
-        if (!confirmed) return;
+    /* =====================================================================
+       VALIDATION / HELPERS
+       ===================================================================== */
 
-        const d = await apiFetch(`/firewall/api/geoblock/${g.id}/`, 'DELETE');
-        if (d.ok) { GEOBLOCK = GEOBLOCK.filter(x => x.id !== g.id); renderGeoblock(); updateCounts(); showToast('País removido'); }
-      });
-    });
-  }
-  $('fwrSearchGeo')?.addEventListener('input', renderGeoblock);
-  $('fwrAddGeoBtn')?.addEventListener('click', () => { const p = $('fwrGeoAddPanel'); if (p) p.style.display = p.style.display === 'none' ? 'block' : 'none'; });
-  $('geoAddCancelBtn')?.addEventListener('click', () => { if ($('fwrGeoAddPanel')) $('fwrGeoAddPanel').style.display = 'none'; });
-  $('geoAddConfirmBtn')?.addEventListener('click', async () => {
-    const sel = $('geoCountrySelect'), code = sel?.value;
-    const country = sel?.options[sel.selectedIndex]?.text?.replace(/ \(\w+\)$/, '') || code;
-    const dir = $('geoDirSelect')?.value || 'IN';
-    if (!code) { showToast('Selecione um país', 'err'); return; }
-    const d = await apiFetch('/firewall/api/geoblock/', 'POST', { code, country, dir, enabled: true });
-    if (d.ok) { GEOBLOCK.push(d.entry); renderGeoblock(); updateCounts(); showToast(`${country} bloqueado`); if ($('fwrGeoAddPanel')) $('fwrGeoAddPanel').style.display = 'none'; }
-  });
+    function validAddressOrAny(value) { return String(value).toLowerCase() === "any" || validIpOrCidr(value); }
 
-  /* ══ NAT ══ */
-  function updateNatPreview() {
-    const wan = $('natWanPort')?.value, ip = $('natLanIp')?.value, lan = $('natLanPort')?.value, proto = $('natProto')?.value || 'TCP';
-    const c = $('fwrNatPreviewCode'); if (!c) return;
-    c.textContent = (wan && ip && lan) ? `${proto} porta ${wan} da WAN → ${ip}:${lan}` : 'Tráfego chegando na porta WAN → redirecionado para servidor interno';
-  }
-  ['natWanPort', 'natLanIp', 'natLanPort', 'natProto'].forEach(id => { $(id)?.addEventListener('input', updateNatPreview); $(id)?.addEventListener('change', updateNatPreview); });
-
-  function renderNat() {
-    const body = $('fwrNatBody'); if (!body) return;
-    if ($('natCount')) $('natCount').textContent = NAT.length;
-    if (!NAT.length) {
-      body.innerHTML = `<tr><td colspan="8"><div class="fwr-empty"><i class="bi bi-arrow-left-right" style="font-size:24px;opacity:.3"></i><span>Nenhum port forward</span><button class="fwr-btn fwr-btn--primary" onclick="document.getElementById('fwrNewNatBtn').click()" style="margin-top:8px"><i class="bi bi-plus-circle"></i> Adicionar</button></div></td></tr>`;
-      return;
+    function validIpOrCidr(value) {
+        const text = String(value || "").trim();
+        const [ip, prefix] = text.split("/");
+        if (!validIpv4(ip)) return false;
+        if (prefix === undefined) return true;
+        if (!/^\d{1,2}$/.test(prefix)) return false;
+        const p = Number(prefix); return p >= 0 && p <= 32;
     }
-    body.innerHTML = NAT.map((n, i) => `
-      <tr style="animation:fwrRowIn .15s ${i * 10}ms both;opacity:${n.enabled ? 1 : .5}">
-        <td style="font-weight:500">${n.name}</td>
-        <td><span class="fwr-iface-badge">${n.iface}</span></td>
-        <td style="font-family:var(--font-mono);font-size:12px">${n.wan_port}</td>
-        <td style="font-family:var(--font-mono);font-size:12px">${n.lan_ip}</td>
-        <td style="font-family:var(--font-mono);font-size:12px">${n.lan_port}</td>
-        <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${n.proto}</td>
-        <td><label class="fwr-toggle"><input type="checkbox" ${n.enabled ? 'checked' : ''} data-nid="${n.id}" class="nat-toggle"/><span class="fwr-toggle-slider"></span></label></td>
-        <td><div class="fwr-row-actions">
-          <button class="fwr-row-btn" data-nid="${n.id}" data-act="edit" title="Editar"><i class="bi bi-pencil"></i></button>
-          <button class="fwr-row-btn fwr-row-btn--danger" data-nid="${n.id}" data-act="del" title="Remover"><i class="bi bi-trash3"></i></button>
-        </div></td>
-      </tr>`).join('');
-    body.querySelectorAll('.nat-toggle').forEach(chk => {
-      chk.addEventListener('change', async () => {
-        const n = NAT.find(x => x.id === +chk.dataset.nid);
-        if (n?.id) { const d = await apiFetch(`/firewall/api/nat/${n.id}/`, 'PATCH', { enabled: chk.checked }); if (d.ok) { n.enabled = chk.checked; showToast(`Port forward ${n.enabled ? 'ativado' : 'desativado'}`); } }
-      });
-    });
-    body.querySelectorAll('[data-act]').forEach(btn => {
-      btn.addEventListener('click', async e => {
-        e.stopPropagation();
-        const id = +btn.dataset.nid, act = btn.dataset.act;
-        if (act === 'edit') openNatDrawer(id);
-        if (act === 'del') {
-          const n = NAT.find(x => x.id === id);
-          const confirmed = await msConfirm({
-            icon: '<i class="bi bi-arrow-left-right" style="color:#f97316"></i>',
-            title: 'Remover port forward',
-            msg: `Remover o port forward <strong>${n?.name || `#${id}`}</strong>?`,
-            confirmLabel: '<i class="bi bi-trash3"></i> Remover',
-            confirmStyle: 'danger',
-          });
-          if (!confirmed) return;
-          const d = await apiFetch(`/firewall/api/nat/${id}/`, 'DELETE');
-          if (d.ok) { NAT = NAT.filter(n => n.id !== id); renderNat(); updateCounts(); showToast('Port forward removido'); }
-        }
-      });
-    });
-  }
 
-  function openNatDrawer(id) {
-    const n = id ? NAT.find(x => x.id === id) : null;
-    editingNatId = id || null;
-    $('fwrNatDrawerTitle').textContent = n ? 'Editar Port Forward' : 'Novo Port Forward';
-    if (n) { $('natName').value = n.name || ''; $('natIface').value = n.iface || 'WAN'; $('natProto').value = n.proto || 'TCP'; $('natWanPort').value = n.wan_port || ''; $('natLanIp').value = n.lan_ip || ''; $('natLanPort').value = n.lan_port || ''; }
-    else { $('fwrNatForm').reset(); }
-    updateNatPreview();
-    $('fwrNatDrawer').classList.add('open'); $('fwrNatDrawerOverlay').classList.add('open');
-    setTimeout(() => $('natName')?.focus(), 200);
-  }
-  function closeNatDrawer() { $('fwrNatDrawer').classList.remove('open'); $('fwrNatDrawerOverlay').classList.remove('open'); editingNatId = null; }
-  async function saveNat() {
-    const name = $('natName')?.value.trim(), wan = $('natWanPort')?.value.trim(), ip = $('natLanIp')?.value.trim(), lan = $('natLanPort')?.value.trim();
-    if (!name || !wan || !ip || !lan) { showToast('Preencha todos os campos', 'err'); return; }
-    const payload = { name, iface: $('natIface')?.value || 'WAN', proto: $('natProto')?.value || 'TCP', wan_port: wan, lan_ip: ip, lan_port: lan, enabled: true };
-    if (editingNatId) {
-      const d = await apiFetch(`/firewall/api/nat/${editingNatId}/`, 'PUT', payload);
-      if (d.ok) { const idx = NAT.findIndex(n => n.id === editingNatId); if (idx !== -1) NAT[idx] = d.nat; showToast('Port forward atualizado'); }
-    } else {
-      const d = await apiFetch('/firewall/api/nat/', 'POST', payload);
-      if (d.ok) { NAT.push(d.nat); showToast('Port forward criado'); }
+    function validIpv4(value) {
+        const parts = String(value || "").trim().split(".");
+        if (parts.length !== 4) return false;
+        return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
     }
-    closeNatDrawer(); renderNat(); updateCounts();
-  }
-  $('fwrNewNatBtn')?.addEventListener('click', () => openNatDrawer(null));
-  $('fwrNatSaveBtn')?.addEventListener('click', saveNat);
-  $('fwrNatDrawerCancel')?.addEventListener('click', closeNatDrawer);
-  $('fwrNatDrawerClose')?.addEventListener('click', closeNatDrawer);
-  $('fwrNatDrawerOverlay')?.addEventListener('click', closeNatDrawer);
 
-  /* ══ TABS ══ */
-  document.querySelectorAll('.fwr-tab[data-tab]').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.fwr-tab').forEach(t => t.classList.remove('fwr-tab--active'));
-      document.querySelectorAll('.fwr-panel').forEach(p => p.classList.remove('fwr-panel--active'));
-      tab.classList.add('fwr-tab--active');
-      $(`panel${tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)}`)?.classList.add('fwr-panel--active');
-    });
-  });
-
-  /* ══ FILTROS ══ */
-  $('fwrFilterAction')?.addEventListener('change', e => { filterAction = e.target.value; renderRules(); });
-  $('fwrFilterIface')?.addEventListener('change', e => { filterIface = e.target.value; renderRules(); });
-  $('fwrSearchRegras')?.addEventListener('input', e => { searchRegras = e.target.value.trim(); renderRules(); });
-
-  /* ══ BLOQUEIO RÁPIDO ══ */
-  $('qbSubmitBtn')?.addEventListener('click', async () => {
-    const ip = $('qbIp')?.value.trim();
-    if (!ip) { $('qbIp').focus(); showToast('<i class="bi bi-exclamation-triangle" style="margin-right:5px"></i>Informe um IP ou subnet', 'err'); return; }
-    const btn = $('qbSubmitBtn');
-    btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Bloqueando…';
-    try {
-      const d = await apiFetch('/firewall/api/bloqueio-rapido/', 'POST', {
-        ip, iface: $('qbIface')?.value || '', porta: $('qbPort')?.value || '',
-        proto: $('qbProto')?.value || '', expires: $('qbExpires')?.value || '',
-        motivo: 'Bloqueio rápido pelo painel', source: 'Manual',
-      });
-      if (d.ok) {
-        showApplyToast(d.agente_ok);
-        $('qbIp').value = '';
-        if ($('qbPreview')) $('qbPreview').style.display = 'none';
-        await loadAll();
-      } else {
-        showToast(`<i class="bi bi-x-circle" style="margin-right:5px"></i>Erro: ${d.erro || 'falha'}`, 'err');
-      }
-    } catch (e) { showToast('<i class="bi bi-x-circle" style="margin-right:5px"></i>Falha de rede', 'err'); }
-    finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-ban"></i> Bloquear'; }
-  });
-
-  /* ══ PUSH / EXPORT ══ */
-  async function pushRules() {
-    setPushBtnState('loading');
-    try {
-      const d = await apiFetch('/firewall/api/push-rules/', 'POST');
-      if (d.ok) {
-        showApplyToast(d.agente_ok);
-        if (d.sync) renderSyncBar(d.sync);
-        setPushBtnState(d.agente_ok ? 'ok' : 'offline');
-      }
-    } catch (e) {
-      setPushBtnState('offline');
-      showToast('<i class="bi bi-x-circle" style="margin-right:5px"></i>Falha de rede', 'err');
+    function validPort(value) {
+        const text = String(value || "").trim().toLowerCase();
+        if (text === "any") return true;
+        if (/^\d{1,5}$/.test(text)) return validSinglePort(text);
+        const match = text.match(/^(\d{1,5})-(\d{1,5})$/);
+        if (!match) return false;
+        const start = Number(match[1]), end = Number(match[2]);
+        return start >= 1 && end <= 65535 && start <= end;
     }
-  }
-  $('fwrPushBtn')?.addEventListener('click', pushRules);
-  $('fwrExportNftBtn')?.addEventListener('click', () => { showToast('Gerando arquivo .nft…'); window.location.href = '/firewall/api/export-nft/'; });
 
-  /* ══ POLÍTICAS ══ */
-  document.querySelectorAll('[data-pol]').forEach(el => {
-    el.addEventListener('change', () => showToast(`Política "${el.dataset.pol}": ${el.type === 'checkbox' ? el.checked : el.value}`));
-  });
-  ['polDefaultIn', 'polDefaultOut', 'polDefaultFwd'].forEach(id => {
-    $(id)?.addEventListener('change', function () { this.className = `fwr-policy-select fwr-policy-select--${this.value}`; showToast(`Política padrão: ${this.options[this.selectedIndex].text}`); });
-  });
-
-  /* ══ AJUDA ══ */
-  const HELP = {
-    regras: { title: 'Como funcionam as Regras', body: `<p>Regras definem o que o firewall <strong>bloqueia (DENY)</strong> ou <strong>permite (ALLOW)</strong>.</p><h4>Ordem de prioridade</h4><p>Regras com número menor são avaliadas primeiro. Se um pacote bate em uma regra, as outras são ignoradas.</p><h4>Exemplo prático</h4><p>Bloquear SSH da internet mas permitir da rede interna:</p><ul><li>Prioridade 10: ALLOW · LAN · TCP · :22</li><li>Prioridade 20: DENY · WAN · TCP · :22</li></ul><h4>Toggle (liga/desliga)</h4><p>Desativar uma regra a mantém salva mas para de aplicá-la. Útil para testes.</p><h4>Coluna "Comando nft"</h4><p>Mostra o comando exato que será executado no Linux quando a regra for aplicada.</p>` },
-    blocklist: { title: 'Blocklist — IPs Bloqueados', body: `<p>IPs na blocklist são bloqueados automaticamente.</p><h4>Fontes</h4><ul><li><strong>Manual</strong> — adicionado pelo analista</li><li><strong>Auto</strong> — banido automaticamente pelo sensor (ex: brute force)</li><li><strong>SOC</strong> — marcado como ameaça no painel de Incidentes</li></ul><h4>Expiração</h4><p>"∞" = permanente. Você pode definir 1h, 24h, 7d ou 30d.</p>` },
-    allowlist: { title: 'Allowlist — IPs Liberados', body: `<p>IPs na allowlist <strong>sempre passam</strong>, mesmo havendo regras de bloqueio.</p><p>Use para: servidores internos, parceiros confiáveis, rede de gerência.</p><p><strong>Cuidado:</strong> IPs na allowlist escapam de todas as regras, incluindo GeoBlock.</p>` },
-    geoblock: { title: 'GeoBlock — Bloqueio por País', body: `<p>Bloqueia todo tráfego originado em países específicos.</p><h4>Direção</h4><ul><li><strong>IN</strong> — bloqueia tráfego vindo do país (mais comum)</li><li><strong>OUT</strong> — bloqueia tráfego saindo para o país</li><li><strong>BOTH</strong> — ambos os sentidos</li></ul><p><strong>Limitação:</strong> VPNs e proxies podem contornar o GeoBlock.</p>` },
-    nat: { title: 'NAT / Port Forward', body: `<p>Redireciona tráfego que chega numa porta da WAN para um servidor interno.</p><h4>Exemplo</h4><ul><li>WAN Port: 80 → LAN IP: 10.0.0.10 : LAN Port: 80</li></ul><p>Tráfego na porta 80 da WAN vai para o servidor web interno.</p><h4>Porta diferente</h4><p>Você pode usar portas diferentes: WAN 2222 → LAN :22 para SSH na porta não padrão.</p>` },
-    'bloqueio-rapido': { title: 'Bloqueio Rápido', body: `<p>Bloqueia um IP imediatamente, criando:</p><ul><li>Uma <strong>regra de firewall</strong> (prioridade 50)</li><li>Uma <strong>entrada na blocklist</strong></li></ul><p>O preview mostra o comando nft que será executado antes de confirmar.</p>` },
-  };
-  document.querySelectorAll('.fwr-help-btn[data-help]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const c = HELP[btn.dataset.help]; if (!c) return;
-      $('fwrHelpTitle').textContent = c.title; $('fwrHelpBody').innerHTML = c.body;
-      $('fwrHelpOverlay').classList.add('open');
-    });
-  });
-  $('fwrHelpClose')?.addEventListener('click', () => $('fwrHelpOverlay').classList.remove('open'));
-  $('fwrHelpOverlay')?.addEventListener('click', e => { if (e.target === $('fwrHelpOverlay')) $('fwrHelpOverlay').classList.remove('open'); });
-
-  /* ══ KEYBOARD ══ */
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      _closeModal(null);
-      closeRuleDrawer(); closeNatDrawer();
-      $('fwrHelpOverlay')?.classList.remove('open');
-      if ($('fwrBlockDetailOverlay')?.classList.contains('open')) {
-        $('fwrBlockDetailOverlay').classList.remove('open');
-        blockDetailIp = null; blockDetailEntry = null;
-      }
+    function validSinglePort(value) {
+        if (!/^\d{1,5}$/.test(String(value || ""))) return false;
+        const n = Number(value); return n >= 1 && n <= 65535;
     }
-  });
 
-  /* ══ URL PARAMS ══ */
-  function checkUrlParams() {
-    const p = new URLSearchParams(window.location.search);
-    if (p.get('nova_regra')) {
-      setTimeout(() => {
-        openRuleDrawer(null);
-        if (p.get('src')) $('rfSrc').value = p.get('src');
-        if (p.get('port')) $('rfPort').value = p.get('port');
-        if (p.get('proto')) $('rfProto').value = p.get('proto');
-        if (p.get('iface')) $('rfIface').value = p.get('iface');
-        window.history.replaceState({}, '', '/firewall/regras/');
-      }, 500);
+    function setDrawer(drawerId, overlayId, open) {
+        $(drawerId)?.classList.toggle("open", open);
+        $(overlayId)?.classList.toggle("open", open);
+        $(drawerId)?.setAttribute("aria-hidden", open ? "false" : "true");
+        document.body.style.overflow = open ? "hidden" : "";
     }
-  }
 
-  /* ══ KEYFRAMES ══ */
-  if (!document.getElementById('fwrKeyframes')) {
-    const s = document.createElement('style'); s.id = 'fwrKeyframes';
-    s.textContent = `@keyframes fwrRowIn{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:none}}`;
-    document.head.appendChild(s);
-  }
+    function setButtonLoading(button, loading, label = "Processando") {
+        if (!button) return;
+        button.disabled = loading;
+        button.classList.toggle("is-loading", loading);
+        if (loading) button.innerHTML = `<i class="bi bi-arrow-repeat"></i> ${escapeHtml(label)}`;
+    }
 
-  /* ══ INIT ══ */
-  _injectModalHtml();
-  loadInterfaces();
-  loadAll();
-  checkUrlParams();
-  setInterval(loadAll, 30000);
+    function showFormError(id, message) { const el = $(id); if (!el) return; el.hidden = false; el.textContent = message; }
+    function hideFormError(id) { const el = $(id); if (!el) return; el.hidden = true; el.textContent = ""; }
 
+    function toast(message, type = "ok") {
+        const el = $("fwrToast"); if (!el) return;
+        el.textContent = message;
+        el.className = `fwr-toast fwr-toast--${type} show`;
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => el.classList.remove("show"), 3200);
+    }
+
+    function openFromQueryString() {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.has("nova_regra")) return;
+        window.setTimeout(() => {
+            openRuleDrawer();
+            if (params.get("src")) $("rfSrc").value = params.get("src");
+            if (params.get("dst")) $("rfDst").value = params.get("dst");
+            if (params.get("port")) $("rfPort").value = params.get("port");
+            if (params.get("proto")) $("rfProto").value = String(params.get("proto")).toUpperCase();
+            if (params.get("iface")) $("rfIface").value = String(params.get("iface")).toUpperCase();
+            updateRulePreview(); updateProtocolPortState(); updatePhysicalIfaceHint();
+            window.history.replaceState({}, "", window.location.pathname);
+        }, 300);
+    }
+
+    function extractValidationError(details) {
+        if (!details || typeof details !== "object") return "";
+        const first = Object.values(details)[0];
+        if (Array.isArray(first)) return first.join(" ");
+        return first ? String(first) : "";
+    }
+
+    function setText(id, value) { const el = $(id); if (el) el.textContent = String(value ?? ""); }
+    function truncate(value, max) { const text = String(value || ""); return text.length > max ? `${text.slice(0, max)}…` : text; }
+    function escapeHtml(value) { return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;").replace(/'/g,"&#039;"); }
+    function escapeAttr(value) { return escapeHtml(value); }
 });

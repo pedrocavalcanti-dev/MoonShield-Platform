@@ -27,4 +27,4 @@ export function bindVisibility(refreshCallback, loadDetailCallback) {
             }
         }
     });
-}
+}   

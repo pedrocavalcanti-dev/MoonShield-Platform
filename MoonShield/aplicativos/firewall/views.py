@@ -1,718 +1,2603 @@
-# =============================================================================
-# firewall/views.py
-# =============================================================================
+"""
+MoonShield Platform — Firewall / Views
+======================================
+
+Views da nova arquitetura local do Firewall.
+
+Fluxo privilegiado:
+
+    Browser
+      ↓
+    Django views
+      ↓
+    services/
+      ↓
+    agent_client.py
+      ↓
+    /run/moonshield/agent.sock
+      ↓
+    MoonShield-Agent
+      ↓
+    nftables
+
+Fluxo de eventos:
+
+    nftables
+      ↓
+    MoonShield-Agent monitor
+      ↓
+    /var/log/moonshield/firewall/events.jsonl
+      ↓
+    processar_eventos_firewall
+      ↓
+    EventoFirewall
+
+IMPORTANTE:
+- nenhuma view executa `nft`;
+- nenhuma view acessa porta 8765;
+- nenhuma view usa Sensor/token para Firewall;
+- não existem endpoints de pending/confirm/ingest do Agent.
+"""
+
+from __future__ import annotations
 
 import json
 import logging
-
 from datetime import datetime
+from typing import Any, Callable
 
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.utils.dateparse import parse_datetime
+from django.views.decorators.http import (
+    require_GET,
+    require_http_methods,
+    require_POST,
+)
 
-from .models import (
-    AllowlistEntry, BlocklistEntry, EventoFirewall,
-    GeoblockEntry, NatEntry, RegraFirewall,
-)
 from .auxiliares import (
-    get_modo, delta_horas, map_iface,
-    rule_to_dict, nat_to_dict, block_to_dict, allow_to_dict, geo_to_dict, evento_to_log,
-    sync_status, get_sensor_firewall,
-    notificar_agente, push_regras_ao_agente,
-    validar_regra_segura,
+    allow_to_dict,
+    block_to_dict,
+    demo_data,
+    evento_to_log,
+    geo_to_dict,
+    get_modo,
+    nat_to_dict,
+    prod_data,
+    prod_waiting,
     regra_para_nft_inline,
-    prod_waiting, prod_data, demo_data,
+    rule_to_dict,
+    sync_status,
+    validar_regra_segura,
 )
+from .models import (
+    AllowlistEntry,
+    BlocklistEntry,
+    ConfiguracaoFirewall,
+    EventoFirewall,
+    GeoblockEntry,
+    NatEntry,
+    RegraFirewall,
+    TarefaFirewall,
+)
+from .services import agent_client
+from .services.firewall_install import (
+    desinstalar_firewall,
+    instalar_firewall,
+    precheck_instalacao,
+    reparar_firewall,
+)
+from .services.firewall_rules import (
+    aplicar_regras_pendentes,
+    bloquear_ip as service_bloquear_ip,
+    liberar_ip as service_liberar_ip,
+    obter_emergency_linux,
+    obter_regras_linux,
+    rollback as service_rollback,
+)
+from .services.firewall_status import (
+    obter_diagnostico,
+    obter_estado_firewall,
+    obter_interfaces,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPER — iface_map do sensor
-# Busca o iface_map real do sensor cadastrado no banco.
-# O sensor envia suas interfaces via heartbeat → salvo em sensor.interfaces.
-# Montamos o mapa logico→real a partir disso.
-# Se nao tiver, manda vazio — o conversor do sensor usa o config.json dele.
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _get_iface_map() -> dict:
-    """
-    Retorna iface_map {logico: real} baseado nas interfaces reportadas
-    pelo sensor de firewall.
-
-    O sensor ja tem o iface_map completo no config.json dele —
-    mandamos vazio e o conversor resolve automaticamente.
-    Mantemos este helper para casos futuros onde o Django precise
-    resolver interfaces (ex: exportar .nft com nomes reais).
-    """
-    try:
-        sensor = get_sensor_firewall()
-        if sensor and hasattr(sensor, 'iface_map') and sensor.iface_map:
-            return sensor.iface_map
-    except Exception:
-        pass
-    # Vazio = sensor usa config.json proprio (comportamento correto)
-    return {}
+LOGIN_URL = "autenticacao:login"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
 # PÁGINAS HTML
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
 
-@login_required(login_url='autenticacao:login')
+@login_required(login_url=LOGIN_URL)
 def firewall_view(request):
-    return render(request, 'firewall/firewall.html')
+    return render(
+        request,
+        "firewall/firewall.html",
+    )
 
 
-@login_required(login_url='autenticacao:login')
+@login_required(login_url=LOGIN_URL)
 def feed_view(request):
-    return render(request, 'firewall/feed.html')
+    return render(
+        request,
+        "firewall/feed.html",
+    )
 
 
-@login_required(login_url='autenticacao:login')
+@login_required(login_url=LOGIN_URL)
 def regras_view(request):
-    return render(request, 'firewall/regras.html')
+    return render(
+        request,
+        "firewall/regras.html",
+    )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# API: DATA GERAL
-# ─────────────────────────────────────────────────────────────────────────────
+@login_required(login_url=LOGIN_URL)
+def instalacao_view(request):
+    return render(
+        request,
+        "firewall/instalacao.html",
+        {
+            "precheck": precheck_instalacao(),
+        },
+    )
+
+
+# =============================================================================
+# HELPERS — JSON / ERROS
+# =============================================================================
+
+def _json_body(
+    request,
+    *,
+    aceitar_vazio: bool = True,
+) -> tuple[dict[str, Any] | None, JsonResponse | None]:
+    raw = request.body or b""
+
+    if not raw.strip():
+        if aceitar_vazio:
+            return {}, None
+
+        return None, JsonResponse(
+            {
+                "ok": False,
+                "erro": "Corpo JSON obrigatório.",
+            },
+            status=400,
+        )
+
+    try:
+        dados = json.loads(
+            raw.decode("utf-8")
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ):
+        return None, JsonResponse(
+            {
+                "ok": False,
+                "erro": "JSON inválido.",
+            },
+            status=400,
+        )
+
+    if not isinstance(
+        dados,
+        dict,
+    ):
+        return None, JsonResponse(
+            {
+                "ok": False,
+                "erro": "O JSON deve ser um objeto.",
+            },
+            status=400,
+        )
+
+    return dados, None
+
+
+def _bool(
+    valor: Any,
+    *,
+    default: bool = False,
+) -> bool:
+    if valor is None:
+        return default
+
+    if isinstance(
+        valor,
+        bool,
+    ):
+        return valor
+
+    return str(
+        valor
+    ).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "sim",
+        "on",
+        "ativo",
+        "enabled",
+    }
+
+
+def _int(
+    valor: Any,
+    *,
+    default: int,
+    minimo: int | None = None,
+    maximo: int | None = None,
+) -> int:
+    try:
+        numero = int(
+            valor
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        numero = default
+
+    if minimo is not None:
+        numero = max(
+            minimo,
+            numero,
+        )
+
+    if maximo is not None:
+        numero = min(
+            maximo,
+            numero,
+        )
+
+    return numero
+
+
+def _validation_error_payload(
+    exc: ValidationError,
+) -> dict[str, Any]:
+    if hasattr(
+        exc,
+        "message_dict",
+    ):
+        detalhes = exc.message_dict
+    else:
+        detalhes = {
+            "non_field_errors": exc.messages,
+        }
+
+    return {
+        "ok": False,
+        "erro": "Dados inválidos.",
+        "detalhes": detalhes,
+    }
+
+
+def _modo_real_obrigatorio() -> JsonResponse | None:
+    if get_modo() == "demo":
+        return JsonResponse(
+            {
+                "ok": False,
+                "codigo": "modo_simulacao",
+                "erro": (
+                    "Esta operação modifica o Firewall real e só pode "
+                    "ser executada no modo REAL."
+                ),
+            },
+            status=409,
+        )
+
+    return None
+
+
+# =============================================================================
+# HELPERS — CONFIG / STATUS
+# =============================================================================
+
+def _persistir_estado(
+    estado: dict[str, Any],
+    *,
+    erro: str = "",
+) -> None:
+    try:
+        cfg = ConfiguracaoFirewall.get_solo()
+        cfg.atualizar_status(
+            estado,
+            erro=erro,
+        )
+    except Exception:
+        logger.exception(
+            "Não foi possível persistir o estado consolidado do Firewall."
+        )
+
+
+def _sincronizar_config_topologia(
+    *,
+    interface_wan: str,
+    interface_lan: str,
+    interface_mgmt: str,
+    home_net: str,
+) -> ConfiguracaoFirewall:
+    cfg = ConfiguracaoFirewall.get_solo()
+
+    cfg.interface_wan = str(
+        interface_wan
+        or ""
+    )[:32]
+
+    cfg.interface_lan = str(
+        interface_lan
+        or ""
+    )[:32]
+
+    cfg.interface_mgmt = str(
+        interface_mgmt
+        or ""
+    )[:32]
+
+    cfg.home_net = str(
+        home_net
+        or ""
+    )[:64]
+
+    cfg.save(
+        update_fields=[
+            "interface_wan",
+            "interface_lan",
+            "interface_mgmt",
+            "home_net",
+            "atualizado_em",
+        ]
+    )
+
+    return cfg
+
+
+# =============================================================================
+# HELPERS — TAREFAS
+# =============================================================================
+
+def _tarefa_to_dict(
+    tarefa: TarefaFirewall,
+) -> dict[str, Any]:
+    return {
+        "id": tarefa.id,
+        "tipo": tarefa.tipo,
+        "tipo_label": tarefa.get_tipo_display(),
+        "status": tarefa.status,
+        "status_label": tarefa.get_status_display(),
+        "progresso": tarefa.progresso,
+        "etapa_atual": tarefa.etapa_atual,
+        "mensagem": tarefa.mensagem,
+        "payload": tarefa.payload,
+        "resultado": tarefa.resultado,
+        "logs": tarefa.logs,
+        "erro": tarefa.erro,
+        "snapshot_id": tarefa.snapshot_id,
+        "iniciado_em": (
+            tarefa.iniciado_em.isoformat()
+            if tarefa.iniciado_em
+            else None
+        ),
+        "finalizado_em": (
+            tarefa.finalizado_em.isoformat()
+            if tarefa.finalizado_em
+            else None
+        ),
+        "duracao_segundos": tarefa.duracao_segundos,
+        "criado_em": tarefa.criado_em.isoformat(),
+        "atualizado_em": tarefa.atualizado_em.isoformat(),
+        "concluida": tarefa.concluida,
+    }
+
+
+def _extrair_snapshot_id(
+    resultado: dict[str, Any],
+) -> str:
+    candidatos: list[Any] = [
+        resultado.get(
+            "snapshot_id"
+        ),
+    ]
+
+    agent = resultado.get(
+        "resultado_agent"
+    )
+
+    if isinstance(
+        agent,
+        dict,
+    ):
+        candidatos.append(
+            agent.get(
+                "snapshot_id"
+            )
+        )
+
+    for item in candidatos:
+        if item:
+            return str(
+                item
+            )[:100]
+
+    return ""
+
+
+def _executar_tarefa_sincrona(
+    *,
+    tipo: str,
+    payload: dict[str, Any],
+    etapa: str,
+    funcao: Callable[[], dict[str, Any]],
+) -> tuple[TarefaFirewall, dict[str, Any]]:
+    """
+    Registro de tarefa já preparado para UI.
+
+    Por enquanto a execução é síncrona.
+    Quando criarmos um worker de TarefaFirewall, este contrato pode continuar.
+    """
+    tarefa = TarefaFirewall.objects.create(
+        tipo=tipo,
+        payload=payload,
+    )
+
+    tarefa.iniciar(
+        etapa=etapa,
+        mensagem="Operação iniciada.",
+    )
+
+    tarefa.adicionar_log(
+        f"Iniciando: {etapa}"
+    )
+
+    try:
+        resultado = funcao()
+
+        if not isinstance(
+            resultado,
+            dict,
+        ):
+            resultado = {
+                "ok": False,
+                "erro": "Service retornou resposta inválida.",
+            }
+
+        snapshot_id = _extrair_snapshot_id(
+            resultado
+        )
+
+        if snapshot_id:
+            tarefa.snapshot_id = snapshot_id
+            tarefa.save(
+                update_fields=[
+                    "snapshot_id",
+                    "atualizado_em",
+                ]
+            )
+
+        if resultado.get(
+            "ok"
+        ):
+            tarefa.adicionar_log(
+                "Operação concluída com sucesso."
+            )
+
+            tarefa.finalizar_sucesso(
+                resultado=resultado,
+                mensagem=str(
+                    resultado.get(
+                        "mensagem"
+                    )
+                    or "Operação concluída."
+                ),
+            )
+
+        else:
+            erro = str(
+                resultado.get(
+                    "erro"
+                )
+                or resultado.get(
+                    "mensagem"
+                )
+                or "Operação falhou."
+            )
+
+            tarefa.adicionar_log(
+                erro,
+                nivel="erro",
+            )
+
+            tarefa.finalizar_erro(
+                erro,
+                resultado=resultado,
+                mensagem="Operação não concluída.",
+            )
+
+        return tarefa, resultado
+
+    except Exception as exc:
+        logger.exception(
+            "Erro inesperado executando tarefa Firewall %s",
+            tipo,
+        )
+
+        resultado = {
+            "ok": False,
+            "codigo": "erro_interno",
+            "erro": str(exc),
+        }
+
+        tarefa.adicionar_log(
+            str(exc),
+            nivel="erro",
+        )
+
+        tarefa.finalizar_erro(
+            str(exc),
+            resultado=resultado,
+            mensagem="Erro interno.",
+        )
+
+        return tarefa, resultado
+
+
+# =============================================================================
+# API — DATA GERAL
+# =============================================================================
 
 @require_GET
-@login_required(login_url='autenticacao:login')
+@login_required(login_url=LOGIN_URL)
 def api_fw_data(request):
-    period = request.GET.get('period', '24h')
+    period = str(
+        request.GET.get(
+            "period",
+            "24h",
+        )
+    )
 
-    if get_modo() == 'demo':
-        return JsonResponse(demo_data(period))
+    if get_modo() == "demo":
+        return JsonResponse(
+            demo_data(
+                period
+            )
+        )
 
     try:
         has_data = EventoFirewall.objects.exists()
     except Exception:
         has_data = False
 
-    if not has_data:
-        return JsonResponse(prod_waiting())
+    dados = (
+        prod_data(
+            period
+        )
+        if has_data
+        else prod_waiting()
+    )
 
-    return JsonResponse(prod_data(period))
+    return JsonResponse(
+        dados
+    )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# API: FEED
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# API — STATUS / DIAGNÓSTICO / INTERFACES
+# =============================================================================
 
 @require_GET
-@login_required(login_url='autenticacao:login')
-def api_fw_feed(request):
-    if get_modo() == 'demo':
-        from .auxiliares import _gen_log
-        return JsonResponse({
-            'ok':   True,
-            'mode': 'demo',
-            'interfaces': [
-                {'nome': 'WAN', 'ip': '1.2.3.4'},
-                {'nome': 'LAN', 'ip': '10.0.0.1'},
-            ],
-            'eventos': [_gen_log() for _ in range(5)],
-        })
+@login_required(login_url=LOGIN_URL)
+def api_status(request):
+    if get_modo() == "demo":
+        return JsonResponse(
+            {
+                "ok": True,
+                "fonte": "simulacao",
+                "modo": "simulacao",
+                "agent_ativo": False,
+                "agent_disponivel": False,
+                "instalado": False,
+                "configurado": False,
+                "ativo": False,
+                "operacional": False,
+                "saudavel": False,
+                "status": "simulacao",
+                "status_label": "Simulação",
+            }
+        )
 
-    limit = min(int(request.GET.get('limit', 50)), 200)
-    since = request.GET.get('since')
-    qs    = EventoFirewall.objects.order_by('-timestamp')
+    estado = obter_estado_firewall(
+        incluir_detalhes=True
+    )
+
+    _persistir_estado(
+        estado,
+        erro=(
+            (
+                estado.get("erro")
+                or {}
+            ).get(
+                "mensagem",
+                "",
+            )
+            if isinstance(
+                estado.get("erro"),
+                dict,
+            )
+            else ""
+        ),
+    )
+
+    return JsonResponse(
+        estado,
+        status=(
+            200
+            if estado.get("ok")
+            else 503
+        ),
+    )
+
+
+@require_GET
+@login_required(login_url=LOGIN_URL)
+def api_diagnostico(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    resultado = obter_diagnostico()
+
+    try:
+        cfg = ConfiguracaoFirewall.get_solo()
+        cfg.ultimo_diagnostico = resultado
+        cfg.save(
+            update_fields=[
+                "ultimo_diagnostico",
+                "atualizado_em",
+            ]
+        )
+    except Exception:
+        logger.exception(
+            "Falha ao persistir diagnóstico do Firewall."
+        )
+
+    return JsonResponse(
+        resultado,
+        status=(
+            200
+            if resultado.get("ok")
+            else 503
+        ),
+    )
+
+
+@require_GET
+@login_required(login_url=LOGIN_URL)
+def api_interfaces(request):
+    if get_modo() == "demo":
+        return JsonResponse(
+            {
+                "ok": True,
+                "fonte": "simulacao",
+                "interfaces": [
+                    {
+                        "nome": "WAN",
+                        "ip": "203.0.113.10",
+                        "rede": "203.0.113.0/24",
+                        "up": True,
+                        "papeis": [
+                            "WAN"
+                        ],
+                    },
+                    {
+                        "nome": "MGMT",
+                        "ip": "10.20.0.10",
+                        "rede": "10.20.0.0/24",
+                        "up": True,
+                        "papeis": [
+                            "MGMT"
+                        ],
+                    },
+                    {
+                        "nome": "LAN",
+                        "ip": "10.10.0.1",
+                        "rede": "10.10.0.0/24",
+                        "up": True,
+                        "papeis": [
+                            "LAN"
+                        ],
+                    },
+                ],
+                "mapeamento": {
+                    "WAN": "WAN",
+                    "MGMT": "MGMT",
+                    "LAN": "LAN",
+                },
+            }
+        )
+
+    resultado = obter_interfaces()
+
+    return JsonResponse(
+        resultado,
+        status=(
+            200
+            if resultado.get("ok")
+            else 503
+        ),
+    )
+
+
+# =============================================================================
+# API — FEED
+# =============================================================================
+
+@require_GET
+@login_required(login_url=LOGIN_URL)
+def api_fw_feed(request):
+    limite = _int(
+        request.GET.get(
+            "limit",
+            50,
+        ),
+        default=50,
+        minimo=1,
+        maximo=200,
+    )
+
+    if get_modo() == "demo":
+        dados = demo_data(
+            "24h"
+        )
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "mode": "demo",
+                "modo": "simulacao",
+                "interfaces": [
+                    {
+                        "nome": "WAN",
+                        "ip": "203.0.113.10",
+                        "up": True,
+                    },
+                    {
+                        "nome": "MGMT",
+                        "ip": "10.20.0.10",
+                        "up": True,
+                    },
+                    {
+                        "nome": "LAN",
+                        "ip": "10.10.0.1",
+                        "up": True,
+                    },
+                ],
+                "eventos": dados.get(
+                    "logs",
+                    [],
+                )[:limite],
+            }
+        )
+
+    qs = EventoFirewall.objects.order_by(
+        "-timestamp"
+    )
+
+    since = str(
+        request.GET.get(
+            "since",
+            ""
+        )
+        or ""
+    ).strip()
 
     if since:
-        try:
-            from django.utils import timezone as tz
-            ts = datetime.fromisoformat(since)
-            if ts.tzinfo is None:
-                ts = tz.make_aware(ts)
-            qs = qs.filter(timestamp__gt=ts)
-        except (ValueError, TypeError):
-            pass
-
-    eventos    = list(qs[:limit])
-    sensor     = get_sensor_firewall()
-    interfaces = sensor.interfaces if sensor else []
-
-    return JsonResponse({
-        'ok':         True,
-        'mode':       'prod',
-        'interfaces': interfaces,
-        'eventos': [
-            {
-                'time':     e.timestamp.strftime('%H:%M:%S'),
-                'action':   e.acao,
-                'iface':    e.iface or '—',
-                'src_ip':   e.src_ip,
-                'src_port': e.src_port,
-                'dst_ip':   str(e.dst_ip or '—'),
-                'dst_port': e.dst_port,
-                'proto':    e.proto or '—',
-                'bytes':    e.tamanho or 0,
-                'flags':    e.flags_tcp or '',
-                'chain':    e.chain or '',
-            }
-            for e in reversed(eventos)
-        ],
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# API: INTERFACES
-# ─────────────────────────────────────────────────────────────────────────────
-
-@require_GET
-@login_required(login_url='autenticacao:login')
-def api_interfaces(request):
-    if get_modo() == 'demo':
-        return JsonResponse({
-            'ok': True,
-            'interfaces': [
-                {'nome': 'WAN', 'ip': '1.2.3.4',    'mac': '', 'up': True},
-                {'nome': 'LAN', 'ip': '10.0.0.1',   'mac': '', 'up': True},
-                {'nome': 'VPN', 'ip': '192.168.1.1', 'mac': '', 'up': True},
-            ],
-            'sensor': None,
-        })
-
-    try:
-        from incidentes.models import Sensor
-        sensor = get_sensor_firewall()
-        if not sensor or not sensor.interfaces:
-            sensor = (
-                Sensor.objects
-                .filter(ativo=True)
-                .exclude(interfaces=[])
-                .order_by('-last_seen')
-                .first()
-            )
-        if not sensor or not sensor.interfaces:
-            return JsonResponse({'ok': True, 'interfaces': [], 'sensor': None})
-        return JsonResponse({
-            'ok':         True,
-            'interfaces': sensor.interfaces,
-            'sensor':     sensor.nome,
-        })
-    except Exception as e:
-        return JsonResponse({'ok': False, 'erro': str(e)}, status=500)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# API: BLOQUEIO RÁPIDO
-# ─────────────────────────────────────────────────────────────────────────────
-
-@require_POST
-@login_required(login_url='autenticacao:login')
-def api_bloqueio_rapido(request):
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'erro': 'JSON inválido'}, status=400)
-
-    ip      = (d.get('ip') or '').strip()
-    iface   = (d.get('iface') or '').strip()
-    porta   = (d.get('porta') or '').strip()
-    proto   = (d.get('proto') or '').strip().upper() or 'any'
-    expires = (d.get('expires') or '').strip() or '∞'
-    motivo  = (d.get('motivo') or 'Bloqueio rápido').strip()
-    source  = (d.get('source') or 'Manual').strip()
-
-    if not ip:
-        return JsonResponse({'ok': False, 'erro': 'IP obrigatório'}, status=400)
-
-    segura, motivo_seg = validar_regra_segura({'action': 'deny', 'src': ip})
-    if not segura:
-        return JsonResponse({'ok': False, 'erro': motivo_seg}, status=400)
-
-    proto_valido = proto if proto in ('TCP', 'UDP', 'ICMP', 'ANY') else 'any'
-
-    regra = RegraFirewall.objects.create(
-        priority=50, action='deny',
-        iface=iface or 'any', dir='in',
-        proto=proto_valido, src=ip, dst='any',
-        port=porta or 'any', desc=motivo[:255],
-        enabled=True, log=True,
-        pendente=True, sincronizada=False,
-    )
-
-    block_entry = BlocklistEntry.objects.create(
-        ip=ip, reason=motivo, source=source, expires=expires,
-    )
-
-    # Notifica o agente diretamente via /bloquear
-    agente_ok, agente_msg = notificar_agente("/bloquear", {
-        "ip":      ip,
-        "iface":   iface or "",
-        "porta":   porta or "",
-        "proto":   proto_valido.lower() if proto_valido != 'any' else "",
-        "motivo":  motivo,
-        "expires": expires if expires != '∞' else "",
-    })
-
-    # Se agente OK, marca como sincronizada
-    if agente_ok:
-        regra.pendente     = False
-        regra.sincronizada = True
-        regra.save(update_fields=['pendente', 'sincronizada'])
-
-    return JsonResponse({
-        'ok': True,
-        'agente_ok':   agente_ok,
-        'agente_msg':  agente_msg,
-        'regra': {
-            'id': regra.id, 'ip': ip,
-            'iface': regra.iface, 'porta': regra.port, 'proto': regra.proto,
-            'pendente': not agente_ok,
-        },
-        'blocklist_id': block_entry.id,
-    }, status=201)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# API: AUTOBAN (chamado pelo sensor, sem login)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@csrf_exempt
-@require_POST
-def api_autoban(request):
-    token = request.headers.get('X-MS-TOKEN', '').strip()
-
-    try:
-        from incidentes.models import Sensor
-        sensor = Sensor.objects.filter(token=token, ativo=True).first()
-        if not sensor:
-            return JsonResponse({'ok': False, 'error': 'Token inválido'}, status=403)
-
-        d      = json.loads(request.body.decode('utf-8') or '{}')
-        ip     = (d.get('ip') or '').strip()
-        motivo = d.get('motivo', 'auto_ban')
-        hits   = d.get('hits', 0)
-        iface  = d.get('iface', '')
-
-        if not ip:
-            return JsonResponse({'ok': False, 'erro': 'IP obrigatório'}, status=400)
-
-        block_entry, criada = BlocklistEntry.objects.get_or_create(
-            ip=ip,
-            defaults={
-                'reason':  f'Auto-ban: {motivo} ({hits} hits)',
-                'source':  'Auto',
-                'expires': '∞',
-            },
+        ts = parse_datetime(
+            since
         )
 
-        regra = RegraFirewall.objects.create(
-            priority=20, action='deny',
-            iface=iface or 'any', dir='in',
-            proto='any', src=ip, dst='any', port='any',
-            desc=f'Auto-ban: {motivo} — {sensor.nome}'[:255],
-            enabled=True, log=True,
-            pendente=False, sincronizada=True,
-        )
+        if ts is None:
+            try:
+                ts = datetime.fromisoformat(
+                    since
+                )
+            except ValueError:
+                ts = None
 
-        logger.warning(f"[autoban/{sensor.nome}] {ip} banido — motivo={motivo} hits={hits}")
+        if ts is not None:
+            if timezone.is_naive(
+                ts
+            ):
+                ts = timezone.make_aware(
+                    ts
+                )
 
-        return JsonResponse({
-            'ok': True, 'ip': ip,
-            'regra_id': regra.id, 'blocklist_id': block_entry.id,
-            'novo_bloqueio': criada,
-        })
-
-    except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
-    except Exception as e:
-        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# API: CRUD REGRAS
-# ─────────────────────────────────────────────────────────────────────────────
-
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['POST'])
-def api_rules(request):
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-
-    segura, motivo = validar_regra_segura(d)
-    if not segura:
-        return JsonResponse({'ok': False, 'erro': motivo}, status=400)
-
-    r = RegraFirewall.objects.create(
-        priority=int(d.get('priority', 500)), action=d.get('action', 'deny'),
-        iface=d.get('iface', 'WAN'),          dir=d.get('dir', 'in'),
-        proto=d.get('proto', 'TCP'),           src=d.get('src', 'any'),
-        dst=d.get('dst', 'any'),               port=d.get('port', 'any'),
-        desc=d.get('desc', ''),                enabled=d.get('enabled', True),
-        log=d.get('log', True),                pendente=True, sincronizada=False,
-    )
-
-    # Envia todas as regras ativas pro agente — iface_map vazio, sensor resolve
-    agente_ok, agente_msg = push_regras_ao_agente()
-
-    # So marca sincronizada se o agente confirmou
-    if agente_ok:
-        r.pendente     = False
-        r.sincronizada = True
-        r.save(update_fields=['pendente', 'sincronizada'])
-
-    return JsonResponse({
-        'ok': True,
-        'rule':       rule_to_dict(r),
-        'agente_ok':  agente_ok,
-        'agente_msg': agente_msg,
-    }, status=201)
-
-
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['PUT', 'PATCH', 'DELETE'])
-def api_rule_detail(request, rule_id: int):
-    r = get_object_or_404(RegraFirewall, pk=rule_id)
-
-    if request.method == 'DELETE':
-        r.enabled      = False
-        r.pendente     = True
-        r.sincronizada = False
-        r.deletado     = True
-        r.save()
-        RegraFirewall.objects.filter(enabled=True).update(pendente=True, sincronizada=False)
-
-        if r.src and r.src != 'any':
-            BlocklistEntry.objects.filter(ip=r.src).delete()
-
-        agente_ok, agente_msg = push_regras_ao_agente()
-        return JsonResponse({'ok': True, 'agente_ok': agente_ok, 'agente_msg': agente_msg})
-
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-
-    payload_check = {
-        **{'action': r.action, 'src': r.src},
-        **{k: v for k, v in d.items() if k in ('action', 'src')},
-    }
-    segura, motivo = validar_regra_segura(payload_check)
-    if not segura:
-        return JsonResponse({'ok': False, 'erro': motivo}, status=400)
-
-    for field in ('priority', 'action', 'iface', 'dir', 'proto', 'src', 'dst', 'port', 'desc', 'enabled', 'log'):
-        if field in d:
-            setattr(r, field, d[field])
-
-    r.pendente     = True
-    r.sincronizada = False
-    r.deletado     = False
-    r.save()
-
-    if 'enabled' in d:
-        RegraFirewall.objects.filter(enabled=True).update(pendente=True, sincronizada=False)
-
-    agente_ok, agente_msg = push_regras_ao_agente()
-
-    if agente_ok:
-        r.pendente     = False
-        r.sincronizada = True
-        r.save(update_fields=['pendente', 'sincronizada'])
-
-    return JsonResponse({
-        'ok': True,
-        'rule':       rule_to_dict(r),
-        'agente_ok':  agente_ok,
-        'agente_msg': agente_msg,
-    })
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# API: PUSH / PENDING / CONFIRM RULES
-# ─────────────────────────────────────────────────────────────────────────────
-
-@login_required(login_url='autenticacao:login')
-@require_POST
-def api_push_rules(request):
-    # Marca todas como pendentes para forcар reenvio
-    count = RegraFirewall.objects.filter(enabled=True).update(
-        pendente=True, sincronizada=False
-    )
-
-    rules = list(
-        RegraFirewall.objects.filter(enabled=True, deletado=False)
-        .order_by('priority').values()
-    )
-
-    # iface_map vazio — o conversor do sensor usa o config.json dele
-    agente_ok, agente_msg = notificar_agente("/aplicar", {
-        "rules":     rules,
-        "iface_map": {},
-    })
-
-    if agente_ok:
-        RegraFirewall.objects.filter(enabled=True).update(
-            pendente=False, sincronizada=True
-        )
-
-    logger.info(f"[push-rules] {count} regras | agente={'OK' if agente_ok else 'ERRO'} | {agente_msg}")
-
-    return JsonResponse({
-        'ok':         True,
-        'msg':        f'{count} regra(s) enviadas ao sensor.',
-        'agente_ok':  agente_ok,
-        'agente_msg': agente_msg,
-        'sync':       sync_status(),
-    })
-
-
-@csrf_exempt
-@require_GET
-def api_pending_rules(request):
-    """
-    Endpoint consultado pelo sincronizador do sensor a cada 30s.
-    Retorna as regras pendentes (nao sincronizadas ainda).
-    iface_map vazio — sensor usa config.json proprio.
-    """
-    token = request.headers.get('X-MS-TOKEN', '').strip()
-
-    try:
-        from incidentes.models import Sensor
-        sensor = Sensor.objects.filter(token=token, ativo=True).first()
-        if not sensor:
-            return JsonResponse({'ok': False, 'error': 'Token inválido'}, status=403)
-    except Exception:
-        return JsonResponse({'ok': False, 'error': 'Erro interno'}, status=500)
-
-    pendentes = RegraFirewall.objects.filter(
-        enabled=True, deletado=False, pendente=True
-    ).order_by('priority')
-
-    todas = RegraFirewall.objects.filter(
-        enabled=True, deletado=False
-    ).order_by('priority')
-
-    desativadas_pending = RegraFirewall.objects.filter(
-        enabled=False, deletado=False, pendente=True
-    ).exists()
-
-    tem_pendentes = pendentes.exists() or desativadas_pending
-
-    return JsonResponse({
-        'ok':            True,
-        'tem_pendentes': tem_pendentes,
-        'total_regras':  todas.count(),
-        'pendentes':     pendentes.count(),
-        # Manda TODAS as regras quando ha pendentes (sensor faz flush + reescreve)
-        'rules':         [rule_to_dict(r) for r in todas] if tem_pendentes else [],
-        # Vazio — sensor resolve com config.json proprio
-        'iface_map':     {},
-    })
-
-
-@csrf_exempt
-@require_POST
-def api_confirm_rules(request):
-    """
-    Chamado pelo sensor apos aplicar as regras com sucesso.
-    Marca as regras como sincronizadas.
-    """
-    token = request.headers.get('X-MS-TOKEN', '').strip()
-
-    try:
-        from incidentes.models import Sensor
-        sensor = Sensor.objects.filter(token=token, ativo=True).first()
-        if not sensor:
-            return JsonResponse({'ok': False, 'error': 'Token inválido'}, status=403)
-
-        payload  = json.loads(request.body.decode('utf-8') or '{}')
-        rule_ids = payload.get('rule_ids', [])
-        success  = payload.get('success', True)
-        msg      = payload.get('msg', '')
-
-        if success and rule_ids:
-            RegraFirewall.objects.filter(id__in=rule_ids).update(
-                pendente=False, sincronizada=True
+            qs = qs.filter(
+                timestamp__gt=ts
             )
 
-        if success:
-            # Limpa pendentes de regras desativadas e remove deletadas confirmadas
-            RegraFirewall.objects.filter(
-                enabled=False, pendente=True, deletado=False
-            ).update(pendente=False)
-            RegraFirewall.objects.filter(deletado=True).delete()
+    eventos = list(
+        qs[:limite]
+    )
 
-        logger.info(
-            f"[fw/{sensor.nome}] confirm-rules: {len(rule_ids)} regras | "
-            f"{'OK' if success else 'ERRO'} | {msg}"
+    interfaces = obter_interfaces()
+
+    payload_eventos = [
+        evento_to_log(
+            e
         )
-
-        return JsonResponse({'ok': True, 'sync': sync_status()})
-
-    except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
-    except Exception as e:
-        return JsonResponse({'ok': False, 'error': str(e)}, status=500)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# API: EXPORT NFT
-# ─────────────────────────────────────────────────────────────────────────────
-
-@login_required(login_url='autenticacao:login')
-@require_GET
-def api_export_nft(request):
-    rules = RegraFirewall.objects.filter(enabled=True).order_by('priority')
-
-    linhas = [
-        '# MoonShield — Regras de Firewall exportadas',
-        f'# Gerado em: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
-        f'# Total: {rules.count()} regras ativas',
-        '#',
-        '# Aplicar com: nft -f moonshield-rules.nft',
-        '',
-        'add table inet moonshield',
-        'add chain inet moonshield ms_rules',
-        'flush chain inet moonshield ms_rules',
-        '',
+        for e in reversed(
+            eventos
+        )
     ]
 
-    for r in rules:
-        # iface_map vazio no export — usa nomes logicos (WAN/LAN)
-        # Para export com nomes reais, o usuario deve adaptar
-        cmd = regra_para_nft_inline(r, {})
-        if cmd:
-            # Comentario em linha separada (nft nao aceita # inline)
-            linhas.append(f'# [{r.priority}] {r.desc}')
-            linhas.append(f'add rule inet moonshield ms_rules {cmd}')
+    return JsonResponse(
+        {
+            "ok": True,
+            "mode": "prod",
+            "modo": "real",
+            "fonte": "local",
+            "interfaces": interfaces.get(
+                "interfaces",
+                [],
+            ),
+            "eventos": payload_eventos,
+        }
+    )
 
-    linhas.append('')
-    conteudo = '\n'.join(linhas)
-    filename = f'moonshield-rules-{datetime.now().strftime("%Y%m%d-%H%M")}.nft'
-    response = HttpResponse(conteudo, content_type='text/plain; charset=utf-8')
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+# =============================================================================
+# API — INSTALAÇÃO
+# =============================================================================
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_install(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    dados, erro_response = _json_body(
+        request
+    )
+
+    if erro_response:
+        return erro_response
+
+    interface_wan = str(
+        dados.get(
+            "interface_wan"
+        )
+        or dados.get(
+            "wan"
+        )
+        or ""
+    ).strip()
+
+    interface_lan = str(
+        dados.get(
+            "interface_lan"
+        )
+        or dados.get(
+            "lan"
+        )
+        or ""
+    ).strip()
+
+    interface_mgmt = str(
+        dados.get(
+            "interface_mgmt"
+        )
+        or dados.get(
+            "mgmt"
+        )
+        or ""
+    ).strip()
+
+    home_net = str(
+        dados.get(
+            "home_net"
+        )
+        or ""
+    ).strip()
+
+    payload = {
+        "interface_wan": interface_wan,
+        "interface_lan": interface_lan,
+        "interface_mgmt": interface_mgmt,
+        "home_net": home_net,
+        "instalar_pacote": _bool(
+            dados.get(
+                "instalar_pacote"
+            ),
+            default=True,
+        ),
+    }
+
+    tarefa, resultado = _executar_tarefa_sincrona(
+        tipo=TarefaFirewall.Tipo.INSTALAR,
+        payload=payload,
+        etapa="Instalando Firewall",
+        funcao=lambda: instalar_firewall(
+            **payload
+        ),
+    )
+
+    if resultado.get(
+        "ok"
+    ):
+        cfg = _sincronizar_config_topologia(
+            interface_wan=interface_wan,
+            interface_lan=interface_lan,
+            interface_mgmt=interface_mgmt,
+            home_net=home_net,
+        )
+
+        cfg.onboarding_concluido = True
+        cfg.instalacao_concluida = True
+        cfg.save(
+            update_fields=[
+                "onboarding_concluido",
+                "instalacao_concluida",
+                "atualizado_em",
+            ]
+        )
+
+        estado = resultado.get(
+            "estado"
+        )
+
+        if isinstance(
+            estado,
+            dict,
+        ):
+            _persistir_estado(
+                estado
+            )
+
+    return JsonResponse(
+        {
+            "ok": bool(
+                resultado.get(
+                    "ok"
+                )
+            ),
+            "tarefa": _tarefa_to_dict(
+                tarefa
+            ),
+            "resultado": resultado,
+        },
+        status=(
+            200
+            if resultado.get("ok")
+            else 400
+        ),
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_repair(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    dados, erro_response = _json_body(
+        request
+    )
+
+    if erro_response:
+        return erro_response
+
+    payload = {
+        "interface_wan": dados.get(
+            "interface_wan"
+        ),
+        "interface_lan": dados.get(
+            "interface_lan"
+        ),
+        "interface_mgmt": dados.get(
+            "interface_mgmt"
+        ),
+        "home_net": dados.get(
+            "home_net"
+        ),
+    }
+
+    tarefa, resultado = _executar_tarefa_sincrona(
+        tipo=TarefaFirewall.Tipo.REPARAR,
+        payload=payload,
+        etapa="Reparando Firewall",
+        funcao=lambda: reparar_firewall(
+            **payload
+        ),
+    )
+
+    estado = resultado.get(
+        "estado"
+    )
+
+    if (
+        resultado.get("ok")
+        and isinstance(
+            estado,
+            dict,
+        )
+    ):
+        _persistir_estado(
+            estado
+        )
+
+    return JsonResponse(
+        {
+            "ok": bool(
+                resultado.get(
+                    "ok"
+                )
+            ),
+            "tarefa": _tarefa_to_dict(
+                tarefa
+            ),
+            "resultado": resultado,
+        },
+        status=(
+            200
+            if resultado.get("ok")
+            else 400
+        ),
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_uninstall(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    dados, erro_response = _json_body(
+        request
+    )
+
+    if erro_response:
+        return erro_response
+
+    confirmar = _bool(
+        dados.get(
+            "confirmar"
+        )
+    )
+
+    payload = {
+        "confirmar": confirmar,
+        "remover_config": _bool(
+            dados.get(
+                "remover_config"
+            )
+        ),
+    }
+
+    tarefa, resultado = _executar_tarefa_sincrona(
+        tipo=TarefaFirewall.Tipo.DESINSTALAR,
+        payload=payload,
+        etapa="Desinstalando Firewall",
+        funcao=lambda: desinstalar_firewall(
+            **payload
+        ),
+    )
+
+    if resultado.get(
+        "ok"
+    ):
+        try:
+            cfg = ConfiguracaoFirewall.get_solo()
+            cfg.instalacao_concluida = False
+            cfg.operacional = False
+            cfg.ativo = False
+            cfg.tabela_instalada = False
+            cfg.save(
+                update_fields=[
+                    "instalacao_concluida",
+                    "operacional",
+                    "ativo",
+                    "tabela_instalada",
+                    "atualizado_em",
+                ]
+            )
+        except Exception:
+            logger.exception(
+                "Falha atualizando ConfiguracaoFirewall após uninstall."
+            )
+
+    return JsonResponse(
+        {
+            "ok": bool(
+                resultado.get(
+                    "ok"
+                )
+            ),
+            "tarefa": _tarefa_to_dict(
+                tarefa
+            ),
+            "resultado": resultado,
+        },
+        status=(
+            200
+            if resultado.get("ok")
+            else 400
+        ),
+    )
+
+
+# =============================================================================
+# API — TAREFAS
+# =============================================================================
+
+@require_GET
+@login_required(login_url=LOGIN_URL)
+def api_tasks(request):
+    limite = _int(
+        request.GET.get(
+            "limit",
+            20,
+        ),
+        default=20,
+        minimo=1,
+        maximo=100,
+    )
+
+    status_filtro = str(
+        request.GET.get(
+            "status",
+            ""
+        )
+        or ""
+    ).strip()
+
+    qs = TarefaFirewall.objects.all()
+
+    if status_filtro:
+        qs = qs.filter(
+            status=status_filtro
+        )
+
+    tarefas = [
+        _tarefa_to_dict(
+            tarefa
+        )
+        for tarefa in qs[:limite]
+    ]
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "tarefas": tarefas,
+            "total": len(
+                tarefas
+            ),
+        }
+    )
+
+
+@require_GET
+@login_required(login_url=LOGIN_URL)
+def api_task_detail(
+    request,
+    task_id: int,
+):
+    tarefa = get_object_or_404(
+        TarefaFirewall,
+        pk=task_id,
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "tarefa": _tarefa_to_dict(
+                tarefa
+            ),
+        }
+    )
+
+
+# =============================================================================
+# API — REGRAS
+# =============================================================================
+
+@require_http_methods(
+    [
+        "GET",
+        "POST",
+    ]
+)
+@login_required(login_url=LOGIN_URL)
+def api_rules(request):
+    if request.method == "GET":
+        regras = (
+            RegraFirewall.objects
+            .filter(
+                deletado=False
+            )
+            .order_by(
+                "priority",
+                "id",
+            )
+        )
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "rules": [
+                    rule_to_dict(
+                        regra
+                    )
+                    for regra in regras
+                ],
+                "sync": sync_status(),
+            }
+        )
+
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    seguro, motivo = validar_regra_segura(
+        dados
+    )
+
+    if not seguro:
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": motivo,
+            },
+            status=400,
+        )
+
+    regra = RegraFirewall(
+        priority=_int(
+            dados.get(
+                "priority"
+            ),
+            default=500,
+            minimo=-10000,
+            maximo=10000,
+        ),
+        action=str(
+            dados.get(
+                "action"
+            )
+            or RegraFirewall.Acao.DENY
+        ),
+        iface=str(
+            dados.get(
+                "iface"
+            )
+            or RegraFirewall.Interface.ANY
+        ),
+        dir=str(
+            dados.get(
+                "dir"
+            )
+            or RegraFirewall.Direcao.IN
+        ),
+        proto=str(
+            dados.get(
+                "proto"
+            )
+            or RegraFirewall.Protocolo.TCP
+        ),
+        src=str(
+            dados.get(
+                "src"
+            )
+            or "any"
+        ),
+        dst=str(
+            dados.get(
+                "dst"
+            )
+            or "any"
+        ),
+        port=str(
+            dados.get(
+                "port"
+            )
+            or "any"
+        ),
+        desc=str(
+            dados.get(
+                "desc"
+            )
+            or ""
+        )[:255],
+        enabled=_bool(
+            dados.get(
+                "enabled"
+            ),
+            default=True,
+        ),
+        log=_bool(
+            dados.get(
+                "log"
+            ),
+            default=True,
+        ),
+        pendente=True,
+        sincronizada=False,
+        deletado=False,
+    )
+
+    try:
+        regra.full_clean()
+        regra.save()
+
+    except ValidationError as exc:
+        return JsonResponse(
+            _validation_error_payload(
+                exc
+            ),
+            status=400,
+        )
+
+    sync_result = aplicar_regras_pendentes()
+
+    regra_refresh = RegraFirewall.objects.filter(
+        pk=regra.pk
+    ).first()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "aplicado": bool(
+                sync_result.get(
+                    "ok"
+                )
+            ),
+            "rule": (
+                rule_to_dict(
+                    regra_refresh
+                )
+                if regra_refresh
+                else {
+                    "id": regra.pk,
+                    "deletado": True,
+                }
+            ),
+            "sync_result": sync_result,
+            "sync": sync_status(),
+        },
+        status=201,
+    )
+
+
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+)
+def api_rule_detail(
+    request,
+    rule_id: int,
+):
+    regra = get_object_or_404(
+        RegraFirewall,
+        pk=rule_id,
+    )
+
+    if request.method == "GET":
+        return JsonResponse(
+            {
+                "ok": True,
+                "rule": rule_to_dict(
+                    regra
+                ),
+            }
+        )
+
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    if request.method == "DELETE":
+        regra.marcar_deletada()
+
+        sync_result = aplicar_regras_pendentes()
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "aplicado": bool(
+                    sync_result.get(
+                        "ok"
+                    )
+                ),
+                "rule_id": rule_id,
+                "removida_runtime": bool(
+                    sync_result.get(
+                        "ok"
+                    )
+                ),
+                "sync_result": sync_result,
+                "sync": sync_status(),
+            }
+        )
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    payload_check = {
+        "action": dados.get(
+            "action",
+            regra.action,
+        ),
+        "iface": dados.get(
+            "iface",
+            regra.iface,
+        ),
+        "src": dados.get(
+            "src",
+            regra.src,
+        ),
+        "dst": dados.get(
+            "dst",
+            regra.dst,
+        ),
+        "port": dados.get(
+            "port",
+            regra.port,
+        ),
+    }
+
+    seguro, motivo = validar_regra_segura(
+        payload_check
+    )
+
+    if not seguro:
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": motivo,
+            },
+            status=400,
+        )
+
+    campos = {
+        "priority",
+        "action",
+        "iface",
+        "dir",
+        "proto",
+        "src",
+        "dst",
+        "port",
+        "desc",
+        "enabled",
+        "log",
+    }
+
+    for campo in campos:
+        if campo not in dados:
+            continue
+
+        valor = dados[
+            campo
+        ]
+
+        if campo == "priority":
+            valor = _int(
+                valor,
+                default=regra.priority,
+                minimo=-10000,
+                maximo=10000,
+            )
+
+        elif campo in {
+            "enabled",
+            "log",
+        }:
+            valor = _bool(
+                valor,
+                default=getattr(
+                    regra,
+                    campo,
+                ),
+            )
+
+        elif campo == "desc":
+            valor = str(
+                valor
+                or ""
+            )[:255]
+
+        else:
+            valor = str(
+                valor
+                or ""
+            )
+
+        setattr(
+            regra,
+            campo,
+            valor,
+        )
+
+    regra.pendente = True
+    regra.sincronizada = False
+    regra.sincronizada_em = None
+    regra.deletado = False
+    regra.ultimo_erro = ""
+
+    try:
+        regra.full_clean()
+        regra.save()
+
+    except ValidationError as exc:
+        return JsonResponse(
+            _validation_error_payload(
+                exc
+            ),
+            status=400,
+        )
+
+    sync_result = aplicar_regras_pendentes()
+
+    regra_refresh = RegraFirewall.objects.filter(
+        pk=regra.pk
+    ).first()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "aplicado": bool(
+                sync_result.get(
+                    "ok"
+                )
+            ),
+            "rule": (
+                rule_to_dict(
+                    regra_refresh
+                )
+                if regra_refresh
+                else None
+            ),
+            "sync_result": sync_result,
+            "sync": sync_status(),
+        }
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_apply_rules(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    payload = {
+        "total_pendentes": RegraFirewall.objects.filter(
+            pendente=True
+        ).count(),
+    }
+
+    tarefa, resultado = _executar_tarefa_sincrona(
+        tipo=TarefaFirewall.Tipo.APLICAR_REGRAS,
+        payload=payload,
+        etapa="Aplicando regras",
+        funcao=aplicar_regras_pendentes,
+    )
+
+    return JsonResponse(
+        {
+            "ok": bool(
+                resultado.get(
+                    "ok"
+                )
+            ),
+            "tarefa": _tarefa_to_dict(
+                tarefa
+            ),
+            "resultado": resultado,
+            "sync": sync_status(),
+        },
+        status=(
+            200
+            if resultado.get("ok")
+            else 502
+        ),
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_push_rules(request):
+    """
+    Alias temporário do endpoint antigo.
+
+    Não existe mais push HTTP para sensor.
+    """
+    return api_apply_rules(
+        request
+    )
+
+
+# =============================================================================
+# API — ROLLBACK
+# =============================================================================
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_rollback(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    dados, erro_response = _json_body(
+        request
+    )
+
+    if erro_response:
+        return erro_response
+
+    snapshot_id = str(
+        dados.get(
+            "snapshot_id"
+        )
+        or ""
+    ).strip()
+
+    payload = {
+        "snapshot_id": snapshot_id,
+    }
+
+    tarefa, resultado = _executar_tarefa_sincrona(
+        tipo=TarefaFirewall.Tipo.ROLLBACK,
+        payload=payload,
+        etapa="Executando rollback",
+        funcao=lambda: service_rollback(
+            snapshot_id=(
+                snapshot_id
+                or None
+            )
+        ),
+    )
+
+    return JsonResponse(
+        {
+            "ok": bool(
+                resultado.get(
+                    "ok"
+                )
+            ),
+            "tarefa": _tarefa_to_dict(
+                tarefa
+            ),
+            "resultado": resultado,
+        },
+        status=(
+            200
+            if resultado.get("ok")
+            else 502
+        ),
+    )
+
+
+# =============================================================================
+# API — BLOQUEIO RÁPIDO / EMERGÊNCIA
+# =============================================================================
+
+def _executar_block_request(
+    request,
+) -> JsonResponse:
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    ip = str(
+        dados.get(
+            "ip"
+        )
+        or ""
+    ).strip()
+
+    if not ip:
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": "IP obrigatório.",
+            },
+            status=400,
+        )
+
+    seguro, motivo_seg = validar_regra_segura(
+        {
+            "action": "deny",
+            "iface": dados.get(
+                "iface",
+                "any",
+            ),
+            "src": ip,
+            "dst": "any",
+            "port": dados.get(
+                "porta",
+                "any",
+            ),
+        }
+    )
+
+    if not seguro:
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": motivo_seg,
+            },
+            status=400,
+        )
+
+    resultado = service_bloquear_ip(
+        ip,
+        motivo=str(
+            dados.get(
+                "motivo"
+            )
+            or dados.get(
+                "reason"
+            )
+            or "Bloqueio manual"
+        )[:255],
+        source=str(
+            dados.get(
+                "source"
+            )
+            or "Manual"
+        ),
+        expires=str(
+            dados.get(
+                "expires"
+            )
+            or "∞"
+        ),
+        iface=str(
+            dados.get(
+                "iface"
+            )
+            or ""
+        ),
+        porta=dados.get(
+            "porta"
+        ),
+        proto=str(
+            dados.get(
+                "proto"
+            )
+            or "any"
+        ),
+    )
+
+    return JsonResponse(
+        resultado,
+        status=(
+            201
+            if resultado.get("ok")
+            else 502
+        ),
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_block(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    return _executar_block_request(
+        request
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_bloqueio_rapido(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    return _executar_block_request(
+        request
+    )
+
+
+@require_POST
+@login_required(login_url=LOGIN_URL)
+def api_unblock(request):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    ip = str(
+        dados.get(
+            "ip"
+        )
+        or ""
+    ).strip()
+
+    if not ip:
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": "IP obrigatório.",
+            },
+            status=400,
+        )
+
+    resultado = service_liberar_ip(
+        ip,
+        remover_blocklist=_bool(
+            dados.get(
+                "remover_blocklist"
+            ),
+            default=True,
+        ),
+    )
+
+    return JsonResponse(
+        resultado,
+        status=(
+            200
+            if resultado.get("ok")
+            else 502
+        ),
+    )
+
+
+# =============================================================================
+# API — EXPORT NFT
+# =============================================================================
+
+@require_GET
+@login_required(login_url=LOGIN_URL)
+def api_export_nft(request):
+    """
+    Exporta uma REFERÊNCIA somente leitura.
+
+    Não entregamos mais um script com `flush` pronto para aplicação manual,
+    pois a aplicação privilegiada pertence exclusivamente ao Agent.
+    """
+    agora = datetime.now()
+
+    regras_db = (
+        RegraFirewall.objects
+        .filter(
+            enabled=True,
+            deletado=False,
+        )
+        .order_by(
+            "priority",
+            "id",
+        )
+    )
+
+    runtime = obter_regras_linux()
+
+    linhas = [
+        "# MoonShield Firewall — export de referência",
+        f"# Gerado em: {agora.strftime('%Y-%m-%d %H:%M:%S')}",
+        "#",
+        "# IMPORTANTE:",
+        "# Este arquivo é somente para auditoria/diagnóstico.",
+        "# NÃO aplique este arquivo manualmente com nft -f.",
+        "# O estado do Firewall deve ser alterado pelo Django -> Agent IPC.",
+        "#",
+        "",
+        "# Estado desejado no Django",
+    ]
+
+    for regra in regras_db:
+        expressao = regra_para_nft_inline(
+            regra
+        )
+
+        linhas.append(
+            f"# [{regra.id}] prioridade={regra.priority} "
+            f"{regra.action.upper()} {regra.desc}"
+        )
+
+        if expressao:
+            # Comentado propositalmente para o arquivo não ser executável.
+            linhas.append(
+                "# add rule inet moonshield ms_rules "
+                + expressao
+            )
+
+    linhas.extend(
+        [
+            "",
+            "# Estado observado no Agent / ms_rules",
+        ]
+    )
+
+    for item in runtime.get(
+        "regras",
+        [],
+    ):
+        if isinstance(
+            item,
+            dict,
+        ):
+            expr = item.get(
+                "expressao",
+                "",
+            )
+            handle = item.get(
+                "handle"
+            )
+
+            linhas.append(
+                f"# handle={handle or '-'} | {expr}"
+            )
+
+    conteudo = "\n".join(
+        linhas
+    ) + "\n"
+
+    filename = (
+        "moonshield-firewall-reference-"
+        f"{agora.strftime('%Y%m%d-%H%M%S')}.nft.txt"
+    )
+
+    response = HttpResponse(
+        conteudo,
+        content_type="text/plain; charset=utf-8",
+    )
+
+    response[
+        "Content-Disposition"
+    ] = (
+        f'attachment; filename="{filename}"'
+    )
+
     return response
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# API: CRUD — NAT, BLOCKLIST, ALLOWLIST, GEOBLOCK
-# ─────────────────────────────────────────────────────────────────────────────
+# =============================================================================
+# API — NAT
+# =============================================================================
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['POST'])
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "POST",
+    ]
+)
 def api_nat(request):
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-    n = NatEntry.objects.create(
-        name=d.get('name', 'Port Forward'), iface=d.get('iface', 'WAN'),
-        wan_port=str(d.get('wan_port', '')), lan_ip=d.get('lan_ip', ''),
-        lan_port=str(d.get('lan_port', '')), proto=d.get('proto', 'TCP'),
-        enabled=d.get('enabled', True),
+    if request.method == "GET":
+        entries = [
+            nat_to_dict(
+                item
+            )
+            for item in NatEntry.objects.all()
+        ]
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "entries": entries,
+                "runtime_applied": False,
+                "aviso": (
+                    "O cadastro NAT está preservado no Django, "
+                    "mas a aplicação nftables de NAT ainda não foi habilitada "
+                    "na arquitetura nova."
+                ),
+            }
+        )
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
     )
-    return JsonResponse({'ok': True, 'nat': nat_to_dict(n)}, status=201)
+
+    if erro_response:
+        return erro_response
+
+    n = NatEntry(
+        name=str(
+            dados.get(
+                "name"
+            )
+            or "Port Forward"
+        )[:100],
+        iface=str(
+            dados.get(
+                "iface"
+            )
+            or "WAN"
+        ),
+        wan_port=str(
+            dados.get(
+                "wan_port"
+            )
+            or ""
+        ),
+        lan_ip=str(
+            dados.get(
+                "lan_ip"
+            )
+            or ""
+        ),
+        lan_port=str(
+            dados.get(
+                "lan_port"
+            )
+            or ""
+        ),
+        proto=str(
+            dados.get(
+                "proto"
+            )
+            or "TCP"
+        ),
+        enabled=_bool(
+            dados.get(
+                "enabled"
+            ),
+            default=True,
+        ),
+    )
+
+    try:
+        n.full_clean()
+        n.save()
+    except ValidationError as exc:
+        return JsonResponse(
+            _validation_error_payload(
+                exc
+            ),
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "nat": nat_to_dict(
+                n
+            ),
+            "runtime_applied": False,
+        },
+        status=201,
+    )
 
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['PUT', 'PATCH', 'DELETE'])
-def api_nat_detail(request, nat_id: int):
-    n = get_object_or_404(NatEntry, pk=nat_id)
-    if request.method == 'DELETE':
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+)
+def api_nat_detail(
+    request,
+    nat_id: int,
+):
+    n = get_object_or_404(
+        NatEntry,
+        pk=nat_id,
+    )
+
+    if request.method == "GET":
+        return JsonResponse(
+            {
+                "ok": True,
+                "nat": nat_to_dict(
+                    n
+                ),
+                "runtime_applied": False,
+            }
+        )
+
+    if request.method == "DELETE":
         n.delete()
-        return JsonResponse({'ok': True})
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-    for field in ('name', 'iface', 'wan_port', 'lan_ip', 'lan_port', 'proto', 'enabled'):
-        if field in d:
-            setattr(n, field, d[field])
-    n.save()
-    return JsonResponse({'ok': True, 'nat': nat_to_dict(n)})
 
+        return JsonResponse(
+            {
+                "ok": True,
+                "runtime_applied": False,
+            }
+        )
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['POST'])
-def api_blocklist(request):
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-    ip = (d.get('ip') or '').strip()
-    if not ip:
-        return JsonResponse({'erro': 'IP obrigatório'}, status=400)
-    b = BlocklistEntry.objects.create(
-        ip=ip, reason=d.get('reason', 'Bloqueio manual'),
-        source=d.get('source', 'Manual'), expires=d.get('expires', '∞'),
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
     )
-    return JsonResponse({'ok': True, 'entry': block_to_dict(b)}, status=201)
+
+    if erro_response:
+        return erro_response
+
+    for campo in (
+        "name",
+        "iface",
+        "wan_port",
+        "lan_ip",
+        "lan_port",
+        "proto",
+        "enabled",
+    ):
+        if campo not in dados:
+            continue
+
+        valor = dados[
+            campo
+        ]
+
+        if campo == "enabled":
+            valor = _bool(
+                valor,
+                default=n.enabled,
+            )
+
+        setattr(
+            n,
+            campo,
+            valor,
+        )
+
+    try:
+        n.full_clean()
+        n.save()
+    except ValidationError as exc:
+        return JsonResponse(
+            _validation_error_payload(
+                exc
+            ),
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "nat": nat_to_dict(
+                n
+            ),
+            "runtime_applied": False,
+        }
+    )
 
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['DELETE'])
-def api_blocklist_detail(request, entry_id: int):
-    get_object_or_404(BlocklistEntry, pk=entry_id).delete()
-    return JsonResponse({'ok': True})
+# =============================================================================
+# API — BLOCKLIST
+# =============================================================================
+
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "POST",
+    ]
+)
+def api_blocklist(request):
+    if request.method == "GET":
+        entries = [
+            block_to_dict(
+                item
+            )
+            for item in BlocklistEntry.objects.all()
+        ]
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "entries": entries,
+            }
+        )
+
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    return _executar_block_request(
+        request
+    )
 
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['POST'])
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "DELETE",
+    ]
+)
+def api_blocklist_detail(
+    request,
+    entry_id: int,
+):
+    bloqueio = _modo_real_obrigatorio()
+
+    if bloqueio:
+        return bloqueio
+
+    entry = get_object_or_404(
+        BlocklistEntry,
+        pk=entry_id,
+    )
+
+    ip = entry.ip
+
+    resultado = service_liberar_ip(
+        ip,
+        remover_blocklist=True,
+    )
+
+    return JsonResponse(
+        resultado,
+        status=(
+            200
+            if resultado.get("ok")
+            else 502
+        ),
+    )
+
+
+# =============================================================================
+# API — ALLOWLIST
+# =============================================================================
+
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "POST",
+    ]
+)
 def api_allowlist(request):
-    try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-    ip = (d.get('ip') or '').strip()
+    if request.method == "GET":
+        return JsonResponse(
+            {
+                "ok": True,
+                "entries": [
+                    allow_to_dict(
+                        item
+                    )
+                    for item in AllowlistEntry.objects.all()
+                ],
+                "runtime_applied": False,
+            }
+        )
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    ip = str(
+        dados.get(
+            "ip"
+        )
+        or ""
+    ).strip()
+
     if not ip:
-        return JsonResponse({'erro': 'IP/domínio obrigatório'}, status=400)
-    a = AllowlistEntry.objects.create(ip=ip, reason=d.get('reason', 'Liberação manual'))
-    return JsonResponse({'ok': True, 'entry': allow_to_dict(a)}, status=201)
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": "IP/rede obrigatório.",
+            },
+            status=400,
+        )
 
+    entry = AllowlistEntry(
+        ip=ip,
+        reason=str(
+            dados.get(
+                "reason"
+            )
+            or "Liberação manual"
+        )[:255],
+    )
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['DELETE'])
-def api_allowlist_detail(request, entry_id: int):
-    get_object_or_404(AllowlistEntry, pk=entry_id).delete()
-    return JsonResponse({'ok': True})
-
-
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['POST'])
-def api_geoblock(request):
     try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-    code = (d.get('code') or '').strip().upper()
+        entry.full_clean()
+        entry.save()
+    except ValidationError as exc:
+        return JsonResponse(
+            _validation_error_payload(
+                exc
+            ),
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "entry": allow_to_dict(
+                entry
+            ),
+            "runtime_applied": False,
+            "aviso": (
+                "Allowlist persistida no Django. "
+                "A aplicação dedicada de allowlist no Agent será integrada "
+                "na fase de sets/listas."
+            ),
+        },
+        status=201,
+    )
+
+
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "DELETE",
+    ]
+)
+def api_allowlist_detail(
+    request,
+    entry_id: int,
+):
+    entry = get_object_or_404(
+        AllowlistEntry,
+        pk=entry_id,
+    )
+
+    if request.method == "GET":
+        return JsonResponse(
+            {
+                "ok": True,
+                "entry": allow_to_dict(
+                    entry
+                ),
+                "runtime_applied": False,
+            }
+        )
+
+    entry.delete()
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "runtime_applied": False,
+        }
+    )
+
+
+# =============================================================================
+# API — GEOBLOCK
+# =============================================================================
+
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "POST",
+    ]
+)
+def api_geoblock(request):
+    if request.method == "GET":
+        return JsonResponse(
+            {
+                "ok": True,
+                "entries": [
+                    geo_to_dict(
+                        item
+                    )
+                    for item in GeoblockEntry.objects.all()
+                ],
+                "runtime_applied": False,
+            }
+        )
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    code = str(
+        dados.get(
+            "code"
+        )
+        or ""
+    ).strip().upper()
+
     if not code:
-        return JsonResponse({'erro': 'Código de país obrigatório'}, status=400)
-    g, _ = GeoblockEntry.objects.get_or_create(
+        return JsonResponse(
+            {
+                "ok": False,
+                "erro": "Código do país obrigatório.",
+            },
+            status=400,
+        )
+
+    entry, criada = GeoblockEntry.objects.get_or_create(
         code=code,
         defaults={
-            'country': d.get('country', code),
-            'dir':     d.get('dir', 'IN'),
-            'enabled': d.get('enabled', True),
+            "country": str(
+                dados.get(
+                    "country"
+                )
+                or code
+            )[:100],
+            "dir": str(
+                dados.get(
+                    "dir"
+                )
+                or GeoblockEntry.Direcao.IN
+            ),
+            "enabled": _bool(
+                dados.get(
+                    "enabled"
+                ),
+                default=True,
+            ),
         },
     )
-    return JsonResponse({'ok': True, 'entry': geo_to_dict(g)}, status=201)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "entry": geo_to_dict(
+                entry
+            ),
+            "created": criada,
+            "runtime_applied": False,
+            "aviso": (
+                "GeoBlock está persistido no Django. "
+                "A aplicação via nft sets será integrada em fase própria."
+            ),
+        },
+        status=(
+            201
+            if criada
+            else 200
+        ),
+    )
 
 
-@login_required(login_url='autenticacao:login')
-@require_http_methods(['PUT', 'PATCH', 'DELETE'])
-def api_geoblock_detail(request, entry_id: int):
-    g = get_object_or_404(GeoblockEntry, pk=entry_id)
-    if request.method == 'DELETE':
-        g.delete()
-        return JsonResponse({'ok': True})
+@login_required(login_url=LOGIN_URL)
+@require_http_methods(
+    [
+        "GET",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    ]
+)
+def api_geoblock_detail(
+    request,
+    entry_id: int,
+):
+    entry = get_object_or_404(
+        GeoblockEntry,
+        pk=entry_id,
+    )
+
+    if request.method == "GET":
+        return JsonResponse(
+            {
+                "ok": True,
+                "entry": geo_to_dict(
+                    entry
+                ),
+                "runtime_applied": False,
+            }
+        )
+
+    if request.method == "DELETE":
+        entry.delete()
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "runtime_applied": False,
+            }
+        )
+
+    dados, erro_response = _json_body(
+        request,
+        aceitar_vazio=False,
+    )
+
+    if erro_response:
+        return erro_response
+
+    for campo in (
+        "country",
+        "dir",
+        "enabled",
+    ):
+        if campo not in dados:
+            continue
+
+        valor = dados[
+            campo
+        ]
+
+        if campo == "enabled":
+            valor = _bool(
+                valor,
+                default=entry.enabled,
+            )
+
+        setattr(
+            entry,
+            campo,
+            valor,
+        )
+
     try:
-        d = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'erro': 'JSON inválido'}, status=400)
-    for field in ('country', 'dir', 'enabled'):
-        if field in d:
-            setattr(g, field, d[field])
-    g.save()
-    return JsonResponse({'ok': True, 'entry': geo_to_dict(g)})
+        entry.full_clean()
+        entry.save()
+    except ValidationError as exc:
+        return JsonResponse(
+            _validation_error_payload(
+                exc
+            ),
+            status=400,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "entry": geo_to_dict(
+                entry
+            ),
+            "runtime_applied": False,
+        }
+    )

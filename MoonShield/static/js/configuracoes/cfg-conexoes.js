@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — cfg-conexoes.js  v5
+ * MOONSHIELD — cfg-conexoes.js  v6
  * ─────────────────────────────────────────────────────────────────────
  * v5: Serviços reais + Suricata local como fonte operacional
  *   - $ = document.getElementById(id) → NUNCA usar "#" nas chamadas
@@ -23,6 +23,19 @@
 
   const MODO_SIMULACAO = "simulacao";
   const MODO_REAL = "real";
+
+  // Pequena animação usada pelo botão Atualizar do Firewall.
+  // Injetada aqui para não exigir alteração em configuracoes.css.
+  if (!document.getElementById("cfgFirewallRuntimeStyle")) {
+    const style = document.createElement("style");
+    style.id = "cfgFirewallRuntimeStyle";
+    style.textContent = `
+      @keyframes cfgFirewallSpin {
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   // Mapas de UI do Suricata — chaveados pelo "status" que o backend já
   // decidiu (STATE.servicos.suricata.status). O frontend NUNCA infere
@@ -169,8 +182,16 @@
     // Renderiza estado de Suricata (componente local)
     _renderSuricataPanel(isProd);
 
-    // Renderiza estado de Firewall
+    // Renderiza o último estado conhecido do Firewall
     _renderFirewallPanel(isProd);
+
+    // No modo Real, atualiza o estado diretamente da API local do Firewall.
+    // A chamada é assíncrona e não bloqueia a renderização da tela.
+    if (isProd) {
+      _fetchFirewallRuntimeStatus({
+        silent: true,
+      });
+    }
 
     // Resumo da aba Sistema — usa o mesmo STATE já carregado
     _renderSystemSummary();
@@ -846,127 +867,777 @@
   }
 
   /* ════════════════════════════════════════════════════════════
-     08. FIREWALL — COMPONENTE LOCAL PLACEHOLDER
+     08. FIREWALL — COMPONENTE LOCAL / MOONSHIELD-AGENT
   ════════════════════════════════════════════════════════════ */
 
-  /**
-   * Retorna estado conceitual do Firewall
-   */
-  function getFirewallState() {
+  const FIREWALL_STATUS_UI = {
+    simulado: {
+      label: "Simulado",
+      button: "Abrir painel",
+      icon: "bi-play-circle",
+      color: "#eab308",
+      border: "rgba(234,179,8,.12)",
+    },
+    somente_linux: {
+      label: "Disponível no Linux",
+      button: "Abrir instalador",
+      icon: "bi-hdd-stack",
+      color: "#eab308",
+      border: "rgba(234,179,8,.20)",
+    },
+    agent_offline: {
+      label: "Agent indisponível",
+      button: "Abrir instalador",
+      icon: "bi-exclamation-triangle",
+      color: "#ef4444",
+      border: "rgba(239,68,68,.22)",
+    },
+    nao_instalado: {
+      label: "Não instalado",
+      button: "Instalar Firewall",
+      icon: "bi-download",
+      color: "#f97316",
+      border: "rgba(249,115,22,.22)",
+    },
+    atencao: {
+      label: "Requer atenção",
+      button: "Revisar / reparar",
+      icon: "bi-wrench-adjustable",
+      color: "#f97316",
+      border: "rgba(249,115,22,.22)",
+    },
+    operacional: {
+      label: "Operacional",
+      button: "Abrir Firewall",
+      icon: "bi-shield-check",
+      color: "#22c55e",
+      border: "rgba(34,197,94,.30)",
+    },
+    erro: {
+      label: "Erro",
+      button: "Abrir instalador",
+      icon: "bi-x-octagon",
+      color: "#ef4444",
+      border: "rgba(239,68,68,.28)",
+    },
+  };
+
+  function _getFirewallUrls() {
+    const el = $("firewallUrls");
+
+    if (!el) {
+      return {
+        status: null,
+        install: null,
+        painel: null,
+      };
+    }
+
+    return {
+      status: el.dataset.statusUrl || null,
+      install: el.dataset.installUrl || null,
+      painel: el.dataset.painelUrl || null,
+    };
+  }
+
+  function _firewallErrorMessage(payload, fallback = "") {
+    if (!payload) return fallback;
+
+    if (typeof payload === "string") {
+      return payload;
+    }
+
+    if (typeof payload.erro === "string") {
+      return payload.erro;
+    }
+
+    if (payload.erro && typeof payload.erro === "object") {
+      return (
+        payload.erro.mensagem
+        || payload.erro.erro
+        || fallback
+      );
+    }
+
+    return (
+      payload.mensagem
+      || payload.message
+      || fallback
+    );
+  }
+
+  function _isLinuxOnlyMessage(message) {
+    const text = String(message || "").toLowerCase();
+
+    return (
+      text.includes("só está disponível no host linux")
+      || text.includes("somente")
+         && text.includes("linux")
+      || text.includes("only")
+         && text.includes("linux")
+    );
+  }
+
+  function _normalizeFirewallRuntime(raw = {}, httpStatus = 200) {
     const isDemo = isSimulationMode();
 
     if (isDemo) {
       return {
+        ...raw,
         status: "simulado",
-        label: "Simulado",
-        icon: "bi-play-circle",
-        color: "#eab308",
-        description: "Modo simulação — dados de teste",
+        status_label: "Simulado",
+        acao: "painel_simulado",
+        fonte: "simulada",
+        saudavel: false,
+        operacional: false,
       };
     }
 
-    // Modo real — placeholder até integração nftables
+    const errorMessage = _firewallErrorMessage(raw, "");
+    const linuxOnly = _isLinuxOnlyMessage(errorMessage);
+
+    if (linuxOnly) {
+      return {
+        ...raw,
+        status: "somente_linux",
+        status_label: "Disponível somente no Linux",
+        acao: "instalar",
+        fonte: "local",
+        agent_disponivel: false,
+        nftables_instalado: false,
+        instalado: false,
+        tabela_instalada: false,
+        chains_ok: false,
+        operacional: false,
+        saudavel: false,
+        erro: errorMessage,
+        http_status: httpStatus,
+      };
+    }
+
+    const agentOk =
+      raw.agent_disponivel === true
+      || raw.agent_ativo === true;
+
+    const nftOk = raw.nftables_instalado === true;
+
+    const instalado =
+      raw.instalado === true
+      || raw.tabela_instalada === true
+      || raw.ativo === true
+      || raw.operacional === true;
+
+    const operational = raw.operacional === true;
+    const chainsOk = raw.chains_ok === true;
+
+    if (operational) {
+      return {
+        ...raw,
+        status: "operacional",
+        status_label: raw.status_label || "Operacional",
+        acao: "painel",
+        fonte: "local",
+        agent_disponivel: agentOk,
+        nftables_instalado: nftOk,
+        instalado: true,
+        tabela_instalada: raw.tabela_instalada !== false,
+        chains_ok: chainsOk,
+        operacional: true,
+        saudavel: true,
+      };
+    }
+
+    if (!agentOk) {
+      return {
+        ...raw,
+        status: httpStatus >= 500 ? "agent_offline" : "erro",
+        status_label:
+          raw.status_label
+          || (httpStatus >= 500 ? "Agent indisponível" : "Erro"),
+        acao: "instalar",
+        fonte: "local",
+        agent_disponivel: false,
+        operacional: false,
+        saudavel: false,
+        erro:
+          errorMessage
+          || "MoonShield-Agent indisponível.",
+        http_status: httpStatus,
+      };
+    }
+
+    if (!instalado) {
+      return {
+        ...raw,
+        status: "nao_instalado",
+        status_label: "Não instalado",
+        acao: "instalar",
+        fonte: "local",
+        agent_disponivel: true,
+        nftables_instalado: nftOk,
+        instalado: false,
+        tabela_instalada: false,
+        chains_ok: false,
+        operacional: false,
+        saudavel: false,
+      };
+    }
+
     return {
-      status: "em_breve",
-      label: "Em desenvolvimento",
-      icon: "bi-gear",
-      color: "#3b82f6",
-      description: "Integração nftables em breve",
+      ...raw,
+      status: "atencao",
+      status_label:
+        raw.status_label
+        || "Requer atenção",
+      acao: "reparar",
+      fonte: "local",
+      agent_disponivel: true,
+      nftables_instalado: nftOk,
+      instalado: true,
+      operacional: false,
+      saudavel: false,
+      erro: errorMessage || null,
     };
   }
 
-  /**
-   * Renderiza painel de Firewall na aba Serviços
-   */
+  async function _fetchFirewallRuntimeStatus(opts = {}) {
+    const { silent = false } = opts;
+    const urls = _getFirewallUrls();
+
+    if (!urls.status) {
+      const runtime = _normalizeFirewallRuntime(
+        {
+          erro: "URL de status do Firewall não configurada no template.",
+        },
+        500
+      );
+
+      _storeFirewallRuntime(runtime);
+      _renderFirewallPanel(isRealMode());
+
+      return runtime;
+    }
+
+    if (!isRealMode()) {
+      const runtime = _normalizeFirewallRuntime({});
+      _storeFirewallRuntime(runtime);
+      _renderFirewallPanel(false);
+      return runtime;
+    }
+
+    const refreshBtn = $("firewallRefreshBtn");
+
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      const icon = refreshBtn.querySelector("i");
+      if (icon) {
+        icon.style.animation = "cfgFirewallSpin .7s linear infinite";
+      }
+    }
+
+    try {
+      /*
+       * Não usa n().apiFetch aqui de propósito:
+       * /firewall/api/status/ retorna 503 quando o Agent não está disponível.
+       * Precisamos ler o JSON desse 503 para distinguir:
+       * - Windows (somente Linux)
+       * - Agent offline
+       * - outro erro real
+       */
+      const response = await fetch(urls.status, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      let data = {};
+
+      try {
+        data = await response.json();
+      } catch (_) {
+        data = {};
+      }
+
+      const runtime = _normalizeFirewallRuntime(
+        data,
+        response.status
+      );
+
+      _storeFirewallRuntime(runtime);
+      _renderFirewallPanel(true);
+
+      if (!silent) {
+        const level =
+          runtime.status === "operacional"
+            ? "OK"
+            : runtime.status === "nao_instalado"
+              ? "INFO"
+              : "WARN";
+
+        n().logDiag(
+          level,
+          `Firewall: ${runtime.status_label}`
+        );
+      }
+
+      return runtime;
+    } catch (e) {
+      const runtime = _normalizeFirewallRuntime(
+        {
+          erro:
+            e?.message
+            || "Falha ao consultar o Firewall.",
+        },
+        503
+      );
+
+      _storeFirewallRuntime(runtime);
+      _renderFirewallPanel(true);
+
+      if (!silent) {
+        n().logDiag(
+          "WARN",
+          `Firewall: ${runtime.erro || runtime.status_label}`
+        );
+      }
+
+      return runtime;
+    } finally {
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        const icon = refreshBtn.querySelector("i");
+        if (icon) {
+          icon.style.animation = "";
+        }
+      }
+    }
+  }
+
+  function _storeFirewallRuntime(runtime) {
+    const nucleo = n();
+
+    nucleo.STATE.servicos =
+      nucleo.STATE.servicos
+      || {};
+
+    nucleo.STATE.servicos.firewall = {
+      ...(nucleo.STATE.servicos.firewall || {}),
+      ...runtime,
+    };
+
+    const isReal = isRealMode();
+
+    nucleo.STATE.providers =
+      nucleo.STATE.providers
+      || {};
+
+    nucleo.STATE.providers.fw = {
+      ...(nucleo.STATE.providers.fw || {}),
+      active:
+        isReal
+        && runtime.operacional === true,
+      mode:
+        isReal
+          ? "nftables"
+          : "mock",
+      target: "local",
+    };
+
+    if (!isReal) {
+      nucleo.PROV_STATUS.fw = "mock";
+    } else if (runtime.status === "operacional") {
+      nucleo.PROV_STATUS.fw = "ok";
+    } else if (
+      runtime.status === "nao_instalado"
+      || runtime.status === "atencao"
+      || runtime.status === "somente_linux"
+    ) {
+      nucleo.PROV_STATUS.fw = "warn";
+    } else {
+      nucleo.PROV_STATUS.fw = "erro";
+    }
+
+    nucleo.renderStatusBar();
+    _renderSystemSummary();
+  }
+
+  function getFirewallState() {
+    const firewall =
+      n().STATE.servicos?.firewall
+      || {};
+
+    if (isSimulationMode()) {
+      const ui = FIREWALL_STATUS_UI.simulado;
+
+      return {
+        ...firewall,
+        status: "simulado",
+        label: ui.label,
+        button: ui.button,
+        icon: ui.icon,
+        color: ui.color,
+        border: ui.border,
+        acao: "painel_simulado",
+      };
+    }
+
+    const status =
+      firewall.status
+      || (
+        firewall.operacional
+          ? "operacional"
+          : firewall.instalado
+            ? "atencao"
+            : "nao_instalado"
+      );
+
+    const ui =
+      FIREWALL_STATUS_UI[status]
+      || FIREWALL_STATUS_UI.erro;
+
+    return {
+      ...firewall,
+      status,
+      label:
+        firewall.status_label
+        || ui.label,
+      button: ui.button,
+      icon: ui.icon,
+      color: ui.color,
+      border: ui.border,
+      acao:
+        firewall.acao
+        || (
+          status === "operacional"
+            ? "painel"
+            : status === "atencao"
+              ? "reparar"
+              : "instalar"
+        ),
+    };
+  }
+
+  function _setFirewallHealthRow(dotId, textId, ok, okLabel, failLabel) {
+    const dot = $(dotId);
+    const text = $(textId);
+
+    const color =
+      ok
+        ? "#22c55e"
+        : "var(--text-dim)";
+
+    if (dot) {
+      dot.style.background = color;
+      dot.style.boxShadow =
+        ok
+          ? "0 0 6px rgba(34,197,94,.35)"
+          : "none";
+    }
+
+    if (text) {
+      text.textContent =
+        ok
+          ? okLabel
+          : failLabel;
+
+      text.style.color =
+        ok
+          ? "#22c55e"
+          : "var(--text-muted)";
+    }
+  }
+
   function _renderFirewallPanel(isProd) {
     const connector = $("connectorFw");
+
     if (!connector) return;
 
     const state = getFirewallState();
 
-    const visualStatus = isProd ? "em_breve" : "simulado";
-    const statusLabel = isProd ? "Em desenvolvimento" : "Simulado";
-    const badgeLabel = isProd ? "EM BREVE" : "SIMULAÇÃO";
-    const color = isProd ? "#3b82f6" : "#eab308";
-
     connector.style.borderColor =
-      isProd
-        ? "rgba(59,130,246,.18)"
-        : "rgba(234,179,8,.12)";
+      state.border
+      || "";
 
     const statusEl = $("statusFw");
+
     if (statusEl) {
       statusEl.innerHTML = `
         <span
           class="cfg-conn-dot"
-          style="background:${color};box-shadow:0 0 6px ${color}88"
+          style="
+            background:${state.color};
+            box-shadow:0 0 6px ${state.color}88
+          "
         ></span>
-        ${statusLabel}
+        ${state.label}
       `;
     }
 
-    /*
-     * O badge antigo era hardcoded como MOCK no HTML.
-     * Agora ele sempre reflete o modo global:
-     *
-     * Simulação -> SIMULAÇÃO
-     * Real      -> EM BREVE
-     *
-     * Enquanto nftables não for integrado, não mostramos REAL/LOCAL como se
-     * houvesse uma implementação operacional.
-     */
     const badge = $("badgeModeFw");
+
     if (badge) {
-      badge.textContent = badgeLabel;
+      const localRuntime =
+        isProd
+        && state.status !== "somente_linux";
+
+      badge.textContent =
+        isProd
+          ? localRuntime
+            ? "LOCAL"
+            : "LINUX"
+          : "SIMULAÇÃO";
+
       badge.className =
         `cfg-provider-mode-badge cfg-provider-mode-badge--${
-          isProd ? "real" : "mock"
+          isProd
+            ? "real"
+            : "mock"
         }`;
 
       if (isProd) {
-        badge.style.background = "rgba(59,130,246,.10)";
-        badge.style.borderColor = "rgba(59,130,246,.28)";
-        badge.style.color = "#3b82f6";
-        badge.title = "Integração local via nftables ainda em desenvolvimento";
+        badge.style.background =
+          state.status === "operacional"
+            ? "rgba(34,197,94,.10)"
+            : "rgba(249,115,22,.10)";
+
+        badge.style.borderColor =
+          state.status === "operacional"
+            ? "rgba(34,197,94,.28)"
+            : "rgba(249,115,22,.28)";
+
+        badge.style.color =
+          state.status === "operacional"
+            ? "#22c55e"
+            : "#f97316";
       } else {
         badge.style.background = "";
         badge.style.borderColor = "";
         badge.style.color = "";
-        badge.title = "Componente bloqueado pelo Modo Simulação";
       }
     }
 
-    /*
-     * O Firewall ainda não está implementado.
-     * O switch não deve sugerir que o usuário pode ativar um recurso inexistente.
-     */
-    const fwToggle = $("toggleFwProvider");
-    if (fwToggle) {
-      fwToggle.checked = false;
-      fwToggle.disabled = true;
-      fwToggle.setAttribute(
-        "aria-label",
+    const toggle = $("toggleFwProvider");
+
+    if (toggle) {
+      toggle.checked =
         isProd
-          ? "Firewall em desenvolvimento"
-          : "Firewall indisponível no Modo Simulação"
+        && state.operacional === true;
+
+      toggle.disabled = true;
+
+      toggle.setAttribute(
+        "aria-label",
+        state.operacional
+          ? "Firewall operacional"
+          : "Firewall não operacional"
       );
 
-      const switchLabel = fwToggle.closest(".cfg-switch");
+      const switchLabel =
+        toggle.closest(".cfg-switch");
+
       if (switchLabel) {
-        switchLabel.style.opacity = ".55";
-        switchLabel.style.cursor = "not-allowed";
+        switchLabel.style.opacity = ".72";
+        switchLabel.style.cursor = "default";
         switchLabel.title =
-          isProd
-            ? "Integração nftables será disponibilizada em uma próxima etapa"
-            : "Disponível somente quando a integração estiver implementada";
+          "Indicador automático do estado do Firewall";
       }
     }
 
-    // Não há sensores de firewall (sem agente Flask :8765)
-    const sensorPanel = $("fwSensorPanel");
-    if (sensorPanel) sensorPanel.style.display = "none";
+    const title = $("firewallSummaryTitle");
+    const summary = $("firewallSummaryText");
+    const iconBox = $("firewallSummaryIcon");
 
-    n().logDiag("INFO", `Firewall: ${visualStatus}`);
+    if (title) {
+      title.textContent = state.label;
+    }
+
+    if (summary) {
+      if (!isProd) {
+        summary.textContent =
+          "Modo Simulação ativo. Mude para Modo Real para usar o Firewall local.";
+      } else if (state.status === "operacional") {
+        summary.textContent =
+          "MoonShield-Agent, nftables, tabela e chains estão operacionais.";
+      } else if (state.status === "nao_instalado") {
+        summary.textContent =
+          "O Agent está disponível. Conclua o instalador para criar a estrutura do Firewall.";
+      } else if (state.status === "somente_linux") {
+        summary.textContent =
+          state.erro
+          || "O MoonShield-Agent e o nftables só funcionam no host Linux.";
+      } else if (state.status === "agent_offline") {
+        summary.textContent =
+          state.erro
+          || "O Django não consegue acessar o MoonShield-Agent.";
+      } else {
+        summary.textContent =
+          state.erro
+          || "A instalação existe, mas requer validação ou reparo.";
+      }
+    }
+
+    if (iconBox) {
+      iconBox.style.color = state.color;
+      iconBox.style.background =
+        `${state.color}14`;
+
+      iconBox.innerHTML =
+        `<i class="bi ${state.icon}"></i>`;
+    }
+
+    _setFirewallHealthRow(
+      "firewallAgentDot",
+      "firewallAgentText",
+      state.agent_disponivel === true
+        || state.agent_ativo === true,
+      "ONLINE",
+      isProd
+        ? "OFFLINE"
+        : "—"
+    );
+
+    _setFirewallHealthRow(
+      "firewallNftDot",
+      "firewallNftText",
+      state.nftables_instalado === true,
+      state.nftables_versao
+        ? `v${state.nftables_versao}`
+        : "INSTALADO",
+      state.status === "somente_linux"
+        ? "LINUX"
+        : "NÃO CONFIRMADO"
+    );
+
+    _setFirewallHealthRow(
+      "firewallTableDot",
+      "firewallTableText",
+      state.tabela_instalada === true
+        || state.operacional === true,
+      "ATIVA",
+      state.instalado
+        ? "ATENÇÃO"
+        : "NÃO INSTALADA"
+    );
+
+    _setFirewallHealthRow(
+      "firewallChainsDot",
+      "firewallChainsText",
+      state.chains_ok === true
+        || state.operacional === true,
+      "OK",
+      "—"
+    );
+
+    if ($("firewallWanText")) {
+      $("firewallWanText").textContent =
+        state.interface_wan
+        || "—";
+    }
+
+    if ($("firewallMgmtText")) {
+      $("firewallMgmtText").textContent =
+        state.interface_mgmt
+        || "—";
+    }
+
+    if ($("firewallLanText")) {
+      $("firewallLanText").textContent =
+        state.interface_lan
+        || "—";
+    }
+
+    if ($("firewallHomeNetText")) {
+      $("firewallHomeNetText").textContent =
+        state.home_net
+        || "—";
+    }
+
+    const linuxNotice = $("firewallLinuxNotice");
+
+    if (linuxNotice) {
+      const show =
+        isProd
+        && state.status === "somente_linux";
+
+      linuxNotice.hidden = !show;
+
+      if (show && $("firewallLinuxNoticeText")) {
+        $("firewallLinuxNoticeText").textContent =
+          state.erro
+          || "O MoonShield-Agent e o nftables estão disponíveis apenas no host Linux.";
+      }
+    }
+
+    const actionBtn = $("firewallActionBtn");
+
+    if (actionBtn) {
+      actionBtn.disabled =
+        !isProd
+        && state.status !== "simulado";
+
+      actionBtn.innerHTML = `
+        <i class="bi ${state.icon}"></i>
+        ${state.button}
+      `;
+
+      actionBtn.dataset.firewallAction =
+        state.acao
+        || "instalar";
+    }
+
+    const meta = $("firewallMetaText");
+
+    if (meta) {
+      const socketPath =
+        state.ipc?.socket
+        || state.ipc?.caminho
+        || "/run/moonshield/agent.sock";
+
+      const table =
+        state.tabela
+        || "inet moonshield";
+
+      meta.textContent =
+        `IPC: ${socketPath} · tabela: ${table}`;
+    }
+
+    // Não existem sensores HTTP / Flask :8765.
+    const sensorPanel = $("fwSensorPanel");
+    if (sensorPanel) {
+      sensorPanel.style.display = "none";
+    }
+  }
+
+  function _handleFirewallActionClick() {
+    const state = getFirewallState();
+    const urls = _getFirewallUrls();
+
+    let destino = null;
+
+    switch (state.acao) {
+      case "painel":
+      case "painel_simulado":
+        destino = urls.painel;
+        break;
+
+      case "instalar":
+      case "reparar":
+      default:
+        destino = urls.install;
+        break;
+    }
+
+    if (!destino) {
+      n().showToast(
+        "Não foi possível abrir o Firewall — URL indisponível.",
+        "erro"
+      );
+      return;
+    }
+
+    window.location.assign(destino);
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -1024,13 +1695,24 @@
           : "";
     }
 
-    // Firewall
+    // Firewall — status real do MoonShield-Agent/nftables
     const fwDot = $("systemFirewallDot");
     const fwStatus = $("systemFirewallStatus");
-    const fwLabel = firewall.status === "simulado" ? "Simulado" : "Em desenvolvimento";
-    const fwColor = firewall.status === "simulado" ? "#eab308" : "#3b82f6";
-    if (fwDot) fwDot.style.background = fwColor;
-    if (fwStatus) fwStatus.textContent = fwLabel;
+    const firewallState = getFirewallState();
+
+    if (fwDot) {
+      fwDot.style.background = firewallState.color || "var(--text-dim)";
+      fwDot.style.boxShadow =
+        firewallState.status === "operacional"
+          ? "0 0 6px rgba(34,197,94,.35)"
+          : "none";
+    }
+
+    if (fwStatus) {
+      fwStatus.textContent =
+        firewallState.label
+        || "—";
+    }
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -1116,15 +1798,27 @@
       idsToggle.disabled = true;
     }
 
-    // Firewall ainda é placeholder: o switch é somente visual e permanece
-    // desabilitado até a integração nftables existir de fato.
+    // Firewall local: o switch é somente indicador automático.
     const fwToggle = $("toggleFwProvider");
     if (fwToggle) {
-      fwToggle.checked = false;
       fwToggle.disabled = true;
     }
 
-    logDiag("INFO", "MoonShield Conexões v5 inicializado.");
+    $("firewallActionBtn")?.addEventListener(
+      "click",
+      _handleFirewallActionClick
+    );
+
+    $("firewallRefreshBtn")?.addEventListener(
+      "click",
+      async () => {
+        await _fetchFirewallRuntimeStatus({
+          silent: false,
+        });
+      }
+    );
+
+    logDiag("INFO", "MoonShield Conexões v6 inicializado.");
   });
 
   /* ════════════════════════════════════════════════════════════
@@ -1136,6 +1830,10 @@
       n().STATE.modo,
       { silent: true }
     );
+
+    _fetchFirewallRuntimeStatus({
+      silent: true,
+    });
   }
 
   window.CfgConexoes = {
@@ -1155,6 +1853,8 @@
 
     // Firewall
     getFirewallState,
+    _getFirewallUrls,
+    _fetchFirewallRuntimeStatus,
 
     // Status (compatibilidade)
     setProviderStatus,

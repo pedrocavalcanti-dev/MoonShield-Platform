@@ -926,40 +926,455 @@
     </div>
 
     <!-- ──────────────────────────────────────────────────
-         FIREWALL (PLACEHOLDER)
+         FIREWALL — COMPONENTE LOCAL
          ────────────────────────────────────────────────── -->
     <div class="cfg-connector" id="connectorFw">
+
       <div class="cfg-connector__header">
         <div class="cfg-connector__title-group">
           <div class="cfg-connector__icon">
-            <img src="{% static 'imagens/configuraçoes/logos-sistemas/iptables.png' %}" class="cfg-connector__logo" alt="Firewall">
+            <img
+              src="{% static 'imagens/configuraçoes/logos-sistemas/iptables.png' %}"
+              class="cfg-connector__logo"
+              alt="Firewall MoonShield"
+            >
           </div>
+
           <div>
-            <p class="cfg-connector__name">Firewall</p>
-            <p class="cfg-connector__sub">Controle de tráfego e políticas de rede</p>
+            <p class="cfg-connector__name">Firewall MoonShield</p>
+            <p class="cfg-connector__sub">nftables local gerenciado pelo MoonShield-Agent</p>
           </div>
         </div>
+
         <div class="cfg-connector__header-right">
-          <span class="cfg-conn-status" id="statusFw"><span class="cfg-conn-dot"></span> Em desenvolvimento</span>
-          <span class="cfg-provider-mode-badge cfg-provider-mode-badge--mock" id="badgeModeFw">MOCK</span>
-          <label class="cfg-switch"><input type="checkbox" id="toggleFwProvider" class="provider-toggle" data-provider="fw"><span class="cfg-switch-slider"></span></label>
+          <span class="cfg-conn-status" id="statusFw">
+            <span class="cfg-conn-dot"></span>
+            Verificando…
+          </span>
+
+          <span
+            class="cfg-provider-mode-badge cfg-provider-mode-badge--mock"
+            id="badgeModeFw"
+          >
+            LOCAL
+          </span>
+
+          <!-- Indicador visual apenas. O Firewall não é ligado/desligado por este switch. -->
+          <label
+            class="cfg-switch"
+            title="Estado operacional detectado automaticamente"
+          >
+            <input
+              type="checkbox"
+              id="toggleFwProvider"
+              class="provider-toggle"
+              data-provider="fw"
+              tabindex="-1"
+              aria-label="Estado operacional do Firewall"
+            >
+            <span class="cfg-switch-slider"></span>
+          </label>
         </div>
       </div>
+
       <div class="cfg-connector__body">
-        <div style="background:rgba(168,85,247,.07);border:1px solid rgba(168,85,247,.2);border-radius:var(--r-md);padding:12px 14px">
-          <p style="font-size:11px;color:var(--text-muted);line-height:1.6;margin:0">
-            <i class="bi bi-gear" style="margin-right:6px"></i>
-            <strong>Em desenvolvimento</strong> — Integração com firewall local via nftables será disponibilizada em breve.
+
+        <!-- URLs reais do módulo Firewall. O JS não hardcoda rotas. -->
+        <div
+          id="firewallUrls"
+          data-status-url="{% url 'firewall:api_status' %}"
+          data-install-url="{% url 'firewall:instalacao' %}"
+          data-painel-url="{% url 'firewall:painel' %}"
+          hidden
+        ></div>
+
+        <!-- Resumo principal -->
+        <div
+          style="
+            display:grid;
+            grid-template-columns:auto minmax(0,1fr);
+            gap:12px;
+            align-items:center;
+            padding:14px;
+            margin-bottom:12px;
+            border:1px solid var(--border-soft);
+            border-radius:var(--r-md);
+            background:rgba(249,115,22,.035);
+          "
+        >
+          <div
+            id="firewallSummaryIcon"
+            style="
+              width:42px;
+              height:42px;
+              display:grid;
+              place-items:center;
+              border-radius:10px;
+              background:rgba(249,115,22,.08);
+              color:#f97316;
+              font-size:18px;
+            "
+          >
+            <i class="bi bi-shield-lock"></i>
+          </div>
+
+          <div style="min-width:0">
+            <div
+              style="
+                display:flex;
+                align-items:center;
+                gap:8px;
+                flex-wrap:wrap;
+                margin-bottom:4px;
+              "
+            >
+              <strong
+                id="firewallSummaryTitle"
+                style="font-size:12px;color:var(--text-primary)"
+              >
+                Verificando Firewall…
+              </strong>
+
+              <span
+                id="firewallHostBadge"
+                style="
+                  display:inline-flex;
+                  align-items:center;
+                  padding:2px 7px;
+                  border-radius:999px;
+                  border:1px solid var(--border-soft);
+                  color:var(--text-dim);
+                  font-size:8px;
+                  font-family:var(--font-mono);
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                LOCAL
+              </span>
+            </div>
+
+            <p
+              id="firewallSummaryText"
+              style="
+                margin:0;
+                color:var(--text-dim);
+                font-size:10px;
+                line-height:1.55;
+              "
+            >
+              Consultando o MoonShield-Agent e o nftables.
+            </p>
+          </div>
+        </div>
+
+        <!-- Estado operacional -->
+        <div
+          style="
+            padding:14px;
+            margin-bottom:12px;
+            border:1px solid var(--border-soft);
+            border-radius:var(--r-md);
+            background:var(--bg-mid);
+          "
+        >
+          <div
+            style="
+              display:grid;
+              grid-template-columns:repeat(4,minmax(0,1fr));
+              gap:8px;
+            "
+          >
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                Agent
+              </span>
+
+              <div style="display:flex;gap:6px;align-items:center">
+                <span
+                  class="cfg-service-status-dot"
+                  id="firewallAgentDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="firewallAgentText"
+                  style="color:var(--text-muted);font-size:10px"
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                nftables
+              </span>
+
+              <div style="display:flex;gap:6px;align-items:center">
+                <span
+                  class="cfg-service-status-dot"
+                  id="firewallNftDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="firewallNftText"
+                  style="color:var(--text-muted);font-size:10px"
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                Tabela
+              </span>
+
+              <div style="display:flex;gap:6px;align-items:center">
+                <span
+                  class="cfg-service-status-dot"
+                  id="firewallTableDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="firewallTableText"
+                  style="color:var(--text-muted);font-size:10px"
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+
+            <div
+              style="
+                min-width:0;
+                padding:10px;
+                border:1px solid var(--border-soft);
+                border-radius:8px;
+                background:rgba(255,255,255,.018);
+              "
+            >
+              <span
+                style="
+                  display:block;
+                  margin-bottom:5px;
+                  color:var(--text-dim);
+                  font-size:8px;
+                  text-transform:uppercase;
+                  letter-spacing:.05em;
+                "
+              >
+                Chains
+              </span>
+
+              <div style="display:flex;gap:6px;align-items:center">
+                <span
+                  class="cfg-service-status-dot"
+                  id="firewallChainsDot"
+                  style="background:var(--text-dim)"
+                ></span>
+
+                <strong
+                  id="firewallChainsText"
+                  style="color:var(--text-muted);font-size:10px"
+                >
+                  —
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style="
+              margin-top:10px;
+              padding-top:10px;
+              border-top:1px solid var(--border-soft);
+              display:grid;
+              grid-template-columns:repeat(4,minmax(0,1fr));
+              gap:8px;
+            "
+          >
+            <div>
+              <span style="display:block;color:var(--text-dim);font-size:8px">WAN</span>
+              <strong
+                id="firewallWanText"
+                style="display:block;margin-top:4px;color:var(--text-muted);font-size:9px;font-family:var(--font-mono)"
+              >—</strong>
+            </div>
+
+            <div>
+              <span style="display:block;color:var(--text-dim);font-size:8px">MGMT</span>
+              <strong
+                id="firewallMgmtText"
+                style="display:block;margin-top:4px;color:var(--text-muted);font-size:9px;font-family:var(--font-mono)"
+              >—</strong>
+            </div>
+
+            <div>
+              <span style="display:block;color:var(--text-dim);font-size:8px">LAN</span>
+              <strong
+                id="firewallLanText"
+                style="display:block;margin-top:4px;color:var(--text-muted);font-size:9px;font-family:var(--font-mono)"
+              >—</strong>
+            </div>
+
+            <div>
+              <span style="display:block;color:var(--text-dim);font-size:8px">HOME_NET</span>
+              <strong
+                id="firewallHomeNetText"
+                style="display:block;margin-top:4px;color:var(--text-muted);font-size:9px;font-family:var(--font-mono)"
+              >—</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Aviso de host -->
+        <div
+          id="firewallLinuxNotice"
+          hidden
+          style="
+            margin-bottom:12px;
+            padding:10px 12px;
+            display:flex;
+            align-items:flex-start;
+            gap:8px;
+            border:1px solid rgba(234,179,8,.20);
+            border-radius:var(--r-md);
+            background:rgba(234,179,8,.06);
+            color:var(--text-muted);
+            font-size:10px;
+            line-height:1.5;
+          "
+        >
+          <i class="bi bi-info-circle" style="color:#eab308;margin-top:1px"></i>
+          <span id="firewallLinuxNoticeText">
+            O MoonShield-Agent e o nftables estão disponíveis apenas no host Linux.
+          </span>
+        </div>
+
+        <!-- Overlay exclusivo do modo simulação -->
+        <div
+          class="cfg-demo-overlay"
+          id="overlayFw"
+          style="display:none"
+        >
+          <i class="bi bi-lock-fill"></i>
+
+          <p>Bloqueado no Modo Simulação</p>
+
+          <p class="cfg-demo-overlay__sub">
+            Mude para <strong>Modo Real</strong> para instalar ou administrar o Firewall local.
           </p>
         </div>
-        <div class="cfg-demo-overlay" id="overlayFw" style="display:none">
-          <i class="bi bi-lock-fill"></i>
-          <p>Bloqueado no Modo Simulação</p>
-          <p class="cfg-demo-overlay__sub">Mude para <strong>Modo Real</strong> para configurar</p>
+
+        <!-- Ações -->
+        <div
+          class="cfg-connector__actions"
+          style="
+            display:flex;
+            align-items:center;
+            gap:8px;
+            flex-wrap:wrap;
+          "
+        >
+          <button
+            class="cfg-test-btn"
+            id="firewallActionBtn"
+            data-provider="fw"
+            type="button"
+          >
+            <i class="bi bi-download"></i>
+            Verificar Firewall
+          </button>
+
+          <button
+            class="cfg-detect-btn"
+            id="firewallRefreshBtn"
+            type="button"
+            title="Consultar novamente o MoonShield-Agent"
+          >
+            <i class="bi bi-arrow-clockwise"></i>
+            Atualizar
+          </button>
+
+          <div
+            class="cfg-test-result"
+            id="testResultFw"
+          ></div>
         </div>
-        <div class="cfg-connector__actions" style="margin-top:14px">
-          <button class="cfg-test-btn" disabled style="opacity:.45;cursor:not-allowed"><i class="bi bi-gear"></i> Em Breve</button>
+
+        <!-- Meta local -->
+        <div
+          style="
+            margin-top:10px;
+            color:var(--text-dim);
+            font-size:9px;
+            font-family:var(--font-mono);
+            line-height:1.5;
+          "
+        >
+          <span id="firewallMetaText">
+            IPC: /run/moonshield/agent.sock · tabela: inet moonshield
+          </span>
         </div>
+
+        <!-- Compatibilidade: não existem sensores HTTP de Firewall -->
+        <div id="fwSensorPanel" hidden></div>
+
       </div>
     </div>
 
@@ -1138,15 +1553,7 @@
   <select id="idsMode"></select>
   <select id="idsInterval"></select>
   <select id="idsMinSeverity"></select>
-  
-  <!-- FW/Firewall — modo, target, host, token, porta (compatibilidade legado) -->
-  <select id="fwMode"></select>
-  <select id="fwTarget"></select>
-  <input id="fwHost" type="text" />
-  <input id="fwToken" type="password" />
-  <input id="fwAgentePorta" type="number" />
-  
-  <!-- DNS — modo (compatibilidade) -->
+<!-- DNS — modo (compatibilidade) -->
   <select id="dnsMode"></select>
   
   <!-- Blocos de sensor IDS/FW que eram renderizados dinamicamente — manter ocultos -->

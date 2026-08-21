@@ -1,361 +1,1384 @@
 """
-firewall/nucleo/instalador.py
-──────────────────────────────────────────────────────────────────────
-Instala e remove as regras nftables de monitoramento do MoonShield.
+MoonShield Agent — Firewall / Instalador
+========================================
 
-Cria uma tabela isolada 'moonshield' com chains completas:
-  ms_input     → filtra tráfego destinado à própria máquina (INPUT)
-  ms_forward   → filtra tráfego roteado entre interfaces (FORWARD)
-  ms_emergency → regras de emergência, avaliadas antes das normais
-  ms_rules     → regras sincronizadas pelo painel (populadas pelo conversor)
+Instalador PRIVILEGIADO do Firewall MoonShield no Linux.
 
-v3: separação de tabelas (moonshield ≠ netforge), migração de NAT do
-    iptables para nftables ao instalar, preservação da tabela netforge
-    criada pelo ms_confignet.
-──────────────────────────────────────────────────────────────────────
+IMPORTANTE SOBRE A ARQUITETURA
+------------------------------
+A tela de instalação, onboarding, progresso e tarefas pertencem ao Django.
+
+Este arquivo fica no MoonShield-Agent porque somente o Agent deve executar:
+
+- apt-get/install do nftables;
+- criação de diretórios em /etc e /var/lib;
+- criação da tabela `inet moonshield`;
+- validação via `nft -c`;
+- aplicação de regras base;
+- reparo local;
+- remoção controlada.
+
+Portanto:
+
+    Django = interface + orquestração + tarefa + logs
+    Agent  = execução privilegiada Linux
+
+O Django deve chamar este instalador via IPC local.
+
+SEGURANÇA
+---------
+- somente nftables;
+- NÃO migra iptables automaticamente;
+- NÃO executa `iptables`;
+- NÃO executa `flush ruleset`;
+- NÃO altera tabelas nftables de terceiros;
+- NÃO habilita/desabilita regras de terceiros;
+- políticas iniciais são ACCEPT;
+- cria somente `table inet moonshield`;
+- protege MGMT através de `ms_system`;
+- snapshot antes de alteração;
+- `nft -c` antes de aplicar.
+
+Este módulo usa somente biblioteca padrão.
 """
 
+from __future__ import annotations
+
+import json
 import os
+import shutil
+import subprocess
+import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from nucleo.utilitarios import run_cmd, cmd_existe, servico_ativo
+from typing import Any
 
-# ══════════════════════════════════════════════════════════════════════════════
-# VERSÃO
-# ══════════════════════════════════════════════════════════════════════════════
-
-VERSAO_INSTALADOR = "3.0"
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CONSTANTES
-# ══════════════════════════════════════════════════════════════════════════════
-
-PREFIXO_LOG  = "MS-FWD: "
-NOME_TABELA  = "moonshield"
-
-ARQUIVO_CONF     = Path("/etc/nftables.d/moonshield.conf")
-ARQUIVO_CONF_ALT = Path("/etc/nftables.conf")
-
-REGRAS = f"""\
-# MoonShield — regras de monitoramento de firewall  v{VERSAO_INSTALADOR}
-# Gerado automaticamente pelo ms_firewall.py
-# Nao edite manualmente — use a opcao [0] do menu
-
-table inet {NOME_TABELA} {{
-
-    chain ms_input {{
-        type filter hook input priority 0; policy accept;
-        jump ms_emergency
-        jump ms_rules
-        log prefix "MS-INPUT: " flags all
-    }}
-
-    chain ms_forward {{
-        type filter hook forward priority 0; policy accept;
-        jump ms_emergency
-        jump ms_rules
-        log prefix "MS-FWD: " flags all
-    }}
-
-    chain ms_emergency {{
-        # Reservado para bloqueios de emergência (auto-ban, SOC)
-        # Populado pelo sensor — não edite manualmente
-    }}
-
-    chain ms_rules {{
-        # Regras sincronizadas pelo painel MoonShield
-        # Populado pelo sincronizador.py a cada poll
-    }}
-
-}}
-"""
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VERIFICAÇÕES
-# ══════════════════════════════════════════════════════════════════════════════
-
-def verificar_nftables() -> tuple[bool, str]:
-    if not cmd_existe("nft"):
-        return False, "nftables nao encontrado — instale com: apt install nftables"
-    code, out, _ = run_cmd("nft --version")
-    if code == 0:
-        return True, out.split("\n")[0].strip()
-    return False, "nft encontrado mas nao respondeu"
+from firewall.nucleo.rollback import (
+    criar_snapshot,
+    restaurar,
+    tabela_existe,
+)
+from firewall.nucleo.seguranca import (
+    CHAIN_EMERGENCY,
+    CHAIN_FORWARD,
+    CHAIN_INPUT,
+    CHAIN_OUTPUT,
+    CHAIN_RULES,
+    CHAIN_SYSTEM,
+    TABELA_FAMILIA,
+    TABELA_NOME,
+    detectar_contexto,
+    gerar_regras_sistema,
+    validar_script_nft,
+    validar_topologia,
+)
+from firewall.nucleo.status import obter_status
 
 
-def verificar_instalado() -> bool:
-    code, _, _ = run_cmd(f"nft list table inet {NOME_TABELA}")
-    return code == 0
+VERSAO_INSTALADOR = "1.0"
+
+TIMEOUT_COMANDO = 120
+TIMEOUT_NFT = 30
+
+DIRETORIO_CONFIG = Path(
+    "/etc/moonshield/firewall"
+)
+
+ARQUIVO_CONFIG = (
+    DIRETORIO_CONFIG
+    / "firewall.json"
+)
+
+DIRETORIO_STATE = Path(
+    "/var/lib/moonshield/firewall"
+)
+
+DIRETORIO_RUNTIME = Path(
+    "/run/moonshield"
+)
+
+ARQUIVO_BASE = (
+    DIRETORIO_CONFIG
+    / "base.nft"
+)
+
+ARQUIVO_RULES = (
+    DIRETORIO_CONFIG
+    / "rules.nft"
+)
+
+ARQUIVO_NAT = (
+    DIRETORIO_CONFIG
+    / "nat.nft"
+)
 
 
-def verificar_persistente() -> bool:
-    if ARQUIVO_CONF.exists():
-        return True
-    if ARQUIVO_CONF_ALT.exists():
-        return f"table inet {NOME_TABELA}" in ARQUIVO_CONF_ALT.read_text(encoding="utf-8")
-    return False
+# =============================================================================
+# API PÚBLICA
+# =============================================================================
 
-
-def verificar_chains() -> dict[str, bool]:
-    chains_esperadas = ["ms_input", "ms_forward", "ms_emergency", "ms_rules"]
-    resultado = {}
-    if not verificar_instalado():
-        return {c: False for c in chains_esperadas}
-    _, out, _ = run_cmd(f"nft list table inet {NOME_TABELA}")
-    for chain in chains_esperadas:
-        resultado[chain] = f"chain {chain}" in out
-    return resultado
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DETECÇÃO E MIGRAÇÃO DE NAT (iptables → nftables)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _detectar_nat_iptables() -> list[dict]:
+def instalar(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
-    Lê regras MASQUERADE/SNAT do iptables antes de subir o nftables.
-    Retorna lista de {'iface_out': 'enp0s3'} para cada regra encontrada.
-    Formato da linha: pkts bytes target prot opt in out src dst [options]
+    Instala/prepara o Firewall local.
+
+    Payload recomendado:
+        {
+            "config": {
+                "interface_wan": "enp0s3",
+                "interface_lan": "enp0s9",
+                "interface_mgmt": "enp0s8",
+                "home_net": "10.10.0.0/24"
+            },
+            "instalar_pacote": true
+        }
+
+    A instalação inicial mantém policy ACCEPT.
     """
-    regras = []
+    inicio = time.monotonic()
+
+    dados = dados or {}
+
+    cfg = dados.get(
+        "config"
+    )
+
+    if not isinstance(
+        cfg,
+        dict,
+    ):
+        cfg = {}
+
+    instalar_pacote = _bool(
+        dados.get(
+            "instalar_pacote",
+            True,
+        )
+    )
+
+    if not _linux():
+        return _erro(
+            "sistema_nao_suportado",
+            "MoonShield Firewall requer Linux.",
+            inicio,
+        )
+
+    if not _root():
+        return _erro(
+            "root_necessario",
+            "A instalação deve ser executada pelo MoonShield-Agent como root.",
+            inicio,
+        )
+
+    etapas: list[dict[str, Any]] = []
+
+    # ------------------------------------------------------------------
+    # 1. nftables
+    # ------------------------------------------------------------------
+
+    nft = shutil.which(
+        "nft"
+    )
+
+    if not nft:
+        if not instalar_pacote:
+            return _erro(
+                "nftables_ausente",
+                "nftables não está instalado.",
+                inicio,
+            )
+
+        resultado_pacote = (
+            _instalar_nftables()
+        )
+
+        etapas.append(
+            {
+                "etapa": "instalar_nftables",
+                **resultado_pacote,
+            }
+        )
+
+        if not resultado_pacote[
+            "ok"
+        ]:
+            return _erro(
+                "instalacao_nftables_falhou",
+                resultado_pacote.get(
+                    "erro",
+                    "Falha ao instalar nftables.",
+                ),
+                inicio,
+                etapas=etapas,
+            )
+
+        nft = shutil.which(
+            "nft"
+        )
+
+    if not nft:
+        return _erro(
+            "nftables_indisponivel",
+            "nft continua indisponível após instalação.",
+            inicio,
+            etapas=etapas,
+        )
+
+    etapas.append(
+        {
+            "etapa": "nftables",
+            "ok": True,
+            "mensagem": "nftables disponível.",
+            "versao": _versao_nft(
+                nft
+            ),
+        }
+    )
+
+    # ------------------------------------------------------------------
+    # 2. Diretórios
+    # ------------------------------------------------------------------
+
     try:
-        code, out, _ = run_cmd("iptables -t nat -L POSTROUTING -n -v")
-        if code != 0:
-            return []
-        for linha in out.splitlines():
-            if "MASQUERADE" not in linha and "SNAT" not in linha:
-                continue
-            partes = linha.split()
-            if len(partes) >= 7:
-                iface_out = partes[6]
-                if iface_out and iface_out != "*":
-                    if not any(r["iface_out"] == iface_out for r in regras):
-                        regras.append({"iface_out": iface_out})
-    except Exception:
-        pass
-    return regras
+        _criar_diretorios()
 
+        etapas.append(
+            {
+                "etapa": "diretorios",
+                "ok": True,
+                "mensagem": "Diretórios MoonShield preparados.",
+            }
+        )
 
-def _detectar_ip_forward() -> bool:
-    code, out, _ = run_cmd("sysctl net.ipv4.ip_forward")
-    return "= 1" in out if code == 0 else False
+    except Exception as exc:
+        return _erro(
+            "diretorios_falharam",
+            str(
+                exc
+            ),
+            inicio,
+            etapas=etapas,
+        )
 
+    # ------------------------------------------------------------------
+    # 3. Topologia
+    # ------------------------------------------------------------------
 
-def _migrar_nat_para_nft(regras_nat: list[dict]):
-    """
-    Cria chain ms_nat na tabela moonshield e adiciona MASQUERADE
-    para cada interface que tinha no iptables.
-    Usa família inet para compatibilidade com kernels >= 5.2.
-    """
-    if not regras_nat:
-        return
+    contexto = detectar_contexto(
+        cfg
+    )
 
-    # Cria chain NAT se não existir (SEM o silencioso=True)
-    run_cmd("nft add chain inet moonshield ms_nat { type nat hook postrouting priority 100 ; }")
+    topologia = validar_topologia(
+        contexto,
+        exigir_wan=True,
+        exigir_lan=True,
+        exigir_mgmt=False,
+    )
 
-    for r in regras_nat:
-        iface = r["iface_out"]
-        run_cmd(f'nft add rule inet moonshield ms_nat oifname "{iface}" masquerade')
+    etapas.append(
+        {
+            "etapa": "topologia",
+            "ok": topologia.ok,
+            "detalhes": topologia.para_dict(),
+        }
+    )
 
+    if not topologia.ok:
+        return _erro(
+            "topologia_invalida",
+            "WAN/LAN não estão prontas para instalação.",
+            inicio,
+            etapas=etapas,
+            detalhes=topologia.para_dict(),
+        )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PRESERVAÇÃO DA TABELA NETFORGE (ms_confignet)
-# ══════════════════════════════════════════════════════════════════════════════
+    # ------------------------------------------------------------------
+    # 4. iptables — SOMENTE DETECÇÃO
+    # ------------------------------------------------------------------
 
-def _preservar_roteamento_netforge():
-    """
-    Garante que a tabela 'netforge' (criada pelo ms_confignet) nunca é
-    tocada pelo instalador do MoonShield.
-    """
-    code, out, _ = run_cmd("nft list tables")
-    if code == 0 and "netforge" in out:
-        pass
+    legado = _detectar_iptables()
 
+    etapas.append(
+        {
+            "etapa": "iptables",
+            "ok": True,
+            "mensagem": (
+                "iptables detectado; nenhuma regra será alterada."
+                if legado[
+                    "detectado"
+                ]
+                else "iptables não detectado."
+            ),
+            "detalhes": legado,
+        }
+    )
 
-# ══════════════════════════════════════════════════════════════════════════════
-# INSTALAR
-# ══════════════════════════════════════════════════════════════════════════════
+    # ------------------------------------------------------------------
+    # 5. Persistência da config
+    # ------------------------------------------------------------------
 
-def instalar_regras() -> tuple[bool, str]:
-    ok, msg = verificar_nftables()
-    if not ok:
-        return False, msg
+    config_final = {
+        "versao": 1,
 
-    ip_forward_ativo = _detectar_ip_forward()
-    nat_existente    = _detectar_nat_iptables()
+        "interface_wan": contexto.interface_wan,
+        "interface_lan": contexto.interface_lan,
+        "interface_mgmt": contexto.interface_mgmt,
 
-    if verificar_instalado():
-        # AQUI mantemos silencioso=True porque a função remover_regras aceita esse parâmetro!
-        remover_regras(silencioso=True)
+        "home_net": contexto.home_net,
 
-    tmp = "/tmp/ms_fw_rules.nft"
+        "ip_local": contexto.ip_local,
+        "gateway": contexto.gateway,
+        "rede_mgmt": contexto.rede_mgmt,
+
+        "tabela": (
+            f"{TABELA_FAMILIA} "
+            f"{TABELA_NOME}"
+        ),
+
+        "instalado_em": _agora_iso(),
+    }
+
     try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(REGRAS)
-        code, _, err = run_cmd(f"nft -f {tmp}")
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        _salvar_config(
+            config_final
+        )
 
-    if code != 0:
-        return False, f"Erro ao aplicar regras: {err}"
+        etapas.append(
+            {
+                "etapa": "configuracao",
+                "ok": True,
+                "arquivo": str(
+                    ARQUIVO_CONFIG
+                ),
+            }
+        )
 
-    if not verificar_instalado():
-        return False, "Regras enviadas mas tabela nao encontrada — verifique com: nft list tables"
+    except Exception as exc:
+        return _erro(
+            "configuracao_falhou",
+            str(
+                exc
+            ),
+            inicio,
+            etapas=etapas,
+        )
 
-    chains = verificar_chains()
-    chains_faltando = [c for c, ok in chains.items() if not ok]
-    if chains_faltando:
-        return False, f"Tabela criada mas chains ausentes: {', '.join(chains_faltando)}"
+    # ------------------------------------------------------------------
+    # 6. Gera base segura
+    # ------------------------------------------------------------------
 
-    if nat_existente:
-        _migrar_nat_para_nft(nat_existente)
-        if ip_forward_ativo:
-            run_cmd("sysctl -w net.ipv4.ip_forward=1")
+    script = _gerar_base(
+        contexto
+    )
 
-    _preservar_roteamento_netforge()
+    validacao_textual = validar_script_nft(
+        script,
+        permitir_delete_table_moonshield=True,
+    )
 
-    ok_p, msg_p = _tornar_persistente()
+    if not validacao_textual.ok:
+        return _erro(
+            "base_insegura",
+            "Configuração base rejeitada pela segurança.",
+            inicio,
+            etapas=etapas,
+            detalhes=validacao_textual.para_dict(),
+        )
 
-    resultado = f"Regras instaladas com sucesso (v{VERSAO_INSTALADOR})."
-    if nat_existente:
-        ifaces = [r["iface_out"] for r in nat_existente]
-        resultado += f"\nNAT migrado do iptables: {', '.join(ifaces)}"
-    if ok_p:
-        resultado += f"\nPersistencia configurada em: {msg_p}"
-    else:
-        resultado += f"\nAVISO: persistencia falhou — regras serao perdidas no reboot.\n{msg_p}"
+    ARQUIVO_BASE.write_text(
+        script,
+        encoding="utf-8",
+    )
 
-    return True, resultado
+    # Mantém arquivos separados preparados para as próximas fases.
+    if not ARQUIVO_RULES.exists():
+        ARQUIVO_RULES.write_text(
+            "# MoonShield Firewall — regras administrativas\n",
+            encoding="utf-8",
+        )
 
+    if not ARQUIVO_NAT.exists():
+        ARQUIVO_NAT.write_text(
+            "# MoonShield Firewall — NAT (não configurado)\n",
+            encoding="utf-8",
+        )
 
-def remover_regras(silencioso: bool = False) -> tuple[bool, str]:
-    if not verificar_instalado():
-        if not silencioso:
-            return True, "Tabela moonshield nao encontrada — nada a remover."
-        return True, ""
+    etapas.append(
+        {
+            "etapa": "gerar_base",
+            "ok": True,
+            "arquivo": str(
+                ARQUIVO_BASE
+            ),
+        }
+    )
 
-    code, _, err = run_cmd(f"nft delete table inet {NOME_TABELA}")
-    if code != 0:
-        return False, f"Erro ao remover tabela: {err}"
+    # ------------------------------------------------------------------
+    # 7. Snapshot
+    # ------------------------------------------------------------------
 
-    _remover_persistencia()
+    try:
+        snapshot = criar_snapshot(
+            "antes_instalacao_firewall",
+            metadados={
+                "operacao": "instalar",
+            },
+        )
 
-    if not silencioso:
-        return True, "Regras removidas com sucesso."
-    return True, ""
+        snapshot_id = (
+            snapshot[
+                "snapshot"
+            ][
+                "id"
+            ]
+        )
 
+        etapas.append(
+            {
+                "etapa": "snapshot",
+                "ok": True,
+                "snapshot_id": snapshot_id,
+            }
+        )
 
-def listar_regras() -> tuple[bool, str]:
-    if not verificar_instalado():
-        return False, "Tabela moonshield nao esta instalada."
-    code, out, err = run_cmd(f"nft list table inet {NOME_TABELA}")
-    if code == 0:
-        return True, out.strip()
-    return False, f"Erro ao listar regras: {err}"
+    except Exception as exc:
+        return _erro(
+            "snapshot_falhou",
+            str(
+                exc
+            ),
+            inicio,
+            etapas=etapas,
+        )
 
+    # ------------------------------------------------------------------
+    # 8. nft -c
+    # ------------------------------------------------------------------
 
-def obter_status() -> dict:
-    disponivel, versao = verificar_nftables()
-    instalado          = verificar_instalado() if disponivel else False
-    persistente        = verificar_persistente() if instalado else False
-    chains             = verificar_chains() if instalado else {}
+    check = _nft_check(
+        nft,
+        script,
+    )
 
-    netforge_ativa    = False
-    backend_confignet = "—"
-    if disponivel:
-        code, out, _ = run_cmd("nft list tables")
-        netforge_ativa = code == 0 and "netforge" in out
-        if netforge_ativa:
-            backend_confignet = "nftables"
-        else:
-            code2, out2, _ = run_cmd("iptables -t nat -L POSTROUTING -n 2>/dev/null")
-            if code2 == 0 and ("MASQUERADE" in out2 or "SNAT" in out2):
-                backend_confignet = "iptables"
+    etapas.append(
+        {
+            "etapa": "validar_nft",
+            **check,
+        }
+    )
+
+    if not check[
+        "ok"
+    ]:
+        return _erro(
+            "validacao_nft_falhou",
+            check.get(
+                "erro",
+                "nft -c rejeitou a configuração.",
+            ),
+            inicio,
+            etapas=etapas,
+            snapshot_id=snapshot_id,
+        )
+
+    # ------------------------------------------------------------------
+    # 9. Apply
+    # ------------------------------------------------------------------
+
+    apply = _nft_apply(
+        nft,
+        script,
+    )
+
+    etapas.append(
+        {
+            "etapa": "aplicar_base",
+            **apply,
+        }
+    )
+
+    if not apply[
+        "ok"
+    ]:
+        rollback = restaurar(
+            snapshot_id
+        )
+
+        return _erro(
+            "apply_falhou",
+            apply.get(
+                "erro",
+                "Falha ao aplicar firewall.",
+            ),
+            inicio,
+            etapas=etapas,
+            snapshot_id=snapshot_id,
+            rollback=rollback,
+        )
+
+    # ------------------------------------------------------------------
+    # 10. Status final
+    # ------------------------------------------------------------------
+
+    status = obter_status()
+
+    etapas.append(
+        {
+            "etapa": "healthcheck",
+            "ok": bool(
+                status.get(
+                    "operacional"
+                )
+            ),
+            "status": status.get(
+                "status"
+            ),
+        }
+    )
+
+    if not status.get(
+        "instalado",
+        False,
+    ):
+        rollback = restaurar(
+            snapshot_id
+        )
+
+        return _erro(
+            "healthcheck_falhou",
+            "A tabela foi aplicada, mas o healthcheck não confirmou a instalação.",
+            inicio,
+            etapas=etapas,
+            snapshot_id=snapshot_id,
+            rollback=rollback,
+            detalhes=status,
+        )
+
+    duracao = (
+        time.monotonic()
+        - inicio
+    )
 
     return {
-        "nftables_ok":        disponivel,
-        "versao":             versao if disponivel else "—",
-        "instalado":          instalado,
-        "persistente":        persistente,
-        "prefixo_log":        PREFIXO_LOG,
-        "nome_tabela":        NOME_TABELA,
-        "versao_instalador":  VERSAO_INSTALADOR,
-        "chains":             chains,
-        "netforge_ativa":     netforge_ativa,
-        "backend_confignet":  backend_confignet,
+        "ok": True,
+        "status": "sucesso",
+        "mensagem": "MoonShield Firewall instalado com segurança.",
+
+        "snapshot_id": snapshot_id,
+
+        "configuracao": config_final,
+
+        "status_firewall": status,
+
+        "iptables": legado,
+
+        "etapas": etapas,
+
+        "duracao_segundos": round(
+            duracao,
+            3,
+        ),
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PERSISTÊNCIA
-# ══════════════════════════════════════════════════════════════════════════════
+def instalar_firewall(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return instalar(
+        dados
+    )
 
-def _tornar_persistente() -> tuple[bool, str]:
-    dir_d = Path("/etc/nftables.d")
 
-    if dir_d.exists():
+# =============================================================================
+# REPARO
+# =============================================================================
+
+def reparar(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Reaplica a base MoonShield usando a configuração persistida.
+
+    Não altera iptables.
+    Não altera tabelas externas.
+    """
+    dados = dados or {}
+
+    cfg = _carregar_config()
+
+    if not cfg:
+        cfg = dados.get(
+            "config",
+            {}
+        )
+
+    if not isinstance(
+        cfg,
+        dict,
+    ):
+        cfg = {}
+
+    payload = dict(
+        dados
+    )
+
+    payload[
+        "config"
+    ] = cfg
+
+    # Não precisa instalar pacote se já existe.
+    payload[
+        "instalar_pacote"
+    ] = True
+
+    return instalar(
+        payload
+    )
+
+
+def reparar_firewall(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return reparar(
+        dados
+    )
+
+
+# =============================================================================
+# DESINSTALAÇÃO
+# =============================================================================
+
+def desinstalar(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Remove SOMENTE `table inet moonshield`.
+
+    O pacote nftables não é removido.
+    iptables não é alterado.
+    Config e snapshots são preservados por padrão.
+
+    Para apagar config local:
+        {"remover_config": true}
+    """
+    inicio = time.monotonic()
+
+    dados = dados or {}
+
+    if not _bool(
+        dados.get(
+            "confirmar"
+        )
+    ):
+        return _erro(
+            "confirmacao_necessaria",
+            "Desinstalação exige confirmar=true.",
+            inicio,
+        )
+
+    if not _root():
+        return _erro(
+            "root_necessario",
+            "MoonShield-Agent precisa executar como root.",
+            inicio,
+        )
+
+    nft = shutil.which(
+        "nft"
+    )
+
+    if not nft:
+        return _erro(
+            "nft_indisponivel",
+            "nft não encontrado.",
+            inicio,
+        )
+
+    try:
+        snapshot = criar_snapshot(
+            "antes_desinstalacao_firewall",
+            metadados={
+                "operacao": "desinstalar",
+            },
+        )
+
+        snapshot_id = (
+            snapshot[
+                "snapshot"
+            ][
+                "id"
+            ]
+        )
+
+    except Exception as exc:
+        return _erro(
+            "snapshot_falhou",
+            str(
+                exc
+            ),
+            inicio,
+        )
+
+    if tabela_existe():
+        result = subprocess.run(
+            [
+                nft,
+                "delete",
+                "table",
+                TABELA_FAMILIA,
+                TABELA_NOME,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_NFT,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            return _erro(
+                "remocao_tabela_falhou",
+                (
+                    result.stderr.strip()
+                    or "Falha ao remover tabela MoonShield."
+                ),
+                inicio,
+                snapshot_id=snapshot_id,
+            )
+
+    if _bool(
+        dados.get(
+            "remover_config",
+            False,
+        )
+    ):
         try:
-            ARQUIVO_CONF.write_text(REGRAS, encoding="utf-8")
-            _garantir_include()
-            _habilitar_servico()
-            return True, str(ARQUIVO_CONF)
-        except Exception as e:
-            return False, str(e)
-    else:
-        try:
-            atual = ARQUIVO_CONF_ALT.read_text(encoding="utf-8") if ARQUIVO_CONF_ALT.exists() else ""
-            limpo = _remover_bloco_anterior(atual)
-            ARQUIVO_CONF_ALT.write_text(limpo.rstrip() + "\n\n" + REGRAS, encoding="utf-8")
-            _habilitar_servico()
-            return True, str(ARQUIVO_CONF_ALT)
-        except Exception as e:
-            return False, str(e)
+            ARQUIVO_CONFIG.unlink(
+                missing_ok=True
+            )
 
+            ARQUIVO_BASE.unlink(
+                missing_ok=True
+            )
 
-def _garantir_include():
-    if not ARQUIVO_CONF_ALT.exists():
-        return
-    conteudo = ARQUIVO_CONF_ALT.read_text(encoding="utf-8")
-    include  = 'include "/etc/nftables.d/*.conf"'
-    if include not in conteudo:
-        with open(ARQUIVO_CONF_ALT, "a", encoding="utf-8") as f:
-            f.write(f"\n{include}\n")
+            ARQUIVO_RULES.unlink(
+                missing_ok=True
+            )
 
+            ARQUIVO_NAT.unlink(
+                missing_ok=True
+            )
 
-def _remover_bloco_anterior(conteudo: str) -> str:
-    linhas    = conteudo.split("\n")
-    resultado = []
-    dentro    = False
-    profund   = 0
-
-    for linha in linhas:
-        if f"table inet {NOME_TABELA}" in linha and not dentro:
-            dentro  = True
-            profund = 0
-        if dentro:
-            profund += linha.count("{") - linha.count("}")
-            if profund <= 0 and ("{" in linha or profund < 0):
-                dentro = False
-            continue
-        resultado.append(linha)
-
-    return "\n".join(resultado)
-
-
-def _remover_persistencia():
-    if ARQUIVO_CONF.exists():
-        try:
-            ARQUIVO_CONF.unlink()
         except Exception:
             pass
-    elif ARQUIVO_CONF_ALT.exists():
+
+    return {
+        "ok": True,
+        "status": "sucesso",
+        "mensagem": "Tabela MoonShield removida.",
+        "snapshot_id": snapshot_id,
+        "pacote_nftables_preservado": True,
+        "iptables_preservado": True,
+        "duracao_segundos": round(
+            time.monotonic()
+            - inicio,
+            3,
+        ),
+    }
+
+
+def remover(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return desinstalar(
+        dados
+    )
+
+
+def remover_regras(
+    dados: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return desinstalar(
+        dados
+    )
+
+
+# =============================================================================
+# STATUS / COMPATIBILIDADE
+# =============================================================================
+
+def obter_status_instalacao() -> dict[str, Any]:
+    return obter_status()
+
+
+def listar_regras() -> dict[str, Any]:
+    from firewall.nucleo.status import (
+        obter_regras,
+    )
+
+    return obter_regras()
+
+
+# =============================================================================
+# BASE NFT
+# =============================================================================
+
+def _gerar_base(
+    contexto,
+) -> str:
+    """
+    Cria firewall base em policy ACCEPT.
+
+    O enforcement administrativo virá por ms_rules.
+    A primeira instalação não fecha tráfego por padrão.
+    """
+    linhas: list[str] = []
+
+    if tabela_existe():
+        linhas.append(
+            f"delete table "
+            f"{TABELA_FAMILIA} "
+            f"{TABELA_NOME}"
+        )
+
+    linhas.extend(
+        [
+            f"table {TABELA_FAMILIA} {TABELA_NOME} {{",
+
+            f"    chain {CHAIN_SYSTEM} {{",
+            "    }",
+
+            f"    chain {CHAIN_EMERGENCY} {{",
+            "    }",
+
+            f"    chain {CHAIN_RULES} {{",
+            "    }",
+
+            f"    chain {CHAIN_INPUT} {{",
+            "        type filter hook input priority 0; policy accept;",
+            f"        jump {CHAIN_SYSTEM}",
+            f"        jump {CHAIN_EMERGENCY}",
+            f"        jump {CHAIN_RULES}",
+            "    }",
+
+            f"    chain {CHAIN_FORWARD} {{",
+            "        type filter hook forward priority 0; policy accept;",
+            f"        jump {CHAIN_SYSTEM}",
+            f"        jump {CHAIN_EMERGENCY}",
+            f"        jump {CHAIN_RULES}",
+            "    }",
+
+            f"    chain {CHAIN_OUTPUT} {{",
+            "        type filter hook output priority 0; policy accept;",
+            f"        jump {CHAIN_SYSTEM}",
+            f"        jump {CHAIN_EMERGENCY}",
+            f"        jump {CHAIN_RULES}",
+            "    }",
+
+            "}",
+        ]
+    )
+
+    # Regras essenciais do sistema entram depois da criação da tabela.
+    for regra in gerar_regras_sistema(
+        contexto
+    ):
+        linhas.append(
+            f"add rule "
+            f"{TABELA_FAMILIA} "
+            f"{TABELA_NOME} "
+            f"{CHAIN_SYSTEM} "
+            f"{regra}"
+        )
+
+    return (
+        "\n".join(
+            linhas
+        )
+        + "\n"
+    )
+
+
+# =============================================================================
+# INSTALAÇÃO DE PACOTE
+# =============================================================================
+
+def _instalar_nftables() -> dict[str, Any]:
+    """
+    Instala somente o pacote nftables.
+
+    NÃO executa:
+        systemctl enable nftables
+        systemctl disable iptables
+        iptables-save
+        iptables-restore
+        flush ruleset
+
+    A persistência do MoonShield pertence ao Agent.
+    """
+    apt = shutil.which(
+        "apt-get"
+    )
+
+    if not apt:
+        return {
+            "ok": False,
+            "erro": (
+                "Gerenciador apt-get não encontrado. "
+                "Instale nftables manualmente."
+            ),
+        }
+
+    env = os.environ.copy()
+
+    env[
+        "DEBIAN_FRONTEND"
+    ] = "noninteractive"
+
+    try:
+        update = subprocess.run(
+            [
+                apt,
+                "update",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_COMANDO,
+            check=False,
+            env=env,
+        )
+
+        if update.returncode != 0:
+            return {
+                "ok": False,
+                "erro": (
+                    update.stderr.strip()
+                    or update.stdout.strip()
+                    or "apt-get update falhou."
+                ),
+            }
+
+        install = subprocess.run(
+            [
+                apt,
+                "install",
+                "-y",
+                "nftables",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_COMANDO,
+            check=False,
+            env=env,
+        )
+
+        if install.returncode != 0:
+            return {
+                "ok": False,
+                "erro": (
+                    install.stderr.strip()
+                    or install.stdout.strip()
+                    or "apt-get install nftables falhou."
+                ),
+            }
+
+        return {
+            "ok": True,
+            "mensagem": "Pacote nftables instalado.",
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "erro": "Instalação nftables excedeu o tempo limite.",
+        }
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "erro": str(
+                exc
+            ),
+        }
+
+
+# =============================================================================
+# NFT CHECK / APPLY
+# =============================================================================
+
+def _nft_check(
+    nft: str,
+    script: str,
+) -> dict[str, Any]:
+    path = _arquivo_temporario(
+        script
+    )
+
+    try:
+        result = subprocess.run(
+            [
+                nft,
+                "-c",
+                "-f",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_NFT,
+            check=False,
+        )
+
+        return {
+            "ok": (
+                result.returncode == 0
+            ),
+            "codigo": result.returncode,
+            "stdout": (
+                result.stdout
+                or ""
+            ).strip(),
+            "stderr": (
+                result.stderr
+                or ""
+            ).strip(),
+            "erro": (
+                ""
+                if result.returncode == 0
+                else (
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "nft -c falhou."
+                )
+            ),
+        }
+
+    finally:
         try:
-            atual = ARQUIVO_CONF_ALT.read_text(encoding="utf-8")
-            ARQUIVO_CONF_ALT.write_text(_remover_bloco_anterior(atual), encoding="utf-8")
-        except Exception:
+            os.unlink(
+                path
+            )
+        except FileNotFoundError:
             pass
 
 
-def _habilitar_servico():
-    run_cmd("systemctl enable nftables")
-    run_cmd("systemctl start  nftables")
+def _nft_apply(
+    nft: str,
+    script: str,
+) -> dict[str, Any]:
+    path = _arquivo_temporario(
+        script
+    )
+
+    try:
+        result = subprocess.run(
+            [
+                nft,
+                "-f",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_NFT,
+            check=False,
+        )
+
+        return {
+            "ok": (
+                result.returncode == 0
+            ),
+            "codigo": result.returncode,
+            "stdout": (
+                result.stdout
+                or ""
+            ).strip(),
+            "stderr": (
+                result.stderr
+                or ""
+            ).strip(),
+            "erro": (
+                ""
+                if result.returncode == 0
+                else (
+                    result.stderr.strip()
+                    or result.stdout.strip()
+                    or "nft -f falhou."
+                )
+            ),
+        }
+
+    finally:
+        try:
+            os.unlink(
+                path
+            )
+        except FileNotFoundError:
+            pass
+
+
+# =============================================================================
+# FILESYSTEM
+# =============================================================================
+
+def _criar_diretorios() -> None:
+    for path in (
+        DIRETORIO_CONFIG,
+        DIRETORIO_STATE,
+        DIRETORIO_STATE / "snapshots",
+        DIRETORIO_RUNTIME,
+    ):
+        path.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+    for path in (
+        DIRETORIO_CONFIG,
+        DIRETORIO_STATE,
+        DIRETORIO_STATE / "snapshots",
+        DIRETORIO_RUNTIME,
+    ):
+        try:
+            os.chmod(
+                path,
+                0o750,
+            )
+        except PermissionError:
+            pass
+
+
+def _salvar_config(
+    cfg: dict[str, Any],
+) -> None:
+    _criar_diretorios()
+
+    temporario = (
+        ARQUIVO_CONFIG
+        .with_suffix(
+            ".json.tmp"
+        )
+    )
+
+    temporario.write_text(
+        json.dumps(
+            cfg,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        os.chmod(
+            temporario,
+            0o640,
+        )
+    except PermissionError:
+        pass
+
+    os.replace(
+        temporario,
+        ARQUIVO_CONFIG,
+    )
+
+
+def _carregar_config() -> dict[str, Any]:
+    try:
+        if not ARQUIVO_CONFIG.exists():
+            return {}
+
+        dados = json.loads(
+            ARQUIVO_CONFIG.read_text(
+                encoding="utf-8",
+            )
+        )
+
+        return (
+            dados
+            if isinstance(
+                dados,
+                dict,
+            )
+            else {}
+        )
+
+    except Exception:
+        return {}
+
+
+def _arquivo_temporario(
+    script: str,
+) -> str:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".nft",
+        prefix="moonshield-installer-",
+        delete=False,
+    ) as fp:
+        fp.write(
+            script
+        )
+
+        return fp.name
+
+
+# =============================================================================
+# IPTABLES — DETECÇÃO APENAS
+# =============================================================================
+
+def _detectar_iptables() -> dict[str, Any]:
+    """
+    O MoonShield NÃO migra nem altera iptables automaticamente.
+    """
+    iptables = shutil.which(
+        "iptables"
+    )
+
+    if not iptables:
+        return {
+            "detectado": False,
+            "binario": None,
+            "versao": "",
+            "alterado": False,
+        }
+
+    try:
+        result = subprocess.run(
+            [
+                iptables,
+                "--version",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+
+        versao = (
+            result.stdout
+            or result.stderr
+            or ""
+        ).strip()
+
+    except Exception:
+        versao = ""
+
+    return {
+        "detectado": True,
+        "binario": iptables,
+        "versao": versao,
+        "alterado": False,
+        "mensagem": (
+            "iptables foi detectado e será preservado."
+        ),
+    }
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+def _versao_nft(
+    nft: str,
+) -> str:
+    try:
+        result = subprocess.run(
+            [
+                nft,
+                "--version",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+
+        return (
+            result.stdout
+            or result.stderr
+            or ""
+        ).strip()
+
+    except Exception:
+        return ""
+
+
+def _linux() -> bool:
+    return (
+        os.name == "posix"
+        and Path(
+            "/proc"
+        ).exists()
+    )
+
+
+def _root() -> bool:
+    return (
+        os.geteuid() == 0
+        if hasattr(
+            os,
+            "geteuid",
+        )
+        else False
+    )
+
+
+def _bool(
+    valor: Any,
+) -> bool:
+    if isinstance(
+        valor,
+        bool,
+    ):
+        return valor
+
+    if valor is None:
+        return False
+
+    return str(
+        valor
+    ).strip().lower() in {
+        "1",
+        "true",
+        "sim",
+        "yes",
+        "on",
+        "ativo",
+    }
+
+
+def _agora_iso() -> str:
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+def _erro(
+    codigo: str,
+    erro: str,
+    inicio: float,
+    *,
+    etapas: list[dict[str, Any]] | None = None,
+    snapshot_id: str | None = None,
+    rollback: dict[str, Any] | None = None,
+    detalhes: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "erro",
+        "codigo": codigo,
+        "erro": str(
+            erro
+        ),
+        "etapas": etapas or [],
+        "snapshot_id": snapshot_id,
+        "rollback": rollback,
+        "detalhes": detalhes or {},
+        "duracao_segundos": round(
+            time.monotonic()
+            - inicio,
+            3,
+        ),
+    }

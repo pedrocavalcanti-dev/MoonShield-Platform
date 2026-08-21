@@ -1,0 +1,642 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
+    <title>MoonShield — Instalação do Firewall</title>
+
+    <script>
+        (function () {
+            const savedTheme = localStorage.getItem("moonshield_theme");
+            if (savedTheme) {
+                document.documentElement.setAttribute("data-theme", savedTheme);
+            } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+                document.documentElement.setAttribute("data-theme", "dark");
+            } else {
+                document.documentElement.setAttribute("data-theme", "light");
+            }
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet"
+    >
+
+    <link rel="stylesheet" href="{% static 'css/firewall/instalacao.css' %}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{% static 'favicon/favicon-32x32.png' %}">
+</head>
+
+<body>
+    {{ precheck|json_script:"ms-firewall-precheck" }}
+
+    <script>
+        const precheckEl = document.getElementById("ms-firewall-precheck");
+
+        window.MS_FIREWALL_INSTALL = {
+            csrfToken: "{{ csrf_token }}",
+            usuario: {
+                username: "{{ request.user.username|escapejs }}",
+                nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+            },
+            precheck: precheckEl ? JSON.parse(precheckEl.textContent) : {},
+            urls: {
+                painel: "{% url 'firewall:painel' %}",
+                status: "{% url 'firewall:api_status' %}",
+                diagnostico: "{% url 'firewall:api_diagnostico' %}",
+                interfaces: "{% url 'firewall:api_interfaces' %}",
+                instalar: "{% url 'firewall:api_install' %}",
+                reparar: "{% url 'firewall:api_repair' %}",
+                tarefas: "{% url 'firewall:api_tasks' %}"
+            }
+        };
+    </script>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <div class="app-shell">
+        <aside class="setup-sidebar">
+            <div>
+                <a href="{% url 'firewall:painel' %}" class="brand" aria-label="MoonShield Firewall">
+                    <div class="brand__mark">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 2.7 20 6v5.2c0 5.1-3.4 9.1-8 10.8-4.6-1.7-8-5.7-8-10.8V6l8-3.3Z"></path>
+                            <path d="M8.4 11.7 10.8 14l4.9-5"></path>
+                        </svg>
+                    </div>
+                    <div class="brand__copy">
+                        <strong>MoonShield</strong>
+                        <span>Firewall Setup</span>
+                    </div>
+                </a>
+
+                <nav class="steps" aria-label="Etapas da instalação">
+                    <div class="steps__eyebrow">ETAPAS</div>
+
+                    <button class="step active" type="button" data-step-nav="1">
+                        <span class="step__rail">
+                            <span class="step__dot">1</span>
+                            <span class="step__line"></span>
+                        </span>
+                        <span class="step__copy">
+                            <strong>Visão geral</strong>
+                            <small>Como funciona</small>
+                        </span>
+                    </button>
+
+                    <button class="step" type="button" data-step-nav="2" disabled>
+                        <span class="step__rail">
+                            <span class="step__dot">2</span>
+                            <span class="step__line"></span>
+                        </span>
+                        <span class="step__copy">
+                            <strong>Ambiente</strong>
+                            <small>Agent e nftables</small>
+                        </span>
+                    </button>
+
+                    <button class="step" type="button" data-step-nav="3" disabled>
+                        <span class="step__rail">
+                            <span class="step__dot">3</span>
+                            <span class="step__line"></span>
+                        </span>
+                        <span class="step__copy">
+                            <strong>Rede</strong>
+                            <small>WAN, MGMT e LAN</small>
+                        </span>
+                    </button>
+
+                    <button class="step" type="button" data-step-nav="4" disabled>
+                        <span class="step__rail">
+                            <span class="step__dot">4</span>
+                        </span>
+                        <span class="step__copy">
+                            <strong>Instalação</strong>
+                            <small>Revisar e aplicar</small>
+                        </span>
+                    </button>
+                </nav>
+            </div>
+
+            <div class="sidebar-bottom">
+                <div class="agent-mini" id="sidebarAgentCard">
+                    <span class="status-dot is-loading" id="sidebarAgentDot"></span>
+                    <div>
+                        <small>MOONSHIELD-AGENT</small>
+                        <strong id="sidebarAgentText">Verificando...</strong>
+                    </div>
+                </div>
+
+                <div class="sidebar-footer">
+                    <span>Firewall Setup v1.0</span>
+
+                    <label class="theme-toggle" aria-label="Alternar tema">
+                        <input type="checkbox" id="themeToggle">
+                        <span class="theme-toggle__track">
+                            <span class="theme-toggle__thumb"></span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+        </aside>
+
+        <main class="setup-main">
+            <div class="setup-topbar">
+                <a href="{% url 'firewall:painel' %}" class="back-link">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m15 18-6-6 6-6"></path>
+                    </svg>
+                    Firewall
+                </a>
+
+                <div class="topbar-status">
+                    <span class="status-dot is-loading" id="topStatusDot"></span>
+                    <span id="topStatusText">Verificando ambiente</span>
+                </div>
+            </div>
+
+            <div class="setup-content">
+
+                <!-- =========================================================
+                     ETAPA 1 — VISÃO GERAL
+                ========================================================== -->
+                <section class="step-page active" data-step-panel="1">
+                    <header class="page-header">
+                        <span class="page-header__eyebrow">ETAPA 01 / FIREWALL</span>
+                        <h1>Proteção de rede, sem complicação.</h1>
+                        <p>
+                            Olá, <strong id="operatorName">operador</strong>.
+                            Este assistente configura o Firewall MoonShield no Linux,
+                            valida o nftables e protege a interface de gerenciamento antes de aplicar qualquer regra.
+                        </p>
+                    </header>
+
+                    <div class="feature-grid">
+                        <article class="feature-card">
+                            <span class="feature-card__number">01</span>
+                            <div>
+                                <h3>Validação local</h3>
+                                <p>O Django consulta o MoonShield-Agent por socket local, sem sensor remoto ou porta HTTP.</p>
+                            </div>
+                        </article>
+
+                        <article class="feature-card">
+                            <span class="feature-card__number">02</span>
+                            <div>
+                                <h3>Topologia explícita</h3>
+                                <p>Você define WAN, gerenciamento, LAN e HOME_NET antes da instalação.</p>
+                            </div>
+                        </article>
+
+                        <article class="feature-card">
+                            <span class="feature-card__number">03</span>
+                            <div>
+                                <h3>Aplicação segura</h3>
+                                <p>O Agent valida a configuração, cria snapshot e só então aplica a tabela MoonShield.</p>
+                            </div>
+                        </article>
+                    </div>
+
+                    <div class="notice notice--info">
+                        <div class="notice__icon">i</div>
+                        <div>
+                            <strong>Nenhuma regra será aplicada nesta primeira etapa.</strong>
+                            <p>Primeiro verificamos o Agent e o ambiente. A instalação só começa após sua confirmação final.</p>
+                        </div>
+                    </div>
+
+                    <div class="page-actions page-actions--end">
+                        <button class="btn btn--primary" type="button" id="btnStartCheck">
+                            Verificar ambiente
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="m9 18 6-6-6-6"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- =========================================================
+                     ETAPA 2 — AMBIENTE
+                ========================================================== -->
+                <section class="step-page" data-step-panel="2">
+                    <header class="page-header">
+                        <span class="page-header__eyebrow">ETAPA 02 / PRÉ-REQUISITOS</span>
+                        <h1>Verifique o ambiente local.</h1>
+                        <p>
+                            O Firewall depende do MoonShield-Agent para todas as operações privilegiadas.
+                            O nftables pode ser instalado pelo próprio Agent durante o processo.
+                        </p>
+                    </header>
+
+                    <div class="environment-summary" id="environmentSummary">
+                        <div class="environment-summary__icon is-loading" id="environmentSummaryIcon">
+                            <span class="spinner"></span>
+                        </div>
+                        <div class="environment-summary__copy">
+                            <small>STATUS DO AMBIENTE</small>
+                            <h2 id="environmentSummaryTitle">Verificando...</h2>
+                            <p id="environmentSummaryText">Consultando o MoonShield-Agent e o nftables.</p>
+                        </div>
+                        <button class="icon-btn" type="button" id="btnRefreshEnvironment" aria-label="Atualizar ambiente">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M20 6v5h-5"></path>
+                                <path d="M4 18v-5h5"></path>
+                                <path d="M18.2 9A7 7 0 0 0 6.3 6.4L4 11"></path>
+                                <path d="M5.8 15A7 7 0 0 0 17.7 17.6L20 13"></path>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="check-grid">
+                        <article class="check-card" id="checkAgent">
+                            <div class="check-card__top">
+                                <div class="check-icon">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                                        <path d="M8 9h8M8 13h5"></path>
+                                    </svg>
+                                </div>
+                                <span class="check-badge is-loading" id="badgeAgent">VERIFICANDO</span>
+                            </div>
+                            <h3>MoonShield-Agent</h3>
+                            <p id="textAgent">Validando comunicação pelo socket local.</p>
+                            <code id="valueAgent">/run/moonshield/agent.sock</code>
+                        </article>
+
+                        <article class="check-card" id="checkNft">
+                            <div class="check-card__top">
+                                <div class="check-icon">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M5 4h14v16H5z"></path>
+                                        <path d="m8 9 2 2-2 2M12 15h4"></path>
+                                    </svg>
+                                </div>
+                                <span class="check-badge is-loading" id="badgeNft">VERIFICANDO</span>
+                            </div>
+                            <h3>nftables</h3>
+                            <p id="textNft">Verificando disponibilidade do mecanismo de firewall.</p>
+                            <code id="valueNft">aguardando</code>
+                        </article>
+
+                        <article class="check-card" id="checkFirewall">
+                            <div class="check-card__top">
+                                <div class="check-icon">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 3 19 6v5c0 4.6-2.9 8.2-7 10-4.1-1.8-7-5.4-7-10V6l7-3z"></path>
+                                        <path d="m9 12 2 2 4-4"></path>
+                                    </svg>
+                                </div>
+                                <span class="check-badge is-loading" id="badgeFirewall">VERIFICANDO</span>
+                            </div>
+                            <h3>Firewall MoonShield</h3>
+                            <p id="textFirewall">Procurando tabela e chains gerenciadas pelo MoonShield.</p>
+                            <code id="valueFirewall">inet moonshield</code>
+                        </article>
+                    </div>
+
+                    <div class="notice notice--danger" id="agentRequiredNotice" hidden>
+                        <div class="notice__icon">!</div>
+                        <div>
+                            <strong>MoonShield-Agent indisponível.</strong>
+                            <p>
+                                A instalação não pode continuar enquanto o Django não conseguir acessar
+                                <code>/run/moonshield/agent.sock</code>.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="notice notice--success" id="alreadyInstalledNotice" hidden>
+                        <div class="notice__icon">✓</div>
+                        <div>
+                            <strong>O Firewall já está operacional.</strong>
+                            <p>Você pode abrir o painel agora ou continuar para revisar a topologia atual.</p>
+                        </div>
+                    </div>
+
+                    <div class="diagnostic-box">
+                        <div>
+                            <small>DIAGNÓSTICO</small>
+                            <strong>Quer validar a pilha completa?</strong>
+                            <p>Executa somente as verificações expostas pelo MoonShield-Agent.</p>
+                        </div>
+                        <button class="btn btn--ghost" type="button" id="btnDiagnostic">
+                            Executar diagnóstico
+                        </button>
+                    </div>
+
+                    <div class="page-actions">
+                        <button class="btn btn--secondary" type="button" data-go-step="1">Voltar</button>
+                        <div class="page-actions__right">
+                            <a class="btn btn--ghost" href="{% url 'firewall:painel' %}" id="btnOpenPanelEnvironment" hidden>
+                                Abrir painel
+                            </a>
+                            <button class="btn btn--primary" type="button" id="btnEnvironmentNext" disabled>
+                                Configurar rede
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="m9 18 6-6-6-6"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- =========================================================
+                     ETAPA 3 — REDE
+                ========================================================== -->
+                <section class="step-page" data-step-panel="3">
+                    <header class="page-header">
+                        <span class="page-header__eyebrow">ETAPA 03 / TOPOLOGIA</span>
+                        <h1>Defina as interfaces do Firewall.</h1>
+                        <p>
+                            O MoonShield não adivinha a topologia pela ordem das interfaces.
+                            Revise cada função antes de continuar.
+                        </p>
+                    </header>
+
+                    <div class="topology-card">
+                        <div class="topology-card__header">
+                            <div>
+                                <small>MAPEAMENTO DE REDE</small>
+                                <h2>Interfaces físicas</h2>
+                            </div>
+                            <span class="topology-card__count" id="interfaceCount">0 interfaces</span>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="field">
+                                <label for="selectWan">
+                                    WAN
+                                    <span>Internet / uplink</span>
+                                </label>
+                                <div class="select-wrap">
+                                    <select id="selectWan" required>
+                                        <option value="">Selecione a interface WAN</option>
+                                    </select>
+                                </div>
+                                <small class="field__help" id="wanHelp">Interface conectada à rede externa.</small>
+                            </div>
+
+                            <div class="field field--mgmt">
+                                <label for="selectMgmt">
+                                    MGMT
+                                    <span>Gerenciamento</span>
+                                </label>
+                                <div class="select-wrap">
+                                    <select id="selectMgmt" required>
+                                        <option value="">Selecione a interface de gerenciamento</option>
+                                    </select>
+                                </div>
+                                <small class="field__help" id="mgmtHelp">
+                                    O Agent cria proteção específica para preservar o acesso administrativo.
+                                </small>
+                            </div>
+
+                            <div class="field">
+                                <label for="selectLan">
+                                    LAN
+                                    <span>Rede protegida</span>
+                                </label>
+                                <div class="select-wrap">
+                                    <select id="selectLan" required>
+                                        <option value="">Selecione a interface LAN</option>
+                                    </select>
+                                </div>
+                                <small class="field__help" id="lanHelp">Interface voltada para a rede interna.</small>
+                            </div>
+
+                            <div class="field">
+                                <label for="inputHomeNet">
+                                    HOME_NET
+                                    <span>Rede interna</span>
+                                </label>
+                                <input
+                                    id="inputHomeNet"
+                                    type="text"
+                                    inputmode="text"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    placeholder="10.10.0.0/24"
+                                >
+                                <small class="field__help">Informe a rede interna em CIDR.</small>
+                            </div>
+                        </div>
+
+                        <div class="interfaces-list">
+                            <div class="interfaces-list__title">
+                                <span>INTERFACES DETECTADAS</span>
+                                <button class="link-btn" type="button" id="btnRefreshInterfaces">
+                                    Atualizar
+                                </button>
+                            </div>
+                            <div class="interfaces-list__items" id="interfacesList">
+                                <div class="interface-skeleton"></div>
+                                <div class="interface-skeleton"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="notice notice--warning">
+                        <div class="notice__icon">!</div>
+                        <div>
+                            <strong>Confirme a interface de gerenciamento.</strong>
+                            <p>
+                                A MGMT é tratada como interface crítica. O Agent fará uma nova validação
+                                antes de aceitar uma configuração que possa causar perda de acesso.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="notice notice--danger" id="networkValidationNotice" hidden>
+                        <div class="notice__icon">!</div>
+                        <div>
+                            <strong>Revise a topologia.</strong>
+                            <p id="networkValidationText">Selecione WAN, MGMT, LAN e HOME_NET.</p>
+                        </div>
+                    </div>
+
+                    <div class="page-actions">
+                        <button class="btn btn--secondary" type="button" data-go-step="2">Voltar</button>
+                        <button class="btn btn--primary" type="button" id="btnNetworkNext">
+                            Revisar instalação
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="m9 18 6-6-6-6"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- =========================================================
+                     ETAPA 4 — INSTALAÇÃO
+                ========================================================== -->
+                <section class="step-page" data-step-panel="4">
+                    <header class="page-header">
+                        <span class="page-header__eyebrow">ETAPA 04 / INSTALAÇÃO</span>
+                        <h1 id="installPageTitle">Revise e instale.</h1>
+                        <p id="installPageIntro">
+                            Confira a topologia. Depois da confirmação, o Agent valida, prepara a configuração e aplica o Firewall.
+                        </p>
+                    </header>
+
+                    <div id="reviewState">
+                        <div class="review-card">
+                            <div class="review-card__header">
+                                <div>
+                                    <small>PLANO DE INSTALAÇÃO</small>
+                                    <h2>Configuração selecionada</h2>
+                                </div>
+                                <span class="review-card__badge">LOCAL IPC</span>
+                            </div>
+
+                            <div class="review-grid">
+                                <div class="review-item">
+                                    <span>WAN</span>
+                                    <strong id="reviewWan">—</strong>
+                                </div>
+                                <div class="review-item review-item--mgmt">
+                                    <span>MGMT</span>
+                                    <strong id="reviewMgmt">—</strong>
+                                </div>
+                                <div class="review-item">
+                                    <span>LAN</span>
+                                    <strong id="reviewLan">—</strong>
+                                </div>
+                                <div class="review-item">
+                                    <span>HOME_NET</span>
+                                    <strong id="reviewHomeNet">—</strong>
+                                </div>
+                            </div>
+
+                            <div class="review-checks">
+                                <div class="review-check">
+                                    <span>01</span>
+                                    <div>
+                                        <strong>Validar topologia e segurança</strong>
+                                        <p>O Agent rejeita configuração insegura antes de tocar no nftables.</p>
+                                    </div>
+                                </div>
+                                <div class="review-check">
+                                    <span>02</span>
+                                    <div>
+                                        <strong>Preparar nftables</strong>
+                                        <p>Se necessário, o Agent instala o pacote e cria somente a estrutura MoonShield.</p>
+                                    </div>
+                                </div>
+                                <div class="review-check">
+                                    <span>03</span>
+                                    <div>
+                                        <strong>Snapshot, check e aplicação</strong>
+                                        <p>Validação com nft, aplicação local e rollback em caso de falha.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <label class="confirm-box">
+                            <input type="checkbox" id="confirmInstall">
+                            <span class="confirm-box__control"></span>
+                            <span class="confirm-box__copy">
+                                <strong>Confirmo a topologia acima.</strong>
+                                <small>Entendo que esta operação altera o firewall local do servidor.</small>
+                            </span>
+                        </label>
+
+                        <div class="page-actions">
+                            <button class="btn btn--secondary" type="button" data-go-step="3">Voltar</button>
+                            <button class="btn btn--primary btn--install" type="button" id="btnInstall" disabled>
+                                <span>Instalar Firewall</span>
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 3v12"></path>
+                                    <path d="m7 10 5 5 5-5"></path>
+                                    <path d="M5 20h14"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="install-running" id="installRunning" hidden>
+                        <div class="running-hero">
+                            <div class="running-spinner">
+                                <span></span>
+                            </div>
+                            <div>
+                                <small>MOONSHIELD-AGENT</small>
+                                <h2>Aplicando o Firewall...</h2>
+                                <p>Não feche esta página enquanto o Agent conclui a operação.</p>
+                            </div>
+                        </div>
+
+                        <div class="indeterminate">
+                            <span></span>
+                        </div>
+
+                        <div class="terminal">
+                            <div class="terminal__bar">
+                                <span></span><span></span><span></span>
+                                <strong>moonshield · firewall</strong>
+                            </div>
+                            <div class="terminal__body" id="installLog">
+                                <div><span>INFO</span> Solicitação preparada no Django.</div>
+                                <div><span>INFO</span> Aguardando resposta segura do MoonShield-Agent...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="result-state result-state--success" id="successState" hidden>
+                        <div class="result-state__icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M20 6 9 17l-5-5"></path>
+                            </svg>
+                        </div>
+                        <small>INSTALAÇÃO CONCLUÍDA</small>
+                        <h2>Firewall operacional.</h2>
+                        <p id="successMessage">
+                            A tabela MoonShield foi configurada e validada pelo Agent.
+                        </p>
+
+                        <div class="result-summary">
+                            <div><span>Agent</span><strong>Operacional</strong></div>
+                            <div><span>nftables</span><strong id="resultNftVersion">Ativo</strong></div>
+                            <div><span>Tabela</span><strong>inet moonshield</strong></div>
+                        </div>
+
+                        <div class="page-actions page-actions--center">
+                            <a href="{% url 'firewall:painel' %}" class="btn btn--primary">
+                                Abrir Firewall
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="m9 18 6-6-6-6"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="result-state result-state--error" id="errorState" hidden>
+                        <div class="result-state__icon">
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M12 8v5"></path>
+                                <path d="M12 17h.01"></path>
+                                <path d="M10.3 4.5 2.8 18a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0Z"></path>
+                            </svg>
+                        </div>
+                        <small>INSTALAÇÃO NÃO CONCLUÍDA</small>
+                        <h2>O Agent interrompeu a operação.</h2>
+                        <p id="errorMessage">A instalação retornou um erro.</p>
+
+                        <div class="error-details" id="errorDetails" hidden></div>
+
+                        <div class="page-actions page-actions--center">
+                            <button class="btn btn--secondary" type="button" id="btnBackAfterError">Revisar configuração</button>
+                            <button class="btn btn--primary" type="button" id="btnRepair" hidden>Executar reparo</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="{% static 'js/firewall/instalacao.js' %}"></script>
+</body>
+</html>

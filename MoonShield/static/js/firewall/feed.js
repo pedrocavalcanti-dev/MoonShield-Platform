@@ -1,557 +1,1385 @@
 /**
- * MOONSHIELD — firewall/feed.js  v2
- * Melhorias:
- *  - Agrupamento de eventos repetidos com contador de hits
- *  - Top 3 origens bloqueadas com mini barra de intensidade
- *  - Geolocalização via ip-api.com (sem key, grátis)
- *  - Taxa de eventos/min calculada em tempo real
- *  - Destaque visual para novos eventos (flash azul)
- *  - Typo corrigido: fwfDetailIface
- *  - "Top Atacante" → "Top Origens Bloqueadas"
+ * MOONSHIELD — FIREWALL / FEED v3
+ *
+ * Integração:
+ *   GET  api/feed/
+ *   GET  api/status/
+ *   POST api/block/
+ *   POST api/allowlist/
+ *
+ * O feed não consulta serviços externos de geolocalização.
+ * Tudo exibido vem do backend MoonShield.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
+    "use strict";
 
-  const $ = id => document.getElementById(id);
-  const pad = n => String(n).padStart(2, '0');
+    const root = document.getElementById("fwfApp");
+    if (!root) return;
 
-  function fmtBytes(b) {
-    return b >= 1048576 ? (b / 1048576).toFixed(1) + 'MB'
-      : b >= 1024 ? (b / 1024).toFixed(0) + 'KB'
-        : b + 'B';
-  }
-  function getCsrf() {
-    return document.cookie.split(';').find(c => c.trim().startsWith('csrftoken='))?.split('=')[1] || '';
-  }
+    const $ = (id) => document.getElementById(id);
 
-  /* ── Estado ── */
-  let allEvents = [];
-  let paused = false;
-  let autoScroll = true;
-  let grouped = true;
-  let filterAction = 'all';
-  let filterIface = 'all';
-  let filterProto = 'all';
-  let searchQ = '';
-  let lastTimestamp = null;
-  let currentEvent = null;
+    const URLS = {
+        feed: root.dataset.urlFeed,
+        status: root.dataset.urlStatus,
+        block: root.dataset.urlBlock,
+        allowlist: root.dataset.urlAllowlist,
+        rules: root.dataset.urlRules,
+        dashboard: root.dataset.urlDashboard,
+    };
 
-  /* KPIs */
-  let kpi = { drops: 0, denies: 0, allows: 0, total: 0 };
-  const srcCount = {};
-  const portCount = {};
+    const state = {
+        events: [],
+        ids: new Set(),
+        paused: false,
+        autoScroll: true,
+        grouped: true,
+        filterAction: "all",
+        filterIface: "all",
+        filterProto: "all",
+        search: "",
+        lastTimestamp: null,
+        currentEvent: null,
+        currentGroupHits: 1,
+        pollTimer: null,
+        pollRunning: false,
+        rateWindow: [],
+        status: {},
+        mode: null,
+    };
 
-  /* Taxa (eventos por minuto) */
-  const rateWindow = [];   // timestamps dos últimos eventos
-  function calcRate() {
-    const now = Date.now();
-    // Mantém só os últimos 60s
-    while (rateWindow.length && rateWindow[0] < now - 60000) rateWindow.shift();
-    return rateWindow.length;
-  }
+    let toastTimer = null;
 
-  /* Cache de geolocalização: ip → { country, org, flag, risk } */
-  const geoCache = {};
-  const geoPending = new Set();
+    bindEvents();
+    initialLoad();
 
-  // Ícone BI por tipo de IP/país
-  function _geoIcon(countryCode, isPrivate, isUnknown) {
-    if (isPrivate) return '<i class="bi bi-hdd-network" title="Rede privada/local" style="color:var(--c-blue)"></i>';
-    if (isUnknown) return '<i class="bi bi-question-circle" title="País desconhecido" style="color:var(--text-dim)"></i>';
-    const highRisk = ['CN', 'RU', 'KP', 'IR', 'BY', 'SY', 'CU', 'VE', 'SD'];
-    const medRisk = ['NG', 'PK', 'AF', 'IQ', 'LY', 'MM', 'YE', 'ZW'];
-    if (highRisk.includes(countryCode))
-      return '<i class="bi bi-exclamation-triangle-fill" title="País de alto risco" style="color:var(--c-red)"></i>';
-    if (medRisk.includes(countryCode))
-      return '<i class="bi bi-exclamation-circle" title="País de médio risco" style="color:var(--c-orange)"></i>';
-    return '<i class="bi bi-globe2" title="IP externo" style="color:var(--text-dim)"></i>';
-  }
+    /* ======================================================================
+       API
+       ====================================================================== */
 
-  async function fetchGeo(ip) {
-    if (!ip || geoCache[ip] || geoPending.has(ip)) return;
-    // IPs privados/locais
-    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|::1$)/.test(ip)) {
-      geoCache[ip] = {
-        country: 'Rede local', org: 'IP privado',
-        icon: _geoIcon(null, true, false), risk: 'low',
-      };
-      return;
-    }
-    geoPending.add(ip);
-    try {
-      const r = await fetch(
-        `https://ip-api.com/json/${ip}?fields=country,org,countryCode,status`,
-        { signal: AbortSignal.timeout(3000) }
-      );
-      const d = await r.json();
-      if (d.status === 'success') {
-        const highRisk = ['CN', 'RU', 'KP', 'IR', 'BY', 'SY', 'CU', 'VE', 'SD'];
-        const medRisk = ['NG', 'PK', 'AF', 'IQ', 'LY', 'MM', 'YE', 'ZW'];
-        const risk = highRisk.includes(d.countryCode) ? 'high'
-          : medRisk.includes(d.countryCode) ? 'med' : 'low';
-        geoCache[ip] = {
-          country: d.country || '—',
-          org: d.org || '—',
-          icon: _geoIcon(d.countryCode, false, false),
-          risk,
-          countryCode: d.countryCode,
-        };
-      } else {
-        geoCache[ip] = {
-          country: '—', org: '—',
-          icon: _geoIcon(null, false, true), risk: 'low',
-        };
-      }
-    } catch {
-      geoCache[ip] = {
-        country: '—', org: '—',
-        icon: _geoIcon(null, false, true), risk: 'low',
-      };
-    } finally {
-      geoPending.delete(ip);
-    }
-  }
+    async function api(url, options = {}) {
+        if (!url) throw new Error("Endpoint não configurado.");
 
-  /* ── Toast ── */
-  let toastTimer;
-  function showToast(msg) {
-    const t = $('fwfToast'); if (!t) return;
-    t.textContent = msg;
-    t.className = 'fwf-toast show';
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
-  }
+        const method = String(options.method || "GET").toUpperCase();
+        const headers = new Headers(options.headers || {});
+        headers.set("Accept", "application/json");
 
-  /* ── Drawer ── */
-  function openDrawer(ev) {
-    currentEvent = ev;
-    const badge = $('fwfDrawerBadge');
-    badge.textContent = ev.action;
-    badge.className = `fwf-action-badge fwf-action-badge--${(ev.action || '').toLowerCase()}`;
-
-    $('fwfDetailSrc').textContent = ev.src_ip || '—';
-    $('fwfDetailSrcMeta').textContent = ev.src_port ? `:${ev.src_port}` : '—';
-    $('fwfDetailDst').textContent = ev.dst_ip || '—';
-    $('fwfDetailDstMeta').textContent = ev.dst_port ? `${ev.iface || ''} · :${ev.dst_port}` : ev.iface || '—';
-    $('fwfDetailProtoArrow').textContent = `${ev.proto || '?'} · :${ev.dst_port || '?'}`;
-    $('fwfDetailTime').textContent = ev.time || '—';
-    $('fwfDetailIface').textContent = ev.iface || '—';
-    $('fwfDetailProto').textContent = ev.proto || '—';
-    $('fwfDetailBytes').textContent = ev.bytes ? fmtBytes(ev.bytes) : '—';
-    $('fwfDetailFlags').textContent = ev.flags || '—';
-    $('fwfDetailChain').textContent = ev.chain || '—';
-    $('fwfDetailRaw').textContent = JSON.stringify({
-      time: ev.time, action: ev.action, iface: ev.iface,
-      proto: ev.proto, src_ip: ev.src_ip, src_port: ev.src_port,
-      dst_ip: ev.dst_ip, dst_port: ev.dst_port,
-      bytes: ev.bytes, flags: ev.flags, chain: ev.chain,
-    }, null, 2);
-
-    // Hits (agrupamento)
-    const hits = srcCount[ev.src_ip] || 1;
-    const hitsBanner = $('fwfHitsBanner');
-    if (hitsBanner) {
-      if (hits > 1) {
-        hitsBanner.style.display = 'flex';
-        $('fwfHitsCount').textContent = hits;
-      } else {
-        hitsBanner.style.display = 'none';
-      }
-    }
-
-    // Geo
-    const geo = geoCache[ev.src_ip];
-    const geoBanner = $('fwfGeoBanner');
-    if (geoBanner) {
-      if (geo) {
-        geoBanner.style.display = 'flex';
-        $('fwfGeoFlag').innerHTML = geo.icon;
-        $('fwfGeoCountry').textContent = geo.country;
-        $('fwfGeoOrg').textContent = geo.org;
-        const riskEl = $('fwfGeoRisk');
-        riskEl.textContent = geo.risk === 'high' ? '⚠ ALTO RISCO' : geo.risk === 'med' ? 'Médio' : 'Baixo';
-        riskEl.className = `fwf-geo-risk fwf-geo-risk--${geo.risk}`;
-      } else {
-        geoBanner.style.display = 'none';
-        // Busca em background e reabre
-        if (ev.src_ip) fetchGeo(ev.src_ip).then(() => {
-          if (currentEvent?.src_ip === ev.src_ip) openDrawer(ev);
-        });
-      }
-    }
-
-    $('fwfDrawer').classList.add('open');
-    $('fwfDrawerOverlay').classList.add('open');
-  }
-
-  function closeDrawer() {
-    $('fwfDrawer').classList.remove('open');
-    $('fwfDrawerOverlay').classList.remove('open');
-    currentEvent = null;
-  }
-
-  $('fwfDrawerClose')?.addEventListener('click', closeDrawer);
-  $('fwfDrawerOverlay')?.addEventListener('click', closeDrawer);
-
-  $('fwfDrawerBlock')?.addEventListener('click', () => {
-    if (!currentEvent) return;
-    bloqueioRapido(currentEvent.src_ip, currentEvent.iface, '', currentEvent.proto, '', 'Bloqueio via Feed');
-    closeDrawer();
-  });
-
-  $('fwfDrawerAllow')?.addEventListener('click', () => {
-    if (!currentEvent) return;
-    fetch('/firewall/api/allowlist/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-      body: JSON.stringify({ ip: currentEvent.src_ip, reason: 'Liberação via Feed' }),
-    }).then(() => showToast(`${currentEvent.src_ip} liberado ✓`));
-    closeDrawer();
-  });
-
-  $('fwfDrawerRule')?.addEventListener('click', () => {
-    if (!currentEvent) return;
-    const p = new URLSearchParams({
-      src: currentEvent.src_ip, port: currentEvent.dst_port || '',
-      proto: currentEvent.proto || '', iface: currentEvent.iface || '',
-    });
-    window.location.href = `/firewall/regras/?nova_regra=1&${p}`;
-  });
-
-  $('fwfDrawerCopyIoc')?.addEventListener('click', () => {
-    if (!currentEvent) return;
-    const ioc = `${currentEvent.src_ip} | :${currentEvent.dst_port} | ${currentEvent.proto} | ${currentEvent.time}`;
-    navigator.clipboard?.writeText(ioc);
-    showToast('IOC copiado 📋');
-  });
-
-  /* ── Bloqueio rápido ── */
-  async function bloqueioRapido(ip, iface, porta, proto, expires, motivo) {
-    try {
-      const r = await fetch('/firewall/api/bloqueio-rapido/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-        body: JSON.stringify({ ip, iface: iface || '', porta: porta || '', proto: proto || '', expires: expires || '', motivo: motivo || 'Bloqueio via Feed' }),
-      });
-      const d = await r.json();
-      if (d.ok) showToast(`${ip} bloqueado ✓`);
-      else showToast(`Erro: ${d.erro || 'falha'}`);
-    } catch { showToast('Falha de rede'); }
-  }
-
-  /* ── Render de linha ── */
-  function actionBadge(action) {
-    const a = (action || '').toLowerCase();
-    return `<span class="fwf-action-badge fwf-action-badge--${a}">${action}</span>`;
-  }
-
-  function geoCell(ip) {
-    const geo = geoCache[ip];
-    if (!geo) return '<i class="bi bi-hourglass" style="color:var(--text-dim);font-size:11px;opacity:.4"></i>';
-    return `<span title="${geo.country} · ${geo.org}" style="font-size:13px">${geo.icon}</span>`;
-  }
-
-  function renderRow(ev, idx, isNew = false) {
-    const hits = grouped ? (srcCount[ev.src_ip] || 1) : 1;
-    const row = document.createElement('div');
-    const action = (ev.action || '').toLowerCase();
-    row.className = `fwf-row fwf-row--${action}${hits > 1 ? ' fwf-row--grouped' : ''}${isNew ? ' fwf-row--new' : ''}`;
-    row.style.animationDelay = `${Math.min(idx, 20) * 10}ms`;
-
-    const hitsBadge = hits > 1
-      ? `<span class="fwf-hits-badge"><i class="bi bi-arrow-repeat" style="font-size:8px"></i>${hits}x</span>`
-      : `<span class="fwf-hits-badge fwf-hits-badge--single">1x</span>`;
-
-    row.innerHTML = `
-      <div class="fwf-cell fwf-cell--time">${ev.time || '—'}</div>
-      <div class="fwf-cell">${actionBadge(ev.action)}</div>
-      <div class="fwf-cell"><span class="fwf-iface-badge">${ev.iface || '—'}</span></div>
-      <div class="fwf-cell fwf-cell--ip">${ev.src_ip || '—'}</div>
-      <div class="fwf-cell fwf-cell--geo">${geoCell(ev.src_ip)}</div>
-      <div class="fwf-cell fwf-cell--arrow">
-        <span style="color:var(--text-dim);font-size:9px">→</span>
-        <span style="color:var(--text-primary)">${ev.dst_ip || '—'}</span>
-        <span style="color:var(--c-red);font-weight:700">:${ev.dst_port || '—'}</span>
-      </div>
-      <div class="fwf-cell fwf-cell--proto">${ev.proto || '—'}</div>
-      <div class="fwf-cell fwf-cell--hits">${hitsBadge}</div>
-      <div class="fwf-cell">
-        <div class="fwf-row-actions">
-          <button class="fwf-row-btn fwf-row-btn--danger" title="Bloquear IP"><i class="bi bi-ban"></i></button>
-          <button class="fwf-row-btn" title="Ver detalhes"><i class="bi bi-eye"></i></button>
-          <button class="fwf-row-btn fwf-row-btn--ok" title="Liberar IP"><i class="bi bi-check2-circle"></i></button>
-        </div>
-      </div>`;
-
-    row.addEventListener('click', e => { if (e.target.closest('.fwf-row-btn')) return; openDrawer(ev); });
-    const [btnBlock, btnView, btnAllow] = row.querySelectorAll('.fwf-row-btn');
-    btnBlock.addEventListener('click', e => { e.stopPropagation(); bloqueioRapido(ev.src_ip, ev.iface, '', ev.proto, '', 'Bloqueio via Feed'); });
-    btnView.addEventListener('click', e => { e.stopPropagation(); openDrawer(ev); });
-    btnAllow.addEventListener('click', e => {
-      e.stopPropagation();
-      fetch('/firewall/api/allowlist/', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-        body: JSON.stringify({ ip: ev.src_ip, reason: 'Liberação via Feed' }),
-      }).then(() => showToast(`${ev.src_ip} liberado ✓`));
-    });
-
-    return row;
-  }
-
-  /* ── Filtragem ── */
-  function filteredEvents() {
-    let events = allEvents;
-
-    // Se agrupado, pega só o evento mais recente por src_ip+action+dst_port
-    if (grouped) {
-      const seen = new Map();
-      events = [];
-      for (const ev of allEvents) {
-        const key = `${ev.src_ip}|${ev.action}|${ev.dst_port}`;
-        if (!seen.has(key)) { seen.set(key, true); events.push(ev); }
-      }
-    }
-
-    return events.filter(ev => {
-      if (filterAction !== 'all' && ev.action !== filterAction) return false;
-      if (filterIface !== 'all' && ev.iface !== filterIface) return false;
-      if (filterProto !== 'all' && ev.proto !== filterProto) return false;
-      if (searchQ) {
-        const q = searchQ.toLowerCase();
-        if (!ev.src_ip?.includes(q) && !ev.dst_ip?.includes(q) &&
-          !String(ev.dst_port).includes(q) && !ev.proto?.toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
-  }
-
-  /* ── Render completo ── */
-  function renderAll(newCount = 0) {
-    const body = $('fwfTableBody'); if (!body) return;
-    const rows = filteredEvents();
-
-    if (rows.length === 0) {
-      body.innerHTML = `<div class="fwf-empty"><i class="bi bi-broadcast" style="font-size:28px;opacity:.3"></i><span>Nenhum evento${filterAction !== 'all' ? ' para este filtro' : ' ainda'}…</span></div>`;
-      if ($('fwfFooterCount')) $('fwfFooterCount').textContent = '0 eventos visíveis';
-      return;
-    }
-
-    body.innerHTML = '';
-    rows.slice(0, 500).forEach((ev, i) => {
-      body.appendChild(renderRow(ev, i, i < newCount));
-    });
-    if ($('fwfFooterCount')) $('fwfFooterCount').textContent = `${rows.length} evento${rows.length !== 1 ? 's' : ''} visíveis`;
-    if (autoScroll) body.scrollTop = 0;
-  }
-
-  /* ── KPI Top Origens Bloqueadas (top 3) ── */
-  function renderTopSrcs() {
-    const el = $('kpiTopSrcs'); if (!el) return;
-
-    // Só origens de DROP/DENY
-    const blocked = Object.entries(srcCount)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3);
-
-    if (!blocked.length) {
-      el.innerHTML = '<span class="fwf-top-src-empty">—</span>';
-      return;
-    }
-
-    const max = blocked[0][1];
-    el.innerHTML = blocked.map(([ip, hits], i) => {
-      const pct = Math.round((hits / max) * 100);
-      const geo = geoCache[ip];
-      const icon = geo ? geo.icon : '<i class="bi bi-hourglass" style="opacity:.3"></i>';
-      return `
-        <div class="fwf-top-src-item">
-          <span class="fwf-top-src-rank">${i + 1}</span>
-          <span class="fwf-top-src-ip" title="${ip}">${icon} ${ip.length > 15 ? ip.slice(0, 13) + '…' : ip}</span>
-          <div class="fwf-top-src-bar-wrap">
-            <div class="fwf-top-src-bar" style="width:${pct}%"></div>
-          </div>
-          <span class="fwf-top-src-hits">${hits}x</span>
-        </div>`;
-    }).join('');
-  }
-
-  /* ── Adicionar eventos ── */
-  function addEvents(events) {
-    if (!events.length) return;
-    const now = Date.now();
-
-    events.forEach(ev => {
-      allEvents.unshift(ev);
-      kpi.total++;
-      rateWindow.push(now);
-      const a = (ev.action || '').toUpperCase();
-      if (a === 'DROP') kpi.drops++;
-      else if (a === 'DENY') kpi.denies++;
-      else if (a === 'ALLOW') kpi.allows++;
-
-      // Conta só DROP/DENY pra top origens
-      if ((a === 'DROP' || a === 'DENY') && ev.src_ip) {
-        srcCount[ev.src_ip] = (srcCount[ev.src_ip] || 0) + 1;
-      }
-      if (ev.dst_port) portCount[ev.dst_port] = (portCount[ev.dst_port] || 0) + 1;
-
-      // Prefetch geo em background
-      if (ev.src_ip) fetchGeo(ev.src_ip);
-    });
-
-    if (allEvents.length > 2000) allEvents = allEvents.slice(0, 2000);
-
-    // KPIs numéricos
-    if ($('kpiDrops')) $('kpiDrops').textContent = kpi.drops.toLocaleString('pt-BR');
-    if ($('kpiDenies')) $('kpiDenies').textContent = kpi.denies.toLocaleString('pt-BR');
-    if ($('kpiAllows')) $('kpiAllows').textContent = kpi.allows.toLocaleString('pt-BR');
-    if ($('kpiTotal')) $('kpiTotal').textContent = kpi.total.toLocaleString('pt-BR');
-    if ($('fwfLiveCount')) $('fwfLiveCount').textContent = `${kpi.total} eventos`;
-
-    // Top porta
-    const topPort = Object.entries(portCount).sort((a, b) => b[1] - a[1])[0];
-    if (topPort && $('kpiTopPort')) $('kpiTopPort').textContent = `:${topPort[0]}`;
-
-    // Taxa
-    if ($('kpiRate')) $('kpiRate').innerHTML = `${calcRate()}<span style="font-size:12px;opacity:.6">/m</span>`;
-
-    // Top origens
-    renderTopSrcs();
-
-    if (!paused) renderAll(events.length);
-  }
-
-  /* ── Poll ── */
-  async function poll() {
-    try {
-      const params = new URLSearchParams({ limit: 50 });
-      if (lastTimestamp) params.set('since', lastTimestamp);
-
-      const r = await fetch(`/firewall/api/feed/?${params}`);
-      if (!r.ok) return;
-      const d = await r.json();
-      if (!d.ok) return;
-
-      // Badge modo
-      const badge = $('fwfModeBadge');
-      if (badge && d.mode) {
-        badge.style.display = 'inline-block';
-        badge.textContent = d.mode.toUpperCase();
-        badge.style.cssText += d.mode === 'prod'
-          ? ';background:rgba(59,130,246,.18);color:#3b82f6;border:1px solid rgba(59,130,246,.3)'
-          : ';background:rgba(234,179,8,.18);color:#eab308;border:1px solid rgba(234,179,8,.3)';
-      }
-
-      // Popula interfaces
-      if (d.interfaces?.length) {
-        const sel = $('fwfFilterIface');
-        if (sel) {
-          const cur = sel.value;
-          sel.innerHTML = '<option value="all">Interface: Todas</option>';
-          d.interfaces.forEach(iface => {
-            const o = document.createElement('option');
-            o.value = iface.nome || iface;
-            o.textContent = iface.nome ? `${iface.nome} (${iface.ip || ''})` : iface;
-            sel.appendChild(o);
-          });
-          if (cur !== 'all') sel.value = cur;
+        if (!["GET", "HEAD"].includes(method)) {
+            headers.set("Content-Type", "application/json");
+            headers.set("X-CSRFToken", getCsrf());
         }
-      }
 
-      if (d.eventos?.length) {
-        addEvents(d.eventos);
-        lastTimestamp = d.eventos[d.eventos.length - 1]?.time || null;
-      }
-    } catch (e) {
-      console.error('[feed] poll error:', e);
+        let response;
+
+        try {
+            response = await fetch(url, {
+                credentials: "same-origin",
+                ...options,
+                method,
+                headers,
+            });
+        } catch (_) {
+            throw new Error("Não foi possível conectar ao backend do MoonShield.");
+        }
+
+        let payload = {};
+        try {
+            payload = await response.json();
+        } catch (_) {
+            payload = {};
+        }
+
+        if (!response.ok) {
+            const message =
+                payload?.erro?.mensagem ||
+                payload?.erro ||
+                payload?.mensagem ||
+                `HTTP ${response.status}`;
+
+            const error = new Error(String(message));
+            error.status = response.status;
+            error.payload = payload;
+            throw error;
+        }
+
+        return payload;
     }
-  }
 
-  /* ── Controles ── */
-  $('fwfPauseBtn')?.addEventListener('click', () => {
-    paused = !paused;
-    $('fwfPauseIcon').className = paused ? 'bi bi-play-fill' : 'bi bi-pause-fill';
-    $('fwfPauseLabel').textContent = paused ? 'Retomar' : 'Pausar';
-    $('fwfLiveDot').classList.toggle('paused', paused);
-    if (!paused) renderAll();
-  });
+    function getCsrf() {
+        const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : "";
+    }
 
-  $('fwfGroupToggle')?.addEventListener('change', e => {
-    grouped = e.target.checked;
-    renderAll();
-  });
+    /* ======================================================================
+       LOAD / POLL
+       ====================================================================== */
 
-  $('fwfClearBtn')?.addEventListener('click', () => {
-    allEvents = [];
-    kpi = { drops: 0, denies: 0, allows: 0, total: 0 };
-    Object.keys(srcCount).forEach(k => delete srcCount[k]);
-    Object.keys(portCount).forEach(k => delete portCount[k]);
-    rateWindow.length = 0;
-    ['kpiDrops', 'kpiDenies', 'kpiAllows', 'kpiTotal'].forEach(id => { if ($(id)) $(id).textContent = '0'; });
-    if ($('kpiTopPort')) $('kpiTopPort').textContent = '—';
-    if ($('kpiRate')) $('kpiRate').innerHTML = '0<span style="font-size:12px;opacity:.6">/m</span>';
-    if ($('fwfLiveCount')) $('fwfLiveCount').textContent = '0 eventos';
-    renderTopSrcs();
-    renderAll();
-    showToast('Feed limpo');
-  });
+    async function initialLoad() {
+        setLiveState("loading", "CONECTANDO");
 
-  $('fwfExportBtn')?.addEventListener('click', () => {
-    const rows = filteredEvents();
-    const csv = [
-      ['Hora', 'Ação', 'Interface', 'Src IP', 'Src Porta', 'Dst IP', 'Dst Porta', 'Proto', 'Bytes', 'Flags', 'País'].join(','),
-      ...rows.map(e => {
-        const geo = geoCache[e.src_ip];
-        return [e.time, e.action, e.iface, e.src_ip, e.src_port, e.dst_ip, e.dst_port, e.proto, e.bytes, e.flags, geo?.country || ''].join(',');
-      })
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(blob),
-      download: `moonshield-fw-feed-${new Date().toISOString().slice(0, 10)}.csv`,
-    });
-    a.click(); URL.revokeObjectURL(a.href);
-    showToast('CSV exportado 📥');
-  });
+        const results = await Promise.allSettled([
+            loadStatus(),
+            poll({ initial: true }),
+        ]);
 
-  // Action chips
-  document.querySelectorAll('.fwf-chip[data-action]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.fwf-chip[data-action]').forEach(b => b.classList.remove('fwf-chip--active'));
-      btn.classList.add('fwf-chip--active');
-      filterAction = btn.dataset.action;
-      renderAll();
-    });
-  });
+        if (results[0].status === "rejected") {
+            console.warn("Firewall status:", results[0].reason);
+            renderStatusError(results[0].reason);
+        }
 
-  $('fwfFilterIface')?.addEventListener('change', e => { filterIface = e.target.value; renderAll(); });
-  $('fwfFilterProto')?.addEventListener('change', e => { filterProto = e.target.value; renderAll(); });
+        if (results[1].status === "rejected") {
+            console.warn("Firewall feed:", results[1].reason);
+            setPollState("error", "Falha na atualização automática");
+            setLiveState("error", "ERRO");
+        }
 
-  const searchEl = $('fwfSearch');
-  const clearBtn = $('fwfSearchClear');
-  searchEl?.addEventListener('input', () => {
-    searchQ = searchEl.value.trim();
-    clearBtn?.classList.toggle('visible', searchQ.length > 0);
-    renderAll();
-  });
-  clearBtn?.addEventListener('click', () => {
-    searchEl.value = ''; searchQ = '';
-    clearBtn.classList.remove('visible');
-    renderAll();
-  });
+        schedulePoll();
+    }
 
-  $('fwfAutoScroll')?.addEventListener('change', e => { autoScroll = e.target.checked; });
+    async function loadStatus() {
+        const status = await api(URLS.status);
+        state.status = status;
+        renderStatus(status);
+        return status;
+    }
 
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    async function poll({ initial = false } = {}) {
+        if (state.pollRunning) return;
 
-  /* ── Taxa atualiza a cada segundo ── */
-  setInterval(() => {
-    if ($('kpiRate')) $('kpiRate').innerHTML = `${calcRate()}<span style="font-size:12px;opacity:.6">/m</span>`;
-    // Atualiza geo nas linhas quando geo chegar
-    renderTopSrcs();
-  }, 5000);
+        state.pollRunning = true;
 
-  /* ── Init ── */
-  setInterval(poll, 2000);
-  poll();
+        try {
+            const params = new URLSearchParams({
+                limit: initial ? "200" : "100",
+            });
+
+            if (!initial && state.lastTimestamp) {
+                params.set("since", state.lastTimestamp);
+            }
+
+            const data = await api(`${URLS.feed}?${params.toString()}`);
+
+            state.mode = data.modo || data.mode || state.mode;
+            renderMode(data);
+            populateInterfaces(data.interfaces || []);
+
+            const events = Array.isArray(data.eventos) ? data.eventos : [];
+            const normalized = events.map(normalizeEvent).filter(Boolean);
+
+            const added = addEvents(normalized);
+
+            if (added > 0 && !state.paused) {
+                renderAll(added);
+            } else if (initial) {
+                renderAll();
+            }
+
+            if (!state.paused) {
+                setLiveState("ok", "LIVE");
+                setPollState("ok", "Atualização automática ativa");
+            }
+
+            updateLastUpdate();
+        } catch (error) {
+            setPollState("error", "Falha ao consultar novos eventos");
+            if (!state.paused) setLiveState("error", "ERRO");
+            throw error;
+        } finally {
+            state.pollRunning = false;
+        }
+    }
+
+    function schedulePoll() {
+        window.clearInterval(state.pollTimer);
+
+        state.pollTimer = window.setInterval(() => {
+            if (!state.paused) {
+                poll().catch(() => {});
+            }
+        }, 2000);
+    }
+
+    async function refreshNow() {
+        const button = $("fwfRefreshBtn");
+
+        if (button) {
+            button.disabled = true;
+            button.classList.add("is-loading");
+        }
+
+        try {
+            await Promise.all([
+                loadStatus(),
+                poll(),
+            ]);
+
+            toast("Feed atualizado.");
+        } catch (error) {
+            toast(error.message, "err");
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.classList.remove("is-loading");
+            }
+        }
+    }
+
+    /* ======================================================================
+       STATUS
+       ====================================================================== */
+
+    function renderStatus(status) {
+        const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
+        const operational = Boolean(status.operacional);
+
+        setStatusValue(
+            "fwfAgentStatus",
+            agentOk ? "ONLINE" : "OFFLINE",
+            agentOk ? "ok" : "error"
+        );
+
+        setStatusValue(
+            "fwfFirewallStatus",
+            operational ? "OPERACIONAL" : agentOk ? "ATENÇÃO" : "INDISPONÍVEL",
+            operational ? "ok" : agentOk ? "warn" : "error"
+        );
+
+        const wan = status.interface_wan || "—";
+        const mgmt = status.interface_mgmt || "—";
+        const lan = status.interface_lan || "—";
+
+        setText("fwfTopologyStatus", `WAN ${wan} · MGMT ${mgmt} · LAN ${lan}`);
+    }
+
+    function renderStatusError(error) {
+        setStatusValue("fwfAgentStatus", "—", "error");
+        setStatusValue("fwfFirewallStatus", "—", "error");
+        setText("fwfTopologyStatus", "Não foi possível consultar a topologia");
+        console.warn(error);
+    }
+
+    function renderMode(data) {
+        const badge = $("fwfModeBadge");
+        if (!badge) return;
+
+        const demo =
+            data.modo === "simulacao" ||
+            data.mode === "demo";
+
+        badge.hidden = false;
+        badge.classList.toggle("is-demo", demo);
+        badge.textContent = demo ? "SIMULAÇÃO" : "REAL";
+
+        setStatusValue(
+            "fwfSourceStatus",
+            demo ? "SIMULAÇÃO" : "LOCAL",
+            demo ? "warn" : "ok"
+        );
+    }
+
+    function setStatusValue(id, text, stateName) {
+        const el = $(id);
+        if (!el) return;
+
+        el.textContent = text;
+        el.classList.remove("is-ok", "is-warn", "is-error");
+        el.classList.add(`is-${stateName}`);
+    }
+
+    function setLiveState(type, label) {
+        const badge = $("fwfLiveBadge");
+        if (!badge) return;
+
+        badge.className = `fwf-live fwf-live--${type}`;
+        setText("fwfLiveLabel", label);
+    }
+
+    function setPollState(type, text) {
+        const dot = $("fwfPollDot");
+        if (dot) {
+            dot.classList.remove("is-paused", "is-error");
+
+            if (type === "paused") dot.classList.add("is-paused");
+            if (type === "error") dot.classList.add("is-error");
+        }
+
+        setText("fwfPollText", text);
+    }
+
+    function updateLastUpdate() {
+        const now = new Date();
+
+        setText(
+            "fwfLastUpdate",
+            `Atualizado ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`
+        );
+    }
+
+    /* ======================================================================
+       NORMALIZAÇÃO
+       ====================================================================== */
+
+    function normalizeEvent(raw) {
+        if (!raw || typeof raw !== "object") return null;
+
+        const timestamp =
+            raw.timestamp ||
+            raw.ts ||
+            raw.datetime ||
+            null;
+
+        const action = String(
+            raw.action ||
+            raw.acao ||
+            "LOG"
+        ).toUpperCase();
+
+        return {
+            id: raw.id ?? null,
+            timestamp,
+            time: raw.time || formatTime(timestamp),
+            action,
+            iface: raw.iface || "—",
+            iface_raw: raw.iface_raw || "",
+            iface_saida: raw.iface_saida || "",
+            src_ip: raw.src_ip || "",
+            src_port: normalizePort(raw.src_port),
+            dst_ip: raw.dst_ip || "",
+            dst_port: normalizePort(raw.dst_port),
+            proto: String(raw.proto || "").toUpperCase(),
+            rule_id: raw.rule_id ?? 0,
+            rule_desc: raw.rule_desc || "",
+            bytes: Number(raw.bytes || raw.tamanho || 0) || 0,
+            ttl: raw.ttl ?? null,
+            flags_tcp: raw.flags_tcp || raw.flags || "",
+            prefixo: raw.prefixo || "",
+            reason: raw.reason || raw.motivo || raw.rule_desc || "",
+            source: raw.source || "local",
+        };
+    }
+
+    function normalizePort(value) {
+        if (value === null || value === undefined || value === "" || value === "—") {
+            return null;
+        }
+
+        const n = Number(value);
+        return Number.isFinite(n) ? n : value;
+    }
+
+    function formatTime(timestamp) {
+        if (!timestamp) return "—";
+
+        const date = new Date(timestamp);
+        if (Number.isNaN(date.getTime())) return "—";
+
+        return date.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        });
+    }
+
+    /* ======================================================================
+       STORE / DEDUPE / KPIs
+       ====================================================================== */
+
+    function eventKey(event) {
+        if (event.id !== null && event.id !== undefined) {
+            return `id:${event.id}`;
+        }
+
+        return [
+            event.timestamp,
+            event.action,
+            event.src_ip,
+            event.src_port,
+            event.dst_ip,
+            event.dst_port,
+            event.proto,
+            event.iface_raw || event.iface,
+        ].join("|");
+    }
+
+    function addEvents(events) {
+        if (!events.length) return 0;
+
+        let added = 0;
+        let newestTimestamp = state.lastTimestamp;
+
+        for (const event of events) {
+            const key = eventKey(event);
+
+            if (state.ids.has(key)) {
+                continue;
+            }
+
+            state.ids.add(key);
+            state.events.unshift(event);
+            added += 1;
+
+            state.rateWindow.push(Date.now());
+
+            if (
+                event.timestamp &&
+                (!newestTimestamp || compareIso(event.timestamp, newestTimestamp) > 0)
+            ) {
+                newestTimestamp = event.timestamp;
+            }
+        }
+
+        if (newestTimestamp) {
+            state.lastTimestamp = newestTimestamp;
+        }
+
+        if (state.events.length > 3000) {
+            state.events = state.events.slice(0, 3000);
+
+            state.ids = new Set(
+                state.events.map(eventKey)
+            );
+        }
+
+        pruneRateWindow();
+        return added;
+    }
+
+    function compareIso(a, b) {
+        const da = new Date(a).getTime();
+        const db = new Date(b).getTime();
+
+        if (Number.isNaN(da) || Number.isNaN(db)) {
+            return String(a).localeCompare(String(b));
+        }
+
+        return da - db;
+    }
+
+    function pruneRateWindow() {
+        const limit = Date.now() - 60000;
+
+        while (
+            state.rateWindow.length &&
+            state.rateWindow[0] < limit
+        ) {
+            state.rateWindow.shift();
+        }
+    }
+
+    function computeStats(events = state.events) {
+        const stats = {
+            drops: 0,
+            denies: 0,
+            allows: 0,
+            logs: 0,
+            ports: new Map(),
+            blockedSources: new Map(),
+        };
+
+        for (const event of events) {
+            if (event.action === "DROP") stats.drops += 1;
+            if (event.action === "DENY") stats.denies += 1;
+            if (event.action === "ALLOW") stats.allows += 1;
+            if (event.action === "LOG") stats.logs += 1;
+
+            if (event.dst_port !== null && event.dst_port !== undefined) {
+                const port = String(event.dst_port);
+                stats.ports.set(
+                    port,
+                    (stats.ports.get(port) || 0) + 1
+                );
+            }
+
+            if (
+                ["DROP", "DENY"].includes(event.action) &&
+                event.src_ip
+            ) {
+                stats.blockedSources.set(
+                    event.src_ip,
+                    (stats.blockedSources.get(event.src_ip) || 0) + 1
+                );
+            }
+        }
+
+        return stats;
+    }
+
+    function renderKpis(visibleEvents) {
+        const stats = computeStats();
+
+        setText("kpiDrops", stats.drops.toLocaleString("pt-BR"));
+        setText("kpiDenies", stats.denies.toLocaleString("pt-BR"));
+        setText("kpiAllows", stats.allows.toLocaleString("pt-BR"));
+        setText("kpiTotal", state.events.length.toLocaleString("pt-BR"));
+        setText("kpiVisible", `${visibleEvents.length.toLocaleString("pt-BR")} visíveis`);
+
+        const topPort = [...stats.ports.entries()]
+            .sort((a, b) => b[1] - a[1])[0];
+
+        setText(
+            "kpiTopPort",
+            topPort ? `:${topPort[0]}` : "—"
+        );
+
+        setText(
+            "kpiTopPortHits",
+            topPort ? `${topPort[1]} evento(s)` : "—"
+        );
+
+        pruneRateWindow();
+        setText("kpiRate", `${state.rateWindow.length}/m`);
+
+        renderTopSources(stats.blockedSources);
+    }
+
+    function renderTopSources(sourceMap) {
+        const container = $("kpiTopSrcs");
+        if (!container) return;
+
+        const items = [...sourceMap.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3);
+
+        if (!items.length) {
+            container.innerHTML =
+                '<span class="fwf-top-src-empty">Nenhum bloqueio carregado.</span>';
+            return;
+        }
+
+        const max = items[0][1];
+
+        container.innerHTML = items.map(([ip, hits], index) => {
+            const pct = Math.max(
+                4,
+                Math.round((hits / max) * 100)
+            );
+
+            return `
+                <div class="fwf-top-src-item">
+                    <span class="fwf-top-src-rank">${index + 1}</span>
+                    <span class="fwf-top-src-ip" title="${escapeAttr(ip)}">${escapeHtml(ip)}</span>
+                    <span class="fwf-top-src-bar-wrap">
+                        <span class="fwf-top-src-bar" style="width:${pct}%"></span>
+                    </span>
+                    <span class="fwf-top-src-hits">${hits}x</span>
+                </div>
+            `;
+        }).join("");
+    }
+
+    /* ======================================================================
+       FILTER / GROUP
+       ====================================================================== */
+
+    function filteredEvents() {
+        let events = [...state.events];
+
+        if (state.grouped) {
+            const grouped = new Map();
+
+            for (const event of events) {
+                const key = [
+                    event.src_ip,
+                    event.action,
+                    event.dst_ip,
+                    event.dst_port,
+                    event.proto,
+                    event.iface,
+                ].join("|");
+
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        event,
+                        hits: 1,
+                    });
+                } else {
+                    grouped.get(key).hits += 1;
+                }
+            }
+
+            events = [...grouped.values()].map((item) => ({
+                ...item.event,
+                _hits: item.hits,
+            }));
+        } else {
+            events = events.map((event) => ({
+                ...event,
+                _hits: 1,
+            }));
+        }
+
+        return events.filter((event) => {
+            if (
+                state.filterAction !== "all" &&
+                event.action !== state.filterAction
+            ) {
+                return false;
+            }
+
+            if (
+                state.filterIface !== "all" &&
+                event.iface !== state.filterIface &&
+                event.iface_raw !== state.filterIface
+            ) {
+                return false;
+            }
+
+            if (
+                state.filterProto !== "all" &&
+                event.proto !== state.filterProto
+            ) {
+                return false;
+            }
+
+            if (state.search) {
+                const q = state.search.toLowerCase();
+
+                const haystack = [
+                    event.src_ip,
+                    event.src_port,
+                    event.dst_ip,
+                    event.dst_port,
+                    event.proto,
+                    event.iface,
+                    event.iface_raw,
+                    event.rule_desc,
+                    event.reason,
+                    event.prefixo,
+                ]
+                    .map((value) => String(value ?? "").toLowerCase())
+                    .join(" ");
+
+                if (!haystack.includes(q)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }
+
+    /* ======================================================================
+       RENDER TABLE
+       ====================================================================== */
+
+    function renderAll(newCount = 0) {
+        const events = filteredEvents();
+
+        renderKpis(events);
+        renderRows(events, newCount);
+
+        setText(
+            "fwfFooterCount",
+            `${events.length.toLocaleString("pt-BR")} evento${events.length === 1 ? "" : "s"} visível${events.length === 1 ? "" : "is"}`
+        );
+    }
+
+    function renderRows(events, newCount = 0) {
+        const body = $("fwfTableBody");
+        if (!body) return;
+
+        if (!events.length) {
+            body.innerHTML = `
+                <div class="fwf-empty">
+                    <i class="bi bi-broadcast"></i>
+                    <strong>Nenhum evento para os filtros atuais</strong>
+                    <span>Novos registros serão exibidos automaticamente quando o backend retornar eventos.</span>
+                </div>
+            `;
+            return;
+        }
+
+        body.innerHTML = "";
+
+        events.slice(0, 800).forEach((event, index) => {
+            body.appendChild(
+                createRow(
+                    event,
+                    index < newCount
+                )
+            );
+        });
+
+        if (state.autoScroll) {
+            body.scrollTop = 0;
+        }
+    }
+
+    function createRow(event, isNew) {
+        const row = document.createElement("div");
+
+        row.className = [
+            "fwf-row",
+            `fwf-row--${String(event.action || "log").toLowerCase()}`,
+            isNew ? "fwf-row--new" : "",
+        ].filter(Boolean).join(" ");
+
+        const hits = Number(event._hits || 1);
+
+        row.innerHTML = `
+            <div class="fwf-cell fwf-cell--time">${escapeHtml(event.time || "—")}</div>
+
+            <div class="fwf-cell">
+                ${actionBadge(event.action)}
+            </div>
+
+            <div class="fwf-cell">
+                <span class="fwf-iface-badge" title="${escapeAttr(event.iface_raw || event.iface || "")}">
+                    ${escapeHtml(event.iface || "—")}
+                </span>
+            </div>
+
+            <div class="fwf-cell fwf-cell--ip" title="${escapeAttr(formatEndpoint(event.src_ip, event.src_port))}">
+                ${escapeHtml(formatEndpoint(event.src_ip, event.src_port))}
+            </div>
+
+            <div class="fwf-cell fwf-cell--ip" title="${escapeAttr(formatEndpoint(event.dst_ip, event.dst_port))}">
+                <span>${escapeHtml(event.dst_ip || "—")}</span>
+                ${event.dst_port !== null ? `<span class="fwf-dst-port">:${escapeHtml(event.dst_port)}</span>` : ""}
+            </div>
+
+            <div class="fwf-cell">${escapeHtml(event.proto || "—")}</div>
+
+            <div class="fwf-cell fwf-cell--rule" title="${escapeAttr(event.reason || event.rule_desc || "")}">
+                ${escapeHtml(truncate(event.reason || event.rule_desc || "—", 38))}
+            </div>
+
+            <div class="fwf-cell">
+                <span class="fwf-hits-badge ${hits === 1 ? "fwf-hits-badge--single" : ""}">
+                    ${hits}x
+                </span>
+            </div>
+
+            <div class="fwf-cell">
+                <div class="fwf-row-actions">
+                    <button class="fwf-row-btn fwf-row-btn--danger" type="button" data-action="block" title="Bloquear origem">
+                        <i class="bi bi-ban"></i>
+                    </button>
+
+                    <button class="fwf-row-btn" type="button" data-action="view" title="Detalhes">
+                        <i class="bi bi-eye"></i>
+                    </button>
+
+                    <button class="fwf-row-btn" type="button" data-action="rule" title="Criar regra">
+                        <i class="bi bi-plus-circle"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+
+        row.addEventListener("click", (eventClick) => {
+            if (eventClick.target.closest(".fwf-row-btn")) {
+                return;
+            }
+
+            openDrawer(event, hits);
+        });
+
+        row.querySelector('[data-action="block"]')
+            ?.addEventListener("click", (clickEvent) => {
+                clickEvent.stopPropagation();
+                blockEventSource(event);
+            });
+
+        row.querySelector('[data-action="view"]')
+            ?.addEventListener("click", (clickEvent) => {
+                clickEvent.stopPropagation();
+                openDrawer(event, hits);
+            });
+
+        row.querySelector('[data-action="rule"]')
+            ?.addEventListener("click", (clickEvent) => {
+                clickEvent.stopPropagation();
+                createRuleFromEvent(event);
+            });
+
+        return row;
+    }
+
+    function actionBadge(action) {
+        const value = String(action || "LOG").toUpperCase();
+        const css = ["DROP", "DENY", "ALLOW", "LOG"].includes(value)
+            ? value.toLowerCase()
+            : "log";
+
+        return `
+            <span class="fwf-action-badge fwf-action-badge--${css}">
+                ${escapeHtml(value)}
+            </span>
+        `;
+    }
+
+    function formatEndpoint(ip, port) {
+        const host = ip || "—";
+
+        if (
+            port === null ||
+            port === undefined ||
+            port === ""
+        ) {
+            return host;
+        }
+
+        return `${host}:${port}`;
+    }
+
+    /* ======================================================================
+       DRAWER
+       ====================================================================== */
+
+    function openDrawer(event, hits = 1) {
+        state.currentEvent = event;
+        state.currentGroupHits = hits;
+
+        const badge = $("fwfDrawerBadge");
+        const action = String(event.action || "LOG").toUpperCase();
+
+        if (badge) {
+            badge.textContent = action;
+            badge.className =
+                `fwf-action-badge fwf-action-badge--${["DROP", "DENY", "ALLOW", "LOG"].includes(action) ? action.toLowerCase() : "log"}`;
+        }
+
+        setText("fwfDetailSrc", event.src_ip || "—");
+        setText(
+            "fwfDetailSrcMeta",
+            event.src_port !== null ? `porta ${event.src_port}` : "sem porta"
+        );
+
+        setText("fwfDetailDst", event.dst_ip || "—");
+        setText(
+            "fwfDetailDstMeta",
+            event.dst_port !== null ? `porta ${event.dst_port}` : "sem porta"
+        );
+
+        setText(
+            "fwfDetailProtoArrow",
+            `${event.proto || "?"}${event.dst_port !== null ? ` · :${event.dst_port}` : ""}`
+        );
+
+        setText(
+            "fwfDetailTime",
+            event.timestamp || event.time || "—"
+        );
+
+        setText(
+            "fwfDetailIface",
+            event.iface_raw || event.iface || "—"
+        );
+
+        setText(
+            "fwfDetailIfaceOut",
+            event.iface_saida || "—"
+        );
+
+        setText("fwfDetailProto", event.proto || "—");
+        setText("fwfDetailBytes", formatBytes(event.bytes));
+        setText("fwfDetailTtl", event.ttl ?? "—");
+        setText("fwfDetailFlags", event.flags_tcp || "—");
+        setText(
+            "fwfDetailRule",
+            event.prefixo || event.rule_desc || "—"
+        );
+        setText(
+            "fwfDetailReason",
+            event.reason || event.rule_desc || "—"
+        );
+
+        const raw = buildNormalizedRaw(event);
+        setText(
+            "fwfDetailRaw",
+            JSON.stringify(raw, null, 2)
+        );
+
+        const hitsBanner = $("fwfHitsBanner");
+
+        if (hitsBanner) {
+            hitsBanner.hidden = hits <= 1;
+            setText("fwfHitsCount", hits);
+        }
+
+        $("fwfDrawer")?.classList.add("open");
+        $("fwfDrawerOverlay")?.classList.add("open");
+        $("fwfDrawer")?.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+    }
+
+    function closeDrawer() {
+        $("fwfDrawer")?.classList.remove("open");
+        $("fwfDrawerOverlay")?.classList.remove("open");
+        $("fwfDrawer")?.setAttribute("aria-hidden", "true");
+
+        state.currentEvent = null;
+        state.currentGroupHits = 1;
+
+        document.body.style.overflow = "";
+    }
+
+    function buildNormalizedRaw(event) {
+        return {
+            id: event.id,
+            timestamp: event.timestamp,
+            action: event.action,
+            iface: event.iface,
+            iface_raw: event.iface_raw,
+            iface_saida: event.iface_saida,
+            src_ip: event.src_ip,
+            src_port: event.src_port,
+            dst_ip: event.dst_ip,
+            dst_port: event.dst_port,
+            proto: event.proto,
+            bytes: event.bytes,
+            ttl: event.ttl,
+            flags_tcp: event.flags_tcp,
+            prefixo: event.prefixo,
+            rule_desc: event.rule_desc,
+            reason: event.reason,
+            source: event.source,
+        };
+    }
+
+    /* ======================================================================
+       ACTIONS
+       ====================================================================== */
+
+    async function blockEventSource(event) {
+        if (!event?.src_ip) {
+            toast("Este evento não possui IP de origem.", "err");
+            return;
+        }
+
+        try {
+            const result = await api(URLS.block, {
+                method: "POST",
+                body: JSON.stringify({
+                    ip: event.src_ip,
+                    motivo: `Bloqueio via Feed${event.reason ? ` — ${event.reason}` : ""}`,
+                    source: "SOC",
+                    expires: "∞",
+                }),
+            });
+
+            if (!result.ok) {
+                throw new Error(result.erro || "Bloqueio não confirmado.");
+            }
+
+            toast(`${event.src_ip} bloqueado pelo MoonShield-Agent.`);
+        } catch (error) {
+            toast(error.message, "err");
+        }
+    }
+
+    async function addCurrentToAllowlist() {
+        const event = state.currentEvent;
+        if (!event?.src_ip) return;
+
+        try {
+            const result = await api(URLS.allowlist, {
+                method: "POST",
+                body: JSON.stringify({
+                    ip: event.src_ip,
+                    reason: "Cadastro criado a partir do Feed do Firewall",
+                }),
+            });
+
+            if (!result.ok) {
+                throw new Error(result.erro || "Falha ao cadastrar allowlist.");
+            }
+
+            toast(
+                `${event.src_ip} cadastrado na allowlist. O runtime ainda não é aplicado.`,
+                "warn"
+            );
+        } catch (error) {
+            toast(error.message, "err");
+        }
+    }
+
+    function createRuleFromEvent(event = state.currentEvent) {
+        if (!event) return;
+
+        const params = new URLSearchParams({
+            nova_regra: "1",
+        });
+
+        if (event.src_ip) params.set("src", event.src_ip);
+        if (event.dst_ip) params.set("dst", event.dst_ip);
+        if (event.dst_port !== null) params.set("port", String(event.dst_port));
+        if (event.proto) params.set("proto", event.proto);
+
+        const logicalIface = normalizeLogicalIface(event.iface);
+        if (logicalIface) params.set("iface", logicalIface);
+
+        window.location.href =
+            `${URLS.rules}?${params.toString()}`;
+    }
+
+    function normalizeLogicalIface(value) {
+        const upper = String(value || "").toUpperCase();
+
+        if (["WAN", "MGMT", "LAN"].includes(upper)) {
+            return upper;
+        }
+
+        return "";
+    }
+
+    async function copyCurrentIoc() {
+        const event = state.currentEvent;
+        if (!event) return;
+
+        const text = [
+            `src=${formatEndpoint(event.src_ip, event.src_port)}`,
+            `dst=${formatEndpoint(event.dst_ip, event.dst_port)}`,
+            `proto=${event.proto || "—"}`,
+            `action=${event.action || "—"}`,
+            `time=${event.timestamp || event.time || "—"}`,
+        ].join(" | ");
+
+        await copyText(
+            text,
+            "IOC copiado."
+        );
+    }
+
+    async function copyCurrentJson() {
+        const event = state.currentEvent;
+        if (!event) return;
+
+        await copyText(
+            JSON.stringify(buildNormalizedRaw(event), null, 2),
+            "JSON copiado."
+        );
+    }
+
+    async function copyText(text, successMessage) {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast(successMessage);
+        } catch (_) {
+            toast("Não foi possível copiar para a área de transferência.", "err");
+        }
+    }
+
+    /* ======================================================================
+       UI FILTERS
+       ====================================================================== */
+
+    function populateInterfaces(items) {
+        const select = $("fwfFilterIface");
+        if (!select || !Array.isArray(items) || !items.length) return;
+
+        const current = select.value;
+        const names = new Set();
+
+        for (const item of items) {
+            const name =
+                typeof item === "string"
+                    ? item
+                    : item.nome || item.name || item.interface || item.iface;
+
+            if (name) names.add(String(name));
+        }
+
+        for (const event of state.events) {
+            if (event.iface && event.iface !== "—") {
+                names.add(event.iface);
+            }
+
+            if (event.iface_raw) {
+                names.add(event.iface_raw);
+            }
+        }
+
+        select.innerHTML =
+            '<option value="all">Interface: Todas</option>';
+
+        [...names]
+            .sort()
+            .forEach((name) => {
+                const option = document.createElement("option");
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            });
+
+        if (
+            [...select.options]
+                .some((option) => option.value === current)
+        ) {
+            select.value = current;
+        }
+    }
+
+    function clearView() {
+        state.events = [];
+        state.ids.clear();
+        state.lastTimestamp = null;
+        state.rateWindow = [];
+        state.currentEvent = null;
+
+        renderAll();
+
+        toast("Eventos removidos apenas desta tela.");
+    }
+
+    function togglePause() {
+        state.paused = !state.paused;
+
+        if (state.paused) {
+            setLiveState("paused", "PAUSADO");
+            setPollState("paused", "Atualização automática pausada");
+            $("fwfPauseIcon").className = "bi bi-play-fill";
+            setText("fwfPauseLabel", "Retomar");
+        } else {
+            setLiveState("loading", "RETOMANDO");
+            setPollState("ok", "Atualização automática ativa");
+            $("fwfPauseIcon").className = "bi bi-pause-fill";
+            setText("fwfPauseLabel", "Pausar");
+
+            poll()
+                .then(() => setLiveState("ok", "LIVE"))
+                .catch((error) => {
+                    setLiveState("error", "ERRO");
+                    toast(error.message, "err");
+                });
+        }
+    }
+
+    /* ======================================================================
+       EXPORT
+       ====================================================================== */
+
+    function exportCsv() {
+        const events = filteredEvents();
+
+        if (!events.length) {
+            toast("Não há eventos visíveis para exportar.", "warn");
+            return;
+        }
+
+        const header = [
+            "Timestamp",
+            "Hora",
+            "Ação",
+            "Interface",
+            "Interface Física",
+            "Interface Saída",
+            "Src IP",
+            "Src Porta",
+            "Dst IP",
+            "Dst Porta",
+            "Protocolo",
+            "Bytes",
+            "TTL",
+            "Flags TCP",
+            "Prefixo",
+            "Regra",
+            "Motivo",
+            "Hits",
+        ];
+
+        const rows = events.map((event) => [
+            event.timestamp,
+            event.time,
+            event.action,
+            event.iface,
+            event.iface_raw,
+            event.iface_saida,
+            event.src_ip,
+            event.src_port,
+            event.dst_ip,
+            event.dst_port,
+            event.proto,
+            event.bytes,
+            event.ttl,
+            event.flags_tcp,
+            event.prefixo,
+            event.rule_desc,
+            event.reason,
+            event._hits || 1,
+        ]);
+
+        const csv = [
+            header.map(csvCell).join(","),
+            ...rows.map((row) => row.map(csvCell).join(",")),
+        ].join("\r\n");
+
+        const blob = new Blob(
+            ["\ufeff", csv],
+            { type: "text/csv;charset=utf-8;" }
+        );
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.download =
+            `moonshield-firewall-feed-${new Date().toISOString().slice(0, 10)}.csv`;
+
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        window.setTimeout(
+            () => URL.revokeObjectURL(url),
+            1000
+        );
+
+        toast("CSV exportado.");
+    }
+
+    /* ======================================================================
+       EVENTS
+       ====================================================================== */
+
+    function bindEvents() {
+        document
+            .querySelectorAll("[data-action]")
+            .forEach((button) => {
+                if (!button.closest("#fwfActionChips")) return;
+
+                button.addEventListener("click", () => {
+                    document
+                        .querySelectorAll("#fwfActionChips [data-action]")
+                        .forEach((item) => item.classList.remove("fwf-chip--active"));
+
+                    button.classList.add("fwf-chip--active");
+                    state.filterAction = button.dataset.action || "all";
+                    renderAll();
+                });
+            });
+
+        $("fwfFilterIface")?.addEventListener("change", (event) => {
+            state.filterIface = event.target.value;
+            renderAll();
+        });
+
+        $("fwfFilterProto")?.addEventListener("change", (event) => {
+            state.filterProto = event.target.value;
+            renderAll();
+        });
+
+        $("fwfGroupToggle")?.addEventListener("change", (event) => {
+            state.grouped = event.target.checked;
+            renderAll();
+        });
+
+        $("fwfAutoScroll")?.addEventListener("change", (event) => {
+            state.autoScroll = event.target.checked;
+        });
+
+        $("fwfSearch")?.addEventListener("input", (event) => {
+            state.search = event.target.value.trim();
+            renderAll();
+        });
+
+        $("fwfSearchClear")?.addEventListener("click", () => {
+            $("fwfSearch").value = "";
+            state.search = "";
+            renderAll();
+        });
+
+        $("fwfPauseBtn")?.addEventListener("click", togglePause);
+        $("fwfClearBtn")?.addEventListener("click", clearView);
+        $("fwfExportBtn")?.addEventListener("click", exportCsv);
+        $("fwfRefreshBtn")?.addEventListener("click", refreshNow);
+
+        $("fwfDrawerClose")?.addEventListener("click", closeDrawer);
+        $("fwfDrawerOverlay")?.addEventListener("click", closeDrawer);
+
+        $("fwfDrawerBlock")?.addEventListener("click", async () => {
+            const event = state.currentEvent;
+            if (!event) return;
+
+            await blockEventSource(event);
+        });
+
+        $("fwfDrawerAllow")?.addEventListener("click", addCurrentToAllowlist);
+        $("fwfDrawerRule")?.addEventListener("click", () => createRuleFromEvent());
+        $("fwfDrawerCopyIoc")?.addEventListener("click", copyCurrentIoc);
+        $("fwfCopyJsonBtn")?.addEventListener("click", copyCurrentJson);
+
+        document.addEventListener("keydown", (event) => {
+            if (
+                event.key === "Escape" &&
+                $("fwfDrawer")?.classList.contains("open")
+            ) {
+                closeDrawer();
+            }
+        });
+    }
+
+    /* ======================================================================
+       HELPERS
+       ====================================================================== */
+
+    function formatBytes(value) {
+        const bytes = Number(value || 0);
+
+        if (!Number.isFinite(bytes) || bytes <= 0) {
+            return bytes === 0 ? "0 B" : "—";
+        }
+
+        if (bytes >= 1024 * 1024 * 1024) {
+            return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        }
+
+        if (bytes >= 1024 * 1024) {
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        if (bytes >= 1024) {
+            return `${(bytes / 1024).toFixed(1)} KB`;
+        }
+
+        return `${bytes} B`;
+    }
+
+    function csvCell(value) {
+        return `"${String(value ?? "").replace(/"/g, '""')}"`;
+    }
+
+    function truncate(value, max) {
+        const text = String(value || "");
+        return text.length > max
+            ? `${text.slice(0, max)}…`
+            : text;
+    }
+
+    function setText(id, value) {
+        const element = $(id);
+        if (element) {
+            element.textContent = String(value ?? "");
+        }
+    }
+
+    function toast(message, type = "ok") {
+        const element = $("fwfToast");
+        if (!element) return;
+
+        element.textContent = message;
+        element.className =
+            `fwf-toast fwf-toast--${type} show`;
+
+        window.clearTimeout(toastTimer);
+
+        toastTimer = window.setTimeout(
+            () => element.classList.remove("show"),
+            3000
+        );
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value);
+    }
 });

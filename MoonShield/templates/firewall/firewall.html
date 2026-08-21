@@ -13,294 +13,376 @@
 {% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
-<link rel="stylesheet" href="{% static 'css/firewall/firewall.css' %}" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link rel="stylesheet" href="{% static 'css/firewall/firewall.css' %}">
 {% endblock %}
 
 {% block conteudo %}
 
-<div class="fw-topbar">
-    <div class="fw-topbar__left">
-        <div class="fw-live">
-            <span class="fw-live__dot"></span>
-            <span class="fw-live__label">LIVE</span>
-            <span class="fw-live__time" id="fwLastUpdate">—</span>
+<div id="fwDashboard"
+     data-url-data="{% url 'firewall:api_data' %}"
+     data-url-status="{% url 'firewall:api_status' %}"
+     data-url-apply="{% url 'firewall:api_apply_rules' %}"
+     data-url-export-nft="{% url 'firewall:api_export_nft' %}"
+     data-url-install="{% url 'firewall:instalacao' %}"
+     data-url-rules="{% url 'firewall:regras' %}"
+     data-url-feed="{% url 'firewall:feed' %}">
+
+    <!-- HEADER -->
+    <section class="fw-head">
+        <div class="fw-head__main">
+            <div class="fw-head__eyebrow">MOONSHIELD / FIREWALL</div>
+            <div class="fw-head__title-row">
+                <h1>Firewall</h1>
+
+                <span class="fw-status-badge fw-status-badge--loading" id="fwStatusBadge">
+                    <span class="fw-status-badge__dot"></span>
+                    <span id="fwStatusText">Verificando</span>
+                </span>
+            </div>
+
+            <p class="fw-head__description">
+                Visão operacional do nftables, regras MoonShield e eventos registrados pelo firewall local.
+            </p>
         </div>
-        <span id="fwModeBadge"
-            style="display:none;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;margin-right:4px;letter-spacing:.5px"></span>
+
+        <div class="fw-head__actions">
+            <a href="{% url 'firewall:feed' %}" class="fw-btn fw-btn--ghost">
+                <i class="bi bi-broadcast"></i>
+                Feed
+            </a>
+
+            <a href="{% url 'firewall:regras' %}" class="fw-btn fw-btn--ghost">
+                <i class="bi bi-list-check"></i>
+                Regras
+            </a>
+
+            <button class="fw-btn fw-btn--ghost" id="fwRefreshBtn" type="button">
+                <i class="bi bi-arrow-clockwise"></i>
+                Atualizar
+            </button>
+
+            <button class="fw-btn fw-btn--primary" id="fwExportBtn" type="button">
+                <i class="bi bi-download"></i>
+                Exportar CSV
+            </button>
+        </div>
+    </section>
+
+    <!-- ALERTA DE CONFIGURAÇÃO -->
+    <section class="fw-setup-callout" id="fwSetupCallout" hidden>
+        <div class="fw-setup-callout__icon">
+            <i class="bi bi-shield-exclamation"></i>
+        </div>
+        <div class="fw-setup-callout__body">
+            <strong id="fwSetupTitle">Firewall não configurado</strong>
+            <span id="fwSetupText">Conclua a instalação para ativar o firewall local.</span>
+        </div>
+        <a href="{% url 'firewall:instalacao' %}" class="fw-btn fw-btn--primary">
+            Configurar Firewall
+            <i class="bi bi-arrow-right"></i>
+        </a>
+    </section>
+
+    <!-- REGRAS PENDENTES -->
+    <section class="fw-sync" id="fwSyncBar" hidden>
+        <div class="fw-sync__icon">
+            <i class="bi bi-arrow-repeat"></i>
+        </div>
+        <div class="fw-sync__body">
+            <strong id="fwSyncTitle">Regras pendentes</strong>
+            <span id="fwSyncText">Existem alterações aguardando aplicação no nftables.</span>
+        </div>
+        <button class="fw-btn fw-btn--warning" id="fwApplyRulesBtn" type="button">
+            <i class="bi bi-lightning-charge"></i>
+            Aplicar
+        </button>
+    </section>
+
+    <!-- FILTRO -->
+    <section class="fw-toolbar">
         <div class="fw-period" id="fwPeriod">
-            <button class="fw-period__btn" data-p="1h">1h</button>
-            <button class="fw-period__btn fw-period__btn--active" data-p="24h">24h</button>
-            <button class="fw-period__btn" data-p="7d">7d</button>
-            <button class="fw-period__btn" data-p="30d">30d</button>
+            <button class="fw-period__btn" data-period="1h" type="button">1h</button>
+            <button class="fw-period__btn fw-period__btn--active" data-period="24h" type="button">24h</button>
+            <button class="fw-period__btn" data-period="7d" type="button">7d</button>
+            <button class="fw-period__btn" data-period="30d" type="button">30d</button>
         </div>
-        <a href="{% url 'firewall:feed' %}" class="fw-action-btn fw-action-btn--ghost">
-            <i class="bi bi-broadcast"></i> Live Feed
-        </a>
-        <a href="{% url 'firewall:regras' %}" class="fw-action-btn fw-action-btn--ghost">
-            <i class="bi bi-list-check"></i> Regras
-        </a>
-    </div>
-    <div class="fw-topbar__right">
-        <button class="fw-action-btn fw-action-btn--ghost" id="fwRefreshBtn">
-            <i class="bi bi-arrow-clockwise"></i> Atualizar
-        </button>
-        <button class="fw-action-btn fw-action-btn--primary" id="fwExportBtn">
-            <i class="bi bi-download"></i> Exportar CSV
-        </button>
-    </div>
+
+        <div class="fw-toolbar__meta">
+            <span class="fw-toolbar__source">
+                <span class="fw-toolbar__source-dot" id="fwSourceDot"></span>
+                <span id="fwSourceText">Carregando dados</span>
+            </span>
+            <span id="fwLastUpdate">—</span>
+        </div>
+    </section>
+
+    <!-- KPIS -->
+    <section class="fw-kpis">
+        <article class="fw-kpi fw-kpi--blue">
+            <div class="fw-kpi__icon"><i class="bi bi-activity"></i></div>
+            <div class="fw-kpi__content">
+                <span class="fw-kpi__label">Tráfego observado</span>
+                <strong class="fw-kpi__value mono" id="kpiTraffic">—</strong>
+                <small class="fw-kpi__detail" id="kpiTrafficTrend">IN — · OUT —</small>
+            </div>
+            <canvas class="fw-kpi__spark" id="sparkTraffic"></canvas>
+        </article>
+
+        <article class="fw-kpi fw-kpi--green">
+            <div class="fw-kpi__icon"><i class="bi bi-diagram-3"></i></div>
+            <div class="fw-kpi__content">
+                <span class="fw-kpi__label">Conexões recentes</span>
+                <strong class="fw-kpi__value mono" id="kpiConexoes">—</strong>
+                <small class="fw-kpi__detail">últimos 5 minutos</small>
+            </div>
+            <canvas class="fw-kpi__spark" id="sparkConexoes"></canvas>
+        </article>
+
+        <article class="fw-kpi fw-kpi--red">
+            <div class="fw-kpi__icon"><i class="bi bi-slash-circle"></i></div>
+            <div class="fw-kpi__content">
+                <span class="fw-kpi__label">Bloqueios</span>
+                <strong class="fw-kpi__value mono" id="kpiDrops">—</strong>
+                <small class="fw-kpi__detail" id="kpiDropsTrend">DROP + DENY</small>
+            </div>
+            <canvas class="fw-kpi__spark" id="sparkDrops"></canvas>
+        </article>
+
+        <article class="fw-kpi fw-kpi--teal">
+            <div class="fw-kpi__icon"><i class="bi bi-check2-circle"></i></div>
+            <div class="fw-kpi__content">
+                <span class="fw-kpi__label">Permitidos</span>
+                <strong class="fw-kpi__value mono" id="kpiAllows">—</strong>
+                <small class="fw-kpi__detail">ALLOW + LOG</small>
+            </div>
+        </article>
+
+        <article class="fw-kpi fw-kpi--orange">
+            <div class="fw-kpi__icon"><i class="bi bi-hdd-network"></i></div>
+            <div class="fw-kpi__content">
+                <span class="fw-kpi__label">Porta mais atingida</span>
+                <strong class="fw-kpi__value mono" id="kpiTopPort">—</strong>
+                <small class="fw-kpi__detail" id="kpiTopPortTrend">—</small>
+            </div>
+        </article>
+
+        <article class="fw-kpi fw-kpi--purple">
+            <div class="fw-kpi__icon"><i class="bi bi-globe2"></i></div>
+            <div class="fw-kpi__content">
+                <span class="fw-kpi__label">IP mais bloqueado</span>
+                <strong class="fw-kpi__value fw-kpi__value--ip mono" id="kpiTopIp">—</strong>
+                <small class="fw-kpi__detail" id="kpiTopIpTrend">—</small>
+            </div>
+        </article>
+    </section>
+
+    <!-- GRID -->
+    <section class="fw-grid">
+        <div class="fw-grid__main">
+
+            <article class="fw-card">
+                <div class="fw-card__header">
+                    <div>
+                        <span class="fw-card__eyebrow">TRÁFEGO</span>
+                        <h2>Entrada e saída</h2>
+                        <p>Volume registrado por hora.</p>
+                    </div>
+
+                    <div class="fw-legend">
+                        <span><i class="fw-legend__dot fw-legend__dot--blue"></i> IN</span>
+                        <span><i class="fw-legend__dot fw-legend__dot--green"></i> OUT</span>
+                    </div>
+                </div>
+
+                <div class="fw-chart fw-chart--traffic">
+                    <canvas id="fwChartTraffic"></canvas>
+                </div>
+            </article>
+
+            <article class="fw-card">
+                <div class="fw-card__header">
+                    <div>
+                        <span class="fw-card__eyebrow">POLÍTICAS</span>
+                        <h2>Bloqueios por hora</h2>
+                        <p>Eventos DROP e DENY observados no período.</p>
+                    </div>
+
+                    <div class="fw-legend">
+                        <span><i class="fw-legend__dot fw-legend__dot--red"></i> DROP</span>
+                        <span><i class="fw-legend__dot fw-legend__dot--orange"></i> DENY</span>
+                    </div>
+                </div>
+
+                <div class="fw-chart fw-chart--blocks">
+                    <canvas id="fwChartBlocks"></canvas>
+                </div>
+            </article>
+
+            <article class="fw-card">
+                <div class="fw-card__header">
+                    <div>
+                        <span class="fw-card__eyebrow">ORIGENS</span>
+                        <h2>Top IPs bloqueados</h2>
+                        <p>Endereços com maior número de eventos DROP/DENY.</p>
+                    </div>
+
+                    <a href="{% url 'firewall:feed' %}" class="fw-link">
+                        Ver feed
+                        <i class="bi bi-arrow-right"></i>
+                    </a>
+                </div>
+
+                <div class="fw-top-list" id="fwTopAtacantesList">
+                    <div class="fw-empty">Nenhum evento disponível.</div>
+                </div>
+            </article>
+        </div>
+
+        <aside class="fw-grid__side">
+
+            <!-- SAÚDE REAL DO FIREWALL -->
+            <article class="fw-card fw-status-card">
+                <div class="fw-card__header fw-card__header--compact">
+                    <div>
+                        <span class="fw-card__eyebrow">SAÚDE</span>
+                        <h2>Stack do Firewall</h2>
+                    </div>
+
+                    <span class="fw-health-pill fw-health-pill--loading" id="fwHealthStatus">
+                        VERIFICANDO
+                    </span>
+                </div>
+
+                <div class="fw-health-list">
+                    <div class="fw-health-row">
+                        <span class="fw-health-row__icon"><i class="bi bi-cpu"></i></span>
+                        <div class="fw-health-row__body">
+                            <span>MoonShield-Agent</span>
+                            <small id="fwAgentDetail">socket local</small>
+                        </div>
+                        <strong id="fwAgentStatus">—</strong>
+                    </div>
+
+                    <div class="fw-health-row">
+                        <span class="fw-health-row__icon"><i class="bi bi-bricks"></i></span>
+                        <div class="fw-health-row__body">
+                            <span>nftables</span>
+                            <small id="fwNftDetail">versão —</small>
+                        </div>
+                        <strong id="fwNftStatus">—</strong>
+                    </div>
+
+                    <div class="fw-health-row">
+                        <span class="fw-health-row__icon"><i class="bi bi-table"></i></span>
+                        <div class="fw-health-row__body">
+                            <span>Tabela MoonShield</span>
+                            <small>inet moonshield</small>
+                        </div>
+                        <strong id="fwTableStatus">—</strong>
+                    </div>
+
+                    <div class="fw-health-row">
+                        <span class="fw-health-row__icon"><i class="bi bi-diagram-2"></i></span>
+                        <div class="fw-health-row__body">
+                            <span>Chains</span>
+                            <small>estrutura gerenciada</small>
+                        </div>
+                        <strong id="fwChainsStatus">—</strong>
+                    </div>
+                </div>
+            </article>
+
+            <!-- TOPOLOGIA -->
+            <article class="fw-card">
+                <div class="fw-card__header fw-card__header--compact">
+                    <div>
+                        <span class="fw-card__eyebrow">TOPOLOGIA</span>
+                        <h2>Interfaces</h2>
+                    </div>
+                    <a href="{% url 'firewall:instalacao' %}" class="fw-icon-link" title="Configurar Firewall">
+                        <i class="bi bi-gear"></i>
+                    </a>
+                </div>
+
+                <div class="fw-topology">
+                    <div class="fw-topology__row">
+                        <span class="fw-topology__role fw-topology__role--wan">WAN</span>
+                        <div>
+                            <strong class="mono" id="fwIfaceWan">—</strong>
+                            <small>uplink</small>
+                        </div>
+                    </div>
+
+                    <div class="fw-topology__row fw-topology__row--mgmt">
+                        <span class="fw-topology__role fw-topology__role--mgmt">MGMT</span>
+                        <div>
+                            <strong class="mono" id="fwIfaceMgmt">—</strong>
+                            <small>gerenciamento</small>
+                        </div>
+                    </div>
+
+                    <div class="fw-topology__row">
+                        <span class="fw-topology__role fw-topology__role--lan">LAN</span>
+                        <div>
+                            <strong class="mono" id="fwIfaceLan">—</strong>
+                            <small id="fwHomeNet">rede protegida</small>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <!-- AÇÕES -->
+            <article class="fw-card">
+                <div class="fw-card__header fw-card__header--compact">
+                    <div>
+                        <span class="fw-card__eyebrow">ATALHOS</span>
+                        <h2>Ações</h2>
+                    </div>
+                </div>
+
+                <div class="fw-actions-list">
+                    <a href="{% url 'firewall:regras' %}" class="fw-action-row">
+                        <span><i class="bi bi-list-check"></i> Gerenciar regras</span>
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+
+                    <a href="{% url 'firewall:feed' %}" class="fw-action-row">
+                        <span><i class="bi bi-broadcast"></i> Investigar eventos</span>
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+
+                    <a href="{% url 'firewall:instalacao' %}" class="fw-action-row">
+                        <span><i class="bi bi-wrench-adjustable"></i> Instalação e reparo</span>
+                        <i class="bi bi-chevron-right"></i>
+                    </a>
+
+                    <button class="fw-action-row" id="fwExportNftBtn" type="button">
+                        <span><i class="bi bi-file-earmark-code"></i> Exportar referência nft</span>
+                        <i class="bi bi-download"></i>
+                    </button>
+                </div>
+            </article>
+
+            <!-- EVENTOS RECENTES -->
+            <article class="fw-card fw-feed-card">
+                <div class="fw-card__header fw-card__header--compact">
+                    <div>
+                        <span class="fw-card__eyebrow">EVENTOS</span>
+                        <h2>Bloqueios recentes</h2>
+                    </div>
+                    <span class="fw-counter" id="fwFeedCount">0</span>
+                </div>
+
+                <div class="fw-feed-list" id="fwFeedList">
+                    <div class="fw-empty">Nenhum bloqueio recente.</div>
+                </div>
+            </article>
+        </aside>
+    </section>
 </div>
 
-<div id="fwProdBanner"
-    style="display:none;margin:0 0 12px;padding:10px 16px;border-radius:6px;font-size:12px;font-family:var(--font-mono)">
-</div>
-
-<div id="fwSyncBar" style="display:none"></div>
-
-<section class="fw-kpis">
-    <div class="fw-kpi">
-        <div class="fw-kpi__icon"
-            style="color:#3b82f6;background:rgba(59,130,246,.12);border-color:rgba(59,130,246,.22)">
-            <i class="bi bi-activity" style="font-size:17px"></i>
-        </div>
-        <div class="fw-kpi__body">
-            <p class="fw-kpi__val mono" id="kpiTraffic">—</p>
-            <p class="fw-kpi__lbl">Tráfego Total</p>
-            <p class="fw-kpi__trend fw-kpi__trend--blue" id="kpiTrafficTrend">in + out</p>
-        </div>
-        <canvas class="fw-kpi__spark" id="sparkTraffic"></canvas>
-        <div class="fw-kpi__bar" style="background:rgba(59,130,246,.2)"></div>
-    </div>
-    <div class="fw-kpi">
-        <div class="fw-kpi__icon" style="color:#22c55e;background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.22)">
-            <i class="bi bi-diagram-3" style="font-size:17px"></i>
-        </div>
-        <div class="fw-kpi__body">
-            <p class="fw-kpi__val mono" id="kpiConexoes">—</p>
-            <p class="fw-kpi__lbl">Conexões Ativas</p>
-            <p class="fw-kpi__trend fw-kpi__trend--ok" id="kpiConexoesTrend">estado normal</p>
-        </div>
-        <canvas class="fw-kpi__spark" id="sparkConexoes"></canvas>
-        <div class="fw-kpi__bar" style="background:rgba(34,197,94,.2)"></div>
-    </div>
-    <div class="fw-kpi">
-        <div class="fw-kpi__icon" style="color:#ef4444;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.22)">
-            <i class="bi bi-slash-circle" style="font-size:17px"></i>
-        </div>
-        <div class="fw-kpi__body">
-            <p class="fw-kpi__val mono" id="kpiDrops">—</p>
-            <p class="fw-kpi__lbl">Drops / Denied</p>
-            <p class="fw-kpi__trend fw-kpi__trend--red" id="kpiDropsTrend">—</p>
-        </div>
-        <canvas class="fw-kpi__spark" id="sparkDrops"></canvas>
-        <div class="fw-kpi__bar" style="background:rgba(239,68,68,.2)"></div>
-    </div>
-    <div class="fw-kpi">
-        <div class="fw-kpi__icon" style="color:#22c55e;background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.22)">
-            <i class="bi bi-check2-circle" style="font-size:17px"></i>
-        </div>
-        <div class="fw-kpi__body">
-            <p class="fw-kpi__val mono" id="kpiAllows">—</p>
-            <p class="fw-kpi__lbl">Allow / Accepted</p>
-            <p class="fw-kpi__trend fw-kpi__trend--ok">tráfego legítimo</p>
-        </div>
-        <div class="fw-kpi__bar" style="background:rgba(34,197,94,.2)"></div>
-    </div>
-    <div class="fw-kpi">
-        <div class="fw-kpi__icon"
-            style="color:#f97316;background:rgba(249,115,22,.12);border-color:rgba(249,115,22,.22)">
-            <i class="bi bi-hdd-stack" style="font-size:17px"></i>
-        </div>
-        <div class="fw-kpi__body">
-            <p class="fw-kpi__val mono" id="kpiTopPort">—</p>
-            <p class="fw-kpi__lbl">Top Porta Atacada</p>
-            <p class="fw-kpi__trend fw-kpi__trend--orange" id="kpiTopPortTrend">—</p>
-        </div>
-        <div class="fw-kpi__bar" style="background:rgba(249,115,22,.2)"></div>
-    </div>
-    <div class="fw-kpi">
-        <div class="fw-kpi__icon"
-            style="color:#a855f7;background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.22)">
-            <i class="bi bi-geo-alt" style="font-size:17px"></i>
-        </div>
-        <div class="fw-kpi__body">
-            <p class="fw-kpi__val mono" id="kpiTopIp" style="font-size:14px">—</p>
-            <p class="fw-kpi__lbl">Top IP Bloqueado</p>
-            <p class="fw-kpi__trend fw-kpi__trend--purple" id="kpiTopIpTrend">—</p>
-        </div>
-        <div class="fw-kpi__bar" style="background:rgba(168,85,247,.2)"></div>
-    </div>
-</section>
-
-<div class="fw-main">
-
-    <div class="fw-left">
-
-        <div class="fw-chart-card">
-            <div class="fw-chart-card__header">
-                <div class="fw-chart-card__title-group">
-                    <span class="fw-dot fw-dot--blue fw-dot--pulse"
-                        style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-                    <div>
-                        <p class="fw-chart-card__title">Tráfego por Hora</p>
-                        <p class="fw-chart-card__sub">IN / OUT — últimas 24h (MB)</p>
-                    </div>
-                </div>
-                <div class="fw-legend">
-                    <span class="fw-legend-pill fw-legend-pill--blue">IN</span>
-                    <span class="fw-legend-pill fw-legend-pill--green">OUT</span>
-                </div>
-            </div>
-            <div class="fw-chart-wrap" style="height:190px"><canvas id="fwChartTraffic"></canvas></div>
-        </div>
-
-        <div class="fw-chart-card">
-            <div class="fw-chart-card__header">
-                <div class="fw-chart-card__title-group">
-                    <span class="fw-dot fw-dot--red fw-dot--pulse"
-                        style="width:8px;height:8px;border-radius:50%;display:inline-block"></span>
-                    <div>
-                        <p class="fw-chart-card__title">Bloqueios / Drops por Hora</p>
-                        <p class="fw-chart-card__sub">DENY + DROP · últimas 24h</p>
-                    </div>
-                </div>
-                <div class="fw-legend">
-                    <span class="fw-legend-pill fw-legend-pill--red">Drops</span>
-                    <span class="fw-legend-pill fw-legend-pill--orange">Denies</span>
-                </div>
-            </div>
-            <div class="fw-chart-wrap" style="height:150px"><canvas id="fwChartBlocks"></canvas></div>
-        </div>
-
-        <div class="fw-chart-card" id="fwTopAtacantes">
-            <div class="fw-chart-card__header">
-                <div class="fw-chart-card__title-group">
-                    <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>
-                    <div>
-                        <p class="fw-chart-card__title">Top Atacantes</p>
-                        <p class="fw-chart-card__sub">IPs com mais drops no período</p>
-                    </div>
-                </div>
-                <a href="{% url 'firewall:feed' %}" style="font-size:11px;color:var(--text-muted);text-decoration:none">
-                    Ver feed completo <i class="bi bi-arrow-right"></i>
-                </a>
-            </div>
-            <div id="fwTopAtacantesList" style="padding:4px 0"></div>
-        </div>
-
-    </div>
-
-    <div class="fw-right">
-
-        <div class="fw-health-card">
-            <div class="fw-health-card__header">
-                <p class="fw-health-card__title">
-                    <i class="bi bi-shield-fill-check" style="color:#22c55e;font-size:13px"></i>
-                    Saúde do Firewall
-                </p>
-                <span class="fw-health-status" id="fwHealthStatus">ONLINE</span>
-            </div>
-            <div id="fwHealthRows" class="fw-health-rows">
-                <div class="fw-health-row">
-                    <span class="fw-health-row__icon fw-health-row__icon--green"><i
-                            class="bi bi-shield-check"></i></span>
-                    <span class="fw-health-row__label">Firewall Engine</span>
-                    <span class="fw-health-row__val--ok">OK</span>
-                </div>
-                <div class="fw-health-row">
-                    <span class="fw-health-row__icon fw-health-row__icon--blue"><i class="bi bi-ethernet"></i></span>
-                    <span class="fw-health-row__label">Interface WAN</span>
-                    <span class="fw-health-row__val--ok">UP</span>
-                </div>
-                <div class="fw-health-row">
-                    <span class="fw-health-row__icon fw-health-row__icon--green"><i class="bi bi-wifi"></i></span>
-                    <span class="fw-health-row__label">Interface LAN</span>
-                    <span class="fw-health-row__val--ok">UP</span>
-                </div>
-                <div class="fw-health-row">
-                    <span class="fw-health-row__icon fw-health-row__icon--purple"><i class="bi bi-lock"></i></span>
-                    <span class="fw-health-row__label">VPN Tunnel</span>
-                    <span class="fw-health-row__val--ok">UP</span>
-                </div>
-                <div class="fw-health-row">
-                    <span class="fw-health-row__icon fw-health-row__icon--orange"><i class="bi bi-bug"></i></span>
-                    <span class="fw-health-row__label">IDS (Suricata)</span>
-                    <span class="fw-health-row__val--ok">ATIVO</span>
-                </div>
-                <div class="fw-health-row">
-                    <span class="fw-health-row__icon fw-health-row__icon--cyan"><i
-                            class="bi bi-database-check"></i></span>
-                    <span class="fw-health-row__label">Log Storage</span>
-                    <span class="fw-health-row__val--ok">OK</span>
-                </div>
-            </div>
-            <div class="fw-resource-grid">
-                <div class="fw-resource">
-                    <div class="fw-resource__top">
-                        <span class="fw-resource__lbl"><i class="bi bi-cpu"></i> CPU</span>
-                        <span class="fw-resource__val" id="fwResCpu">—</span>
-                    </div>
-                    <div class="fw-resource__track">
-                        <div class="fw-resource__fill fw-resource__fill--cpu" id="fwResCpuBar" style="width:0%"></div>
-                    </div>
-                </div>
-                <div class="fw-resource">
-                    <div class="fw-resource__top">
-                        <span class="fw-resource__lbl"><i class="bi bi-memory"></i> RAM</span>
-                        <span class="fw-resource__val" id="fwResRam">—</span>
-                    </div>
-                    <div class="fw-resource__track">
-                        <div class="fw-resource__fill fw-resource__fill--ram" id="fwResRamBar" style="width:0%"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="fw-quick-card">
-            <p class="fw-quick-card__title">Ações Rápidas</p>
-            <div class="fw-quick-grid">
-                <button class="fw-quick-btn fw-quick-btn--deny" onclick="window.location.href='{% url 'firewall:regras' %}'">
-                    <i class="bi bi-ban"></i> Bloquear IP Rápido
-                </button>
-                <button class="fw-quick-btn fw-quick-btn--allow" onclick="window.location.href='{% url 'firewall:regras' %}'">
-                    <i class="bi bi-check2-circle"></i> Liberar IP
-                </button>
-                <button class="fw-quick-btn" onclick="window.location.href='{% url 'firewall:regras' %}'">
-                    <i class="bi bi-sliders"></i> Gerenciar Regras
-                </button>
-                <button class="fw-quick-btn" onclick="window.location.href='{% url 'firewall:feed' %}'">
-                    <i class="bi bi-search"></i> Investigar Feed Real
-                </button>
-                <button class="fw-quick-btn" id="qaResetCounters">
-                    <i class="bi bi-arrow-counterclockwise"></i> Reset Contadores
-                </button>
-                <button class="fw-quick-btn" id="qaExportLogs">
-                    <i class="bi bi-download"></i> Exportar Logs
-                </button>
-            </div>
-        </div>
-
-        <div class="fw-feed-card fw-feed-card--grow">
-            <div class="fw-feed-card__header">
-                <div class="fw-feed-header-left">
-                    <span class="fw-dot fw-dot--red fw-dot--pulse"
-                        style="width:8px;height:8px;display:inline-block;border-radius:50%"></span>
-                    <p class="fw-feed-card__title">Live Drops</p>
-                    <span class="fw-feed-count" id="fwFeedCount">0</span>
-                </div>
-                <button class="fw-feed-pause-btn" id="fwFeedPauseBtn">
-                    <i class="bi bi-pause-fill" id="fwFeedPauseIcon"></i>
-                    <span id="fwFeedPauseLbl">Pausar</span>
-                </button>
-            </div>
-            <div class="fw-feed-list" id="fwFeedList"></div>
-        </div>
-
-    </div>
-
-</div>
-
-<div class="fw-toast" id="fwToast"></div>
+<div class="fw-toast" id="fwToast" role="status" aria-live="polite"></div>
 
 {% endblock %}
 

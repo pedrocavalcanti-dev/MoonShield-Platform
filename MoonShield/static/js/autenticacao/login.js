@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — LOGIN.JS  v7
+ * MOONSHIELD — LOGIN.JS  v8
  * Developed by Pedro Cavalcanti — BUILD-2026.05
  *
  * ESTRATÉGIA CORRETA:
@@ -8,7 +8,8 @@
  *  2ª vez+ → Django manda para /painel/ → dashboard.js dispara o warp
  *
  *  Aqui cuidamos só do UX da tela de login:
- *  estrelas, lua, terminal, toggle senha, shake, loader.
+ *  estrelas, lua (agora com terminador + glint + rotação lenta),
+ *  terminal, toggle senha, shake, loader.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,6 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  /* Crateras com profundidade base — a posição visível é recalculada
+     a cada frame com uma leve rotação, pra lua parecer viva. */
   const CRATERS = [
     { rx: 0.28, ry: 0.35, r: 0.07 }, { rx: 0.55, ry: 0.22, r: 0.05 },
     { rx: 0.40, ry: 0.58, r: 0.09 }, { rx: 0.65, ry: 0.50, r: 0.04 },
@@ -44,42 +47,93 @@ document.addEventListener('DOMContentLoaded', () => {
     { rx: 0.48, ry: 0.75, r: 0.045 },
   ];
 
-  function drawMoon(c, cx, cy, radius) {
-    const grad = c.createRadialGradient(cx - radius * .3, cy - radius * .3, radius * .05, cx, cy, radius);
-    grad.addColorStop(0, 'rgba(42,58,80,0.72)');
-    grad.addColorStop(0.5, 'rgba(18,28,44,0.68)');
-    grad.addColorStop(1, 'rgba(6,10,18,0.0)');
+  const MOON_ROT_SPEED = 0.000018;  // rotação bem lenta das crateras
+  const GLINT_SPEED = 0.00042;      // brilho especular que varre a lua
+
+  function drawMoon(c, cx, cy, radius, ts) {
+    const rot = ts * MOON_ROT_SPEED;
+
+    // Corpo base da lua
+    const grad = c.createRadialGradient(cx - radius * .32, cy - radius * .32, radius * .05, cx, cy, radius);
+    grad.addColorStop(0, 'rgba(58, 76, 104, 0.82)');
+    grad.addColorStop(0.45, 'rgba(30, 42, 62, 0.74)');
+    grad.addColorStop(0.8, 'rgba(14, 20, 32, 0.6)');
+    grad.addColorStop(1, 'rgba(6, 10, 18, 0.0)');
+
+    c.save();
+    c.beginPath();
+    c.arc(cx, cy, radius, 0, Math.PI * 2);
+    c.clip();
+
+    c.fillStyle = grad;
+    c.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+
+    // Terminador — sombra suave de "lado escuro" que gira devagar,
+    // dá a impressão de uma esfera real em vez de um círculo chapado
+    const termAngle = rot * 6 + Math.PI * 0.15;
+    const tx = cx + Math.cos(termAngle) * radius * 1.15;
+    const ty = cy + Math.sin(termAngle) * radius * 1.15;
+    const termGrad = c.createRadialGradient(tx, ty, radius * 0.2, tx, ty, radius * 2.1);
+    termGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    termGrad.addColorStop(0.55, 'rgba(0,0,0,0)');
+    termGrad.addColorStop(1, 'rgba(0,0,0,0.42)');
+    c.fillStyle = termGrad;
+    c.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+
+    // Crateras, levemente rotacionadas ao redor do centro
+    for (const cr of CRATERS) {
+      const dx0 = (cr.rx - 0.5) * radius * 2;
+      const dy0 = (cr.ry - 0.5) * radius * 2;
+      const cos = Math.cos(rot), sin = Math.sin(rot);
+      const dx = dx0 * cos - dy0 * sin;
+      const dy = dx0 * sin + dy0 * cos;
+      const x = cx + dx, y = cy + dy, r = cr.r * radius;
+      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = 'rgba(0,0,0,0.30)'; c.fill();
+      c.beginPath(); c.arc(x - r * .2, y - r * .2, r * .55, 0, Math.PI * 2); c.fillStyle = 'rgba(90,120,175,0.12)'; c.fill();
+    }
+
+    // Glint — arco de luz especular que varre lentamente a superfície
+    const glintAngle = ts * GLINT_SPEED;
+    const gx = cx + Math.cos(glintAngle) * radius * 0.5;
+    const gy = cy + Math.sin(glintAngle) * radius * 0.5;
+    const glintGrad = c.createRadialGradient(gx, gy, 0, gx, gy, radius * 0.55);
+    glintGrad.addColorStop(0, 'rgba(150, 190, 255, 0.16)');
+    glintGrad.addColorStop(1, 'rgba(150, 190, 255, 0)');
+    c.fillStyle = glintGrad;
+    c.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
+
+    c.restore();
+
+    // Anel de atmosfera / rim light
     c.save();
     c.beginPath(); c.arc(cx, cy, radius, 0, Math.PI * 2);
-    c.fillStyle = grad; c.fill();
-    c.beginPath(); c.arc(cx, cy, radius, 0, Math.PI * 2);
-    c.strokeStyle = 'rgba(80,120,180,0.10)'; c.lineWidth = 2; c.stroke();
+    c.strokeStyle = 'rgba(120,160,255,0.14)'; c.lineWidth = 2; c.stroke();
+    c.beginPath(); c.arc(cx, cy, radius * 1.015, 0, Math.PI * 2);
+    c.strokeStyle = 'rgba(120,160,255,0.05)'; c.lineWidth = 5; c.stroke();
     c.restore();
-    for (const cr of CRATERS) {
-      const x = cx - radius + cr.rx * radius * 2, y = cy - radius + cr.ry * radius * 2, r = cr.r * radius;
-      c.save();
-      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fillStyle = 'rgba(0,0,0,0.28)'; c.fill();
-      c.beginPath(); c.arc(x - r * .2, y - r * .2, r * .55, 0, Math.PI * 2); c.fillStyle = 'rgba(80,110,160,0.10)'; c.fill();
-      c.restore();
-    }
   }
 
   function drawScene(ts) {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const moonR = Math.min(canvas.width, canvas.height) * 0.30;
-    drawMoon(ctx, canvas.width + moonR * 0.32, -moonR * 0.32, moonR);
+    drawMoon(ctx, canvas.width + moonR * 0.32, -moonR * 0.32, moonR, ts);
     for (const s of stars) {
       const a = 0.35 + 0.65 * Math.sin(s.phase + ts * s.speed);
       ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(210,228,255,${a.toFixed(2)})`; ctx.fill();
     }
-    requestAnimationFrame(drawScene);
+    if (!prefersReducedMotion) requestAnimationFrame(drawScene);
   }
+
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   resizeCanvas();
   requestAnimationFrame(drawScene);
-  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    if (prefersReducedMotion) requestAnimationFrame(drawScene);
+  });
 
 
   /* ══ 2. TERMINAL CMD ════════════════════════════════════════ */
@@ -117,10 +171,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const e = LOG[termIdx++];
     const el = document.createElement('div');
     el.className = 't-line';
-    el.innerHTML =
-      `<span class="t-time">${e.time}</span>` +
-      `<span class="t-bracket">[</span><span class="${e.tc}">${e.tag.padEnd(4, ' ')}</span><span class="t-bracket">] </span>` +
-      `<span class="${e.mc}">${e.msg}</span>`;
+    if (e.tag === '────') {
+      el.innerHTML = `<span class="t-time">${e.time}</span><span class="t-dash">${e.msg}</span>`;
+    } else {
+      el.innerHTML =
+        `<span class="t-time">${e.time}</span>` +
+        `<span class="t-tag ${e.tc}">${e.tag}</span>` +
+        `<span class="${e.mc}">${e.msg}</span>`;
+    }
     termBody.appendChild(el);
     termBody.scrollTop = termBody.scrollHeight;
     setTimeout(addLine, e.tag === '────' ? 80 : 300 + Math.random() * 600);
@@ -154,6 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (loginForm && submitBtn) {
     loginForm.addEventListener('submit', e => {
+      if (submitBtn.classList.contains('is-loading')) { e.preventDefault(); return; }
       const user = document.getElementById('username')?.value.trim();
       const pw = passwordInput?.value.trim();
       if (!user || !pw) { e.preventDefault(); shakeCard(); return; }

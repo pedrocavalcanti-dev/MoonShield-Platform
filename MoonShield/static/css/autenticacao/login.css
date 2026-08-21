@@ -1,6 +1,7 @@
 /**
  * MOONSHIELD — LOGIN.CSS
  * Espaço, glassmorphism, JetBrains Mono + Poppins
+ * v8 — lua com efeito de atmosfera/glint + terminal modernizado
  */
 
 *,
@@ -51,6 +52,7 @@ body {
   height: 100%;
 }
 
+/* Halo de atmosfera atrás da lua — dá profundidade que o canvas sozinho não dá */
 .bg-moon {
   position: absolute;
   top: -12%;
@@ -59,10 +61,27 @@ body {
   height: 52vmin;
   border-radius: 50%;
   background: radial-gradient(circle at 38% 38%,
-      rgba(42, 58, 80, .55) 0%,
-      rgba(12, 18, 30, .45) 55%,
+      rgba(80, 130, 200, .28) 0%,
+      rgba(42, 58, 80, .30) 42%,
+      rgba(12, 18, 30, .22) 65%,
       transparent 100%);
+  filter: blur(6px);
   pointer-events: none;
+  animation: moonBreathe 7s ease-in-out infinite;
+}
+
+.bg-moon::after {
+  content: '';
+  position: absolute;
+  inset: -6%;
+  border-radius: 50%;
+  border: 1px solid rgba(120, 160, 255, .10);
+  box-shadow: 0 0 60px 10px rgba(59, 130, 246, .06);
+}
+
+@keyframes moonBreathe {
+  0%, 100% { opacity: .85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.025); }
 }
 
 .bg-glow-l {
@@ -111,7 +130,7 @@ body {
   max-width: 400px;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: 8px;
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
   padding: 40px 40px 32px;
@@ -119,12 +138,11 @@ body {
   overflow: hidden;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, .04) inset,
-    0 32px 80px rgba(0, 0, 0, .55),
-    0 0 100px rgba(59, 130, 246, .04);
+    0 32px 80px rgba(0, 0, 0, .55);
   animation: fadeUp .55s var(--ease) .1s both;
 }
 
-/* Linha de brilho no topo do card */
+/* Linha superior — um único tom, sem degradê multicolorido */
 .login-card::before {
   content: '';
   position: absolute;
@@ -134,8 +152,7 @@ body {
   height: 1px;
   background: linear-gradient(90deg,
       transparent,
-      rgba(59, 130, 246, .55) 35%,
-      rgba(168, 85, 247, .35) 65%,
+      rgba(255, 255, 255, .16) 50%,
       transparent);
 }
 
@@ -249,13 +266,13 @@ body {
   width: 100%;
   background: rgba(255, 255, 255, .04);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   color: var(--text);
   font-family: var(--sans);
   font-size: 13.5px;
   padding: 11px 14px 11px 38px;
   outline: none;
-  transition: border-color .2s, box-shadow .2s;
+  transition: border-color .2s;
 }
 
 .lc-field__input::placeholder {
@@ -264,8 +281,7 @@ body {
 }
 
 .lc-field__input:focus {
-  border-color: rgba(59, 130, 246, .5);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, .10);
+  border-color: rgba(255, 255, 255, .28);
 }
 
 /* Botão de toggle de senha */
@@ -285,6 +301,12 @@ body {
 
 .lc-field__toggle:hover {
   color: rgba(255, 255, 255, .65);
+}
+
+.lc-field__toggle:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, .45);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* ══ OPÇÕES (lembrar sessão) ══════════════════════════════════ */
@@ -336,6 +358,11 @@ body {
   transform: rotate(45deg) translate(-1px, -1px);
 }
 
+.lc-check input:focus-visible~.lc-check__box {
+  outline: 1px solid rgba(255, 255, 255, .45);
+  outline-offset: 2px;
+}
+
 .lc-check__label {
   font-family: var(--mono);
   font-size: 11px;
@@ -352,24 +379,23 @@ body {
   gap: 10px;
   padding: 13px 20px;
   border: none;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #1d4ed8 0%, var(--blue) 100%);
-  color: #fff;
+  border-radius: 8px;
+  background: var(--text);
+  color: #06080f;
   font-family: var(--sans);
   font-size: 12.5px;
   font-weight: 700;
   letter-spacing: .10em;
   cursor: pointer;
   overflow: hidden;
-  transition: transform .2s var(--ease), box-shadow .2s var(--ease);
-  box-shadow: 0 5px 20px rgba(59, 130, 246, .32), 0 0 0 1px rgba(255, 255, 255, .06) inset;
+  transition: transform .2s var(--ease), background .2s var(--ease);
 }
 
 .lc-btn::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, .10), transparent);
+  background: linear-gradient(135deg, rgba(0, 0, 0, .06), transparent);
   opacity: 0;
   transition: opacity .2s;
 }
@@ -380,11 +406,17 @@ body {
 
 .lc-btn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 28px rgba(59, 130, 246, .42);
+  background: var(--blue);
+  color: #fff;
 }
 
 .lc-btn:active {
   transform: none;
+}
+
+.lc-btn:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, .5);
+  outline-offset: 3px;
 }
 
 /* Estado de loading */
@@ -397,8 +429,8 @@ body {
   position: absolute;
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(255, 255, 255, .22);
-  border-top-color: #fff;
+  border: 2px solid rgba(6, 8, 15, .22);
+  border-top-color: #06080f;
   border-radius: 50%;
   opacity: 0;
   animation: spin .7s linear infinite;
@@ -470,26 +502,48 @@ body {
   color: rgba(255, 255, 255, .16);
 }
 
-/* ══ TERMINAL CMD ════════════════════════════════════════════ */
+/* ══ TERMINAL CMD ════════════════════════════════════════════
+   Modernizado: barra com badge de status de rede, brilho no
+   topo (igual ao card), tags em pill em vez de colchetes soltos,
+   fade nas bordas do scroll e leve glow ambiente no container.
+   ══════════════════════════════════════════════════════════ */
 .lc-terminal {
   width: 340px;
   flex-shrink: 0;
   background: rgba(4, 8, 18, .72);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 8px;
   overflow: hidden;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, .5);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, .5),
+    0 0 60px rgba(59, 130, 246, .05);
   animation: fadeUp .55s var(--ease) .25s both;
+  position: relative;
+}
+
+/* Linha superior — mesmo tom neutro do card */
+.lc-terminal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  z-index: 2;
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, .16) 50%,
+      transparent);
 }
 
 .lc-terminal__bar {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 14px;
-  background: rgba(255, 255, 255, .03);
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, .025);
   border-bottom: 1px solid var(--border);
 }
 
@@ -529,13 +583,47 @@ body {
   letter-spacing: .04em;
 }
 
+/* Badge de status — indica que o sensor está monitorando a rede,
+   sem prometer um feed literalmente ao vivo */
+.lc-terminal__live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: rgba(34, 197, 94, .08);
+  border: 1px solid rgba(34, 197, 94, .18);
+  white-space: nowrap;
+}
+
+.lc-terminal__live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+  animation: pulse 2s ease infinite;
+  flex-shrink: 0;
+}
+
+.lc-terminal__live-text {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: .05em;
+  color: rgba(34, 197, 94, .8);
+}
+
+.lc-terminal__body-wrap {
+  position: relative;
+}
+
 .lc-terminal__body {
   padding: 14px 16px;
   height: 340px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   scrollbar-width: none;
 }
 
@@ -543,16 +631,44 @@ body {
   display: none;
 }
 
+/* Fade suave nas bordas do scroll, pra não cortar linha seca */
+.lc-terminal__fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 26px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.lc-terminal__fade--top {
+  top: 0;
+  background: linear-gradient(180deg, rgba(4, 8, 18, .9), transparent);
+}
+
+.lc-terminal__fade--bottom {
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(4, 8, 18, .9), transparent);
+}
+
 /* Linhas do terminal */
 .t-line {
   display: flex;
   align-items: baseline;
-  gap: 0;
+  gap: 7px;
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.7;
   white-space: nowrap;
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
   animation: termFade .25s ease both;
+  transition: background .15s;
+}
+
+.t-line:hover {
+  background: rgba(255, 255, 255, .03);
 }
 
 @keyframes termFade {
@@ -569,44 +685,30 @@ body {
 
 .t-time {
   color: rgba(255, 255, 255, .22);
-  margin-right: 6px;
 }
 
-.t-bracket {
-  color: rgba(255, 255, 255, .20);
+/* Tag agora é uma pill, não colchete solto */
+.t-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  letter-spacing: .03em;
+  background: currentColor;
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
-.t-ok {
-  color: #22c55e;
-}
-
-.t-warn {
-  color: #f59e0b;
-}
-
-.t-cyan {
-  color: #22d3ee;
-}
-
-.t-purple {
-  color: #c084fc;
-}
-
-.t-pink {
-  color: #f472b6;
-}
-
-.t-info {
-  color: #60a5fa;
-}
-
-.t-white {
-  color: rgba(255, 255, 255, .78);
-}
-
-.t-dash {
-  color: rgba(255, 255, 255, .12);
-}
+.t-ok { color: #22c55e; }
+.t-warn { color: #f59e0b; }
+.t-cyan { color: #22d3ee; }
+.t-purple { color: #c084fc; }
+.t-pink { color: #f472b6; }
+.t-info { color: #60a5fa; }
+.t-white { color: rgba(255, 255, 255, .78); }
+.t-dash { color: rgba(255, 255, 255, .12); }
 
 /* Cursor piscante */
 .t-cursor {
@@ -650,5 +752,28 @@ body {
 
   .lc-title {
     font-size: 18px;
+  }
+}
+
+/* ══ REDUZIR MOVIMENTO ═══════════════════════════════════════
+   Desliga só as animações ambiente/decorativas (respiração da
+   lua, pulso de status, cursor piscando, fade de entrada). O
+   loader do botão e o shake de erro continuam — carregam sinal,
+   não são decoração. */
+@media (prefers-reduced-motion: reduce) {
+  .bg-moon,
+  .login-card,
+  .lc-terminal,
+  .lc-status__dot,
+  .lc-terminal__live-dot,
+  .t-cursor,
+  .t-line {
+    animation: none !important;
+  }
+
+  .login-card,
+  .lc-terminal {
+    opacity: 1;
+    transform: none;
   }
 }

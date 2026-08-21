@@ -14,16 +14,6 @@
 </head>
 <body>
 
-  {#
-    Injeta dados do usuário autenticado para o login.js saber:
-      • se o onboarding já foi feito (2ª vez → mostra boas-vindas)
-      • o nome de exibição para o overlay
-      • a URL do dashboard
-
-    NOTA: request.user.is_authenticated é False na tela de login normal,
-    mas o Django pode re-renderizar a view pós-autenticação em casos de
-    sessões já ativas — deixamos os defaults seguros.
-  #}
   <script>
     window.MS_LOGIN = {
       onboardingCompleto: {% if request.user.is_authenticated and request.user.profile.onboarding_completo %}true{% else %}false{% endif %},
@@ -33,35 +23,29 @@
     };
   </script>
 
-  <!-- Fundo espacial -->
   <div class="bg-space">
     <canvas id="starsCanvas"></canvas>
     <div class="bg-moon"></div>
     <div class="bg-glow-l"></div>
   </div>
 
-  <!-- Warp overlay (usado na 2ª vez+) -->
   <canvas id="warpCanvas" class="warp-canvas"></canvas>
 
   <div class="login-shell">
 
-    <!-- ══ CARD DE LOGIN ══ -->
     <div class="login-card" id="loginCard">
 
-      <!-- Logo -->
       <div class="lc-header">
         <img src="{% static 'imagens/logo.png' %}" alt="MoonShield" class="lc-logo__img" />
       </div>
 
       <div class="lc-divider"></div>
 
-      <!-- Título -->
       <div class="lc-title-wrap">
         <h1 class="lc-title">Iniciar Sessão</h1>
         <p class="lc-subtitle">Acesso restrito a operadores autorizados.</p>
       </div>
 
-      <!-- Alertas Django -->
       {% if messages %}
       <div class="lc-alert">
         <span class="lc-alert__icon">⚠</span>
@@ -71,7 +55,6 @@
       </div>
       {% endif %}
 
-      <!-- Form -->
       <form method="POST" action="{% url 'autenticacao:login' %}" id="loginForm" novalidate>
         {% csrf_token %}
 
@@ -123,7 +106,6 @@
 
       </form>
 
-      <!-- Rodapé -->
       <div class="lc-footer">
         <div class="lc-status">
           <span class="lc-status__dot"></span>
@@ -134,7 +116,6 @@
 
     </div>
 
-    <!-- ══ TERMINAL CMD ══ -->
     <div class="lc-terminal" id="lcTerminal">
       <div class="lc-terminal__bar">
         <div class="lc-terminal__dots">
@@ -145,8 +126,16 @@
         <div class="lc-terminal__title-wrap">
           <span class="lc-terminal__title">moonshield — system.log</span>
         </div>
+        <div class="lc-terminal__live">
+          <span class="lc-terminal__live-dot"></span>
+          <span class="lc-terminal__live-text">REDE ATIVA</span>
+        </div>
       </div>
-      <div class="lc-terminal__body" id="termBody"></div>
+      <div class="lc-terminal__body-wrap">
+        <div class="lc-terminal__fade lc-terminal__fade--top"></div>
+        <div class="lc-terminal__body" id="termBody"></div>
+        <div class="lc-terminal__fade lc-terminal__fade--bottom"></div>
+      </div>
     </div>
 
   </div>

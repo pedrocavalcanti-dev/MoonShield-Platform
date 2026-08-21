@@ -21,25 +21,72 @@
         (() => {
             'use strict';
 
-            const savedTheme = localStorage.getItem('moonshield_theme');
+            const NEW_THEME_KEY =
+                'moonshield_suricata_theme';
 
-            if (savedTheme === 'dark' || savedTheme === 'light') {
-                document.documentElement.setAttribute(
-                    'data-theme',
-                    savedTheme
+            const LEGACY_THEME_KEY =
+                'moonshield_theme';
+
+            let savedTheme = null;
+
+            try {
+                savedTheme =
+                    localStorage.getItem(
+                        NEW_THEME_KEY
+                    ) ||
+                    localStorage.getItem(
+                        LEGACY_THEME_KEY
+                    );
+
+                if (
+                    savedTheme === 'dark' ||
+                    savedTheme === 'light'
+                ) {
+                    document.documentElement.setAttribute(
+                        'data-theme',
+                        savedTheme
+                    );
+
+                    localStorage.setItem(
+                        NEW_THEME_KEY,
+                        savedTheme
+                    );
+
+                    return;
+                }
+            } catch (error) {
+                console.warn(
+                    '[MoonShield] Não foi possível ler o tema salvo:',
+                    error
                 );
-
-                return;
             }
 
-            const prefersDark = window.matchMedia(
-                '(prefers-color-scheme: dark)'
-            ).matches;
+            const prefersDark =
+                window.matchMedia(
+                    '(prefers-color-scheme: dark)'
+                ).matches;
+
+            const initialTheme =
+                prefersDark
+                    ? 'dark'
+                    : 'light';
 
             document.documentElement.setAttribute(
                 'data-theme',
-                prefersDark ? 'dark' : 'light'
+                initialTheme
             );
+
+            try {
+                localStorage.setItem(
+                    NEW_THEME_KEY,
+                    initialTheme
+                );
+            } catch (error) {
+                console.warn(
+                    '[MoonShield] Não foi possível salvar o tema inicial:',
+                    error
+                );
+            }
         })();
     </script>
 
@@ -68,6 +115,12 @@
     <link
         rel="stylesheet"
         href="{% static 'css/incidentes/suricata/painel.css' %}"
+    />
+
+    <!-- Loading global para operações longas -->
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/operacao_longa.css' %}"
     />
 
     <!-- ============================================================
@@ -446,10 +499,17 @@
                         next
                     );
 
-                    localStorage.setItem(
-                        'moonshield_theme',
-                        next
-                    );
+                    try {
+                        localStorage.setItem(
+                            'moonshield_suricata_theme',
+                            next
+                        );
+                    } catch (error) {
+                        console.warn(
+                            '[MoonShield] Não foi possível persistir o tema:',
+                            error
+                        );
+                    }
 
                     syncLabel();
                 }

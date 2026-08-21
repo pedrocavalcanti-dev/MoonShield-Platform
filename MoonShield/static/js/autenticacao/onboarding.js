@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — ONBOARDING.JS  v13
+ * MOONSHIELD — ONBOARDING.JS  v14
  * 5 steps: Boas-vindas · Credenciais · Identidade · Avatar · Tema
  *
  * v13 — overlay final reformulado:
@@ -134,7 +134,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* Pular onboarding */
- /* Pular onboarding */
 document.getElementById('btnSkip')?.addEventListener('click', () => {
     markComplete().finally(() => { window.location.href = OB.urls.dashboard; });
 });
@@ -377,7 +376,7 @@ document.getElementById('btnLaunch')?.addEventListener('click', async () => {
         .ms-ov-shield svg{filter:drop-shadow(0 0 18px rgba(147,197,253,.35));width:52px;height:52px;}
 
         /* "Bem-vindo ao" */
-        .ms-ov-welcome-label{font-family:'DM Sans','Space Grotesk',sans-serif;font-size:clamp(13px,2vw,18px);font-weight:300;color:rgba(238,242,255,.45);margin:0 0 6px;letter-spacing:.01em;animation:msGreetIn .6s ease .55s both;}
+        .ms-ov-welcome-label{font-family:'Space Grotesk',sans-serif;font-size:clamp(13px,2vw,18px);font-weight:300;color:rgba(238,242,255,.45);margin:0 0 6px;letter-spacing:.01em;animation:msGreetIn .6s ease .55s both;}
         @keyframes msGreetIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
         /* "MoonShield" — destaque principal */
@@ -387,7 +386,7 @@ document.getElementById('btnLaunch')?.addEventListener('click', async () => {
         .ms-ov-divider{width:40px;height:1px;background:linear-gradient(90deg,transparent,rgba(148,163,184,.3),transparent);margin:0 auto 16px;animation:msSubIn .5s ease 1s both;}
 
         /* "Olá, Nome — conta pronta" */
-        .ms-ov-sub{font-family:'DM Mono','JetBrains Mono',monospace;font-size:11px;color:rgba(100,116,139,.85);letter-spacing:.06em;margin:0;animation:msSubIn .5s ease 1.1s both;}
+        .ms-ov-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(100,116,139,.85);letter-spacing:.06em;margin:0;animation:msSubIn .5s ease 1.1s both;}
         @keyframes msSubIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
         .ms-ov-progress{position:absolute;bottom:0;left:0;height:1px;width:0%;background:linear-gradient(90deg,transparent,#3b82f6,#a855f7,transparent);animation:msProgress 5s linear .3s forwards;}
@@ -395,7 +394,7 @@ document.getElementById('btnLaunch')?.addEventListener('click', async () => {
         .ms-ov-status{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:7px;animation:msSubIn .5s ease 1.3s both;}
         .ms-ov-status-dot{width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;animation:msStatusPulse 2s ease-in-out infinite;}
         @keyframes msStatusPulse{0%,100%{opacity:1}50%{opacity:.25}}
-        .ms-ov-status-txt{font-family:'DM Mono','JetBrains Mono',monospace;font-size:9px;color:rgba(34,197,94,.55);letter-spacing:.06em;white-space:nowrap;}
+        .ms-ov-status-txt{font-family:'JetBrains Mono',monospace;font-size:9px;color:rgba(34,197,94,.55);letter-spacing:.06em;white-space:nowrap;}
       `;
       document.head.appendChild(style);
     }

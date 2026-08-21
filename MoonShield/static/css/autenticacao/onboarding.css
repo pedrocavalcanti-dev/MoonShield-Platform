@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
-   MOONSHIELD — ONBOARDING.CSS  v12
-   Font: DM Sans (editorial body) + DM Mono (inputs/code)
+   MOONSHIELD — ONBOARDING.CSS  v13
+   Font: Space Grotesk + JetBrains Mono
    Estilo: minimalismo editorial + fundo espacial
 ═══════════════════════════════════════════════════════════════ */
 
@@ -12,8 +12,8 @@
     --ob-text: #eef2ff;
     --ob-muted: rgba(255, 255, 255, .45);
     --ob-dim: rgba(255, 255, 255, .22);
-    --ob-font: 'DM Sans', sans-serif;
-    --ob-mono: 'DM Mono', monospace;
+    --ob-font: 'Space Grotesk', sans-serif;
+    --ob-mono: 'JetBrains Mono', monospace;
     --ob-sidebar-w: 252px;
     --ob-ease: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -1162,3 +1162,372 @@ body {
         align-items: flex-start;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOONSHIELD — CAMADA VISUAL UNIFICADA
+   Mesmo padrão visual de Firewall / Regras / Instaladores
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+    --ob-bg: #07090d;
+    --ob-surface: rgba(15, 18, 24, .92);
+    --ob-border: rgba(255, 255, 255, .075);
+    --ob-border-mid: rgba(255, 255, 255, .13);
+    --ob-text: #f3f4f6;
+    --ob-muted: rgba(226, 232, 240, .58);
+    --ob-dim: rgba(148, 163, 184, .48);
+    --ob-font: 'Space Grotesk', sans-serif;
+    --ob-mono: 'JetBrains Mono', monospace;
+    --ob-sidebar-w: 244px;
+    --ob-ease: cubic-bezier(.16, 1, .3, 1);
+
+    --blue: #3b82f6;
+    --purple: #8b5cf6;
+    --green: #22c55e;
+    --red: #ef4444;
+    --orange: #f97316;
+    --yellow: #eab308;
+}
+
+/* Fundo mais limpo, mantendo o efeito espacial sem competir com o conteúdo */
+.ob-bg {
+    background:
+        radial-gradient(circle at 18% 28%, rgba(59, 130, 246, .08), transparent 32%),
+        radial-gradient(circle at 82% 72%, rgba(139, 92, 246, .055), transparent 30%),
+        #07090d;
+}
+
+.ob-bg__noise {
+    opacity: .20;
+}
+
+.ob-bg__glow--1 {
+    background: radial-gradient(circle, rgba(59, 130, 246, .075) 0%, transparent 70%);
+}
+
+.ob-bg__glow--2 {
+    background: radial-gradient(circle, rgba(139, 92, 246, .05) 0%, transparent 70%);
+}
+
+/* Shell no mesmo desenho dos instaladores */
+.ob-shell {
+    padding: 22px;
+}
+
+.ob-layout {
+    max-width: 1020px;
+    max-height: 720px;
+    border: 1px solid rgba(255, 255, 255, .075);
+    border-radius: 14px;
+    background: rgba(12, 15, 20, .92);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow:
+        0 24px 70px rgba(0, 0, 0, .52),
+        inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+
+/* Sidebar */
+.ob-sidebar {
+    padding: 25px 20px;
+    background: rgba(7, 9, 13, .74);
+    border-right-color: var(--ob-border);
+}
+
+.ob-sidebar::after {
+    opacity: .55;
+    background: linear-gradient(
+        180deg,
+        transparent,
+        rgba(59, 130, 246, .18) 28%,
+        rgba(139, 92, 246, .10) 72%,
+        transparent
+    );
+}
+
+.ob-brand {
+    gap: 9px;
+    margin-bottom: 24px;
+}
+
+.ob-brand__shield {
+    width: 29px;
+    height: 29px;
+    border-radius: 7px;
+    border-color: rgba(59, 130, 246, .24);
+    background: rgba(59, 130, 246, .075);
+    box-shadow: none;
+}
+
+.ob-brand__name {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -.015em;
+}
+
+.ob-sidebar__label {
+    margin-bottom: 17px;
+    padding-bottom: 14px;
+    color: rgba(148, 163, 184, .46);
+    font-family: var(--ob-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .12em;
+}
+
+.ob-nav-step__dot {
+    width: 18px;
+    height: 18px;
+    border-width: 1px;
+    background: rgba(255, 255, 255, .018);
+}
+
+.ob-nav-step--active .ob-nav-step__dot {
+    border-color: rgba(59, 130, 246, .72);
+    background: rgba(59, 130, 246, .14);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, .055);
+}
+
+.ob-nav-step--done .ob-nav-step__dot {
+    border-color: rgba(34, 197, 94, .35);
+    background: rgba(34, 197, 94, .08);
+}
+
+.ob-nav-step__connector {
+    height: 30px;
+}
+
+.ob-nav-step__label {
+    font-size: 11px;
+    font-weight: 550;
+}
+
+.ob-nav-step__desc {
+    font-size: 9px;
+}
+
+.ob-sidebar__footer {
+    color: rgba(148, 163, 184, .32);
+    font-family: var(--ob-mono);
+    font-size: 8px;
+}
+
+/* Conteúdo */
+.ob-step {
+    padding: 42px 50px;
+}
+
+.ob-step__eyebrow {
+    margin-bottom: 13px;
+    color: rgba(148, 163, 184, .46);
+    font-family: var(--ob-mono);
+    font-size: 9px;
+    font-weight: 650;
+}
+
+.ob-step__num {
+    font-size: 9px;
+    color: rgba(148, 163, 184, .72);
+}
+
+.ob-step__title {
+    margin-bottom: 9px;
+    color: var(--ob-text);
+    font-size: 31px;
+    font-weight: 500;
+    line-height: 1.08;
+    letter-spacing: -.04em;
+}
+
+.ob-step__title em {
+    font-style: normal;
+    color: rgba(191, 219, 254, .96);
+}
+
+.ob-step__desc {
+    max-width: 430px;
+    margin-bottom: 25px;
+    color: var(--ob-muted);
+    font-size: 12px;
+    line-height: 1.62;
+}
+
+/* Cards introdutórios */
+.ob-welcome-list {
+    gap: 7px;
+    margin-bottom: 30px;
+}
+
+.ob-witem {
+    min-height: 70px;
+    padding: 13px 14px;
+    border-color: var(--ob-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .016);
+}
+
+.ob-witem:hover {
+    border-color: rgba(255, 255, 255, .13);
+    background: rgba(255, 255, 255, .028);
+}
+
+.ob-witem__num {
+    font-family: var(--ob-mono);
+    color: rgba(148, 163, 184, .48);
+    font-size: 9px;
+}
+
+.ob-witem__body strong {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.ob-witem__body span {
+    font-size: 10px;
+}
+
+/* Campos */
+.ob-fields {
+    gap: 15px;
+    margin-bottom: 27px;
+}
+
+.ob-field__label {
+    font-family: var(--ob-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .07em;
+}
+
+.ob-input {
+    height: 41px;
+    padding-left: 12px;
+    border-color: rgba(255, 255, 255, .10);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, .025);
+    font-family: var(--ob-font);
+    font-size: 12px;
+}
+
+.ob-input--mono {
+    font-family: var(--ob-mono);
+    font-size: 11px;
+}
+
+.ob-input:focus {
+    border-color: rgba(59, 130, 246, .46);
+    background: rgba(59, 130, 246, .035);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, .07);
+}
+
+.ob-field__hint {
+    color: rgba(148, 163, 184, .46);
+    font-size: 9px;
+}
+
+/* Botões no padrão atual do MoonShield */
+.ob-btn {
+    min-height: 37px;
+    border-radius: 7px;
+    font-family: var(--ob-font);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.ob-btn--primary {
+    color: #07090d;
+    background: #eef2f7;
+    border-color: #eef2f7;
+    box-shadow: none;
+}
+
+.ob-btn--primary:hover:not(:disabled) {
+    background: #fff;
+    border-color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 7px 18px rgba(0, 0, 0, .18);
+}
+
+.ob-btn--ghost {
+    color: var(--ob-muted);
+    background: transparent;
+    border-color: var(--ob-border);
+}
+
+.ob-btn--ghost:hover:not(:disabled) {
+    color: var(--ob-text);
+    background: rgba(255, 255, 255, .025);
+    border-color: rgba(255, 255, 255, .13);
+}
+
+/* Avatar */
+.ob-avatar-preview,
+.ob-avatar-ring {
+    box-shadow: none !important;
+}
+
+.ob-color-dot {
+    box-shadow: none;
+}
+
+/* Tema */
+.ob-theme-card {
+    border-color: var(--ob-border);
+    background: rgba(255, 255, 255, .015);
+}
+
+.ob-theme-card:hover {
+    border-color: rgba(255, 255, 255, .14);
+}
+
+.ob-theme-option input:checked + .ob-theme-card {
+    border-color: rgba(59, 130, 246, .44);
+    background: rgba(59, 130, 246, .045);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, .055);
+}
+
+/* Barras e indicadores */
+.ob-mobile-progress__bar {
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+
+/* Scrollbars discretas */
+.ob-content {
+    scrollbar-color: rgba(148, 163, 184, .18) transparent;
+}
+
+/* Responsivo */
+@media (max-width: 760px) {
+    .ob-shell {
+        padding: 10px;
+    }
+
+    .ob-layout {
+        max-height: none;
+        min-height: calc(100dvh - 20px);
+        border-radius: 12px;
+    }
+
+    .ob-step {
+        padding: 30px 24px;
+    }
+
+    .ob-step__title {
+        font-size: 27px;
+    }
+}
+
+@media (max-width: 520px) {
+    .ob-step {
+        padding: 26px 19px;
+    }
+
+    .ob-welcome-list {
+        grid-template-columns: 1fr;
+    }
+
+    .ob-step__actions {
+        gap: 7px;
+    }
+}
+

@@ -249,9 +249,10 @@ class Command(BaseCommand):
                 f"{servidor}"
             )
 
-        python_atual = Path(sys.executable).resolve()
+        python_atual = Path(sys.executable)
 
-        # Se Django estiver no venv do projeto, usa exatamente o mesmo Python.
+        # Usa exatamente o executável que iniciou o Django.
+        # Não usar .resolve(): o Python do venv pode ser symlink para /usr/bin/python3.
         python_exec = python_atual
 
         if not python_exec.exists():

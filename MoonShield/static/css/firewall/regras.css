@@ -1,4 +1,4 @@
-/* ==========================================================================\n   MOONSHIELD — FIREWALL / REGRAS v7\n   ========================================================================== */
+/* ==========================================================================\n   MOONSHIELD — FIREWALL / REGRAS v8\n   ========================================================================== */
 
 :root {
     --fwr-red: #ef4444;
@@ -18,6 +18,14 @@
 #fwrApp {
     width: 100%;
 }
+
+
+/* Estado HTML real: as classes do painel usam display:flex/grid.
+   Esta regra garante que o atributo hidden sempre prevaleça. */
+#fwrApp [hidden] {
+    display: none !important;
+}
+
 
 /* HEADER */
 .fwr-head {
@@ -118,6 +126,23 @@
 
 .fwr-runtime--error>span {
     background: var(--fwr-red);
+}
+
+
+.fwr-runtime--sim {
+    color: var(--fwr-blue);
+    background: var(--fwr-blue-bg);
+    border-color: rgba(59, 130, 246, .22);
+}
+
+.fwr-runtime--sim>span {
+    background: var(--fwr-blue);
+}
+
+.fwr-state-badge--sim {
+    color: var(--fwr-blue);
+    background: var(--fwr-blue-bg);
+    border-color: rgba(59, 130, 246, .22);
 }
 
 @keyframes fwrPulse {

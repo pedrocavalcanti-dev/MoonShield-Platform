@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — FIREWALL / REGRAS v7
+ * MOONSHIELD — FIREWALL / REGRAS v8
  * Fonte de verdade do frontend: APIs Django da arquitetura local.
  */
 
@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const $ = (id) => document.getElementById(id);
 
     const URLS = {
+        data: root.dataset.urlData,
         status: root.dataset.urlStatus,
         interfaces: root.dataset.urlInterfaces,
         rules: root.dataset.urlRules,
@@ -26,6 +27,8 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const state = {
+        mode: "real",
+        snapshot: null,
         status: {},
         interfaces: [],
         rules: [],
@@ -113,6 +116,25 @@ document.addEventListener("DOMContentLoaded", () => {
     async function refreshAll() {
         setRuntime("loading", "Verificando");
 
+        let context = null;
+
+        try {
+            context = await api(URLS.data);
+            state.snapshot = context || null;
+            state.mode = normalizeMode(context);
+        } catch (error) {
+            console.warn("[firewall/regras] contexto:", error);
+            state.snapshot = null;
+            state.mode = "real";
+        }
+
+        if (isSimulation()) {
+            absorbSimulationSnapshot(context || {});
+            applyModePresentation();
+            renderAll();
+            return;
+        }
+
         const requests = [
             ["status", () => api(URLS.status)],
             ["interfaces", () => api(URLS.interfaces)],
@@ -125,17 +147,132 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const results = await Promise.allSettled(requests.map(([, fn]) => fn()));
 
+        let statusLoaded = false;
+        let interfacesLoaded = false;
+
         results.forEach((result, index) => {
             const key = requests[index][0];
+
             if (result.status === "fulfilled") {
                 absorbResponse(key, result.value || {});
-            } else {
-                console.warn(`[firewall/regras] ${key}:`, result.reason);
-                if (key === "status") renderStatusError(result.reason);
+                if (key === "status") statusLoaded = true;
+                if (key === "interfaces") interfacesLoaded = true;
+                return;
             }
+
+            console.warn(`[firewall/regras] ${key}:`, result.reason);
         });
 
+        /*
+         * /api/data/ já devolve o estado consolidado real em `firewall`.
+         * Ele é usado como fallback para não mostrar "Agent offline" por uma
+         * falha isolada da chamada dedicada /api/status/.
+         */
+        if (!statusLoaded && isUsableFirewallStatus(context?.firewall)) {
+            state.status = context.firewall;
+            renderStatus(context.firewall);
+            statusLoaded = true;
+        }
+
+        if (!interfacesLoaded) {
+            const fallbackInterfaces = interfacesFromFirewall(context?.firewall);
+            if (fallbackInterfaces.length) {
+                state.interfaces = fallbackInterfaces;
+                interfacesLoaded = true;
+            }
+        }
+
+        if (!statusLoaded) {
+            renderStatusError(new Error("Não foi possível consultar o estado do Firewall."));
+        }
+
+        applyModePresentation();
         renderAll();
+    }
+
+    function normalizeMode(data) {
+        const raw = String(data?.modo || data?.mode || "").trim().toLowerCase();
+        if (["simulacao", "simulação", "simulation", "demo", "simulado"].includes(raw)) {
+            return "simulacao";
+        }
+        return "real";
+    }
+
+    function isSimulation() {
+        return state.mode === "simulacao";
+    }
+
+    function isUsableFirewallStatus(status) {
+        if (!status || typeof status !== "object") return false;
+        return status.ok === true ||
+            "operacional" in status ||
+            "instalado" in status ||
+            "agent_disponivel" in status;
+    }
+
+    function interfacesFromFirewall(firewall) {
+        const direct =
+            firewall?.detalhes?.raw?.interfaces ||
+            firewall?.detalhes?.interfaces ||
+            firewall?.interfaces ||
+            [];
+
+        return normalizeInterfaces(Array.isArray(direct) ? direct : []);
+    }
+
+    function absorbSimulationSnapshot(data) {
+        const firewall = data?.firewall || {};
+
+        state.status = {
+            ...firewall,
+            modo: "simulacao",
+            mode: "demo",
+        };
+
+        state.interfaces = interfacesFromFirewall(firewall);
+
+        state.rules = Array.isArray(data?.rules)
+            ? data.rules.map((rule) => ({ ...rule, pendente: false, sincronizada: true }))
+            : [];
+
+        state.blocklist = Array.isArray(data?.blocklist) ? [...data.blocklist] : [];
+        state.allowlist = Array.isArray(data?.allowlist) ? [...data.allowlist] : [];
+        state.geoblock = Array.isArray(data?.geoblock) ? [...data.geoblock] : [];
+        state.nat = Array.isArray(data?.nat) ? [...data.nat] : [];
+        state.sync = {};
+
+        renderStatus(state.status);
+    }
+
+    function applyModePresentation() {
+        const simulation = isSimulation();
+
+        if (simulation) {
+            setRuntime("sim", "Modo simulado");
+
+            const setup = $("fwrSetupCallout");
+            const sync = $("fwrSyncBar");
+            if (setup) setup.hidden = true;
+            if (sync) sync.hidden = true;
+
+            if ($("fwrApplyBtn")) $("fwrApplyBtn").hidden = true;
+            if ($("fwrExportNftBtn")) $("fwrExportNftBtn").hidden = true;
+
+            if ($("fwrRuntimeHint")) {
+                $("fwrRuntimeHint").innerHTML =
+                    '<i class="bi bi-bezier2"></i> simulação local';
+            }
+
+            return;
+        }
+
+        if ($("fwrApplyBtn")) $("fwrApplyBtn").hidden = false;
+        if ($("fwrExportNftBtn")) $("fwrExportNftBtn").hidden = false;
+
+        if ($("fwrRuntimeHint")) {
+            $("fwrRuntimeHint").innerHTML =
+                '<i class="bi bi-lightning-charge-fill"></i> ms_emergency';
+        }
     }
 
     function absorbResponse(key, data) {
@@ -186,13 +323,23 @@ document.addEventListener("DOMContentLoaded", () => {
        ===================================================================== */
 
     function renderStatus(status) {
+        if (isSimulation()) {
+            setRuntime("sim", "Modo simulado");
+            const setup = $("fwrSetupCallout");
+            if (setup) setup.hidden = true;
+            renderTopologyMini();
+            return;
+        }
+
         const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
         const operational = Boolean(status.operacional);
         const installed = Boolean(status.instalado || status.tabela_instalada || operational);
+        const configured = Boolean(status.configurado);
 
-        if (operational) {
+        if (operational || (agentOk && installed && configured && status.chains_ok)) {
             setRuntime("ok", "Operacional");
-            $("fwrSetupCallout").hidden = true;
+            const setup = $("fwrSetupCallout");
+            if (setup) setup.hidden = true;
         } else if (agentOk) {
             setRuntime("warn", installed ? "Requer atenção" : "Não instalado");
             showSetup(
@@ -213,6 +360,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderStatusError(error) {
+        if (isSimulation()) {
+            setRuntime("sim", "Modo simulado");
+            const setup = $("fwrSetupCallout");
+            if (setup) setup.hidden = true;
+            return;
+        }
+
         setRuntime("error", "Indisponível");
         showSetup("Não foi possível consultar o Firewall", error?.message || "Verifique o backend e o Agent.");
     }
@@ -305,6 +459,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const bar = $("fwrSyncBar");
         if (!bar) return;
 
+        if (isSimulation()) {
+            bar.hidden = true;
+            return;
+        }
+
         const pending = Number(sync?.pendentes || state.rules.filter((r) => r.pendente).length || 0);
         const deleted = Number(sync?.deletadas_pendentes || 0);
         const total = pending + deleted;
@@ -320,6 +479,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function applyPending() {
+        if (isSimulation()) return;
+
         const buttons = [$("fwrApplyBtn"), $("fwrSyncApplyBtn")].filter(Boolean);
         buttons.forEach((b) => setButtonLoading(b, true, "Aplicando"));
 
@@ -341,6 +502,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function refreshStatusOnly() {
+        if (isSimulation()) {
+            renderStatus(state.status || {});
+            return;
+        }
+
         try {
             const status = await api(URLS.status);
             state.status = status;
@@ -348,6 +514,17 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             renderStatusError(error);
         }
+    }
+
+    function nextSimId(items) {
+        const values = (Array.isArray(items) ? items : [])
+            .map((item) => Number(item?.id))
+            .filter(Number.isFinite);
+        return values.length ? Math.max(...values) + 1 : 1;
+    }
+
+    function simulationDate() {
+        return new Date().toLocaleDateString("pt-BR");
     }
 
     /* =====================================================================
@@ -438,6 +615,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function ruleStateBadge(rule) {
+        if (isSimulation()) {
+            return '<span class="fwr-state-badge fwr-state-badge--sim"><i class="bi bi-bezier2"></i> SIMULADA</span>';
+        }
+
         if (rule.ultimo_erro) {
             return `<span class="fwr-state-badge fwr-state-badge--error" title="${escapeAttr(rule.ultimo_erro)}"><i class="bi bi-exclamation-circle"></i> ERRO</span>`;
         }
@@ -523,6 +704,39 @@ document.addEventListener("DOMContentLoaded", () => {
         hideFormError("fwrRuleFormError");
 
         try {
+            if (isSimulation()) {
+                if (state.editingRuleId) {
+                    const index = state.rules.findIndex((rule) => Number(rule.id) === Number(state.editingRuleId));
+                    if (index >= 0) {
+                        state.rules[index] = {
+                            ...state.rules[index],
+                            ...payload,
+                            pendente: false,
+                            sincronizada: true,
+                            ultimo_erro: "",
+                        };
+                    }
+                } else {
+                    state.rules.push({
+                        id: nextSimId(state.rules),
+                        ...payload,
+                        pendente: false,
+                        sincronizada: true,
+                        deletado: false,
+                        ultimo_erro: "",
+                        criado_em: new Date().toISOString(),
+                        atualizado_em: new Date().toISOString(),
+                    });
+                }
+
+                closeRuleDrawer();
+                renderRules();
+                updateCounts();
+                renderSync({});
+                toast("Regra atualizada na simulação.");
+                return;
+            }
+
             const data = state.editingRuleId
                 ? await api(detailUrl(URLS.rules, state.editingRuleId), { method: "PATCH", body: JSON.stringify(payload) })
                 : await api(URLS.rules, { method: "POST", body: JSON.stringify(payload) });
@@ -540,6 +754,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function updateRule(id, patch, notify = true) {
+        if (isSimulation()) {
+            const index = state.rules.findIndex((rule) => Number(rule.id) === Number(id));
+            if (index >= 0) {
+                state.rules[index] = {
+                    ...state.rules[index],
+                    ...patch,
+                    pendente: false,
+                    sincronizada: true,
+                    atualizado_em: new Date().toISOString(),
+                };
+            }
+            renderRules();
+            updateCounts();
+            if (notify) toast("Regra atualizada na simulação.");
+            return { ok: true, aplicado: false, simulado: true };
+        }
+
         const data = await api(detailUrl(URLS.rules, id), {
             method: "PATCH",
             body: JSON.stringify(patch),
@@ -568,6 +799,23 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         try {
+            if (isSimulation()) {
+                state.rules.push({
+                    id: nextSimId(state.rules),
+                    ...payload,
+                    pendente: false,
+                    sincronizada: true,
+                    deletado: false,
+                    ultimo_erro: "",
+                    criado_em: new Date().toISOString(),
+                    atualizado_em: new Date().toISOString(),
+                });
+                renderRules();
+                updateCounts();
+                toast("Regra duplicada na simulação.");
+                return;
+            }
+
             const data = await api(URLS.rules, { method: "POST", body: JSON.stringify(payload) });
             toast(data.aplicado ? "Regra duplicada e aplicada." : "Regra duplicada; aplicação pendente.", data.aplicado ? "ok" : "warn");
             await reloadRules();
@@ -587,6 +835,15 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!confirmed) return;
 
         try {
+            if (isSimulation()) {
+                state.rules = state.rules.filter((item) => Number(item.id) !== Number(id));
+                renderRules();
+                updateCounts();
+                renderSync({});
+                toast("Regra removida da simulação.");
+                return;
+            }
+
             const data = await api(detailUrl(URLS.rules, id), { method: "DELETE" });
             toast(data.aplicado ? "Regra removida do runtime." : "Remoção registrada; aplicação pendente.", data.aplicado ? "ok" : "warn");
             await reloadRules();
@@ -656,6 +913,26 @@ document.addEventListener("DOMContentLoaded", () => {
         setButtonLoading(button, true, "Bloqueando");
 
         try {
+            if (isSimulation()) {
+                state.blocklist.unshift({
+                    id: nextSimId(state.blocklist),
+                    ip,
+                    reason,
+                    source: "Simulação",
+                    expires,
+                    date: simulationDate(),
+                    criado_em: new Date().toISOString(),
+                });
+                renderBlocklist();
+                updateCounts();
+                toast(`${ip} bloqueado na simulação.`);
+                $("qbIp").value = "";
+                $("qbReason").value = "";
+                $("qbExpires").value = "∞";
+                updateQuickPreview();
+                return;
+            }
+
             const data = await api(URLS.block, {
                 method: "POST",
                 body: JSON.stringify({ ip, motivo: reason, source: "Manual", expires }),
@@ -718,6 +995,22 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!validIpOrCidr(ip)) return toast("IP ou rede inválida.", "err");
 
         try {
+            if (isSimulation()) {
+                state.blocklist.unshift({
+                    id: nextSimId(state.blocklist),
+                    ip,
+                    reason: result.reason || "Bloqueio manual",
+                    source: "Simulação",
+                    expires: "∞",
+                    date: simulationDate(),
+                    criado_em: new Date().toISOString(),
+                });
+                renderBlocklist();
+                updateCounts();
+                toast(`${ip} bloqueado na simulação.`);
+                return;
+            }
+
             const data = await api(URLS.blocklist, {
                 method: "POST",
                 body: JSON.stringify({ ip, reason: result.reason || "Bloqueio manual", source: "Manual", expires: "∞" }),
@@ -734,6 +1027,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const confirmed = await confirmModal({ title: "Desbloquear IP", text: `Remover ${ip} da blocklist e solicitar desbloqueio ao Agent?`, confirmText: "Desbloquear" });
         if (!confirmed) return;
         try {
+            if (isSimulation()) {
+                state.blocklist = state.blocklist.filter((item) => String(item.id) !== String(id));
+                renderBlocklist();
+                updateCounts();
+                toast(`${ip} removido da simulação.`);
+                return;
+            }
+
             const data = await api(detailUrl(URLS.blocklist, id), { method: "DELETE" });
             if (!data.ok) throw new Error(data.erro || "Desbloqueio não confirmado.");
             toast(`${ip} desbloqueado.`);
@@ -745,7 +1046,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function sourceBadge(source) {
         const value = String(source || "Manual");
-        const klass = value.toLowerCase() === "auto" ? "auto" : value.toLowerCase() === "soc" ? "soc" : "manual";
+        const lower = value.toLowerCase();
+        const klass = lower === "auto" ? "auto" : lower === "soc" ? "soc" : "manual";
         return `<span class="fwr-source-badge fwr-source-badge--${klass}">${escapeHtml(value)}</span>`;
     }
 
@@ -793,6 +1095,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!String(result.ip || "").trim()) return toast("Informe um IP ou rede.", "err");
 
         try {
+            if (isSimulation()) {
+                state.allowlist.push({
+                    id: nextSimId(state.allowlist),
+                    ip: result.ip,
+                    reason: result.reason || "Liberação simulada",
+                    date: simulationDate(),
+                    criado_em: new Date().toISOString(),
+                });
+                renderAllowlist(); updateCounts();
+                toast("Cadastro adicionado à simulação.");
+                return;
+            }
+
             const data = await api(URLS.allowlist, { method: "POST", body: JSON.stringify({ ip: result.ip, reason: result.reason || "Liberação manual" }) });
             if (!data.ok) throw new Error(data.erro || "Falha ao salvar allowlist.");
             state.allowlist.push(data.entry);
@@ -804,9 +1119,12 @@ document.addEventListener("DOMContentLoaded", () => {
     async function deleteAllow(id) {
         if (!await confirmModal({ title: "Remover da allowlist", text: "Remover este cadastro?", danger: true, confirmText: "Remover" })) return;
         try {
-            await api(detailUrl(URLS.allowlist, id), { method: "DELETE" });
+            if (!isSimulation()) {
+                await api(detailUrl(URLS.allowlist, id), { method: "DELETE" });
+            }
             state.allowlist = state.allowlist.filter((a) => Number(a.id) !== id);
-            renderAllowlist(); updateCounts(); toast("Cadastro removido.");
+            renderAllowlist(); updateCounts();
+            toast(isSimulation() ? "Cadastro removido da simulação." : "Cadastro removido.");
         } catch (error) { toast(error.message, "err"); }
     }
 
@@ -848,6 +1166,24 @@ document.addEventListener("DOMContentLoaded", () => {
         const dir = $("geoDirSelect").value;
 
         try {
+            if (isSimulation()) {
+                const exists = state.geoblock.some((item) => String(item.code).toUpperCase() === String(code).toUpperCase());
+                if (!exists) {
+                    state.geoblock.push({
+                        id: nextSimId(state.geoblock),
+                        code,
+                        country,
+                        dir,
+                        enabled: true,
+                        criado_em: new Date().toISOString(),
+                    });
+                }
+                renderGeoblock(); updateCounts();
+                $("fwrGeoAddPanel").hidden = true;
+                toast(exists ? "Esse país já existe na simulação." : "GeoBlock adicionado à simulação.", exists ? "warn" : "ok");
+                return;
+            }
+
             const data = await api(URLS.geoblock, { method: "POST", body: JSON.stringify({ code, country, dir, enabled: true }) });
             if (!data.ok) throw new Error(data.erro || "Falha ao salvar GeoBlock.");
             if (data.created === false) toast("Esse país já estava cadastrado.", "warn");
@@ -861,8 +1197,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function updateGeo(id, enabled, toggle) {
         try {
-            const data = await api(detailUrl(URLS.geoblock, id), { method: "PATCH", body: JSON.stringify({ enabled }) });
             const idx = state.geoblock.findIndex((g) => Number(g.id) === id);
+
+            if (isSimulation()) {
+                if (idx >= 0) state.geoblock[idx] = { ...state.geoblock[idx], enabled };
+                renderGeoblock();
+                toast("GeoBlock atualizado na simulação.");
+                return;
+            }
+
+            const data = await api(detailUrl(URLS.geoblock, id), { method: "PATCH", body: JSON.stringify({ enabled }) });
             if (idx >= 0 && data.entry) state.geoblock[idx] = data.entry;
             renderGeoblock();
             toast("Cadastro GeoBlock atualizado; runtime ainda não aplicado.", "warn");
@@ -875,9 +1219,12 @@ document.addEventListener("DOMContentLoaded", () => {
     async function deleteGeo(id) {
         if (!await confirmModal({ title: "Remover GeoBlock", text: "Remover este país do cadastro?", danger: true, confirmText: "Remover" })) return;
         try {
-            await api(detailUrl(URLS.geoblock, id), { method: "DELETE" });
+            if (!isSimulation()) {
+                await api(detailUrl(URLS.geoblock, id), { method: "DELETE" });
+            }
             state.geoblock = state.geoblock.filter((g) => Number(g.id) !== id);
-            renderGeoblock(); updateCounts(); toast("Cadastro removido.");
+            renderGeoblock(); updateCounts();
+            toast(isSimulation() ? "GeoBlock removido da simulação." : "Cadastro removido.");
         } catch (error) { toast(error.message, "err"); }
     }
 
@@ -949,6 +1296,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const button = $("fwrNatSaveBtn"); setButtonLoading(button, true, "Salvando");
         try {
+            if (isSimulation()) {
+                if (state.editingNatId) {
+                    const index = state.nat.findIndex((item) => Number(item.id) === Number(state.editingNatId));
+                    if (index >= 0) state.nat[index] = { ...state.nat[index], ...payload };
+                } else {
+                    state.nat.push({ id: nextSimId(state.nat), ...payload });
+                }
+                renderNat(); updateCounts(); closeNatDrawer();
+                toast("Port forward atualizado na simulação.");
+                return;
+            }
+
             const data = state.editingNatId
                 ? await api(detailUrl(URLS.nat, state.editingNatId), { method: "PATCH", body: JSON.stringify(payload) })
                 : await api(URLS.nat, { method: "POST", body: JSON.stringify(payload) });
@@ -962,8 +1321,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function patchNat(id, patch, toggle) {
         try {
-            const data = await api(detailUrl(URLS.nat, id), { method: "PATCH", body: JSON.stringify(patch) });
             const idx = state.nat.findIndex((n) => Number(n.id) === id);
+
+            if (isSimulation()) {
+                if (idx >= 0) state.nat[idx] = { ...state.nat[idx], ...patch };
+                renderNat();
+                toast("Cadastro NAT atualizado na simulação.");
+                return;
+            }
+
+            const data = await api(detailUrl(URLS.nat, id), { method: "PATCH", body: JSON.stringify(patch) });
             if (idx >= 0 && data.nat) state.nat[idx] = data.nat;
             renderNat(); toast("Cadastro NAT atualizado; runtime ainda não aplicado.", "warn");
         } catch (error) { if (toggle) toggle.checked = !toggle.checked; toast(error.message, "err"); }
@@ -972,9 +1339,12 @@ document.addEventListener("DOMContentLoaded", () => {
     async function deleteNat(id) {
         if (!await confirmModal({ title: "Remover port forward", text: "Remover este cadastro NAT?", danger: true, confirmText: "Remover" })) return;
         try {
-            await api(detailUrl(URLS.nat, id), { method: "DELETE" });
+            if (!isSimulation()) {
+                await api(detailUrl(URLS.nat, id), { method: "DELETE" });
+            }
             state.nat = state.nat.filter((n) => Number(n.id) !== id);
-            renderNat(); updateCounts(); toast("Cadastro NAT removido.");
+            renderNat(); updateCounts();
+            toast(isSimulation() ? "Cadastro NAT removido da simulação." : "Cadastro NAT removido.");
         } catch (error) { toast(error.message, "err"); }
     }
 
@@ -987,7 +1357,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         $("fwrApplyBtn")?.addEventListener("click", applyPending);
         $("fwrSyncApplyBtn")?.addEventListener("click", applyPending);
-        $("fwrExportNftBtn")?.addEventListener("click", () => { if (URLS.exportNft) window.location.href = URLS.exportNft; });
+        $("fwrExportNftBtn")?.addEventListener("click", () => {
+            if (isSimulation()) return;
+            if (URLS.exportNft) window.location.href = URLS.exportNft;
+        });
 
         $("qbIp")?.addEventListener("input", updateQuickPreview);
         $("qbSubmitBtn")?.addEventListener("click", quickBlock);

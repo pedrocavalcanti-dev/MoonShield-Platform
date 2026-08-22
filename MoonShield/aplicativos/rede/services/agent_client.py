@@ -71,9 +71,27 @@ from rede.dominio.erros import (
 
 
 # =============================================================================
-# CLIENTE
+# TIMEOUTS
 # =============================================================================
 
+TIMEOUT_OPERACAO_MEDIA = 30.0
+TIMEOUT_OPERACAO_LONGA = 180.0
+
+ACOES_TIMEOUT_MEDIO = {
+    "network.change.confirm",
+    "network.change.cancel",
+    "network.change.status",
+}
+
+ACOES_TIMEOUT_LONGO = {
+    "network.change.apply",
+    "network.change.rollback",
+}
+
+
+# =============================================================================
+# CLIENTE
+# =============================================================================
 
 class AgentClient:
     """
@@ -83,29 +101,17 @@ class AgentClient:
     envia uma requisição, recebe a resposta e fecha.
     """
 
-    def __init__(
-        self,
-        *,
-        socket_path: str | None = None,
-        timeout: int | float | None = None,
-    ):
-        self.socket_path = (
-            socket_path
-            or getattr(
-                settings,
-                "MOONSHIELD_AGENT_SOCKET",
-                AGENT_SOCKET_PADRAO,
-            )
+    def __init__(self, *, socket_path: str | None = None, timeout: int | float | None = None):
+        self.socket_path = socket_path or getattr(
+            settings,
+            "MOONSHIELD_AGENT_SOCKET",
+            AGENT_SOCKET_PADRAO,
         )
 
-        self.timeout = (
-            timeout
-            if timeout is not None
-            else getattr(
-                settings,
-                "MOONSHIELD_AGENT_TIMEOUT",
-                TIMEOUT_AGENT_PADRAO,
-            )
+        self.timeout = timeout if timeout is not None else getattr(
+            settings,
+            "MOONSHIELD_AGENT_TIMEOUT",
+            TIMEOUT_AGENT_PADRAO,
         )
 
     # =========================================================================
@@ -116,31 +122,22 @@ class AgentClient:
         self,
         acao: str,
         dados: dict | None = None,
+        *,
+        timeout: int | float | None = None,
     ) -> dict:
         """
         Envia uma operação ao Agent.
 
-        Retorna apenas o conteúdo de "dados" da resposta.
-
-        Exemplo:
-
-            client.requisitar(
-                "network.inventory"
-            )
+        O timeout pode ser informado manualmente. Quando omitido,
+        operações longas como apply/rollback recebem timeout maior.
         """
 
-        acao = str(
-            acao or ""
-        ).strip()
+        acao = str(acao or "").strip()
 
         if not acao:
-            raise ValueError(
-                "Ação IPC não informada."
-            )
+            raise ValueError("Ação IPC não informada.")
 
-        request_id = str(
-            uuid.uuid4()
-        )
+        request_id = str(uuid.uuid4())
 
         payload = {
             "versao": VERSAO_CONTRATO_REDE,
@@ -150,8 +147,14 @@ class AgentClient:
             "dados": dados or {},
         }
 
+        timeout_resolvido = self._resolver_timeout(
+            acao,
+            timeout,
+        )
+
         resposta = self._enviar(
-            payload
+            payload,
+            timeout=timeout_resolvido,
         )
 
         self._validar_resposta(
@@ -159,21 +162,46 @@ class AgentClient:
             request_id=request_id,
         )
 
-        if not resposta.get(
-            "ok",
-            False,
-        ):
-            erro = (
-                resposta.get("erro")
-                or resposta.get("mensagem")
-                or "Operação recusada pelo Agent."
-            )
+        if not resposta.get("ok", False):
+            erro = resposta.get("erro")
+
+            if isinstance(erro, dict):
+                codigo = str(
+                    erro.get("codigo")
+                    or "agent_operacao_recusada"
+                )
+
+                mensagem = str(
+                    erro.get("mensagem")
+                    or erro.get("erro")
+                    or "Operação recusada pelo Agent."
+                )
+
+                detalhes = erro.get("detalhes")
+
+                if not isinstance(detalhes, dict):
+                    detalhes = {}
+
+                detalhes = {
+                    "codigo": codigo,
+                    **detalhes,
+                }
+
+            else:
+                mensagem = str(
+                    erro
+                    or resposta.get("mensagem")
+                    or "Operação recusada pelo Agent."
+                )
+
+                detalhes = resposta.get("detalhes")
+
+                if not isinstance(detalhes, dict):
+                    detalhes = {}
 
             raise AgentOperacaoRecusadaErro(
-                str(erro),
-                detalhes=resposta.get(
-                    "detalhes"
-                ),
+                mensagem,
+                detalhes=detalhes,
             )
 
         resultado = resposta.get(
@@ -184,27 +212,92 @@ class AgentClient:
         if resultado is None:
             return {}
 
-        if not isinstance(
-            resultado,
-            dict,
-        ):
+        if not isinstance(resultado, dict):
             raise AgentRespostaInvalidaErro(
-                (
-                    "O campo 'dados' da resposta do "
-                    "Agent deve ser um objeto JSON."
-                )
+                "O campo 'dados' da resposta do Agent deve ser um objeto JSON."
             )
 
         return resultado
+
+    # =========================================================================
+    # TIMEOUT
+    # =========================================================================
+
+    def _resolver_timeout(
+        self,
+        acao: str,
+        timeout: int | float | None,
+    ) -> float:
+        """
+        Resolve timeout por tipo de operação.
+
+        Operações de leitura:
+            timeout padrão.
+
+        Operações de confirmação/status de alteração:
+            timeout médio.
+
+        Apply/Rollback:
+            timeout longo.
+        """
+
+        if timeout is not None:
+            return self._validar_timeout(
+                timeout
+            )
+
+        if acao in ACOES_TIMEOUT_LONGO:
+            configurado = getattr(
+                settings,
+                "MOONSHIELD_AGENT_TIMEOUT_LONGO",
+                TIMEOUT_OPERACAO_LONGA,
+            )
+
+            return self._validar_timeout(
+                configurado
+            )
+
+        if acao in ACOES_TIMEOUT_MEDIO:
+            configurado = getattr(
+                settings,
+                "MOONSHIELD_AGENT_TIMEOUT_MEDIO",
+                TIMEOUT_OPERACAO_MEDIA,
+            )
+
+            return self._validar_timeout(
+                configurado
+            )
+
+        return self._validar_timeout(
+            self.timeout
+        )
+
+    @staticmethod
+    def _validar_timeout(
+        timeout: int | float,
+    ) -> float:
+        try:
+            valor = float(
+                timeout
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Timeout do MoonShield-Agent é inválido."
+            ) from exc
+
+        if valor <= 0:
+            raise ValueError(
+                "Timeout do MoonShield-Agent deve ser maior que zero."
+            )
+
+        return valor
 
     # =========================================================================
     # STATUS
     # =========================================================================
 
     def status(self) -> dict:
-        """
-        Consulta estado básico do Agent de Rede.
-        """
+        """Consulta estado básico do Agent de Rede."""
 
         return self.requisitar(
             "network.status"
@@ -230,20 +323,16 @@ class AgentClient:
     def _enviar(
         self,
         payload: dict,
+        *,
+        timeout: float,
     ) -> dict:
         """
         Envia JSON terminado por newline e aguarda uma resposta JSON.
         """
 
-        if not hasattr(
-            socket,
-            "AF_UNIX",
-        ):
+        if not hasattr(socket, "AF_UNIX"):
             raise AgentIndisponivelErro(
-                (
-                    "Este sistema não possui suporte "
-                    "a Unix Domain Socket."
-                )
+                "Este sistema não possui suporte a Unix Domain Socket."
             )
 
         mensagem = (
@@ -263,7 +352,7 @@ class AgentClient:
         )
 
         cliente.settimeout(
-            float(self.timeout)
+            timeout
         )
 
         try:
@@ -281,13 +370,11 @@ class AgentClient:
 
         except socket.timeout as exc:
             raise AgentTimeoutErro(
-                (
-                    "Timeout ao comunicar com "
-                    "MoonShield-Agent."
-                ),
+                "Timeout ao comunicar com MoonShield-Agent.",
                 detalhes={
                     "socket": self.socket_path,
-                    "timeout": self.timeout,
+                    "timeout": timeout,
+                    "acao": payload.get("acao"),
                 },
             ) from exc
 
@@ -298,13 +385,11 @@ class AgentClient:
             OSError,
         ) as exc:
             raise AgentIndisponivelErro(
-                (
-                    "MoonShield-Agent indisponível "
-                    "para o módulo de Rede."
-                ),
+                "MoonShield-Agent indisponível para o módulo de Rede.",
                 detalhes={
                     "socket": self.socket_path,
                     "erro": str(exc),
+                    "acao": payload.get("acao"),
                 },
             ) from exc
 
@@ -332,10 +417,7 @@ class AgentClient:
                 },
             ) from exc
 
-        if not isinstance(
-            resposta,
-            dict,
-        ):
+        if not isinstance(resposta, dict):
             raise AgentRespostaInvalidaErro(
                 "Resposta IPC deve ser um objeto JSON."
             )
@@ -351,12 +433,11 @@ class AgentClient:
         """
         Lê até newline ou EOF.
 
-        Limite atual:
+        Limite:
             2 MB por resposta IPC.
         """
 
         partes: list[bytes] = []
-
         total = 0
 
         while True:
@@ -377,10 +458,7 @@ class AgentClient:
 
             if total > limite:
                 raise AgentRespostaInvalidaErro(
-                    (
-                        "Resposta do Agent excedeu "
-                        "o limite permitido."
-                    )
+                    "Resposta do Agent excedeu o limite permitido."
                 )
 
             if b"\n" in bloco:
@@ -417,34 +495,24 @@ class AgentClient:
 
         if "ok" not in resposta:
             raise AgentRespostaInvalidaErro(
-                (
-                    "Resposta do Agent não possui "
-                    "o campo obrigatório 'ok'."
-                )
+                "Resposta do Agent não possui o campo obrigatório 'ok'."
             )
 
-        resposta_id = resposta.get(
-            "request_id"
+        resposta_id = (
+            resposta.get("request_id")
+            or resposta.get("id")
         )
 
-        # Durante desenvolvimento aceitamos Agent antigo
-        # que ainda não devolva request_id.
-        if (
-            resposta_id
-            and resposta_id != request_id
-        ):
+        # Durante desenvolvimento ainda aceitamos resposta sem identificador.
+        if resposta_id and resposta_id != request_id:
             raise AgentRespostaInvalidaErro(
-                (
-                    "request_id da resposta não corresponde "
-                    "à requisição enviada."
-                )
+                "request_id da resposta não corresponde à requisição enviada."
             )
 
 
 # =============================================================================
 # INSTÂNCIA PADRÃO
 # =============================================================================
-
 
 client = AgentClient()
 
@@ -453,10 +521,11 @@ client = AgentClient()
 # HELPERS
 # =============================================================================
 
-
 def requisitar_agent(
     acao: str,
     dados: dict | None = None,
+    *,
+    timeout: int | float | None = None,
 ) -> dict:
     """
     Atalho para a instância padrão.
@@ -465,6 +534,7 @@ def requisitar_agent(
     return client.requisitar(
         acao,
         dados,
+        timeout=timeout,
     )
 
 

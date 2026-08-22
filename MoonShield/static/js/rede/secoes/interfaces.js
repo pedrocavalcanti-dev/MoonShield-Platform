@@ -23,8 +23,8 @@ import {
     segundosAte,
     paraNumero,
 } from '../nucleo/utilitarios.js';
-import { abrirModal, fecharModal, confirmarModal } from './modal.js';
-import { notificacao } from './notificacoes.js';
+import { abrirModal, fecharModal, confirmarModal } from '../componentes/modal.js';
+import { notificacao } from '../componentes/notificacoes.js';
 
 const POLL_INTERVAL = 5000;
 const CRITICAL_SECONDS = 15;

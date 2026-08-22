@@ -1,40 +1,19 @@
 /**
  * MoonShield Network Panel
- * Safe Apply
- *
- * IMPORTANTE:
- * O contador deste módulo é apenas visual.
- *
- * O navegador NÃO controla o rollback real.
- * O MoonShield Agent deve armar o rollback antes de modificar a rede e
- * executá-lo sozinho caso a confirmação não chegue.
+ * Seção: Interfaces
  */
 
 'use strict';
 
 import { api } from '../nucleo/api.js';
 import { estado } from '../nucleo/estado.js';
-import { $, setText, setHidden, setStatusPill } from '../nucleo/dom.js';
-import {
-    alteracaoAguardaConfirmacao,
-    formatarContagemRegressiva,
-    normalizarErro,
-    rotuloTipoAlteracao,
-    segundosAte,
-    paraNumero,
-} from '../nucleo/utilitarios.js';
-import { abrirModal, fecharModal, confirmarModal } from '../componentes/modal.js';
+import { $, $$, setText, setHidden, criar } from '../nucleo/dom.js';
+import { normalizarErro } from '../nucleo/utilitarios.js';
 import { notificacao } from '../componentes/notificacoes.js';
-
-const POLL_INTERVAL = 5000;
-const CRITICAL_SECONDS = 15;
+import { safeApply } from '../componentes/safe_apply.js';
 
 let inicializado = false;
-let alteracaoAtiva = null;
-let countdownTimer = null;
-let pollTimer = null;
-let processando = false;
-let totalSegundos = 60;
+let carregando = false;
 
 
 /* ==========================================================================
@@ -42,26 +21,11 @@ let totalSegundos = 60;
 ========================================================================== */
 
 const elementos = {
-    modal: null,
-    modalTitle: null,
-    changeTitle: null,
-    changeType: null,
-    changeId: null,
-    countdown: null,
-    progress: null,
-    confirmButton: null,
-    rollbackButton: null,
-
-    activeCard: null,
-    activeTitle: null,
-    activeDescription: null,
-    activeTimer: null,
-    activeConfirmButton: null,
-    activeRollbackButton: null,
-
-    operationModal: null,
-    operationTitle: null,
-    operationDescription: null,
+    container: null,
+    empty: null,
+    backend: null,
+    total: null,
+    detectButton: null,
 };
 
 
@@ -71,547 +35,598 @@ const elementos = {
 
 function inicializar() {
     if (inicializado) return;
+
     inicializado = true;
 
     cachearElementos();
     registrarEventos();
-
-    const ativa = estado.get('alteracoes.ativa');
-    if (ativa && alteracaoAguardaConfirmacao(ativa)) sincronizar(ativa);
 }
 
 
 function cachearElementos() {
-    elementos.modal = $('#safeApplyModal');
-    elementos.modalTitle = $('#safeApplyModalTitle');
-    elementos.changeTitle = $('#safeApplyChangeTitle');
-    elementos.changeType = $('#safeApplyChangeType');
-    elementos.changeId = $('#safeApplyChangeId');
-    elementos.countdown = $('#safeApplyCountdown');
-    elementos.progress = $('#safeApplyProgressBar');
-    elementos.confirmButton = $('#safeApplyConfirmButton');
-    elementos.rollbackButton = $('#safeApplyRollbackButton');
+    elementos.container =
+        $('#interfacesContainer') ||
+        $('#interfacesGrid') ||
+        $('#networkInterfacesContainer') ||
+        $('[data-interfaces-container]');
 
-    elementos.activeCard = $('#activeSafeChangeCard');
-    elementos.activeTitle = $('#activeSafeChangeTitle');
-    elementos.activeDescription = $('#activeSafeChangeDescription');
-    elementos.activeTimer = $('#activeSafeChangeTimer');
-    elementos.activeConfirmButton = $('#activeSafeChangeConfirmButton');
-    elementos.activeRollbackButton = $('#activeSafeChangeRollbackButton');
+    elementos.empty =
+        $('#interfacesEmptyState') ||
+        $('[data-interfaces-empty]');
 
-    elementos.operationModal = $('#networkOperationModal');
-    elementos.operationTitle = $('#networkOperationTitle');
-    elementos.operationDescription = $('#networkOperationDescription');
+    elementos.backend =
+        $('#interfacesBackend') ||
+        $('#interfacesBackendName') ||
+        $('[data-interfaces-backend]');
+
+    elementos.total =
+        $('#interfacesTotal') ||
+        $('[data-interfaces-total]');
+
+    elementos.detectButton =
+        $('#interfacesDetectButton');
 }
 
 
 function registrarEventos() {
-    elementos.confirmButton?.addEventListener('click', confirmarAlteracao);
-    elementos.activeConfirmButton?.addEventListener('click', confirmarAlteracao);
+    /*
+     * O botão global de detecção já é controlado pelo painel.js.
+     * Aqui registramos somente eventos pertencentes aos cards da seção.
+     */
 
-    elementos.rollbackButton?.addEventListener('click', solicitarRollback);
-    elementos.activeRollbackButton?.addEventListener('click', solicitarRollback);
+    elementos.container?.addEventListener(
+        'click',
+        tratarCliqueContainer
+    );
 }
 
 
 /* ==========================================================================
-   ABRIR
+   CARREGAR
 ========================================================================== */
 
-function abrir(alteracao, opcoes = {}) {
-    if (!alteracao) return false;
-
-    if (!alteracaoAguardaConfirmacao(alteracao)) {
-        sincronizar(alteracao);
-        return false;
+async function carregar(opcoes = {}) {
+    if (carregando) {
+        return estado.get('interfaces.lista', []);
     }
 
-    alteracaoAtiva = alteracao;
-    estado.set('alteracoes.ativa', alteracao);
+    carregando = true;
 
-    prepararTempo(alteracao);
-    atualizarInterface(alteracao);
-    iniciarCountdown();
-    iniciarPolling();
+    try {
+        const resposta = await api.get(
+            api.urls.interfaces
+        );
 
-    setHidden(elementos.activeCard, false);
+        const dados = resposta?.dados ?? resposta ?? {};
 
-    if (opcoes.mostrarModal !== false && elementos.modal) abrirModal(elementos.modal, { foco: elementos.confirmButton });
+        const lista = extrairInterfaces(dados);
 
-    return true;
+        estado.set(
+            'interfaces.lista',
+            lista
+        );
+
+        estado.set(
+            'interfaces.backend',
+            dados.backend ||
+            dados.gerenciador ||
+            dados.network_backend ||
+            estado.get('interfaces.backend') ||
+            null
+        );
+
+        estado.set(
+            'interfaces.carregado',
+            true
+        );
+
+        renderizar();
+
+        return lista;
+
+    } catch (error) {
+        estado.set(
+            'interfaces.carregado',
+            false
+        );
+
+        if (!opcoes.silencioso) {
+            const erro = normalizarErro(error);
+
+            notificacao.erro(
+                erro.titulo || 'Erro nas interfaces',
+                erro.mensagem ||
+                'Não foi possível carregar as interfaces de rede.'
+            );
+        }
+
+        throw error;
+
+    } finally {
+        carregando = false;
+    }
 }
 
 
 /* ==========================================================================
-   SINCRONIZAR
+   ATIVAÇÃO
 ========================================================================== */
 
-function sincronizar(alteracao) {
-    if (!alteracao) {
-        fechar();
+async function aoAtivar() {
+    if (
+        estado.get(
+            'interfaces.carregado'
+        )
+    ) {
+        renderizar();
         return;
     }
 
-    if (!alteracaoAguardaConfirmacao(alteracao)) {
-        tratarAlteracaoFinalizada(alteracao);
+    try {
+        await carregar({
+            silencioso: true,
+        });
+    } catch {
+        /*
+         * O painel continua utilizável mesmo se o Agent
+         * estiver offline durante o desenvolvimento.
+         */
+    }
+}
+
+
+/* ==========================================================================
+   RENDER
+========================================================================== */
+
+function renderizar() {
+    const lista = estado.get(
+        'interfaces.lista',
+        []
+    );
+
+    const backend =
+        estado.get(
+            'interfaces.backend'
+        ) ||
+        estado.get(
+            'status.agent.status.backend'
+        ) ||
+        'NetworkManager';
+
+    setText(
+        elementos.backend,
+        backend
+    );
+
+    setText(
+        elementos.total,
+        lista.length
+    );
+
+    setHidden(
+        elementos.empty,
+        lista.length > 0
+    );
+
+    if (!elementos.container) {
         return;
     }
 
-    const trocouAlteracao = obterId(alteracaoAtiva) !== obterId(alteracao);
+    removerCardsRenderizados();
 
-    alteracaoAtiva = alteracao;
-    estado.set('alteracoes.ativa', alteracao);
+    lista.forEach(interfaceRede => {
+        const card = criarCardInterface(
+            interfaceRede
+        );
 
-    if (trocouAlteracao || !countdownTimer) prepararTempo(alteracao);
+        if (card) {
+            elementos.container.appendChild(
+                card
+            );
+        }
+    });
+}
 
-    atualizarInterface(alteracao);
-    setHidden(elementos.activeCard, false);
 
-    iniciarCountdown();
-    iniciarPolling();
+function sincronizar() {
+    renderizar();
 }
 
 
 /* ==========================================================================
-   UI
+   CARD
 ========================================================================== */
 
-function atualizarInterface(alteracao) {
-    const titulo = alteracao.titulo || 'Configuração de rede';
-    const tipo = rotuloTipoAlteracao(alteracao.tipo);
-    const id = obterId(alteracao) || '—';
-    const descricao = alteracao.descricao || 'Confirme que o acesso ao MoonShield continua funcionando.';
+function criarCardInterface(interfaceRede) {
+    const template =
+        $('#interfaceCardTemplate') ||
+        $('[data-interface-template]');
 
-    setText(elementos.modalTitle, 'Configuração de rede aplicada');
-    setText(elementos.changeTitle, titulo);
-    setText(elementos.changeType, tipo);
-    setText(elementos.changeId, id);
+    if (template instanceof HTMLTemplateElement) {
+        const fragmento =
+            template.content.cloneNode(true);
 
-    setText(elementos.activeTitle, titulo);
-    setText(elementos.activeDescription, descricao);
+        const card =
+            fragmento.querySelector(
+                '[data-interface-card]'
+            ) ||
+            fragmento.firstElementChild;
 
-    atualizarCountdownVisual();
-}
+        if (!card) return null;
 
+        preencherCard(
+            card,
+            interfaceRede
+        );
 
-/* ==========================================================================
-   TEMPO
-========================================================================== */
-
-function prepararTempo(alteracao) {
-    const restantes = obterSegundosRestantes(alteracao);
-    const configurado = paraNumero(
-        alteracao.tempo_confirmacao ??
-        alteracao.timeout_confirmacao ??
-        alteracao.configuracao_solicitada?.tempo_confirmacao,
-        60
-    );
-
-    totalSegundos = Math.max(1, configurado, restantes);
-}
-
-
-function obterSegundosRestantes(alteracao) {
-    if (!alteracao) return 0;
-
-    if (alteracao.segundos_restantes !== undefined && alteracao.segundos_restantes !== null) {
-        return Math.max(0, Math.ceil(paraNumero(alteracao.segundos_restantes, 0)));
+        return card;
     }
-
-    if (alteracao.expira_em) return segundosAte(alteracao.expira_em);
-
-    const timeout = paraNumero(
-        alteracao.tempo_confirmacao ??
-        alteracao.configuracao_solicitada?.tempo_confirmacao,
-        60
-    );
-
-    if (alteracao.aplicada_em) {
-        const aplicada = new Date(alteracao.aplicada_em);
-        if (!Number.isNaN(aplicada.getTime())) {
-            const expira = new Date(aplicada.getTime() + timeout * 1000);
-            return segundosAte(expira);
-        }
-    }
-
-    return timeout;
-}
-
-
-function iniciarCountdown() {
-    if (countdownTimer) return;
-
-    atualizarCountdownVisual();
-
-    countdownTimer = window.setInterval(() => {
-        atualizarCountdownVisual();
-
-        if (obterSegundosRestantes(alteracaoAtiva) <= 0) {
-            pararCountdown();
-            marcarPrazoExpirado();
-        }
-    }, 1000);
-}
-
-
-function pararCountdown() {
-    if (!countdownTimer) return;
-    window.clearInterval(countdownTimer);
-    countdownTimer = null;
-}
-
-
-function atualizarCountdownVisual() {
-    const segundos = obterSegundosRestantes(alteracaoAtiva);
-    const texto = formatarContagemRegressiva(segundos);
-
-    setText(elementos.countdown, texto);
-    setText(elementos.activeTimer, texto);
-
-    const percentual = Math.max(0, Math.min(100, (segundos / Math.max(totalSegundos, 1)) * 100));
-
-    if (elementos.progress) elementos.progress.style.width = `${percentual}%`;
-
-    const critico = segundos > 0 && segundos <= CRITICAL_SECONDS;
-    elementos.activeCard?.classList.toggle('is-critical', critico);
-
-    if (elementos.confirmButton) elementos.confirmButton.disabled = processando || segundos <= 0;
-    if (elementos.activeConfirmButton) elementos.activeConfirmButton.disabled = processando || segundos <= 0;
-}
-
-
-function marcarPrazoExpirado() {
-    setText(elementos.countdown, '00:00');
-    setText(elementos.activeTimer, '00:00');
-    setText(elementos.activeDescription, 'Prazo encerrado. Aguardando o estado informado pelo MoonShield Agent.');
-
-    if (elementos.progress) elementos.progress.style.width = '0%';
-
-    elementos.activeCard?.classList.remove('is-critical');
-
-    if (elementos.confirmButton) elementos.confirmButton.disabled = true;
-    if (elementos.activeConfirmButton) elementos.activeConfirmButton.disabled = true;
 
     /*
-     * Não fazemos rollback daqui.
-     *
-     * O Agent é o responsável pelo timer e pelo rollback real.
+     * Fallback para o caso de o HTML não possuir template.
+     * Evita que o módulo deixe de funcionar por completo.
      */
-}
 
-
-/* ==========================================================================
-   CONFIRMAR
-========================================================================== */
-
-async function confirmarAlteracao() {
-    if (!alteracaoAtiva || processando) return false;
-
-    const id = obterId(alteracaoAtiva);
-
-    if (!id) {
-        notificacao.erro('Alteração inválida', 'O identificador da alteração não está disponível.');
-        return false;
-    }
-
-    processando = true;
-    definirBotoesCarregando(true);
-
-    try {
-        const resposta = await api.post(urlAlteracao(id, 'confirmar'), {});
-        const alteracao = extrairAlteracao(resposta) || { ...alteracaoAtiva, status: 'confirmed' };
-
-        estado.set('alteracoes.ativa', null);
-        alteracaoAtiva = null;
-
-        pararTimers();
-        fecharModal(elementos.modal, { restaurarFoco: false });
-        setHidden(elementos.activeCard, true);
-
-        notificacao.sucesso('Configuração confirmada', 'A nova configuração de rede foi confirmada e o rollback foi desarmado.');
-
-        emitirEvento('confirmed', alteracao);
-        await atualizarPainel();
-
-        return true;
-    } catch (error) {
-        const erro = normalizarErro(error);
-        notificacao.erro(erro.titulo, erro.mensagem);
-        return false;
-    } finally {
-        processando = false;
-        definirBotoesCarregando(false);
-    }
-}
-
-
-/* ==========================================================================
-   ROLLBACK
-========================================================================== */
-
-async function solicitarRollback() {
-    if (!alteracaoAtiva || processando) return false;
-
-    if (elementos.modal?.classList.contains('is-open')) {
-        fecharModal(elementos.modal, { restaurarFoco: false });
-    }
-
-    const confirmado = await confirmarModal({
-        titulo: 'Reverter configuração de rede?',
-        mensagem: 'O MoonShield Agent tentará restaurar o snapshot anterior desta alteração.',
-        detalhes: 'Use esta opção se perdeu conectividade, acesso administrativo ou identificou uma configuração incorreta.',
-        textoConfirmar: 'Reverter agora',
-        textoCancelar: 'Manter configuração',
-        perigoso: true,
+    const card = criar('article', {
+        className: 'np-interface-card',
+        attrs: {
+            'data-interface-card': '',
+            'data-interface-rendered': 'true',
+            'data-interface-id': String(
+                obterId(interfaceRede) ?? ''
+            ),
+        },
     });
 
-    if (!confirmado) {
-        if (alteracaoAtiva && alteracaoAguardaConfirmacao(alteracaoAtiva)) abrirModal(elementos.modal);
-        return false;
-    }
+    const cabecalho = criar('div', {
+        className: 'np-interface-card__header',
+    });
 
-    return executarRollback('Rollback solicitado manualmente pelo administrador.');
+    const titulo = criar('div', {
+        className: 'np-interface-card__title',
+    });
+
+    const nome = criar('strong', {
+        text: obterNome(interfaceRede),
+    });
+
+    const papel = criar('span', {
+        className: 'np-status-pill',
+        text: obterPapel(interfaceRede),
+    });
+
+    titulo.append(
+        nome,
+        papel
+    );
+
+    const corpo = criar('div', {
+        className: 'np-interface-card__body',
+    });
+
+    corpo.append(
+        criarLinha(
+            'Estado',
+            obterEstado(interfaceRede)
+        ),
+        criarLinha(
+            'IPv4',
+            obterIPv4(interfaceRede)
+        ),
+        criarLinha(
+            'MAC',
+            obterMac(interfaceRede)
+        ),
+        criarLinha(
+            'Gateway',
+            obterGateway(interfaceRede)
+        )
+    );
+
+    cabecalho.appendChild(
+        titulo
+    );
+
+    card.append(
+        cabecalho,
+        corpo
+    );
+
+    return card;
 }
 
 
-async function executarRollback(motivo = 'Rollback solicitado pelo painel.') {
-    if (!alteracaoAtiva || processando) return false;
+function preencherCard(card, interfaceRede) {
+    card.dataset.interfaceCard = '';
+    card.dataset.interfaceRendered = 'true';
 
-    const id = obterId(alteracaoAtiva);
+    const id = obterId(interfaceRede);
 
-    if (!id) {
-        notificacao.erro('Alteração inválida', 'O identificador da alteração não está disponível.');
-        return false;
+    if (id !== null && id !== undefined) {
+        card.dataset.interfaceId =
+            String(id);
     }
 
-    processando = true;
-    definirBotoesCarregando(true);
-    mostrarOperacao({
-        titulo: 'Revertendo configuração',
-        descricao: 'Solicitando restauração do snapshot anterior ao MoonShield Agent.',
+    setText(
+        $('[data-interface-name]', card),
+        obterNome(interfaceRede)
+    );
+
+    setText(
+        $('[data-interface-role]', card),
+        obterPapel(interfaceRede)
+    );
+
+    setText(
+        $('[data-interface-state]', card),
+        obterEstado(interfaceRede)
+    );
+
+    setText(
+        $('[data-interface-ipv4]', card),
+        obterIPv4(interfaceRede)
+    );
+
+    setText(
+        $('[data-interface-mac]', card),
+        obterMac(interfaceRede)
+    );
+
+    setText(
+        $('[data-interface-gateway]', card),
+        obterGateway(interfaceRede)
+    );
+
+    setText(
+        $('[data-interface-backend]', card),
+        interfaceRede.backend ||
+        estado.get('interfaces.backend') ||
+        'NetworkManager'
+    );
+
+    const editar =
+        $('[data-interface-edit]', card);
+
+    const aplicar =
+        $('[data-interface-apply]', card);
+
+    if (editar && id !== null) {
+        editar.dataset.interfaceId =
+            String(id);
+    }
+
+    if (aplicar && id !== null) {
+        aplicar.dataset.interfaceId =
+            String(id);
+    }
+
+    card.classList.toggle(
+        'is-up',
+        interfaceAtiva(interfaceRede)
+    );
+
+    card.classList.toggle(
+        'is-down',
+        !interfaceAtiva(interfaceRede)
+    );
+}
+
+
+function criarLinha(rotulo, valor) {
+    const linha = criar('div', {
+        className: 'np-interface-card__row',
     });
 
-    try {
-        /*
-         * O endpoint atual de rollback lê request.POST.
-         * Portanto usamos URLSearchParams, e não JSON.
-         */
-        const dados = new URLSearchParams();
-        dados.set('motivo', motivo);
+    linha.append(
+        criar('span', {
+            text: rotulo,
+        }),
+        criar('strong', {
+            text: valor || '—',
+        })
+    );
 
-        const resposta = await api.post(urlAlteracao(id, 'rollback'), dados);
-        const alteracao = extrairAlteracao(resposta) || { ...alteracaoAtiva, status: 'reverted' };
+    return linha;
+}
 
-        estado.set('alteracoes.ativa', null);
-        alteracaoAtiva = null;
 
-        pararTimers();
-        ocultarOperacao();
-        fecharModal(elementos.modal, { restaurarFoco: false });
-        setHidden(elementos.activeCard, true);
-
-        notificacao.aviso('Rollback executado', 'A restauração da configuração anterior foi solicitada.');
-
-        emitirEvento('rollback', alteracao);
-        await atualizarPainel();
-
-        return true;
-    } catch (error) {
-        ocultarOperacao();
-
-        const erro = normalizarErro(error);
-        notificacao.erro(erro.titulo, erro.mensagem);
-
-        if (alteracaoAtiva && alteracaoAguardaConfirmacao(alteracaoAtiva)) abrirModal(elementos.modal);
-
-        return false;
-    } finally {
-        processando = false;
-        definirBotoesCarregando(false);
-    }
+function removerCardsRenderizados() {
+    $$(
+        '[data-interface-rendered]',
+        elementos.container
+    ).forEach(card => {
+        card.remove();
+    });
 }
 
 
 /* ==========================================================================
-   POLLING
+   EVENTOS DOS CARDS
 ========================================================================== */
 
-function iniciarPolling() {
-    if (pollTimer || !alteracaoAtiva) return;
+function tratarCliqueContainer(event) {
+    const alvo =
+        event.target instanceof Element
+            ? event.target
+            : null;
 
-    pollTimer = window.setInterval(() => {
-        if (document.hidden || processando) return;
-        consultarEstadoAtual();
-    }, POLL_INTERVAL);
-}
+    if (!alvo) return;
 
+    const editar =
+        alvo.closest(
+            '[data-interface-edit]'
+        );
 
-function pararPolling() {
-    if (!pollTimer) return;
-    window.clearInterval(pollTimer);
-    pollTimer = null;
-}
+    if (editar) {
+        const id = obterIdElemento(
+            editar
+        );
 
-
-async function consultarEstadoAtual() {
-    const id = obterId(alteracaoAtiva);
-    if (!id) return null;
-
-    try {
-        const resposta = await api.get(urlAlteracao(id));
-        const alteracao = extrairAlteracao(resposta);
-
-        if (!alteracao) return null;
-
-        if (alteracaoAguardaConfirmacao(alteracao)) {
-            alteracaoAtiva = alteracao;
-            estado.set('alteracoes.ativa', alteracao);
-            atualizarInterface(alteracao);
-            return alteracao;
+        if (id !== null) {
+            editarInterface(id);
         }
 
-        tratarAlteracaoFinalizada(alteracao);
-        return alteracao;
-    } catch (error) {
-        console.warn('[MoonShield Network] Falha ao consultar Safe Apply:', error);
-        return null;
+        return;
+    }
+
+    const aplicar =
+        alvo.closest(
+            '[data-interface-apply]'
+        );
+
+    if (aplicar) {
+        const id = obterIdElemento(
+            aplicar
+        );
+
+        if (id !== null) {
+            aplicarInterface(id);
+        }
     }
 }
 
 
 /* ==========================================================================
-   FINALIZAÇÃO EXTERNA
+   EDITAR
 ========================================================================== */
 
-function tratarAlteracaoFinalizada(alteracao) {
-    const anterior = alteracaoAtiva;
-    const estavaAtiva = Boolean(anterior);
+async function editarInterface(id) {
+    const interfaceRede =
+        obterInterface(id);
 
-    alteracaoAtiva = null;
-    estado.set('alteracoes.ativa', null);
+    if (!interfaceRede) {
+        notificacao.erro(
+            'Interface não encontrada',
+            'Não foi possível localizar a interface selecionada.'
+        );
 
-    pararTimers();
-    fecharModal(elementos.modal, { restaurarFoco: false });
-    setHidden(elementos.activeCard, true);
-
-    if (!estavaAtiva) return;
-
-    if (alteracao?.status === 'confirmed') {
-        notificacao.sucesso('Configuração confirmada', 'A alteração de rede foi confirmada.');
-    } else if (alteracao?.status === 'reverted') {
-        notificacao.aviso('Configuração revertida', 'O MoonShield restaurou a configuração anterior.');
-    } else if (alteracao?.status === 'failed') {
-        notificacao.erro('Alteração falhou', alteracao.erro || 'Não foi possível aplicar a configuração de rede.');
+        return;
     }
 
-    emitirEvento('finished', alteracao);
+    /*
+     * A edição completa depende do drawer/form presente no HTML.
+     * Se o painel possuir o botão configurado, emitimos um evento
+     * para permitir que o componente específico abra o formulário.
+     */
+
+    document.dispatchEvent(
+        new CustomEvent(
+            'moonshield:interface-edit',
+            {
+                detail: {
+                    interface: interfaceRede,
+                },
+            }
+        )
+    );
 }
 
 
 /* ==========================================================================
-   FECHAR
+   APLICAR INTERFACE
 ========================================================================== */
 
-function fechar() {
-    alteracaoAtiva = null;
-    estado.set('alteracoes.ativa', null);
+async function aplicarInterface(id) {
+    if (safeApply.ativo()) {
+        notificacao.aviso(
+            'Alteração em andamento',
+            'Confirme ou reverta a alteração atual antes de aplicar outra.'
+        );
 
-    pararTimers();
+        return false;
+    }
 
-    if (elementos.modal?.classList.contains('is-open')) fecharModal(elementos.modal, { restaurarFoco: false });
+    const interfaceRede =
+        obterInterface(id);
 
-    setHidden(elementos.activeCard, true);
-}
+    if (!interfaceRede) {
+        notificacao.erro(
+            'Interface não encontrada',
+            'Não foi possível localizar a interface selecionada.'
+        );
 
+        return false;
+    }
 
-function fecharSeInativo() {
-    const ativa = estado.get('alteracoes.ativa');
+    const confirmado =
+        await safeApply.confirmarOperacao({
+            titulo: 'Aplicar configuração da interface?',
+            mensagem:
+                `A configuração de ${obterNome(interfaceRede)} será enviada ao MoonShield Agent.`,
+            detalhes:
+                'Um snapshot será criado e o rollback automático permanecerá armado até a confirmação.',
+            textoConfirmar:
+                'Aplicar configuração',
+            perigoso: obterPapel(interfaceRede) === 'WAN',
+        });
 
-    if (!ativa || !alteracaoAguardaConfirmacao(ativa)) {
-        fechar();
+    if (!confirmado) {
+        return false;
+    }
+
+    safeApply.mostrarOperacao({
+        titulo:
+            `Aplicando ${obterNome(interfaceRede)}`,
+        descricao:
+            'Validando a interface e preparando a alteração segura.',
+    });
+
+    try {
+        const resposta =
+            await api.post(
+                urlAplicarInterface(id),
+                {}
+            );
+
+        const alteracao =
+            extrairAlteracao(
+                resposta
+            );
+
+        safeApply.ocultarOperacao();
+
+        if (!alteracao) {
+            throw new Error(
+                'A API não retornou a alteração criada.'
+            );
+        }
+
+        estado.set(
+            'alteracoes.ativa',
+            alteracao
+        );
+
+        safeApply.abrir(
+            alteracao
+        );
+
+        await carregar({
+            silencioso: true,
+        });
+
+        notificacao.aviso(
+            'Confirmação necessária',
+            'A configuração foi aplicada. Confirme que o acesso continua funcionando.'
+        );
+
         return true;
+
+    } catch (error) {
+        safeApply.ocultarOperacao();
+
+        const erro =
+            normalizarErro(error);
+
+        notificacao.erro(
+            erro.titulo ||
+            'Falha ao aplicar interface',
+            erro.mensagem ||
+            'Não foi possível aplicar a configuração da interface.'
+        );
+
+        return false;
     }
-
-    sincronizar(ativa);
-    return false;
-}
-
-
-/* ==========================================================================
-   OPERAÇÃO
-========================================================================== */
-
-function mostrarOperacao(opcoes = {}) {
-    if (!elementos.operationModal) return false;
-
-    setText(elementos.operationTitle, opcoes.titulo || 'Aplicando configuração');
-    setText(elementos.operationDescription, opcoes.descricao || 'Aguarde enquanto o MoonShield processa a alteração.');
-
-    resetarEtapasOperacao();
-    definirEtapaOperacao('validate', 'active');
-
-    return abrirModal(elementos.operationModal);
-}
-
-
-function ocultarOperacao() {
-    if (!elementos.operationModal?.classList.contains('is-open')) return;
-    fecharModal(elementos.operationModal, { restaurarFoco: false });
-}
-
-
-function resetarEtapasOperacao() {
-    ['Validate', 'Snapshot', 'Rollback', 'Apply', 'Verify'].forEach(nome => {
-        const elemento = $(`#operationStep${nome}`);
-        elemento?.classList.remove('is-active', 'is-done', 'is-error');
-    });
-}
-
-
-function definirEtapaOperacao(etapa, status = 'active') {
-    const ids = {
-        validate: 'operationStepValidate',
-        snapshot: 'operationStepSnapshot',
-        rollback: 'operationStepRollback',
-        apply: 'operationStepApply',
-        verify: 'operationStepVerify',
-    };
-
-    const elemento = $(`#${ids[etapa] || ''}`);
-    if (!elemento) return;
-
-    elemento.classList.remove('is-active', 'is-done', 'is-error');
-
-    if (status === 'done') elemento.classList.add('is-done');
-    else if (status === 'error') elemento.classList.add('is-error');
-    else elemento.classList.add('is-active');
-}
-
-
-/* ==========================================================================
-   CONFIRMAÇÃO GENÉRICA
-========================================================================== */
-
-function confirmarOperacao(opcoes = {}) {
-    return confirmarModal(opcoes);
-}
-
-
-/* ==========================================================================
-   BOTÕES
-========================================================================== */
-
-function definirBotoesCarregando(ativo) {
-    [
-        elementos.confirmButton,
-        elementos.rollbackButton,
-        elementos.activeConfirmButton,
-        elementos.activeRollbackButton,
-    ].forEach(botao => {
-        if (!botao) return;
-        botao.disabled = Boolean(ativo);
-        botao.classList.toggle('is-loading', Boolean(ativo));
-    });
 }
 
 
@@ -619,15 +634,46 @@ function definirBotoesCarregando(ativo) {
    URL
 ========================================================================== */
 
-function urlAlteracao(id, acao = '') {
-    const base = api.urls.alteracoes;
+function urlBaseInterfaces() {
+    const base =
+        api.urls.interfaces;
 
-    if (!base) throw new Error('URL de alterações não configurada.');
+    if (!base) {
+        throw new Error(
+            'URL de interfaces não configurada.'
+        );
+    }
 
-    const normalizada = base.endsWith('/') ? base : `${base}/`;
-    const recurso = `${normalizada}${encodeURIComponent(String(id))}/`;
+    return base.endsWith('/')
+        ? base
+        : `${base}/`;
+}
 
-    return acao ? `${recurso}${acao}/` : recurso;
+
+function urlInterface(id) {
+    return (
+        `${urlBaseInterfaces()}${encodeURIComponent(
+            String(id)
+        )}/`
+    );
+}
+
+
+function urlAplicarInterface(id) {
+    /*
+     * Mantém compatibilidade tanto com um endpoint
+     * dedicado definido em api.urls quanto com a
+     * rota REST da interface.
+     */
+
+    if (
+        typeof api.urls.aplicarInterface ===
+        'function'
+    ) {
+        return api.urls.aplicarInterface(id);
+    }
+
+    return `${urlInterface(id)}aplicar/`;
 }
 
 
@@ -635,71 +681,254 @@ function urlAlteracao(id, acao = '') {
    DADOS
 ========================================================================== */
 
-function extrairAlteracao(resposta) {
-    if (!resposta) return null;
-
-    return resposta.dados?.alteracao ||
-        resposta.dados?.resultado?.alteracao ||
-        resposta.dados ||
-        resposta.alteracao ||
-        null;
-}
-
-
-function obterId(alteracao) {
-    return alteracao?.id || alteracao?.uuid || alteracao?.alteracao_id || null;
-}
-
-
-/* ==========================================================================
-   ATUALIZAR PAINEL
-========================================================================== */
-
-async function atualizarPainel() {
-    try {
-        if (typeof window.MoonShieldNetwork?.atualizarDepoisDeAlteracao === 'function') {
-            await window.MoonShieldNetwork.atualizarDepoisDeAlteracao();
-        } else if (typeof window.MoonShieldNetwork?.atualizar === 'function') {
-            await window.MoonShieldNetwork.atualizar();
-        }
-    } catch (error) {
-        console.warn('[MoonShield Network] Atualização pós Safe Apply incompleta:', error);
+function extrairInterfaces(dados) {
+    if (Array.isArray(dados)) {
+        return dados;
     }
+
+    if (
+        Array.isArray(
+            dados.interfaces
+        )
+    ) {
+        return dados.interfaces;
+    }
+
+    if (
+        Array.isArray(
+            dados.resultados
+        )
+    ) {
+        return dados.resultados;
+    }
+
+    if (
+        Array.isArray(
+            dados.lista
+        )
+    ) {
+        return dados.lista;
+    }
+
+    return [];
 }
 
 
-/* ==========================================================================
-   EVENTOS
-========================================================================== */
+function extrairAlteracao(resposta) {
+    if (!resposta) {
+        return null;
+    }
 
-function emitirEvento(tipo, alteracao) {
-    document.dispatchEvent(new CustomEvent(`moonshield:safe-apply-${tipo}`, {
-        detail: { alteracao },
-    }));
+    return (
+        resposta.dados?.alteracao ||
+        resposta.dados?.resultado?.alteracao ||
+        resposta.alteracao ||
+        null
+    );
 }
 
 
-/* ==========================================================================
-   TIMERS
-========================================================================== */
-
-function pararTimers() {
-    pararCountdown();
-    pararPolling();
+function obterInterface(id) {
+    return estado
+        .get(
+            'interfaces.lista',
+            []
+        )
+        .find(item => {
+            return String(
+                obterId(item)
+            ) === String(id);
+        }) || null;
 }
 
 
-/* ==========================================================================
-   ESTADO
-========================================================================== */
-
-function ativo() {
-    return Boolean(alteracaoAtiva && alteracaoAguardaConfirmacao(alteracaoAtiva));
+function obterId(interfaceRede) {
+    return (
+        interfaceRede?.id ??
+        interfaceRede?.interface_id ??
+        interfaceRede?.pk ??
+        interfaceRede?.nome ??
+        interfaceRede?.name ??
+        interfaceRede?.interface ??
+        null
+    );
 }
 
 
-function obterAlteracaoAtiva() {
-    return alteracaoAtiva;
+function obterIdElemento(elemento) {
+    const card =
+        elemento.closest(
+            '[data-interface-card]'
+        );
+
+    const valor =
+        elemento.dataset.interfaceId ||
+        card?.dataset.interfaceId;
+
+    return valor || null;
+}
+
+
+function obterNome(interfaceRede) {
+    return (
+        interfaceRede?.nome ||
+        interfaceRede?.name ||
+        interfaceRede?.interface ||
+        interfaceRede?.dispositivo ||
+        interfaceRede?.device ||
+        'Interface'
+    );
+}
+
+
+function obterPapel(interfaceRede) {
+    return String(
+        interfaceRede?.papel ||
+        interfaceRede?.role ||
+        interfaceRede?.tipo ||
+        'CUSTOM'
+    ).toUpperCase();
+}
+
+
+function obterEstado(interfaceRede) {
+    if (
+        interfaceRede?.estado
+    ) {
+        return String(
+            interfaceRede.estado
+        ).toUpperCase();
+    }
+
+    if (
+        interfaceRede?.state
+    ) {
+        return String(
+            interfaceRede.state
+        ).toUpperCase();
+    }
+
+    if (
+        interfaceRede?.operstate
+    ) {
+        return String(
+            interfaceRede.operstate
+        ).toUpperCase();
+    }
+
+    return interfaceAtiva(
+        interfaceRede
+    )
+        ? 'UP'
+        : 'DOWN';
+}
+
+
+function interfaceAtiva(interfaceRede) {
+    const valor =
+        interfaceRede?.ativa ??
+        interfaceRede?.active ??
+        interfaceRede?.up ??
+        interfaceRede?.conectada;
+
+    if (
+        valor !== undefined &&
+        valor !== null
+    ) {
+        return Boolean(valor);
+    }
+
+    const estadoRede =
+        String(
+            interfaceRede?.estado ||
+            interfaceRede?.state ||
+            interfaceRede?.operstate ||
+            ''
+        ).toLowerCase();
+
+    return [
+        'up',
+        'connected',
+        'ativo',
+        'ativa',
+        'online',
+    ].includes(
+        estadoRede
+    );
+}
+
+
+function obterIPv4(interfaceRede) {
+    const direto =
+        interfaceRede?.ipv4 ||
+        interfaceRede?.ip ||
+        interfaceRede?.endereco_ipv4 ||
+        interfaceRede?.address;
+
+    if (
+        typeof direto ===
+        'string'
+    ) {
+        return direto || '—';
+    }
+
+    const lista =
+        interfaceRede?.enderecos ||
+        interfaceRede?.addresses;
+
+    if (
+        Array.isArray(lista)
+    ) {
+        const ipv4 =
+            lista.find(item => {
+                const valor =
+                    typeof item === 'string'
+                        ? item
+                        : item?.endereco ||
+                        item?.address ||
+                        '';
+
+                return (
+                    valor &&
+                    !valor.includes(':')
+                );
+            });
+
+        if (
+            typeof ipv4 ===
+            'string'
+        ) {
+            return ipv4;
+        }
+
+        return (
+            ipv4?.endereco ||
+            ipv4?.address ||
+            '—'
+        );
+    }
+
+    return '—';
+}
+
+
+function obterMac(interfaceRede) {
+    return (
+        interfaceRede?.mac ||
+        interfaceRede?.mac_address ||
+        interfaceRede?.endereco_mac ||
+        '—'
+    );
+}
+
+
+function obterGateway(interfaceRede) {
+    return (
+        interfaceRede?.gateway ||
+        interfaceRede?.gateway_ipv4 ||
+        interfaceRede?.rota_padrao?.gateway ||
+        '—'
+    );
 }
 
 
@@ -708,9 +937,8 @@ function obterAlteracaoAtiva() {
 ========================================================================== */
 
 function destruir() {
-    pararTimers();
-    alteracaoAtiva = null;
     inicializado = false;
+    carregando = false;
 }
 
 
@@ -718,21 +946,15 @@ function destruir() {
    EXPORT
 ========================================================================== */
 
-export const safeApply = Object.freeze({
+export const interfaces = Object.freeze({
     inicializar,
     destruir,
-    abrir,
-    fechar,
+    carregar,
+    renderizar,
     sincronizar,
-    fecharSeInativo,
-    ativo,
-    obterAlteracaoAtiva,
-    confirmarAlteracao,
-    executarRollback,
-    confirmarOperacao,
-    mostrarOperacao,
-    ocultarOperacao,
-    definirEtapaOperacao,
+    aoAtivar,
+    aplicarInterface,
+    editarInterface,
 });
 
-export default safeApply;
+export default interfaces;

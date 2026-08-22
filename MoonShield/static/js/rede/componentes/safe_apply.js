@@ -14,7 +14,7 @@
 
 import { api } from '../nucleo/api.js';
 import { estado } from '../nucleo/estado.js';
-import { $, setText, setHidden, setStatusPill } from '../nucleo/dom.js';
+import { $, setText, setHidden } from '../nucleo/dom.js';
 import {
     alteracaoAguardaConfirmacao,
     formatarContagemRegressiva,
@@ -36,11 +36,6 @@ let countdownTimer = null;
 let pollTimer = null;
 let processando = false;
 let totalSegundos = 60;
-
-
-/* ==========================================================================
-   ELEMENTOS
-========================================================================== */
 
 const elementos = {
     modal: null,
@@ -80,9 +75,7 @@ function inicializar() {
 
     const ativa = estado.get('alteracoes.ativa');
 
-    if (ativa && alteracaoAguardaConfirmacao(ativa)) {
-        sincronizar(ativa);
-    }
+    if (ativa && alteracaoAguardaConfirmacao(ativa)) sincronizar(ativa);
 }
 
 
@@ -142,9 +135,7 @@ function abrir(alteracao, opcoes = {}) {
     setHidden(elementos.activeCard, false);
 
     if (opcoes.mostrarModal !== false && elementos.modal) {
-        abrirModal(elementos.modal, {
-            foco: elementos.confirmButton,
-        });
+        abrirModal(elementos.modal, { foco: elementos.confirmButton });
     }
 
     return true;
@@ -171,9 +162,7 @@ function sincronizar(alteracao) {
     alteracaoAtiva = alteracao;
     estado.set('alteracoes.ativa', alteracao);
 
-    if (trocouAlteracao || !countdownTimer) {
-        prepararTempo(alteracao);
-    }
+    if (trocouAlteracao || !countdownTimer) prepararTempo(alteracao);
 
     atualizarInterface(alteracao);
     setHidden(elementos.activeCard, false);
@@ -191,39 +180,15 @@ function atualizarInterface(alteracao) {
     const titulo = alteracao.titulo || 'Configuração de rede';
     const tipo = rotuloTipoAlteracao(alteracao.tipo);
     const id = obterId(alteracao) || '—';
-    const descricao =
-        alteracao.descricao ||
-        'Confirme que o acesso ao MoonShield continua funcionando.';
+    const descricao = alteracao.descricao || 'Confirme que o acesso ao MoonShield continua funcionando.';
 
-    setText(
-        elementos.modalTitle,
-        'Configuração de rede aplicada'
-    );
+    setText(elementos.modalTitle, 'Configuração de rede aplicada');
+    setText(elementos.changeTitle, titulo);
+    setText(elementos.changeType, tipo);
+    setText(elementos.changeId, id);
 
-    setText(
-        elementos.changeTitle,
-        titulo
-    );
-
-    setText(
-        elementos.changeType,
-        tipo
-    );
-
-    setText(
-        elementos.changeId,
-        id
-    );
-
-    setText(
-        elementos.activeTitle,
-        titulo
-    );
-
-    setText(
-        elementos.activeDescription,
-        descricao
-    );
+    setText(elementos.activeTitle, titulo);
+    setText(elementos.activeDescription, descricao);
 
     atualizarCountdownVisual();
 }
@@ -243,37 +208,18 @@ function prepararTempo(alteracao) {
         60
     );
 
-    totalSegundos = Math.max(
-        1,
-        configurado,
-        restantes
-    );
+    totalSegundos = Math.max(1, configurado, restantes);
 }
 
 
 function obterSegundosRestantes(alteracao) {
     if (!alteracao) return 0;
 
-    if (
-        alteracao.segundos_restantes !== undefined &&
-        alteracao.segundos_restantes !== null
-    ) {
-        return Math.max(
-            0,
-            Math.ceil(
-                paraNumero(
-                    alteracao.segundos_restantes,
-                    0
-                )
-            )
-        );
+    if (alteracao.segundos_restantes !== undefined && alteracao.segundos_restantes !== null) {
+        return Math.max(0, Math.ceil(paraNumero(alteracao.segundos_restantes, 0)));
     }
 
-    if (alteracao.expira_em) {
-        return segundosAte(
-            alteracao.expira_em
-        );
-    }
+    if (alteracao.expira_em) return segundosAte(alteracao.expira_em);
 
     const timeout = paraNumero(
         alteracao.tempo_confirmacao ??
@@ -282,19 +228,11 @@ function obterSegundosRestantes(alteracao) {
     );
 
     if (alteracao.aplicada_em) {
-        const aplicada = new Date(
-            alteracao.aplicada_em
-        );
+        const aplicada = new Date(alteracao.aplicada_em);
 
         if (!Number.isNaN(aplicada.getTime())) {
-            const expira = new Date(
-                aplicada.getTime() +
-                timeout * 1000
-            );
-
-            return segundosAte(
-                expira
-            );
+            const expira = new Date(aplicada.getTime() + timeout * 1000);
+            return segundosAte(expira);
         }
     }
 
@@ -310,11 +248,7 @@ function iniciarCountdown() {
     countdownTimer = window.setInterval(() => {
         atualizarCountdownVisual();
 
-        if (
-            obterSegundosRestantes(
-                alteracaoAtiva
-            ) <= 0
-        ) {
+        if (obterSegundosRestantes(alteracaoAtiva) <= 0) {
             pararCountdown();
             marcarPrazoExpirado();
         }
@@ -325,110 +259,53 @@ function iniciarCountdown() {
 function pararCountdown() {
     if (!countdownTimer) return;
 
-    window.clearInterval(
-        countdownTimer
-    );
-
+    window.clearInterval(countdownTimer);
     countdownTimer = null;
 }
 
 
 function atualizarCountdownVisual() {
-    const segundos = obterSegundosRestantes(
-        alteracaoAtiva
-    );
+    const segundos = obterSegundosRestantes(alteracaoAtiva);
+    const texto = formatarContagemRegressiva(segundos);
 
-    const texto = formatarContagemRegressiva(
-        segundos
-    );
-
-    setText(
-        elementos.countdown,
-        texto
-    );
-
-    setText(
-        elementos.activeTimer,
-        texto
-    );
+    setText(elementos.countdown, texto);
+    setText(elementos.activeTimer, texto);
 
     const percentual = Math.max(
         0,
-        Math.min(
-            100,
-            (
-                segundos /
-                Math.max(totalSegundos, 1)
-            ) * 100
-        )
+        Math.min(100, (segundos / Math.max(totalSegundos, 1)) * 100)
     );
 
-    if (elementos.progress) {
-        elementos.progress.style.width =
-            `${percentual}%`;
-    }
+    if (elementos.progress) elementos.progress.style.width = `${percentual}%`;
 
-    const critico =
-        segundos > 0 &&
-        segundos <= CRITICAL_SECONDS;
+    const critico = segundos > 0 && segundos <= CRITICAL_SECONDS;
 
-    elementos.activeCard?.classList.toggle(
-        'is-critical',
-        critico
-    );
+    elementos.activeCard?.classList.toggle('is-critical', critico);
 
     if (elementos.confirmButton) {
-        elementos.confirmButton.disabled =
-            processando ||
-            segundos <= 0;
+        elementos.confirmButton.disabled = processando || segundos <= 0;
     }
 
     if (elementos.activeConfirmButton) {
-        elementos.activeConfirmButton.disabled =
-            processando ||
-            segundos <= 0;
+        elementos.activeConfirmButton.disabled = processando || segundos <= 0;
     }
 }
 
 
 function marcarPrazoExpirado() {
-    setText(
-        elementos.countdown,
-        '00:00'
-    );
-
-    setText(
-        elementos.activeTimer,
-        '00:00'
-    );
-
+    setText(elementos.countdown, '00:00');
+    setText(elementos.activeTimer, '00:00');
     setText(
         elementos.activeDescription,
         'Prazo encerrado. Aguardando o estado informado pelo MoonShield Agent.'
     );
 
-    if (elementos.progress) {
-        elementos.progress.style.width = '0%';
-    }
+    if (elementos.progress) elementos.progress.style.width = '0%';
 
-    elementos.activeCard?.classList.remove(
-        'is-critical'
-    );
+    elementos.activeCard?.classList.remove('is-critical');
 
-    if (elementos.confirmButton) {
-        elementos.confirmButton.disabled = true;
-    }
-
-    if (elementos.activeConfirmButton) {
-        elementos.activeConfirmButton.disabled = true;
-    }
-
-    /*
-     * Não fazemos rollback daqui.
-     *
-     * O Agent é o responsável pelo timer
-     * e pelo rollback real.
-     */
+    if (elementos.confirmButton) elementos.confirmButton.disabled = true;
+    if (elementos.activeConfirmButton) elementos.activeConfirmButton.disabled = true;
 }
 
 
@@ -437,13 +314,9 @@ function marcarPrazoExpirado() {
 ========================================================================== */
 
 async function confirmarAlteracao() {
-    if (!alteracaoAtiva || processando) {
-        return false;
-    }
+    if (!alteracaoAtiva || processando) return false;
 
-    const id = obterId(
-        alteracaoAtiva
-    );
+    const id = obterId(alteracaoAtiva);
 
     if (!id) {
         notificacao.erro(
@@ -455,80 +328,41 @@ async function confirmarAlteracao() {
     }
 
     processando = true;
-
-    definirBotoesCarregando(
-        true
-    );
+    definirBotoesCarregando(true);
 
     try {
-        const resposta = await api.post(
-            urlAlteracao(
-                id,
-                'confirmar'
-            ),
-            {}
-        );
+        const resposta = await api.post(urlAlteracao(id, 'confirmar'), {});
 
         const alteracao =
             extrairAlteracao(resposta) ||
-            {
-                ...alteracaoAtiva,
-                status: 'confirmed',
-            };
+            { ...alteracaoAtiva, status: 'confirmed' };
 
-        estado.set(
-            'alteracoes.ativa',
-            null
-        );
-
+        estado.set('alteracoes.ativa', null);
         alteracaoAtiva = null;
 
         pararTimers();
 
-        fecharModal(
-            elementos.modal,
-            {
-                restaurarFoco: false,
-            }
-        );
-
-        setHidden(
-            elementos.activeCard,
-            true
-        );
+        fecharModal(elementos.modal, { restaurarFoco: false });
+        setHidden(elementos.activeCard, true);
 
         notificacao.sucesso(
             'Configuração confirmada',
             'A nova configuração de rede foi confirmada e o rollback foi desarmado.'
         );
 
-        emitirEvento(
-            'confirmed',
-            alteracao
-        );
-
+        emitirEvento('confirmed', alteracao);
         await atualizarPainel();
 
         return true;
-
     } catch (error) {
-        const erro = normalizarErro(
-            error
-        );
+        const erro = normalizarErro(error);
 
-        notificacao.erro(
-            erro.titulo,
-            erro.mensagem
-        );
+        notificacao.erro(erro.titulo, erro.mensagem);
 
         return false;
-
     } finally {
         processando = false;
-
-        definirBotoesCarregando(
-            false
-        );
+        definirBotoesCarregando(false);
     }
 }
 
@@ -538,44 +372,24 @@ async function confirmarAlteracao() {
 ========================================================================== */
 
 async function solicitarRollback() {
-    if (!alteracaoAtiva || processando) {
-        return false;
-    }
+    if (!alteracaoAtiva || processando) return false;
 
-    if (
-        elementos.modal?.classList.contains(
-            'is-open'
-        )
-    ) {
-        fecharModal(
-            elementos.modal,
-            {
-                restaurarFoco: false,
-            }
-        );
+    if (elementos.modal?.classList.contains('is-open')) {
+        fecharModal(elementos.modal, { restaurarFoco: false });
     }
 
     const confirmado = await confirmarModal({
         titulo: 'Reverter configuração de rede?',
-        mensagem:
-            'O MoonShield Agent tentará restaurar o snapshot anterior desta alteração.',
-        detalhes:
-            'Use esta opção se perdeu conectividade, acesso administrativo ou identificou uma configuração incorreta.',
+        mensagem: 'O MoonShield Agent tentará restaurar o snapshot anterior desta alteração.',
+        detalhes: 'Use esta opção se perdeu conectividade, acesso administrativo ou identificou uma configuração incorreta.',
         textoConfirmar: 'Reverter agora',
         textoCancelar: 'Manter configuração',
         perigoso: true,
     });
 
     if (!confirmado) {
-        if (
-            alteracaoAtiva &&
-            alteracaoAguardaConfirmacao(
-                alteracaoAtiva
-            )
-        ) {
-            abrirModal(
-                elementos.modal
-            );
+        if (alteracaoAtiva && alteracaoAguardaConfirmacao(alteracaoAtiva)) {
+            abrirModal(elementos.modal);
         }
 
         return false;
@@ -587,16 +401,10 @@ async function solicitarRollback() {
 }
 
 
-async function executarRollback(
-    motivo = 'Rollback solicitado pelo painel.'
-) {
-    if (!alteracaoAtiva || processando) {
-        return false;
-    }
+async function executarRollback(motivo = 'Rollback solicitado pelo painel.') {
+    if (!alteracaoAtiva || processando) return false;
 
-    const id = obterId(
-        alteracaoAtiva
-    );
+    const id = obterId(alteracaoAtiva);
 
     if (!id) {
         notificacao.erro(
@@ -608,111 +416,59 @@ async function executarRollback(
     }
 
     processando = true;
-
-    definirBotoesCarregando(
-        true
-    );
+    definirBotoesCarregando(true);
 
     mostrarOperacao({
         titulo: 'Revertendo configuração',
-        descricao:
-            'Solicitando restauração do snapshot anterior ao MoonShield Agent.',
+        descricao: 'Solicitando restauração do snapshot anterior ao MoonShield Agent.',
     });
 
     try {
-        /*
-         * O endpoint atual de rollback lê request.POST.
-         * Portanto usamos URLSearchParams, e não JSON.
-         */
         const dados = new URLSearchParams();
-
-        dados.set(
-            'motivo',
-            motivo
-        );
+        dados.set('motivo', motivo);
 
         const resposta = await api.post(
-            urlAlteracao(
-                id,
-                'rollback'
-            ),
+            urlAlteracao(id, 'rollback'),
             dados
         );
 
         const alteracao =
             extrairAlteracao(resposta) ||
-            {
-                ...alteracaoAtiva,
-                status: 'reverted',
-            };
+            { ...alteracaoAtiva, status: 'reverted' };
 
-        estado.set(
-            'alteracoes.ativa',
-            null
-        );
-
+        estado.set('alteracoes.ativa', null);
         alteracaoAtiva = null;
 
         pararTimers();
         ocultarOperacao();
 
-        fecharModal(
-            elementos.modal,
-            {
-                restaurarFoco: false,
-            }
-        );
-
-        setHidden(
-            elementos.activeCard,
-            true
-        );
+        fecharModal(elementos.modal, { restaurarFoco: false });
+        setHidden(elementos.activeCard, true);
 
         notificacao.aviso(
             'Rollback executado',
             'A restauração da configuração anterior foi solicitada.'
         );
 
-        emitirEvento(
-            'rollback',
-            alteracao
-        );
-
+        emitirEvento('rollback', alteracao);
         await atualizarPainel();
 
         return true;
-
     } catch (error) {
         ocultarOperacao();
 
-        const erro = normalizarErro(
-            error
-        );
+        const erro = normalizarErro(error);
 
-        notificacao.erro(
-            erro.titulo,
-            erro.mensagem
-        );
+        notificacao.erro(erro.titulo, erro.mensagem);
 
-        if (
-            alteracaoAtiva &&
-            alteracaoAguardaConfirmacao(
-                alteracaoAtiva
-            )
-        ) {
-            abrirModal(
-                elementos.modal
-            );
+        if (alteracaoAtiva && alteracaoAguardaConfirmacao(alteracaoAtiva)) {
+            abrirModal(elementos.modal);
         }
 
         return false;
-
     } finally {
         processando = false;
-
-        definirBotoesCarregando(
-            false
-        );
+        definirBotoesCarregando(false);
     }
 }
 
@@ -722,87 +478,48 @@ async function executarRollback(
 ========================================================================== */
 
 function iniciarPolling() {
-    if (
-        pollTimer ||
-        !alteracaoAtiva
-    ) {
-        return;
-    }
+    if (pollTimer || !alteracaoAtiva) return;
 
-    pollTimer = window.setInterval(
-        () => {
-            if (
-                document.hidden ||
-                processando
-            ) {
-                return;
-            }
+    pollTimer = window.setInterval(() => {
+        if (document.hidden || processando) return;
 
-            consultarEstadoAtual();
-        },
-        POLL_INTERVAL
-    );
+        consultarEstadoAtual();
+    }, POLL_INTERVAL);
 }
 
 
 function pararPolling() {
     if (!pollTimer) return;
 
-    window.clearInterval(
-        pollTimer
-    );
-
+    window.clearInterval(pollTimer);
     pollTimer = null;
 }
 
 
 async function consultarEstadoAtual() {
-    const id = obterId(
-        alteracaoAtiva
-    );
+    const id = obterId(alteracaoAtiva);
 
-    if (!id) {
-        return null;
-    }
+    if (!id) return null;
 
     try {
-        const resposta = await api.get(
-            urlAlteracao(id)
-        );
+        const resposta = await api.get(urlAlteracao(id));
+        const alteracao = extrairAlteracao(resposta);
 
-        const alteracao = extrairAlteracao(
-            resposta
-        );
+        if (!alteracao) return null;
 
-        if (!alteracao) {
-            return null;
-        }
-
-        if (
-            alteracaoAguardaConfirmacao(
-                alteracao
-            )
-        ) {
+        if (alteracaoAguardaConfirmacao(alteracao)) {
             alteracaoAtiva = alteracao;
 
-            estado.set(
-                'alteracoes.ativa',
-                alteracao
-            );
+            estado.set('alteracoes.ativa', alteracao);
 
-            atualizarInterface(
-                alteracao
-            );
+            atualizarInterface(alteracao);
 
             return alteracao;
         }
 
-        tratarAlteracaoFinalizada(
-            alteracao
-        );
+        tratarAlteracaoFinalizada(alteracao);
 
         return alteracao;
-
     } catch (error) {
         console.warn(
             '[MoonShield Network] Falha ao consultar Safe Apply:',
@@ -815,73 +532,41 @@ async function consultarEstadoAtual() {
 
 
 /* ==========================================================================
-   FINALIZAÇÃO EXTERNA
+   FINALIZAÇÃO
 ========================================================================== */
 
-function tratarAlteracaoFinalizada(
-    alteracao
-) {
-    const anterior = alteracaoAtiva;
-    const estavaAtiva = Boolean(anterior);
+function tratarAlteracaoFinalizada(alteracao) {
+    const estavaAtiva = Boolean(alteracaoAtiva);
 
     alteracaoAtiva = null;
 
-    estado.set(
-        'alteracoes.ativa',
-        null
-    );
+    estado.set('alteracoes.ativa', null);
 
     pararTimers();
 
-    fecharModal(
-        elementos.modal,
-        {
-            restaurarFoco: false,
-        }
-    );
+    fecharModal(elementos.modal, { restaurarFoco: false });
+    setHidden(elementos.activeCard, true);
 
-    setHidden(
-        elementos.activeCard,
-        true
-    );
+    if (!estavaAtiva) return;
 
-    if (!estavaAtiva) {
-        return;
-    }
-
-    if (
-        alteracao?.status ===
-        'confirmed'
-    ) {
+    if (alteracao?.status === 'confirmed') {
         notificacao.sucesso(
             'Configuração confirmada',
             'A alteração de rede foi confirmada.'
         );
-
-    } else if (
-        alteracao?.status ===
-        'reverted'
-    ) {
+    } else if (alteracao?.status === 'reverted') {
         notificacao.aviso(
             'Configuração revertida',
             'O MoonShield restaurou a configuração anterior.'
         );
-
-    } else if (
-        alteracao?.status ===
-        'failed'
-    ) {
+    } else if (alteracao?.status === 'failed') {
         notificacao.erro(
             'Alteração falhou',
-            alteracao.erro ||
-            'Não foi possível aplicar a configuração de rede.'
+            alteracao.erro || 'Não foi possível aplicar a configuração de rede.'
         );
     }
 
-    emitirEvento(
-        'finished',
-        alteracao
-    );
+    emitirEvento('finished', alteracao);
 }
 
 
@@ -892,51 +577,27 @@ function tratarAlteracaoFinalizada(
 function fechar() {
     alteracaoAtiva = null;
 
-    estado.set(
-        'alteracoes.ativa',
-        null
-    );
+    estado.set('alteracoes.ativa', null);
 
     pararTimers();
 
-    if (
-        elementos.modal?.classList.contains(
-            'is-open'
-        )
-    ) {
-        fecharModal(
-            elementos.modal,
-            {
-                restaurarFoco: false,
-            }
-        );
+    if (elementos.modal?.classList.contains('is-open')) {
+        fecharModal(elementos.modal, { restaurarFoco: false });
     }
 
-    setHidden(
-        elementos.activeCard,
-        true
-    );
+    setHidden(elementos.activeCard, true);
 }
 
 
 function fecharSeInativo() {
-    const ativa = estado.get(
-        'alteracoes.ativa'
-    );
+    const ativa = estado.get('alteracoes.ativa');
 
-    if (
-        !ativa ||
-        !alteracaoAguardaConfirmacao(
-            ativa
-        )
-    ) {
+    if (!ativa || !alteracaoAguardaConfirmacao(ativa)) {
         fechar();
         return true;
     }
 
-    sincronizar(
-        ativa
-    );
+    sincronizar(ativa);
 
     return false;
 }
@@ -946,67 +607,38 @@ function fecharSeInativo() {
    OPERAÇÃO
 ========================================================================== */
 
-function mostrarOperacao(
-    opcoes = {}
-) {
-    if (!elementos.operationModal) {
-        return false;
-    }
+function mostrarOperacao(opcoes = {}) {
+    if (!elementos.operationModal) return false;
 
     setText(
         elementos.operationTitle,
-        opcoes.titulo ||
-        'Aplicando configuração'
+        opcoes.titulo || 'Aplicando configuração'
     );
 
     setText(
         elementos.operationDescription,
-        opcoes.descricao ||
-        'Aguarde enquanto o MoonShield processa a alteração.'
+        opcoes.descricao || 'Aguarde enquanto o MoonShield processa a alteração.'
     );
 
     resetarEtapasOperacao();
+    definirEtapaOperacao('validate', 'active');
 
-    definirEtapaOperacao(
-        'validate',
-        'active'
-    );
-
-    return abrirModal(
-        elementos.operationModal
-    );
+    return abrirModal(elementos.operationModal);
 }
 
 
 function ocultarOperacao() {
-    if (
-        !elementos.operationModal?.classList.contains(
-            'is-open'
-        )
-    ) {
-        return;
-    }
+    if (!elementos.operationModal?.classList.contains('is-open')) return;
 
-    fecharModal(
-        elementos.operationModal,
-        {
-            restaurarFoco: false,
-        }
-    );
+    fecharModal(elementos.operationModal, {
+        restaurarFoco: false,
+    });
 }
 
 
 function resetarEtapasOperacao() {
-    [
-        'Validate',
-        'Snapshot',
-        'Rollback',
-        'Apply',
-        'Verify',
-    ].forEach(nome => {
-        const elemento = $(
-            `#operationStep${nome}`
-        );
+    ['Validate', 'Snapshot', 'Rollback', 'Apply', 'Verify'].forEach(nome => {
+        const elemento = $(`#operationStep${nome}`);
 
         elemento?.classList.remove(
             'is-active',
@@ -1017,10 +649,7 @@ function resetarEtapasOperacao() {
 }
 
 
-function definirEtapaOperacao(
-    etapa,
-    status = 'active'
-) {
+function definirEtapaOperacao(etapa, status = 'active') {
     const ids = {
         validate: 'operationStepValidate',
         snapshot: 'operationStepSnapshot',
@@ -1029,13 +658,9 @@ function definirEtapaOperacao(
         verify: 'operationStepVerify',
     };
 
-    const elemento = $(
-        `#${ids[etapa] || ''}`
-    );
+    const elemento = $(`#${ids[etapa] || ''}`);
 
-    if (!elemento) {
-        return;
-    }
+    if (!elemento) return;
 
     elemento.classList.remove(
         'is-active',
@@ -1044,35 +669,17 @@ function definirEtapaOperacao(
     );
 
     if (status === 'done') {
-        elemento.classList.add(
-            'is-done'
-        );
-
-    } else if (
-        status === 'error'
-    ) {
-        elemento.classList.add(
-            'is-error'
-        );
-
+        elemento.classList.add('is-done');
+    } else if (status === 'error') {
+        elemento.classList.add('is-error');
     } else {
-        elemento.classList.add(
-            'is-active'
-        );
+        elemento.classList.add('is-active');
     }
 }
 
 
-/* ==========================================================================
-   CONFIRMAÇÃO GENÉRICA
-========================================================================== */
-
-function confirmarOperacao(
-    opcoes = {}
-) {
-    return confirmarModal(
-        opcoes
-    );
+function confirmarOperacao(opcoes = {}) {
+    return confirmarModal(opcoes);
 }
 
 
@@ -1080,39 +687,26 @@ function confirmarOperacao(
    BOTÕES
 ========================================================================== */
 
-function definirBotoesCarregando(
-    ativo
-) {
+function definirBotoesCarregando(ativo) {
     [
         elementos.confirmButton,
         elementos.rollbackButton,
         elementos.activeConfirmButton,
         elementos.activeRollbackButton,
     ].forEach(botao => {
-        if (!botao) {
-            return;
-        }
+        if (!botao) return;
 
-        botao.disabled = Boolean(
-            ativo
-        );
-
-        botao.classList.toggle(
-            'is-loading',
-            Boolean(ativo)
-        );
+        botao.disabled = Boolean(ativo);
+        botao.classList.toggle('is-loading', Boolean(ativo));
     });
 }
 
 
 /* ==========================================================================
-   URL
+   URL / DADOS
 ========================================================================== */
 
-function urlAlteracao(
-    id,
-    acao = ''
-) {
+function urlAlteracao(id, acao = '') {
     const base = api.urls.alteracoes;
 
     if (!base) {
@@ -1121,15 +715,12 @@ function urlAlteracao(
         );
     }
 
-    const normalizada =
-        base.endsWith('/')
-            ? base
-            : `${base}/`;
+    const normalizada = base.endsWith('/')
+        ? base
+        : `${base}/`;
 
     const recurso =
-        `${normalizada}${encodeURIComponent(
-            String(id)
-        )}/`;
+        `${normalizada}${encodeURIComponent(String(id))}/`;
 
     return acao
         ? `${recurso}${acao}/`
@@ -1137,16 +728,8 @@ function urlAlteracao(
 }
 
 
-/* ==========================================================================
-   DADOS
-========================================================================== */
-
-function extrairAlteracao(
-    resposta
-) {
-    if (!resposta) {
-        return null;
-    }
+function extrairAlteracao(resposta) {
+    if (!resposta) return null;
 
     return (
         resposta.dados?.alteracao ||
@@ -1158,9 +741,7 @@ function extrairAlteracao(
 }
 
 
-function obterId(
-    alteracao
-) {
+function obterId(alteracao) {
     return (
         alteracao?.id ||
         alteracao?.uuid ||
@@ -1177,22 +758,16 @@ function obterId(
 async function atualizarPainel() {
     try {
         if (
-            typeof window.MoonShieldNetwork
-                ?.atualizarDepoisDeAlteracao ===
+            typeof window.MoonShieldNetwork?.atualizarDepoisDeAlteracao ===
             'function'
         ) {
-            await window.MoonShieldNetwork
-                .atualizarDepoisDeAlteracao();
-
+            await window.MoonShieldNetwork.atualizarDepoisDeAlteracao();
         } else if (
-            typeof window.MoonShieldNetwork
-                ?.atualizar ===
+            typeof window.MoonShieldNetwork?.atualizar ===
             'function'
         ) {
-            await window.MoonShieldNetwork
-                .atualizar();
+            await window.MoonShieldNetwork.atualizar();
         }
-
     } catch (error) {
         console.warn(
             '[MoonShield Network] Atualização pós Safe Apply incompleta:',
@@ -1203,29 +778,18 @@ async function atualizarPainel() {
 
 
 /* ==========================================================================
-   EVENTOS
+   EVENTOS / TIMERS / ESTADO
 ========================================================================== */
 
-function emitirEvento(
-    tipo,
-    alteracao
-) {
+function emitirEvento(tipo, alteracao) {
     document.dispatchEvent(
         new CustomEvent(
             `moonshield:safe-apply-${tipo}`,
-            {
-                detail: {
-                    alteracao,
-                },
-            }
+            { detail: { alteracao } }
         )
     );
 }
 
-
-/* ==========================================================================
-   TIMERS
-========================================================================== */
 
 function pararTimers() {
     pararCountdown();
@@ -1233,16 +797,10 @@ function pararTimers() {
 }
 
 
-/* ==========================================================================
-   ESTADO
-========================================================================== */
-
 function ativo() {
     return Boolean(
         alteracaoAtiva &&
-        alteracaoAguardaConfirmacao(
-            alteracaoAtiva
-        )
+        alteracaoAguardaConfirmacao(alteracaoAtiva)
     );
 }
 
@@ -1252,14 +810,11 @@ function obterAlteracaoAtiva() {
 }
 
 
-/* ==========================================================================
-   DESTRUIR
-========================================================================== */
-
 function destruir() {
     pararTimers();
 
     alteracaoAtiva = null;
+    processando = false;
     inicializado = false;
 }
 

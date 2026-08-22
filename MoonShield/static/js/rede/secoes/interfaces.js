@@ -18,7 +18,7 @@ let carregando = false;
 let salvando = false;
 
 const elementos = {
-    container: null, empty: null, backend: null, total: null, detectButton: null,
+    container: null, empty: null, backend: null, total: null, configured: null, online: null, pending: null, detectButton: null,
     form: null, id: null, name: null, description: null, role: null, primary: null, enabled: null, management: null,
     ipv4Mode: null, staticFields: null, ipv4Address: null, ipv4Prefix: null, gatewayGroup: null, gateway: null,
     defaultRouteRow: null, defaultRoute: null, metric: null, mtu: null, notice: null, saveButton: null,
@@ -36,6 +36,9 @@ function cachearElementos() {
     elementos.empty = $('#interfacesEmptyState') || $('[data-interfaces-empty]');
     elementos.backend = $('#interfacesBackend') || $('#interfacesBackendName') || $('[data-interfaces-backend]');
     elementos.total = $('#interfacesTotal') || $('[data-interfaces-total]');
+    elementos.configured = $('#interfacesConfigured');
+    elementos.online = $('#interfacesOnline');
+    elementos.pending = $('#interfacesPending');
     elementos.detectButton = $('#interfacesDetectButton');
     elementos.form = $('#interfaceConfigForm');
     elementos.id = $('#interfaceConfigId');
@@ -105,8 +108,15 @@ async function aoAtivar() {
 function renderizar() {
     const lista = estado.get('interfaces.lista', []);
     const backend = estado.get('interfaces.backend') || estado.get('status.agent.status.backend') || 'NetworkManager';
+    const configuradas = lista.filter(interfaceConfigurada).length;
+    const online = lista.filter(interfaceAtiva).length;
+    const pendentes = lista.filter(interfacePendente).length;
+
     setText(elementos.backend, backend);
     setText(elementos.total, lista.length);
+    setText(elementos.configured, configuradas);
+    setText(elementos.online, online);
+    setText(elementos.pending, pendentes);
     setHidden(elementos.empty, lista.length > 0);
     if (!elementos.container) return;
 
@@ -158,11 +168,16 @@ function preencherCard(card, interfaceRede) {
 
     setText($('[data-interface-name]', card), obterNome(interfaceRede));
     setText($('[data-interface-role]', card), obterPapel(interfaceRede));
-    setText($('[data-interface-state]', card), obterEstado(interfaceRede));
-    setText($('[data-interface-ipv4]', card), obterIPv4(interfaceRede));
     setText($('[data-interface-mac]', card), obterMac(interfaceRede));
+    setText($('[data-interface-desired-ip]', card), obterIPv4Desejado(interfaceRede));
+    setText($('[data-interface-current-ip]', card), obterIPv4(interfaceRede));
     setText($('[data-interface-gateway]', card), obterGateway(interfaceRede));
-    setText($('[data-interface-backend]', card), interfaceRede.backend || estado.get('interfaces.backend') || 'NetworkManager');
+    setText($('[data-interface-mtu]', card), obterMtu(interfaceRede));
+    setText($('[data-interface-backend]', card), obterBackend(interfaceRede));
+    setText($('[data-interface-management]', card), obterGerenciamento(interfaceRede));
+
+    atualizarLinkCard(card, interfaceRede);
+    atualizarSincronizacaoCard(card, interfaceRede);
 
     const configurar = $('[data-interface-configure]', card);
     const aplicar = $('[data-interface-apply]', card);
@@ -172,6 +187,7 @@ function preencherCard(card, interfaceRede) {
     const ativa = interfaceAtiva(interfaceRede);
     card.classList.toggle('is-up', ativa);
     card.classList.toggle('is-down', !ativa);
+    card.classList.toggle('is-pending', interfacePendente(interfaceRede));
 }
 
 function criarLinha(rotulo, valor) {
@@ -471,25 +487,63 @@ function obterNome(interfaceRede) {
 }
 
 function obterPapel(interfaceRede) {
-    return String(obterDesejado(interfaceRede, 'papel', interfaceRede?.role || interfaceRede?.tipo || 'custom')).toUpperCase();
+    return String(obterDesejado(interfaceRede, 'papel', interfaceRede?.role || interfaceRede?.tipo || 'unassigned')).toUpperCase();
+}
+
+function obterReal(interfaceRede, campo, fallback = null) {
+    const fontes = [interfaceRede?.real, interfaceRede?.estado_real, interfaceRede?.runtime, interfaceRede?.current, interfaceRede];
+    for (const fonte of fontes) {
+        if (fonte && fonte[campo] !== undefined && fonte[campo] !== null) return fonte[campo];
+    }
+    return fallback;
 }
 
 function obterEstado(interfaceRede) {
-    const valor = interfaceRede?.estado_link || interfaceRede?.estado || interfaceRede?.state || interfaceRede?.operstate;
-    if (valor) return String(valor).toUpperCase();
-    return interfaceAtiva(interfaceRede) ? 'UP' : 'DOWN';
+    const estadoLink = String(obterReal(interfaceRede, 'estado_link', interfaceRede?.estado || interfaceRede?.state || interfaceRede?.operstate || '')).toLowerCase();
+    const carrier = obterReal(interfaceRede, 'carrier', null);
+    if (estadoLink && estadoLink !== 'unknown') return estadoLink.toUpperCase();
+    if (carrier === true) return 'UP';
+    if (carrier === false) return 'DOWN';
+    return 'UNKNOWN';
 }
 
 function interfaceAtiva(interfaceRede) {
-    const valor = interfaceRede?.ativa ?? interfaceRede?.active ?? interfaceRede?.up ?? interfaceRede?.conectada;
-    if (valor !== undefined && valor !== null) return Boolean(valor);
-    const estadoRede = String(interfaceRede?.estado_link || interfaceRede?.estado || interfaceRede?.state || interfaceRede?.operstate || '').toLowerCase();
+    const carrier = obterReal(interfaceRede, 'carrier', null);
+    if (carrier === true) return true;
+    if (carrier === false) return false;
+
+    const estadoRede = String(obterReal(interfaceRede, 'estado_link', interfaceRede?.estado || interfaceRede?.state || interfaceRede?.operstate || '')).toLowerCase();
     return ['up', 'connected', 'ativo', 'ativa', 'online'].includes(estadoRede);
 }
 
+function interfaceConfigurada(interfaceRede) {
+    return String(obterDesejado(interfaceRede, 'papel', 'unassigned') || 'unassigned').toLowerCase() !== 'unassigned';
+}
+
+function interfacePendente(interfaceRede) {
+    return paraBooleano(interfaceRede?.pendente, false) || !paraBooleano(interfaceRede?.sincronizada, false);
+}
+
+function obterIPv4Desejado(interfaceRede) {
+    const modo = String(obterDesejado(interfaceRede, 'ipv4_modo', 'dhcp') || 'dhcp').toLowerCase();
+    if (modo === 'disabled') return 'Desativado';
+    if (modo === 'dhcp') return 'DHCP';
+
+    const endereco = obterDesejado(interfaceRede, 'ipv4_endereco', null);
+    const prefixo = obterDesejado(interfaceRede, 'ipv4_prefixo', null);
+    if (!endereco) return 'Estático —';
+    return prefixo === null || prefixo === undefined || prefixo === '' ? String(endereco) : `${endereco}/${prefixo}`;
+}
+
 function obterIPv4(interfaceRede) {
-    const direto = interfaceRede?.ipv4_atual || interfaceRede?.ipv4 || interfaceRede?.ip || interfaceRede?.endereco_ipv4 || interfaceRede?.address;
-    if (typeof direto === 'string') return direto || '—';
+    const direto = obterReal(interfaceRede, 'ipv4', interfaceRede?.ipv4_atual || interfaceRede?.ip || interfaceRede?.endereco_ipv4 || interfaceRede?.address || null);
+    const prefixo = obterReal(interfaceRede, 'prefixo', interfaceRede?.prefixo_atual ?? null);
+
+    if (typeof direto === 'string' && direto) {
+        if (direto.includes('/')) return direto;
+        return prefixo === null || prefixo === undefined || prefixo === '' ? direto : `${direto}/${prefixo}`;
+    }
+
     const lista = interfaceRede?.enderecos || interfaceRede?.addresses;
     if (Array.isArray(lista)) {
         const ipv4 = lista.find(item => {
@@ -507,11 +561,67 @@ function obterMac(interfaceRede) {
 }
 
 function obterGateway(interfaceRede) {
-    return interfaceRede?.gateway_atual || interfaceRede?.gateway || interfaceRede?.gateway_ipv4 || interfaceRede?.rota_padrao?.gateway || '—';
+    return obterDesejado(interfaceRede, 'gateway', null) || obterReal(interfaceRede, 'gateway', interfaceRede?.gateway_atual || interfaceRede?.gateway_ipv4 || null) || '—';
+}
+
+function obterMtu(interfaceRede) {
+    return obterDesejado(interfaceRede, 'mtu', null) ?? obterReal(interfaceRede, 'mtu', interfaceRede?.mtu_atual ?? null) ?? '—';
+}
+
+function obterBackend(interfaceRede) {
+    return obterReal(interfaceRede, 'backend', interfaceRede?.backend || null) || estado.get('interfaces.backend') || 'NetworkManager';
+}
+
+function obterGerenciamento(interfaceRede) {
+    return paraBooleano(obterDesejado(interfaceRede, 'acesso_gerenciamento', false), false) ? 'Permitido' : 'Bloqueado';
+}
+
+function atualizarLinkCard(card, interfaceRede) {
+    const pill = $('[data-interface-link]', card);
+    if (!pill) return;
+
+    const estadoLink = obterEstado(interfaceRede);
+    const ativa = interfaceAtiva(interfaceRede);
+    pill.classList.remove('np-status-pill--ok', 'np-status-pill--warning', 'np-status-pill--error', 'np-status-pill--pending');
+
+    if (ativa) {
+        pill.classList.add('np-status-pill--ok');
+        setText(pill, 'Link ativo');
+    } else if (estadoLink === 'DOWN') {
+        pill.classList.add('np-status-pill--error');
+        setText(pill, 'Link down');
+    } else {
+        pill.classList.add('np-status-pill--pending');
+        setText(pill, 'Link —');
+    }
+}
+
+function atualizarSincronizacaoCard(card, interfaceRede) {
+    const texto = $('[data-interface-sync]', card);
+    const dot = $('[data-interface-sync-dot]', card);
+    const pendente = interfacePendente(interfaceRede);
+    const erro = String(interfaceRede?.ultimo_erro || '').trim();
+
+    if (dot) dot.classList.remove('np-status-dot--ok', 'np-status-dot--warning', 'np-status-dot--error', 'np-status-dot--pending');
+
+    if (erro) {
+        setText(texto, 'Falha de sincronização');
+        dot?.classList.add('np-status-dot--error');
+        return;
+    }
+
+    if (pendente) {
+        setText(texto, 'Alteração pendente');
+        dot?.classList.add('np-status-dot--pending');
+        return;
+    }
+
+    setText(texto, 'Sincronizada');
+    dot?.classList.add('np-status-dot--ok');
 }
 
 function obterDesejado(interfaceRede, campo, fallback = null) {
-    const fontes = [interfaceRede, interfaceRede?.desejado, interfaceRede?.estado_desejado, interfaceRede?.configuracao, interfaceRede?.desired];
+    const fontes = [interfaceRede?.desejado, interfaceRede?.estado_desejado, interfaceRede?.configuracao, interfaceRede?.desired, interfaceRede];
     for (const fonte of fontes) {
         if (fonte && fonte[campo] !== undefined && fonte[campo] !== null) return fonte[campo];
     }

@@ -94,6 +94,7 @@ DIRECOES_SUPORTADAS = frozenset({
     "in",
     "out",
     "forward",
+    "both",
 })
 
 IFACES_LOGICAS = frozenset({
@@ -1306,16 +1307,14 @@ def _redes_sobrepoem(
         item = item.strip()
 
         try:
-            rede_a = (
-                ipaddress.ip_network(
-                    item,
-                    strict=False,
-                )
-                if "/" in item
-                else ipaddress.ip_network(
-                    f"{item}/32",
-                    strict=False,
-                )
+            # ip_network() aceita tanto host puro quanto CIDR:
+            #   10.10.0.10 -> 10.10.0.10/32
+            #   2001:db8::1 -> 2001:db8::1/128
+            # Assim não precisamos montar /32 ou /128 manualmente e evitamos
+            # o bug de transformar um IPv4 em algo como 10.10.0.10/128.
+            rede_a = ipaddress.ip_network(
+                item,
+                strict=False,
             )
 
             if rede_a.overlaps(

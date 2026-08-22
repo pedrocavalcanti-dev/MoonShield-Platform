@@ -540,6 +540,7 @@ class RegraFirewall(models.Model):
         IN = "in", "IN"
         OUT = "out", "OUT"
         FORWARD = "forward", "FORWARD"
+        BOTH = "both", "AMBOS"
 
     class Protocolo(models.TextChoices):
         TCP = "TCP", "TCP"

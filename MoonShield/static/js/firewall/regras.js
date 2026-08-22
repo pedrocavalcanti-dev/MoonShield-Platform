@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — FIREWALL / REGRAS v8
+ * MOONSHIELD — FIREWALL / REGRAS v9
  * Fonte de verdade do frontend: APIs Django da arquitetura local.
  */
 
@@ -85,9 +85,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!response.ok) {
             const message =
+                payload?.resultado?.erro?.mensagem ||
+                payload?.resultado?.erro ||
+                payload?.sync_result?.erro?.mensagem ||
+                payload?.sync_result?.erro ||
                 payload?.erro?.mensagem ||
                 payload?.erro ||
                 payload?.mensagem ||
+                extractValidationError(payload?.resultado?.detalhes) ||
+                extractValidationError(payload?.sync_result?.detalhes) ||
                 extractValidationError(payload?.detalhes) ||
                 `HTTP ${response.status}`;
 
@@ -643,7 +649,7 @@ document.addEventListener("DOMContentLoaded", () => {
         $("rfAction").value = rule?.action || "deny";
         $("rfPriority").value = rule?.priority ?? 100;
         $("rfIface").value = rule?.iface || "WAN";
-        $("rfDir").value = rule?.dir || "in";
+        $("rfDir").value = normalizeRuleDirection(rule?.dir || "in");
         $("rfProto").value = rule?.proto || "TCP";
         $("rfSrc").value = rule?.src || "any";
         $("rfDst").value = rule?.dst || "any";
@@ -663,28 +669,41 @@ document.addEventListener("DOMContentLoaded", () => {
         setDrawer("fwrRuleDrawer", "fwrRuleDrawerOverlay", false);
     }
 
+    function normalizeRuleDirection(value) {
+        const dir = String(value || "in").trim().toLowerCase();
+        if (["in", "out", "forward", "both"].includes(dir)) return dir;
+        if (dir === "entrada") return "in";
+        if (dir === "saida" || dir === "saída") return "out";
+        if (["ambos", "both", "inout", "in/out"].includes(dir)) return "both";
+        return "in";
+    }
+
     function collectRule() {
+        const src = String($("rfSrc")?.value || "").trim() || "any";
+        const dst = String($("rfDst")?.value || "").trim() || "any";
+        const port = String($("rfPort")?.value || "").trim() || "any";
+
         return {
-            desc: ($("rfDesc").value || "").trim(),
-            action: $("rfAction").value,
-            priority: Number.parseInt($("rfPriority").value, 10) || 100,
-            iface: $("rfIface").value,
-            dir: $("rfDir").value,
-            proto: $("rfProto").value,
-            src: ($("rfSrc").value || "").trim() || "any",
-            dst: ($("rfDst").value || "").trim() || "any",
-            port: ($("rfPort").value || "").trim() || "any",
-            enabled: $("rfEnabled").checked,
-            log: $("rfLog").checked,
+            desc: String($("rfDesc")?.value || "").trim(),
+            action: String($("rfAction")?.value || "deny").trim().toLowerCase(),
+            priority: Number.parseInt($("rfPriority")?.value, 10) || 100,
+            iface: String($("rfIface")?.value || "any").trim(),
+            dir: normalizeRuleDirection($("rfDir")?.value),
+            proto: String($("rfProto")?.value || "any").trim(),
+            src,
+            dst,
+            port,
+            enabled: Boolean($("rfEnabled")?.checked),
+            log: Boolean($("rfLog")?.checked),
         };
     }
 
     function validateRule(payload) {
         if (!["allow", "deny"].includes(payload.action)) return "Ação inválida.";
         if (!["WAN", "MGMT", "LAN", "any"].includes(payload.iface)) return "Interface inválida.";
-        if (!["in", "out"].includes(payload.dir)) return "Direção inválida.";
+        if (!["in", "out", "forward", "both"].includes(payload.dir)) return "Direção inválida.";
         if (!["TCP", "UDP", "ICMP", "any"].includes(payload.proto)) return "Protocolo inválido.";
-        if (payload.priority < 1 || payload.priority > 10000) return "Prioridade deve ficar entre 1 e 10000.";
+        if (!Number.isInteger(payload.priority) || payload.priority < 1 || payload.priority > 10000) return "Prioridade deve ficar entre 1 e 10000.";
         if (!validAddressOrAny(payload.src)) return "Origem inválida. Use IP, rede CIDR ou 'any'.";
         if (!validAddressOrAny(payload.dst)) return "Destino inválido. Use IP, rede CIDR ou 'any'.";
         if (["TCP", "UDP"].includes(payload.proto) && !validPort(payload.port)) return "Porta inválida. Use any, uma porta ou intervalo (ex.: 8000-8010).";
@@ -742,9 +761,25 @@ document.addEventListener("DOMContentLoaded", () => {
                 : await api(URLS.rules, { method: "POST", body: JSON.stringify(payload) });
 
             const applied = Boolean(data.aplicado ?? data.sync_result?.ok ?? false);
+            const syncError =
+                data?.sync_result?.erro?.mensagem ||
+                data?.sync_result?.erro ||
+                data?.sync_result?.mensagem ||
+                "";
+
+            await reloadRules();
+
+            if (!applied && syncError) {
+                showFormError(
+                    "fwrRuleFormError",
+                    `A regra foi salva como pendente, mas o Agent recusou a aplicação: ${syncError}`
+                );
+                toast("Regra salva, mas o Agent recusou a aplicação.", "err");
+                return;
+            }
+
             toast(applied ? "Regra salva e aplicada." : "Regra salva; aplicação pendente.", applied ? "ok" : "warn");
             closeRuleDrawer();
-            await reloadRules();
         } catch (error) {
             showFormError("fwrRuleFormError", error.message);
         } finally {
@@ -858,7 +893,16 @@ document.addEventListener("DOMContentLoaded", () => {
         const physical = logicalPhysical(rule.iface);
         const iface = physical || rule.iface;
 
-        if (rule.iface !== "any") pieces.push(`${rule.dir === "in" ? "iifname" : "oifname"} \"${iface}\"`);
+        if (rule.iface !== "any") {
+            if (rule.dir === "out") {
+                pieces.push(`oifname "${iface}"`);
+            } else if (rule.dir === "both") {
+                pieces.push(`(iifname "${iface}" OU oifname "${iface}")`);
+            } else {
+                // IN e FORWARD usam a interface de entrada no core atual.
+                pieces.push(`iifname "${iface}"`);
+            }
+        }
         if (rule.src !== "any") pieces.push(`ip saddr ${rule.src}`);
         if (rule.dst !== "any") pieces.push(`ip daddr ${rule.dst}`);
         if (rule.proto !== "any") pieces.push(rule.proto.toLowerCase());
@@ -1467,16 +1511,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function closeModal(value) {
-        $("fwrModalOverlay")?.classList.remove("open");
-        $("fwrModalOverlay")?.setAttribute("aria-hidden", "true");
-        if (state.modalResolve) { const resolve = state.modalResolve; state.modalResolve = null; resolve(value); }
+        const overlay = $("fwrModalOverlay");
+        const active = document.activeElement;
+        if (overlay && active instanceof HTMLElement && overlay.contains(active)) {
+            active.blur();
+        }
+        overlay?.classList.remove("open");
+        overlay?.setAttribute("aria-hidden", "true");
+        if (state.modalResolve) {
+            const resolve = state.modalResolve;
+            state.modalResolve = null;
+            resolve(value);
+        }
     }
 
     /* =====================================================================
        VALIDATION / HELPERS
        ===================================================================== */
 
-    function validAddressOrAny(value) { return String(value).toLowerCase() === "any" || validIpOrCidr(value); }
+    function validAddressOrAny(value) {
+        const text = String(value || "").trim();
+        if (text.toLowerCase() === "any") return true;
+        if (!text) return false;
+        return text.split(",").map((item) => item.trim()).filter(Boolean).every(validIpOrCidr);
+    }
 
     function validIpOrCidr(value) {
         const text = String(value || "").trim();

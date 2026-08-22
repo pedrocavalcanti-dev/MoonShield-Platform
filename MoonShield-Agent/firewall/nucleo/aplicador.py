@@ -360,12 +360,24 @@ def _gerar_script(
     )
 
     for regra in regras_ordenadas:
-        expr = _regra_para_expr(regra, contexto)
-        if expr:
-            pos.append(
-                f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
-                f"{CHAIN_RULES} {expr}"
-            )
+        direction = str(regra.get("dir") or "in").lower()
+
+        # BOTH é uma conveniência do painel: a mesma política é materializada
+        # em duas regras nft, uma pela interface de entrada e outra pela de
+        # saída. O banco continua mantendo uma única regra lógica.
+        directions = ("in", "out") if direction == "both" else (direction,)
+
+        for concrete_direction in directions:
+            regra_runtime = {
+                **regra,
+                "dir": concrete_direction,
+            }
+            expr = _regra_para_expr(regra_runtime, contexto)
+            if expr:
+                pos.append(
+                    f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
+                    f"{CHAIN_RULES} {expr}"
+                )
 
     return script + "\n".join(pos) + ("\n" if pos else "")
 
@@ -386,6 +398,10 @@ def _regra_para_expr(
             partes.append(f'iifname "{iface_fisica}"')
         elif direction == "out":
             partes.append(f'oifname "{iface_fisica}"')
+        elif direction == "both":
+            raise ValueError(
+                "Direção 'both' deve ser expandida antes da geração da expressão nft."
+            )
 
     src = str(regra.get("src") or "any")
     dst = str(regra.get("dst") or "any")

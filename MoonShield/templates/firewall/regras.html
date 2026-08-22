@@ -1,1 +1,661 @@
+{% extends "base.html" %}
+{% load static %}
 
+{% block title %}Firewall — Regras{% endblock %}
+
+{% block breadcrumb %}
+<a href="{% url 'firewall:painel' %}" class="topbar__breadcrumb-link topbar__breadcrumb-item">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+    Firewall
+</a>
+<span class="topbar__breadcrumb-sep">/</span>
+<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
+    <i class="bi bi-list-check" style="font-size:13px"></i> Regras
+</span>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<link rel="stylesheet" href="{% static 'css/firewall/regras.css' %}?v=8">
+{% endblock %}
+
+{% block conteudo %}
+
+<div id="fwrApp"
+     data-url-data="{% url 'firewall:api_data' %}"
+     data-url-status="{% url 'firewall:api_status' %}"
+     data-url-interfaces="{% url 'firewall:api_interfaces' %}"
+     data-url-rules="{% url 'firewall:api_rules' %}"
+     data-url-apply="{% url 'firewall:api_apply_rules' %}"
+     data-url-block="{% url 'firewall:api_block' %}"
+     data-url-blocklist="{% url 'firewall:api_blocklist' %}"
+     data-url-allowlist="{% url 'firewall:api_allowlist' %}"
+     data-url-geoblock="{% url 'firewall:api_geoblock' %}"
+     data-url-nat="{% url 'firewall:api_nat' %}"
+     data-url-export="{% url 'firewall:api_export_nft' %}"
+     data-url-install="{% url 'firewall:instalacao' %}">
+
+    <!-- HEADER -->
+    <section class="fwr-head">
+        <div>
+            <span class="fwr-eyebrow">MOONSHIELD / FIREWALL</span>
+            <div class="fwr-head__title-row">
+                <h1>Regras e políticas de acesso</h1>
+                <span class="fwr-runtime fwr-runtime--loading" id="fwrRuntimeBadge">
+                    <span></span>
+                    <b id="fwrRuntimeText">Verificando</b>
+                </span>
+            </div>
+            <p>Crie regras, aplique bloqueios emergenciais e acompanhe o estado desejado no Django versus o nftables.</p>
+        </div>
+
+        <div class="fwr-head__actions">
+            <button class="fwr-btn fwr-btn--warning" id="fwrApplyBtn" type="button">
+                <i class="bi bi-lightning-charge"></i>
+                Aplicar pendentes
+            </button>
+            <button class="fwr-btn" id="fwrExportNftBtn" type="button" title="Exporta uma referência somente leitura">
+                <i class="bi bi-file-earmark-code"></i>
+                Referência nft
+            </button>
+            <a href="{% url 'firewall:feed' %}" class="fwr-btn">
+                <i class="bi bi-broadcast"></i>
+                Feed
+            </a>
+            <a href="{% url 'firewall:painel' %}" class="fwr-btn">
+                <i class="bi bi-grid-1x2"></i>
+                Dashboard
+            </a>
+        </div>
+    </section>
+
+    <!-- FIREWALL NÃO PRONTO -->
+    <section class="fwr-callout fwr-callout--danger" id="fwrSetupCallout" hidden>
+        <span class="fwr-callout__icon"><i class="bi bi-shield-exclamation"></i></span>
+        <div class="fwr-callout__body">
+            <strong id="fwrSetupTitle">Firewall indisponível</strong>
+            <small id="fwrSetupText">Verifique a instalação.</small>
+        </div>
+        <a class="fwr-btn fwr-btn--primary" href="{% url 'firewall:instalacao' %}">
+            Instalação e reparo
+            <i class="bi bi-arrow-right"></i>
+        </a>
+    </section>
+
+    <!-- PENDÊNCIAS -->
+    <section class="fwr-callout fwr-callout--warning" id="fwrSyncBar" hidden>
+        <span class="fwr-callout__icon"><i class="bi bi-arrow-repeat"></i></span>
+        <div class="fwr-callout__body">
+            <strong id="fwrSyncTitle">Alterações pendentes</strong>
+            <small id="fwrSyncMsg">Existem regras aguardando aplicação pelo MoonShield-Agent.</small>
+        </div>
+        <button class="fwr-btn fwr-btn--warning" id="fwrSyncApplyBtn" type="button">
+            <i class="bi bi-lightning-charge"></i>
+            Aplicar agora
+        </button>
+    </section>
+
+    <!-- BLOQUEIO EMERGENCIAL -->
+    <section class="fwr-quick-block">
+        <div class="fwr-section-head">
+            <div>
+                <span class="fwr-eyebrow">EMERGÊNCIA</span>
+                <h2>Bloqueio rápido</h2>
+                <p>Envia um bloqueio imediato ao Agent e registra a origem na blocklist.</p>
+            </div>
+            <span class="fwr-runtime-hint" id="fwrRuntimeHint"><i class="bi bi-lightning-charge-fill"></i> ms_emergency</span>
+        </div>
+
+        <div class="fwr-quick-grid">
+            <div class="fwr-field fwr-field--wide">
+                <label for="qbIp">IP ou rede <span>*</span></label>
+                <input class="fwr-input" id="qbIp" type="text" autocomplete="off" spellcheck="false"
+                       placeholder="1.2.3.4 ou 203.0.113.0/24">
+            </div>
+            <div class="fwr-field">
+                <label for="qbExpires">Expiração</label>
+                <select class="fwr-select" id="qbExpires">
+                    <option value="∞">Permanente</option>
+                    <option value="1h">1 hora</option>
+                    <option value="24h">24 horas</option>
+                    <option value="7d">7 dias</option>
+                    <option value="30d">30 dias</option>
+                </select>
+            </div>
+            <div class="fwr-field fwr-field--reason">
+                <label for="qbReason">Motivo</label>
+                <input class="fwr-input" id="qbReason" type="text" maxlength="255"
+                       placeholder="Ex.: brute force, varredura, análise SOC">
+            </div>
+            <button class="fwr-btn fwr-btn--danger fwr-quick-submit" id="qbSubmitBtn" type="button">
+                <i class="bi bi-ban"></i>
+                Bloquear agora
+            </button>
+        </div>
+
+        <div class="fwr-quick-preview" id="qbPreview" hidden>
+            <i class="bi bi-terminal"></i>
+            <code id="qbPreviewCode">—</code>
+        </div>
+    </section>
+
+    <!-- TABS -->
+    <nav class="fwr-tabs" aria-label="Seções do Firewall">
+        <button class="fwr-tab fwr-tab--active" data-tab="regras" type="button">
+            <i class="bi bi-list-check"></i> Regras
+            <span id="tabCountRegras">0</span>
+        </button>
+        <button class="fwr-tab" data-tab="bloqueados" type="button">
+            <i class="bi bi-slash-circle"></i> Blocklist
+            <span id="tabCountBloqueados">0</span>
+        </button>
+        <button class="fwr-tab" data-tab="liberados" type="button">
+            <i class="bi bi-check2-circle"></i> Allowlist
+            <span id="tabCountLiberados">0</span>
+        </button>
+        <button class="fwr-tab" data-tab="geoblock" type="button">
+            <i class="bi bi-globe2"></i> GeoBlock
+            <span id="tabCountGeoblock">0</span>
+        </button>
+        <button class="fwr-tab" data-tab="nat" type="button">
+            <i class="bi bi-arrow-left-right"></i> NAT
+            <span id="tabCountNat">0</span>
+        </button>
+    </nav>
+
+    <!-- ================================================================
+         REGRAS
+    ================================================================= -->
+    <section class="fwr-panel fwr-panel--active" id="panelRegras">
+        <div class="fwr-panel-note">
+            <i class="bi bi-info-circle"></i>
+            <span>
+                Regras são avaliadas por prioridade. Ao criar, editar, ativar, desativar ou remover,
+                o Django solicita aplicação ao MoonShield-Agent; se houver falha, a alteração permanece pendente.
+            </span>
+        </div>
+
+        <div class="fwr-toolbar">
+            <div class="fwr-toolbar__left">
+                <label class="fwr-search-box">
+                    <i class="bi bi-search"></i>
+                    <input id="fwrSearchRegras" type="search" placeholder="Buscar IP, porta ou descrição">
+                </label>
+
+                <select class="fwr-filter" id="fwrFilterAction">
+                    <option value="all">Todas as ações</option>
+                    <option value="allow">ALLOW</option>
+                    <option value="deny">DENY</option>
+                </select>
+
+                <select class="fwr-filter" id="fwrFilterIface">
+                    <option value="all">Todas as interfaces</option>
+                    <option value="WAN">WAN</option>
+                    <option value="MGMT">MGMT</option>
+                    <option value="LAN">LAN</option>
+                    <option value="any">ANY</option>
+                </select>
+            </div>
+
+            <div class="fwr-toolbar__right">
+                <span class="fwr-topology-mini" id="fwrTopologyMini">WAN — · MGMT — · LAN —</span>
+                <button class="fwr-btn fwr-btn--primary" id="fwrNewRuleBtn" type="button">
+                    <i class="bi bi-plus-circle"></i>
+                    Nova regra
+                </button>
+            </div>
+        </div>
+
+        <div class="fwr-table-wrap">
+            <table class="fwr-table">
+                <thead>
+                    <tr>
+                        <th>Pri.</th>
+                        <th>Ação</th>
+                        <th>Interface</th>
+                        <th>Direção</th>
+                        <th>Proto</th>
+                        <th>Origem</th>
+                        <th>Destino</th>
+                        <th>Porta</th>
+                        <th>Descrição</th>
+                        <th>Status</th>
+                        <th>Ativa</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="fwrRulesBody">
+                    <tr><td colspan="12"><div class="fwr-empty">Carregando regras...</div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         BLOCKLIST
+    ================================================================= -->
+    <section class="fwr-panel" id="panelBloqueados">
+        <div class="fwr-panel-note fwr-panel-note--red">
+            <i class="bi bi-lightning-charge"></i>
+            <span>
+                A blocklist usa o caminho de bloqueio do Agent. Remover uma entrada solicita o desbloqueio do IP no runtime.
+            </span>
+        </div>
+
+        <div class="fwr-toolbar">
+            <div class="fwr-toolbar__left">
+                <label class="fwr-search-box">
+                    <i class="bi bi-search"></i>
+                    <input id="fwrSearchBlock" type="search" placeholder="Buscar IP ou motivo">
+                </label>
+            </div>
+            <div class="fwr-toolbar__right">
+                <button class="fwr-btn fwr-btn--danger" id="fwrAddBlockBtn" type="button">
+                    <i class="bi bi-ban"></i> Bloquear IP
+                </button>
+            </div>
+        </div>
+
+        <div class="fwr-table-wrap">
+            <table class="fwr-table">
+                <thead>
+                    <tr>
+                        <th>IP / rede</th>
+                        <th>Motivo</th>
+                        <th>Fonte</th>
+                        <th>Expiração</th>
+                        <th>Adicionado</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="fwrBlockBody">
+                    <tr><td colspan="6"><div class="fwr-empty">Carregando blocklist...</div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         ALLOWLIST — SOMENTE PERSISTÊNCIA POR ENQUANTO
+    ================================================================= -->
+    <section class="fwr-panel" id="panelLiberados">
+        <div class="fwr-runtime-warning">
+            <i class="bi bi-database"></i>
+            <div>
+                <strong>Configuração persistida no Django</strong>
+                <span>A aplicação dedicada da allowlist em nftables ainda não está habilitada no Agent atual.</span>
+            </div>
+        </div>
+
+        <div class="fwr-toolbar">
+            <div class="fwr-toolbar__left">
+                <label class="fwr-search-box">
+                    <i class="bi bi-search"></i>
+                    <input id="fwrSearchAllow" type="search" placeholder="Buscar IP, rede ou motivo">
+                </label>
+            </div>
+            <div class="fwr-toolbar__right">
+                <button class="fwr-btn fwr-btn--green" id="fwrAddAllowBtn" type="button">
+                    <i class="bi bi-plus-circle"></i> Adicionar
+                </button>
+            </div>
+        </div>
+
+        <div class="fwr-table-wrap">
+            <table class="fwr-table">
+                <thead>
+                    <tr>
+                        <th>IP / rede</th>
+                        <th>Motivo</th>
+                        <th>Adicionado</th>
+                        <th>Runtime</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="fwrAllowBody">
+                    <tr><td colspan="5"><div class="fwr-empty">Carregando allowlist...</div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         GEOBLOCK
+    ================================================================= -->
+    <section class="fwr-panel" id="panelGeoblock">
+        <div class="fwr-runtime-warning">
+            <i class="bi bi-database"></i>
+            <div>
+                <strong>Configuração persistida no Django</strong>
+                <span>GeoBlock ainda não é aplicado no nftables pelo Agent. O painel não apresenta o cadastro como ativo no runtime.</span>
+            </div>
+        </div>
+
+        <div class="fwr-toolbar">
+            <div class="fwr-toolbar__left">
+                <label class="fwr-search-box">
+                    <i class="bi bi-search"></i>
+                    <input id="fwrSearchGeo" type="search" placeholder="Buscar país ou código">
+                </label>
+            </div>
+            <div class="fwr-toolbar__right">
+                <button class="fwr-btn fwr-btn--primary" id="fwrAddGeoBtn" type="button">
+                    <i class="bi bi-plus-circle"></i> Adicionar país
+                </button>
+            </div>
+        </div>
+
+        <div class="fwr-inline-form" id="fwrGeoAddPanel" hidden>
+            <div class="fwr-field fwr-field--wide">
+                <label for="geoCountrySelect">País</label>
+                <select class="fwr-select" id="geoCountrySelect">
+                    <option value="">Selecione</option>
+                    <option value="AF">Afeganistão (AF)</option>
+                    <option value="DZ">Argélia (DZ)</option>
+                    <option value="BY">Belarus (BY)</option>
+                    <option value="CN">China (CN)</option>
+                    <option value="CU">Cuba (CU)</option>
+                    <option value="KP">Coreia do Norte (KP)</option>
+                    <option value="IR">Irã (IR)</option>
+                    <option value="IQ">Iraque (IQ)</option>
+                    <option value="LY">Líbia (LY)</option>
+                    <option value="MM">Mianmar (MM)</option>
+                    <option value="NG">Nigéria (NG)</option>
+                    <option value="PK">Paquistão (PK)</option>
+                    <option value="RU">Rússia (RU)</option>
+                    <option value="SA">Arábia Saudita (SA)</option>
+                    <option value="SD">Sudão (SD)</option>
+                    <option value="SY">Síria (SY)</option>
+                    <option value="UA">Ucrânia (UA)</option>
+                    <option value="VE">Venezuela (VE)</option>
+                    <option value="YE">Iêmen (YE)</option>
+                    <option value="ZW">Zimbábue (ZW)</option>
+                </select>
+            </div>
+            <div class="fwr-field">
+                <label for="geoDirSelect">Direção</label>
+                <select class="fwr-select" id="geoDirSelect">
+                    <option value="IN">IN</option>
+                    <option value="OUT">OUT</option>
+                    <option value="BOTH">BOTH</option>
+                </select>
+            </div>
+            <div class="fwr-inline-form__actions">
+                <button class="fwr-btn" id="geoAddCancelBtn" type="button">Cancelar</button>
+                <button class="fwr-btn fwr-btn--primary" id="geoAddConfirmBtn" type="button">Salvar cadastro</button>
+            </div>
+        </div>
+
+        <div class="fwr-table-wrap">
+            <table class="fwr-table">
+                <thead>
+                    <tr>
+                        <th>País</th>
+                        <th>Código</th>
+                        <th>Direção</th>
+                        <th>Cadastro</th>
+                        <th>Runtime</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="fwrGeoBody">
+                    <tr><td colspan="6"><div class="fwr-empty">Carregando GeoBlock...</div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         NAT
+    ================================================================= -->
+    <section class="fwr-panel" id="panelNat">
+        <div class="fwr-runtime-warning">
+            <i class="bi bi-database"></i>
+            <div>
+                <strong>Port forwards ainda não são aplicados ao runtime</strong>
+                <span>Os registros ficam no Django até a etapa específica de NAT ser habilitada no MoonShield-Agent.</span>
+            </div>
+        </div>
+
+        <div class="fwr-toolbar">
+            <div class="fwr-toolbar__left">
+                <span class="fwr-stat"><small>CADASTROS</small><strong id="natCount">0</strong></span>
+            </div>
+            <div class="fwr-toolbar__right">
+                <button class="fwr-btn fwr-btn--primary" id="fwrNewNatBtn" type="button">
+                    <i class="bi bi-plus-circle"></i> Novo port forward
+                </button>
+            </div>
+        </div>
+
+        <div class="fwr-table-wrap">
+            <table class="fwr-table">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Interface</th>
+                        <th>WAN</th>
+                        <th>Destino interno</th>
+                        <th>Proto</th>
+                        <th>Cadastro</th>
+                        <th>Runtime</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="fwrNatBody">
+                    <tr><td colspan="8"><div class="fwr-empty">Carregando NAT...</div></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ================================================================
+         DRAWER REGRA
+    ================================================================= -->
+    <div class="fwr-drawer-overlay" id="fwrRuleDrawerOverlay"></div>
+    <aside class="fwr-drawer" id="fwrRuleDrawer" aria-hidden="true">
+        <header class="fwr-drawer__header">
+            <div>
+                <span class="fwr-eyebrow">REGRA</span>
+                <h2 id="fwrRuleDrawerTitle">Nova regra</h2>
+            </div>
+            <button class="fwr-icon-btn" id="fwrRuleDrawerClose" type="button" aria-label="Fechar">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </header>
+
+        <div class="fwr-drawer__body">
+            <div class="fwr-rule-summary" id="fwrRuleSummary">
+                <span id="fwrRuleSummaryAction" class="fwr-action-badge fwr-action-badge--deny">DENY</span>
+                <code id="fwrNftPreviewCode">drop</code>
+            </div>
+
+            <form id="fwrRuleForm" autocomplete="off" novalidate>
+                <div class="fwr-form-row">
+                    <label for="rfDesc">Descrição</label>
+                    <input class="fwr-form-input" id="rfDesc" type="text" maxlength="255"
+                           placeholder="Ex.: Bloquear SSH externo">
+                </div>
+
+                <div class="fwr-form-grid">
+                    <div class="fwr-form-row">
+                        <label for="rfAction">Ação</label>
+                        <select class="fwr-form-input" id="rfAction">
+                            <option value="deny">DENY — Bloquear</option>
+                            <option value="allow">ALLOW — Permitir</option>
+                        </select>
+                    </div>
+                    <div class="fwr-form-row">
+                        <label for="rfPriority">Prioridade</label>
+                        <input class="fwr-form-input" id="rfPriority" type="number" min="1" max="10000" value="100">
+                    </div>
+                </div>
+
+                <div class="fwr-form-grid">
+                    <div class="fwr-form-row">
+                        <label for="rfIface">Interface lógica</label>
+                        <select class="fwr-form-input" id="rfIface">
+                            <option value="WAN">WAN</option>
+                            <option value="MGMT">MGMT</option>
+                            <option value="LAN">LAN</option>
+                            <option value="any">ANY</option>
+                        </select>
+                        <small id="rfIfacePhysical">—</small>
+                    </div>
+                    <div class="fwr-form-row">
+                        <label for="rfDir">Direção</label>
+                        <select class="fwr-form-input" id="rfDir">
+                            <option value="in">IN — Entrada no MoonShield</option>
+                            <option value="out">OUT — Saída do MoonShield</option>
+                            <option value="forward">FORWARD — Tráfego roteado LAN/WAN</option>
+                            <option value="both">AMBOS — Entrada e saída da interface</option>
+                        </select>
+                        <small id="rfDirHint">Use FORWARD para controlar máquinas da LAN acessando outras redes/Internet.</small>
+                    </div>
+                </div>
+
+                <div class="fwr-form-row">
+                    <label for="rfProto">Protocolo</label>
+                    <select class="fwr-form-input" id="rfProto">
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                        <option value="ICMP">ICMP</option>
+                        <option value="any">ANY</option>
+                    </select>
+                </div>
+
+                <div class="fwr-form-grid">
+                    <div class="fwr-form-row">
+                        <label for="rfSrc">Origem</label>
+                        <input class="fwr-form-input" id="rfSrc" type="text" spellcheck="false" placeholder="any ou 192.168.1.0/24">
+                    </div>
+                    <div class="fwr-form-row">
+                        <label for="rfDst">Destino</label>
+                        <input class="fwr-form-input" id="rfDst" type="text" spellcheck="false" placeholder="any ou 10.10.0.10">
+                    </div>
+                </div>
+
+                <div class="fwr-form-grid">
+                    <div class="fwr-form-row">
+                        <label for="rfPort">Porta de destino</label>
+                        <input class="fwr-form-input" id="rfPort" type="text" spellcheck="false" placeholder="any, 22 ou 8000-8010">
+                        <small id="rfPortHint">Usada para TCP/UDP.</small>
+                    </div>
+                    <div class="fwr-form-row">
+                        <label>Opções</label>
+                        <div class="fwr-option-stack">
+                            <label class="fwr-check"><input id="rfEnabled" type="checkbox" checked><span></span> Regra ativa</label>
+                            <label class="fwr-check"><input id="rfLog" type="checkbox" checked><span></span> Registrar eventos</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="fwr-form-error" id="fwrRuleFormError" hidden></div>
+            </form>
+        </div>
+
+        <footer class="fwr-drawer__footer">
+            <button class="fwr-btn" id="fwrRuleDrawerCancel" type="button">Cancelar</button>
+            <button class="fwr-btn" id="fwrRuleDrawerDup" type="button" hidden>
+                <i class="bi bi-copy"></i> Duplicar
+            </button>
+            <button class="fwr-btn fwr-btn--primary" id="fwrRuleSaveBtn" type="button">
+                <i class="bi bi-floppy"></i> Salvar regra
+            </button>
+        </footer>
+    </aside>
+
+    <!-- ================================================================
+         DRAWER NAT
+    ================================================================= -->
+    <div class="fwr-drawer-overlay" id="fwrNatDrawerOverlay"></div>
+    <aside class="fwr-drawer" id="fwrNatDrawer" aria-hidden="true">
+        <header class="fwr-drawer__header">
+            <div>
+                <span class="fwr-eyebrow">NAT / CADASTRO</span>
+                <h2 id="fwrNatDrawerTitle">Novo port forward</h2>
+            </div>
+            <button class="fwr-icon-btn" id="fwrNatDrawerClose" type="button" aria-label="Fechar"><i class="bi bi-x-lg"></i></button>
+        </header>
+
+        <div class="fwr-drawer__body">
+            <div class="fwr-runtime-warning fwr-runtime-warning--drawer">
+                <i class="bi bi-info-circle"></i>
+                <div><strong>Somente cadastro</strong><span>Este port forward ainda não será aplicado no nftables.</span></div>
+            </div>
+
+            <form id="fwrNatForm" autocomplete="off" novalidate>
+                <div class="fwr-form-row">
+                    <label for="natName">Nome</label>
+                    <input class="fwr-form-input" id="natName" maxlength="100" placeholder="Servidor Web">
+                </div>
+                <div class="fwr-form-grid">
+                    <div class="fwr-form-row">
+                        <label for="natIface">Interface</label>
+                        <select class="fwr-form-input" id="natIface">
+                            <option value="WAN">WAN</option>
+                            <option value="LAN">LAN</option>
+                            <option value="VPN">VPN</option>
+                        </select>
+                    </div>
+                    <div class="fwr-form-row">
+                        <label for="natProto">Protocolo</label>
+                        <select class="fwr-form-input" id="natProto">
+                            <option value="TCP">TCP</option>
+                            <option value="UDP">UDP</option>
+                            <option value="any">ANY</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="fwr-form-grid">
+                    <div class="fwr-form-row">
+                        <label for="natWanPort">Porta externa</label>
+                        <input class="fwr-form-input" id="natWanPort" inputmode="numeric" placeholder="443">
+                    </div>
+                    <div class="fwr-form-row">
+                        <label for="natLanPort">Porta interna</label>
+                        <input class="fwr-form-input" id="natLanPort" inputmode="numeric" placeholder="443">
+                    </div>
+                </div>
+                <div class="fwr-form-row">
+                    <label for="natLanIp">IP interno</label>
+                    <input class="fwr-form-input" id="natLanIp" spellcheck="false" placeholder="10.10.0.10">
+                </div>
+                <label class="fwr-check fwr-check--block"><input id="natEnabled" type="checkbox" checked><span></span> Cadastro habilitado</label>
+                <div class="fwr-form-error" id="fwrNatFormError" hidden></div>
+            </form>
+        </div>
+
+        <footer class="fwr-drawer__footer">
+            <button class="fwr-btn" id="fwrNatDrawerCancel" type="button">Cancelar</button>
+            <button class="fwr-btn fwr-btn--primary" id="fwrNatSaveBtn" type="button">
+                <i class="bi bi-floppy"></i> Salvar cadastro
+            </button>
+        </footer>
+    </aside>
+
+    <!-- ================================================================
+         MODAL GENÉRICO
+    ================================================================= -->
+    <div class="fwr-modal-overlay" id="fwrModalOverlay" aria-hidden="true">
+        <div class="fwr-modal" role="dialog" aria-modal="true" aria-labelledby="fwrModalTitle">
+            <div class="fwr-modal__icon" id="fwrModalIcon"><i class="bi bi-question-circle"></i></div>
+            <div class="fwr-modal__content">
+                <h3 id="fwrModalTitle">Confirmação</h3>
+                <p id="fwrModalText"></p>
+                <div class="fwr-modal__fields" id="fwrModalFields"></div>
+                <div class="fwr-modal__actions" id="fwrModalActions"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="fwr-toast" id="fwrToast" role="status" aria-live="polite"></div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/firewall/regras.js' %}?v=9"></script>
+{% endblock %}

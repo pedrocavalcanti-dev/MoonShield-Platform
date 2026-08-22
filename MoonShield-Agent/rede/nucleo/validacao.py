@@ -55,11 +55,15 @@ def _bool(valor: Any, padrao: bool = False) -> bool:
         return valor != 0
     if valor is None:
         return padrao
+
     texto = str(valor).strip().lower()
+
     if texto in {"1", "true", "yes", "sim", "on", "ativo", "enabled"}:
         return True
+
     if texto in {"0", "false", "no", "nao", "não", "off", "inativo", "disabled"}:
         return False
+
     return padrao
 
 
@@ -94,6 +98,7 @@ def _validar_interface_nome(nome: Any) -> str:
 
 def _interfaces_existentes() -> dict[str, dict[str, Any]]:
     backend = obter_backend()
+
     return {
         item["nome"]: item
         for item in backend.listar_interfaces(incluir_loopback=False)
@@ -132,6 +137,7 @@ def _normalizar_timeout(payload: dict[str, Any]) -> int:
         or payload.get("rollback_segundos")
         or payload.get("confirmacao_segundos")
         or payload.get("tempo_confirmacao")
+        or payload.get("confirmation_timeout")
         or ROLLBACK_PADRAO_SEGUNDOS
     )
 
@@ -256,10 +262,17 @@ def _extrair_interfaces(payload: dict[str, Any], configuracao: dict[str, Any]) -
 
     if interfaces is not None:
         if not isinstance(interfaces, list):
-            raise ValidacaoRedeErro("'interfaces' precisa ser uma lista.", codigo="interfaces_invalidas")
+            raise ValidacaoRedeErro(
+                "'interfaces' precisa ser uma lista.",
+                codigo="interfaces_invalidas",
+            )
+
         return interfaces
 
-    interface = payload.get("interface")
+    interface = configuracao.get("interface")
+
+    if interface is None:
+        interface = payload.get("interface")
 
     if interface is None and "nome" in configuracao:
         interface = configuracao
@@ -283,7 +296,10 @@ def _extrair_interfaces(payload: dict[str, Any], configuracao: dict[str, Any]) -
 
         return [item]
 
-    raise ValidacaoRedeErro("Formato de interface inválido.", codigo="interface_payload_invalido")
+    raise ValidacaoRedeErro(
+        "Formato de interface inválido.",
+        codigo="interface_payload_invalido",
+    )
 
 
 def _validar_interfaces(payload: dict[str, Any], configuracao: dict[str, Any]) -> list[dict[str, Any]]:
@@ -292,7 +308,10 @@ def _validar_interfaces(payload: dict[str, Any], configuracao: dict[str, Any]) -
 
     for item in _extrair_interfaces(payload, configuracao):
         if not isinstance(item, dict):
-            raise ValidacaoRedeErro("Item de interface inválido.", codigo="interface_payload_invalido")
+            raise ValidacaoRedeErro(
+                "Item de interface inválido.",
+                codigo="interface_payload_invalido",
+            )
 
         nome = item.get("nome") or item.get("name") or item.get("interface")
         config = item.get("configuracao")
@@ -301,7 +320,13 @@ def _validar_interfaces(payload: dict[str, Any], configuracao: dict[str, Any]) -
             config = {
                 chave: valor
                 for chave, valor in item.items()
-                if chave not in {"nome", "name", "interface", "conexao", "connection"}
+                if chave not in {
+                    "nome",
+                    "name",
+                    "interface",
+                    "conexao",
+                    "connection",
+                }
             }
 
         if item.get("conexao") and "conexao" not in config:
@@ -349,23 +374,35 @@ def _validar_sobreposicao_redes(interfaces: list[dict[str, Any]]) -> None:
                 )
 
 
-def _validar_rotas(rotas: Any, existentes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _validar_rotas(
+    rotas: Any,
+    existentes: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     if rotas is None:
         return []
 
     if not isinstance(rotas, list):
-        raise ValidacaoRedeErro("'rotas' precisa ser uma lista.", codigo="rotas_invalidas")
+        raise ValidacaoRedeErro(
+            "'rotas' precisa ser uma lista.",
+            codigo="rotas_invalidas",
+        )
 
     resultado = []
 
     for rota_original in rotas:
         if not isinstance(rota_original, dict):
-            raise ValidacaoRedeErro("Rota estática inválida.", codigo="rota_invalida")
+            raise ValidacaoRedeErro(
+                "Rota estática inválida.",
+                codigo="rota_invalida",
+            )
 
         rota = normalizar_rota(rota_original)
 
         try:
-            rede = ipaddress.ip_network(rota["destino"], strict=False)
+            rede = ipaddress.ip_network(
+                rota["destino"],
+                strict=False,
+            )
         except ValueError as exc:
             raise ValidacaoRedeErro(
                 "Destino de rota inválido.",
@@ -374,7 +411,10 @@ def _validar_rotas(rotas: Any, existentes: dict[str, dict[str, Any]]) -> list[di
             ) from exc
 
         if rede.version != 4:
-            raise ValidacaoRedeErro("Somente rotas IPv4 são suportadas no V1.", codigo="rota_ipv6_nao_suportada")
+            raise ValidacaoRedeErro(
+                "Somente rotas IPv4 são suportadas no V1.",
+                codigo="rota_ipv6_nao_suportada",
+            )
 
         if str(rede) == "0.0.0.0/0":
             raise ValidacaoRedeErro(
@@ -385,9 +425,14 @@ def _validar_rotas(rotas: Any, existentes: dict[str, dict[str, Any]]) -> list[di
         rota["destino"] = str(rede)
 
         if rota.get("gateway"):
-            rota["gateway"] = _validar_ipv4(rota["gateway"], "gateway_rota")
+            rota["gateway"] = _validar_ipv4(
+                rota["gateway"],
+                "gateway_rota",
+            )
 
-        interface = _validar_interface_nome(rota.get("interface_nome"))
+        interface = _validar_interface_nome(
+            rota.get("interface_nome")
+        )
 
         if interface not in existentes:
             raise ValidacaoRedeErro(
@@ -399,19 +444,28 @@ def _validar_rotas(rotas: Any, existentes: dict[str, dict[str, Any]]) -> list[di
         rota["interface_nome"] = interface
 
         if not rota.get("gateway") and not interface:
-            raise ValidacaoRedeErro("Rota precisa possuir gateway ou interface.", codigo="rota_sem_gateway_interface")
+            raise ValidacaoRedeErro(
+                "Rota precisa possuir gateway ou interface.",
+                codigo="rota_sem_gateway_interface",
+            )
 
         resultado.append(rota)
 
     return resultado
 
 
-def _validar_nat(regras: Any, existentes: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _validar_nat(
+    regras: Any,
+    existentes: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     if regras is None:
         return []
 
     if not isinstance(regras, list):
-        raise ValidacaoRedeErro("'regras' de NAT precisa ser uma lista.", codigo="nat_regras_invalidas")
+        raise ValidacaoRedeErro(
+            "'regras' de NAT precisa ser uma lista.",
+            codigo="nat_regras_invalidas",
+        )
 
     resultado = []
 
@@ -447,22 +501,39 @@ def _validar_nat(regras: Any, existentes: dict[str, dict[str, Any]]) -> list[dic
 
 def validar_alteracao(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        raise ValidacaoRedeErro("Payload da alteração precisa ser um objeto.", codigo="payload_invalido")
+        raise ValidacaoRedeErro(
+            "Payload da alteração precisa ser um objeto.",
+            codigo="payload_invalido",
+        )
 
     tipo = _normalizar_tipo(payload)
     timeout = _normalizar_timeout(payload)
 
-    configuracao = payload.get("configuracao") or payload.get("estado_desejado") or payload.get("desired") or {}
+    configuracao = (
+        payload.get("configuracao")
+        or payload.get("estado_desejado")
+        or payload.get("desired")
+        or {}
+    )
 
     if not isinstance(configuracao, dict):
-        raise ValidacaoRedeErro("'configuracao' precisa ser um objeto.", codigo="configuracao_invalida")
+        raise ValidacaoRedeErro(
+            "'configuracao' precisa ser um objeto.",
+            codigo="configuracao_invalida",
+        )
 
     existentes = _interfaces_existentes()
 
-    interfaces = _validar_interfaces(payload, configuracao) if tipo in {"interface", "general"} else []
+    interfaces = (
+        _validar_interfaces(payload, configuracao)
+        if tipo in {"interface", "general"}
+        else []
+    )
+
     _validar_sobreposicao_redes(interfaces)
 
     roteamento_origem = configuracao.get("roteamento")
+
     if roteamento_origem is None and tipo == "routing":
         roteamento_origem = configuracao
 
@@ -477,20 +548,41 @@ def validar_alteracao(payload: dict[str, Any]) -> dict[str, Any]:
             existentes,
         )
 
-        interfaces_alvo = roteamento_origem.get("interfaces_alvo") or []
+        interfaces_alvo = (
+            roteamento_origem.get("interfaces_alvo")
+            or []
+        )
 
         if not isinstance(interfaces_alvo, list):
-            raise ValidacaoRedeErro("'interfaces_alvo' precisa ser uma lista.", codigo="interfaces_alvo_invalidas")
+            raise ValidacaoRedeErro(
+                "'interfaces_alvo' precisa ser uma lista.",
+                codigo="interfaces_alvo_invalidas",
+            )
 
-        interfaces_alvo = [_validar_interface_nome(item) for item in interfaces_alvo]
+        interfaces_alvo = [
+            _validar_interface_nome(item)
+            for item in interfaces_alvo
+        ]
 
         for rota in rotas:
             if rota["interface_nome"] not in interfaces_alvo:
-                interfaces_alvo.append(rota["interface_nome"])
+                interfaces_alvo.append(
+                    rota["interface_nome"]
+                )
 
         roteamento = {
-            "ipv4_forward": _bool(roteamento_origem.get("ipv4_forward")) if forward_presente else None,
-            "rotas": rotas if rotas_presentes else None,
+            "ipv4_forward": (
+                _bool(
+                    roteamento_origem.get("ipv4_forward")
+                )
+                if forward_presente
+                else None
+            ),
+            "rotas": (
+                rotas
+                if rotas_presentes
+                else None
+            ),
             "interfaces_alvo": interfaces_alvo,
         }
 
@@ -503,7 +595,13 @@ def validar_alteracao(payload: dict[str, Any]) -> dict[str, Any]:
 
     if isinstance(nat_origem, dict):
         regras_presentes = "regras" in nat_origem
-        regras = _validar_nat(nat_origem.get("regras") if regras_presentes else [], existentes)
+
+        regras = _validar_nat(
+            nat_origem.get("regras")
+            if regras_presentes
+            else [],
+            existentes,
+        )
 
         nat = {
             "regras": regras,
@@ -511,25 +609,50 @@ def validar_alteracao(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     if tipo == "interface" and not interfaces:
-        raise ValidacaoRedeErro("Alteração de interface sem interface informada.", codigo="interface_ausente")
+        raise ValidacaoRedeErro(
+            "Alteração de interface sem interface informada.",
+            codigo="interface_ausente",
+        )
 
     if tipo == "routing" and roteamento is None:
-        raise ValidacaoRedeErro("Alteração de roteamento sem configuração.", codigo="roteamento_ausente")
+        raise ValidacaoRedeErro(
+            "Alteração de roteamento sem configuração.",
+            codigo="roteamento_ausente",
+        )
 
     if tipo == "nat" and nat is None:
-        raise ValidacaoRedeErro("Alteração NAT sem configuração.", codigo="nat_ausente")
+        raise ValidacaoRedeErro(
+            "Alteração NAT sem configuração.",
+            codigo="nat_ausente",
+        )
 
-    if tipo == "general" and not interfaces and roteamento is None and nat is None:
-        raise ValidacaoRedeErro("Alteração geral não possui operações.", codigo="alteracao_vazia")
+    if (
+        tipo == "general"
+        and not interfaces
+        and roteamento is None
+        and nat is None
+    ):
+        raise ValidacaoRedeErro(
+            "Alteração geral não possui operações.",
+            codigo="alteracao_vazia",
+        )
 
     return {
-        "alteracao_id": str(payload.get("alteracao_id") or payload.get("id") or "").strip() or None,
+        "alteracao_id": str(
+            payload.get("alteracao_id")
+            or payload.get("change_id")
+            or payload.get("id")
+            or ""
+        ).strip() or None,
         "tipo": tipo,
         "timeout_segundos": timeout,
         "interfaces": interfaces,
         "roteamento": roteamento,
         "nat": nat,
-        "metadados": dict(payload.get("metadados") or {}),
+        "metadados": dict(
+            payload.get("metadados")
+            or {}
+        ),
     }
 
 

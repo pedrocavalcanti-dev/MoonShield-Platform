@@ -356,6 +356,9 @@ class ErroOperacao(RuntimeError):
 
 
 def _despachar(req: RequisicaoIPC) -> dict[str, Any]:
+    if req.acao.startswith("network."):
+        return _despachar_rede(req)
+
     handler = _HANDLERS.get(req.acao)
     if handler is None:
         raise ErroOperacao(
@@ -369,6 +372,55 @@ def _despachar(req: RequisicaoIPC) -> dict[str, Any]:
     if isinstance(resultado, dict):
         return resultado
     return {"resultado": resultado}
+
+
+def _despachar_rede(req: RequisicaoIPC) -> dict[str, Any]:
+    """
+    Encaminha ações network.* para o dispatcher oficial do módulo Rede.
+
+    O servidor IPC continua sendo único (/run/moonshield/agent.sock).
+    O módulo Rede recebe somente a ação já validada pelo protocolo e os dados.
+    """
+    try:
+        modulo = importlib.import_module("rede.ipc.handlers")
+    except Exception as exc:
+        raise ErroOperacao(
+            f"Não foi possível carregar o módulo de Rede: {exc}",
+            codigo="rede_modulo_indisponivel",
+            detalhes={"tipo": type(exc).__name__},
+        ) from exc
+
+    executar = getattr(modulo, "executar_acao_rede", None)
+    if not callable(executar):
+        raise ErroOperacao(
+            "O dispatcher do módulo de Rede não está disponível.",
+            codigo="rede_dispatcher_indisponivel",
+        )
+
+    try:
+        resultado = executar(req.acao, req.dados)
+    except Exception as exc:
+        codigo = str(getattr(exc, "codigo", "") or "rede_operacao_falhou")
+        detalhes = getattr(exc, "detalhes", {}) or {}
+        if not isinstance(detalhes, dict):
+            detalhes = {"detalhes": str(detalhes)}
+
+        raise ErroOperacao(
+            str(exc) or "A operação de Rede falhou.",
+            codigo=codigo,
+            detalhes=detalhes,
+        ) from exc
+
+    if resultado is None:
+        return {}
+    if isinstance(resultado, dict):
+        return resultado
+
+    raise ErroOperacao(
+        "O módulo de Rede retornou um formato inválido.",
+        codigo="rede_resposta_invalida",
+        detalhes={"tipo": type(resultado).__name__},
+    )
 
 
 # =============================================================================

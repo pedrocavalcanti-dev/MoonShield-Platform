@@ -40,6 +40,7 @@ _RE_ACAO = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
 ACOES = frozenset({
     "system.ping",
     "system.info",
+
     "firewall.status",
     "firewall.interfaces",
     "firewall.rules",
@@ -52,6 +53,17 @@ ACOES = frozenset({
     "firewall.rollback",
     "firewall.block",
     "firewall.unblock",
+
+    "network.status",
+    "network.inventory",
+    "network.diagnostics",
+    "network.routing.status",
+    "network.nat.status",
+    "network.change.apply",
+    "network.change.confirm",
+    "network.change.rollback",
+    "network.change.status",
+    "network.change.cancel",
 })
 
 ALIASES_ACAO = {
@@ -253,8 +265,10 @@ def _serializar(payload: dict[str, Any]) -> bytes:
         raise ErroProtocolo(f"Falha ao serializar mensagem: {exc}") from exc
 
     raw = (texto + "\n").encode(ENCODING)
+
     if len(raw) > MAX_MENSAGEM_BYTES:
         raise ErroProtocolo("Mensagem serializada excede o limite permitido.")
+
     return raw
 
 
@@ -269,6 +283,7 @@ def codificar_requisicao(
         acao=normalizar_acao(acao),
         dados=validar_dados(dados),
     )
+
     return _serializar(req.para_dict())
 
 
@@ -304,6 +319,7 @@ def resposta_erro(
     else:
         final_id = validar_id(req_id)
         final_acao = "system.ping"
+
         if acao:
             try:
                 final_acao = normalizar_acao(acao)

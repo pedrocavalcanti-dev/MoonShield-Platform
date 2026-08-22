@@ -48,6 +48,7 @@ from typing import Any, Callable
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -1277,7 +1278,7 @@ def api_rules(request):
             status=400,
         )
 
-    regra = RegraFirewall(
+    regra_nova = RegraFirewall(
         priority=_int(
             dados.get(
                 "priority"
@@ -1291,49 +1292,49 @@ def api_rules(request):
                 "action"
             )
             or RegraFirewall.Acao.DENY
-        ),
+        ).strip(),
         iface=str(
             dados.get(
                 "iface"
             )
             or RegraFirewall.Interface.ANY
-        ),
+        ).strip(),
         dir=str(
             dados.get(
                 "dir"
             )
             or RegraFirewall.Direcao.IN
-        ),
+        ).strip(),
         proto=str(
             dados.get(
                 "proto"
             )
             or RegraFirewall.Protocolo.TCP
-        ),
+        ).strip(),
         src=str(
             dados.get(
                 "src"
             )
             or "any"
-        ),
+        ).strip() or "any",
         dst=str(
             dados.get(
                 "dst"
             )
             or "any"
-        ),
+        ).strip() or "any",
         port=str(
             dados.get(
                 "port"
             )
             or "any"
-        ),
+        ).strip() or "any",
         desc=str(
             dados.get(
                 "desc"
             )
             or ""
-        )[:255],
+        ).strip()[:255],
         enabled=_bool(
             dados.get(
                 "enabled"
@@ -1352,8 +1353,53 @@ def api_rules(request):
     )
 
     try:
-        regra.full_clean()
-        regra.save()
+        # Primeiro valida o objeto sem persistir. Só depois procuramos uma
+        # regra semanticamente idêntica já existente.
+        regra_nova.full_clean()
+
+        with transaction.atomic():
+            regra = (
+                RegraFirewall.objects
+                .select_for_update()
+                .filter(
+                    priority=regra_nova.priority,
+                    action=regra_nova.action,
+                    iface=regra_nova.iface,
+                    dir=regra_nova.dir,
+                    proto=regra_nova.proto,
+                    src=regra_nova.src,
+                    dst=regra_nova.dst,
+                    port=regra_nova.port,
+                    desc=regra_nova.desc,
+                    enabled=regra_nova.enabled,
+                    log=regra_nova.log,
+                    deletado=False,
+                )
+                .order_by("id")
+                .first()
+            )
+
+            criada_nova = regra is None
+
+            if criada_nova:
+                regra = regra_nova
+                regra.save()
+            else:
+                # A mesma regra já existe. Não criamos outra linha no banco.
+                # Apenas a recolocamos como pendente para uma nova tentativa.
+                regra.pendente = True
+                regra.sincronizada = False
+                regra.sincronizada_em = None
+                regra.ultimo_erro = ""
+                regra.save(
+                    update_fields=[
+                        "pendente",
+                        "sincronizada",
+                        "sincronizada_em",
+                        "ultimo_erro",
+                        "atualizado_em",
+                    ]
+                )
 
     except ValidationError as exc:
         return JsonResponse(
@@ -1362,6 +1408,7 @@ def api_rules(request):
             ),
             status=400,
         )
+
 
     sync_result = aplicar_regras_pendentes()
 
@@ -1389,8 +1436,9 @@ def api_rules(request):
             ),
             "sync_result": sync_result,
             "sync": sync_status(),
+            "reutilizada": not criada_nova,
         },
-        status=201,
+        status=(201 if criada_nova else 200),
     )
 
 

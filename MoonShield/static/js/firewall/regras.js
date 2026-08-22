@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — FIREWALL / REGRAS v10
+ * MOONSHIELD — FIREWALL / REGRAS v11
  * Fonte de verdade do frontend: APIs Django da arquitetura local.
  */
 
@@ -839,7 +839,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            toast("Regra salva e aplicada.", "ok");
+            toast(
+                data?.reutilizada
+                    ? "Regra existente reutilizada e aplicada."
+                    : "Regra salva e aplicada.",
+                "ok"
+            );
             closeRuleDrawer();
         } catch (error) {
             showFormError("fwrRuleFormError", error.message);

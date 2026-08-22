@@ -56,7 +56,7 @@ from firewall.nucleo.seguranca import (
 )
 
 
-VERSAO_APLICADOR = "1.0"
+VERSAO_APLICADOR = "1.1"
 
 TIMEOUT_NFT = 30
 MAX_SCRIPT_BYTES = 4 * 1024 * 1024

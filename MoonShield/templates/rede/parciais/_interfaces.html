@@ -1,0 +1,906 @@
+<!-- ================================================================
+     MOONSHIELD NETWORK
+     INTERFACES
+================================================================ -->
+
+<section
+    class="np-section"
+    id="section-interfaces"
+    data-section-panel="interfaces"
+>
+
+    <!-- ============================================================
+         CABEÇALHO
+    ============================================================= -->
+
+    <div class="np-section-title">
+
+        <div>
+            <span class="np-section-title__eyebrow">
+                Network Interfaces
+            </span>
+
+            <h2>
+                Interfaces
+            </h2>
+
+            <p>
+                Configure o papel, endereçamento IPv4,
+                gerenciamento e estado desejado das interfaces
+                detectadas pelo MoonShield.
+            </p>
+        </div>
+
+
+        <div class="np-section-title__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--ghost
+                "
+                id="interfacesDetectButton"
+            >
+
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle
+                        cx="12"
+                        cy="12"
+                        r="3"
+                    ></circle>
+
+                    <path d="M3 12H6"></path>
+                    <path d="M18 12H21"></path>
+                    <path d="M12 3V6"></path>
+                    <path d="M12 18V21"></path>
+                </svg>
+
+                Detectar Interfaces
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         RESUMO
+    ============================================================= -->
+
+    <div class="np-interface-summary">
+
+        <div class="np-interface-summary__item">
+
+            <span>
+                Detectadas
+            </span>
+
+            <strong id="interfacesTotal">
+                0
+            </strong>
+
+        </div>
+
+
+        <div class="np-interface-summary__item">
+
+            <span>
+                Configuradas
+            </span>
+
+            <strong id="interfacesConfigured">
+                0
+            </strong>
+
+        </div>
+
+
+        <div class="np-interface-summary__item">
+
+            <span>
+                Link ativo
+            </span>
+
+            <strong id="interfacesOnline">
+                0
+            </strong>
+
+        </div>
+
+
+        <div class="np-interface-summary__item">
+
+            <span>
+                Pendentes
+            </span>
+
+            <strong id="interfacesPending">
+                0
+            </strong>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         LISTA
+    ============================================================= -->
+
+    <div
+        class="np-interface-list"
+        id="interfacesContainer"
+    >
+
+        <!-- Estado inicial -->
+
+        <div
+            class="np-empty-state"
+            id="interfacesEmptyState"
+        >
+
+            <div class="np-empty-state__icon">
+
+                <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <rect
+                        x="3"
+                        y="4"
+                        width="18"
+                        height="6"
+                        rx="2"
+                    ></rect>
+
+                    <rect
+                        x="3"
+                        y="14"
+                        width="18"
+                        height="6"
+                        rx="2"
+                    ></rect>
+                </svg>
+
+            </div>
+
+
+            <div>
+                <strong>
+                    Nenhuma interface carregada
+                </strong>
+
+                <span>
+                    Detecte as interfaces do sistema para iniciar.
+                </span>
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         TEMPLATE DE CARD
+    ============================================================= -->
+
+    <template id="interfaceCardTemplate">
+
+        <article
+            class="np-interface-card"
+            data-interface-card
+        >
+
+            <!-- ====================================================
+                 TOPO
+            ===================================================== -->
+
+            <div class="np-interface-card__head">
+
+                <div class="np-interface-card__identity">
+
+                    <div
+                        class="
+                            np-interface-card__port
+                        "
+                    >
+
+                        <svg
+                            width="19"
+                            height="19"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.7"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <rect
+                                x="4"
+                                y="5"
+                                width="16"
+                                height="14"
+                                rx="2"
+                            ></rect>
+
+                            <path d="M8 9H16"></path>
+
+                            <path d="M8 13H10"></path>
+                            <path d="M14 13H16"></path>
+                        </svg>
+
+                    </div>
+
+
+                    <div class="np-interface-card__name">
+
+                        <div>
+
+                            <strong
+                                data-interface-name
+                            >
+                                interface
+                            </strong>
+
+                            <span
+                                class="np-interface-role"
+                                data-interface-role
+                            >
+                                Não atribuída
+                            </span>
+
+                        </div>
+
+
+                        <small
+                            data-interface-mac
+                        >
+                            MAC —
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+                <div class="np-interface-card__status">
+
+                    <span
+                        class="
+                            np-status-pill
+                            np-status-pill--pending
+                        "
+                        data-interface-link
+                    >
+                        Link —
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <!-- ====================================================
+                 CORPO
+            ===================================================== -->
+
+            <div class="np-interface-card__body">
+
+                <div class="np-interface-card__grid">
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            IPv4 desejado
+                        </span>
+
+                        <strong
+                            data-interface-desired-ip
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            IPv4 atual
+                        </span>
+
+                        <strong
+                            data-interface-current-ip
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            Gateway
+                        </span>
+
+                        <strong
+                            data-interface-gateway
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            MTU
+                        </span>
+
+                        <strong
+                            data-interface-mtu
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            Backend
+                        </span>
+
+                        <strong
+                            data-interface-backend
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            Gerenciamento
+                        </span>
+
+                        <strong
+                            data-interface-management
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- ====================================================
+                 RODAPÉ
+            ===================================================== -->
+
+            <div class="np-interface-card__footer">
+
+                <div class="np-interface-sync">
+
+                    <span
+                        class="
+                            np-status-dot
+                            np-status-dot--pending
+                        "
+                        data-interface-sync-dot
+                    ></span>
+
+                    <span
+                        data-interface-sync
+                    >
+                        Estado desconhecido
+                    </span>
+
+                </div>
+
+
+                <div class="np-interface-card__actions">
+
+                    <button
+                        type="button"
+                        class="
+                            np-btn
+                            np-btn--ghost
+                            np-btn--small
+                        "
+                        data-interface-configure
+                    >
+                        Configurar
+                    </button>
+
+
+                    <button
+                        type="button"
+                        class="
+                            np-btn
+                            np-btn--primary
+                            np-btn--small
+                        "
+                        data-interface-apply
+                    >
+                        Aplicar
+                    </button>
+
+                </div>
+
+            </div>
+
+        </article>
+
+    </template>
+
+
+    <!-- ============================================================
+         DRAWER DE CONFIGURAÇÃO
+    ============================================================= -->
+
+    <div
+        class="np-drawer"
+        id="interfaceDrawer"
+        aria-hidden="true"
+    >
+
+        <div
+            class="np-drawer__backdrop"
+            data-close-interface-drawer
+        ></div>
+
+
+        <aside
+            class="np-drawer__panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="interfaceDrawerTitle"
+        >
+
+            <!-- ====================================================
+                 HEADER
+            ===================================================== -->
+
+            <div class="np-drawer__head">
+
+                <div>
+
+                    <span class="np-drawer__eyebrow">
+                        Interface
+                    </span>
+
+                    <h2 id="interfaceDrawerTitle">
+                        Configurar interface
+                    </h2>
+
+                </div>
+
+
+                <button
+                    type="button"
+                    class="np-icon-btn"
+                    data-close-interface-drawer
+                    aria-label="Fechar"
+                    title="Fechar"
+                >
+
+                    <svg
+                        width="17"
+                        height="17"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                    >
+                        <path d="M6 6L18 18"></path>
+                        <path d="M18 6L6 18"></path>
+                    </svg>
+
+                </button>
+
+            </div>
+
+
+            <!-- ====================================================
+                 FORM
+            ===================================================== -->
+
+            <form
+                id="interfaceConfigForm"
+                class="np-drawer__body"
+            >
+
+                <input
+                    type="hidden"
+                    id="interfaceConfigId"
+                >
+
+
+                <!-- INTERFACE -->
+
+                <div class="np-form-group">
+
+                    <label>
+                        Interface
+                    </label>
+
+                    <input
+                        type="text"
+                        class="np-input"
+                        id="interfaceConfigName"
+                        readonly
+                    >
+
+                </div>
+
+
+                <!-- DESCRIÇÃO -->
+
+                <div class="np-form-group">
+
+                    <label for="interfaceDescription">
+                        Descrição
+                    </label>
+
+                    <input
+                        type="text"
+                        class="np-input"
+                        id="interfaceDescription"
+                        maxlength="120"
+                        placeholder="Ex: Link principal"
+                    >
+
+                </div>
+
+
+                <!-- PAPEL -->
+
+                <div class="np-form-group">
+
+                    <label for="interfaceRole">
+                        Papel
+                    </label>
+
+                    <select
+                        class="np-select"
+                        id="interfaceRole"
+                    >
+
+                        <option value="unassigned">
+                            Não atribuída
+                        </option>
+
+                        <option value="wan">
+                            WAN
+                        </option>
+
+                        <option value="lan">
+                            LAN
+                        </option>
+
+                        <option value="mgmt">
+                            Gerenciamento
+                        </option>
+
+                        <option value="dmz">
+                            DMZ
+                        </option>
+
+                        <option value="custom">
+                            Personalizada
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <!-- FLAGS -->
+
+                <div class="np-form-switches">
+
+                    <label class="np-switch-row">
+
+                        <div>
+                            <strong>
+                                Interface principal
+                            </strong>
+
+                            <span>
+                                Principal dentro do papel selecionado.
+                            </span>
+                        </div>
+
+                        <input
+                            type="checkbox"
+                            id="interfacePrimary"
+                        >
+
+                        <span class="np-switch"></span>
+
+                    </label>
+
+
+                    <label class="np-switch-row">
+
+                        <div>
+                            <strong>
+                                Interface habilitada
+                            </strong>
+
+                            <span>
+                                Mantém a interface ativa no sistema.
+                            </span>
+                        </div>
+
+                        <input
+                            type="checkbox"
+                            id="interfaceEnabled"
+                            checked
+                        >
+
+                        <span class="np-switch"></span>
+
+                    </label>
+
+
+                    <label class="np-switch-row">
+
+                        <div>
+                            <strong>
+                                Acesso ao gerenciamento
+                            </strong>
+
+                            <span>
+                                Permite acesso ao painel por esta interface.
+                            </span>
+                        </div>
+
+                        <input
+                            type="checkbox"
+                            id="interfaceManagement"
+                        >
+
+                        <span class="np-switch"></span>
+
+                    </label>
+
+                </div>
+
+
+                <!-- IPv4 -->
+
+                <div class="np-form-divider">
+                    IPv4
+                </div>
+
+
+                <div class="np-form-group">
+
+                    <label for="interfaceIpv4Mode">
+                        Modo
+                    </label>
+
+                    <select
+                        class="np-select"
+                        id="interfaceIpv4Mode"
+                    >
+
+                        <option value="dhcp">
+                            DHCP
+                        </option>
+
+                        <option value="static">
+                            Estático
+                        </option>
+
+                        <option value="disabled">
+                            Desativado
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <div
+                    class="np-form-grid"
+                    id="interfaceStaticFields"
+                    hidden
+                >
+
+                    <div class="np-form-group">
+
+                        <label for="interfaceIpv4Address">
+                            Endereço IPv4
+                        </label>
+
+                        <input
+                            type="text"
+                            class="np-input"
+                            id="interfaceIpv4Address"
+                            placeholder="10.10.0.1"
+                            autocomplete="off"
+                        >
+
+                    </div>
+
+
+                    <div class="np-form-group">
+
+                        <label for="interfaceIpv4Prefix">
+                            Prefixo
+                        </label>
+
+                        <input
+                            type="number"
+                            class="np-input"
+                            id="interfaceIpv4Prefix"
+                            min="0"
+                            max="32"
+                            value="24"
+                        >
+
+                    </div>
+
+                </div>
+
+
+                <div
+                    class="np-form-group"
+                    id="interfaceGatewayGroup"
+                    hidden
+                >
+
+                    <label for="interfaceGateway">
+                        Gateway
+                    </label>
+
+                    <input
+                        type="text"
+                        class="np-input"
+                        id="interfaceGateway"
+                        placeholder="192.168.0.1"
+                        autocomplete="off"
+                    >
+
+                </div>
+
+
+                <!-- ROTA DEFAULT -->
+
+                <label
+                    class="np-switch-row"
+                    id="interfaceDefaultRouteRow"
+                >
+
+                    <div>
+                        <strong>
+                            Rota padrão
+                        </strong>
+
+                        <span>
+                            Define esta WAN como saída padrão.
+                        </span>
+                    </div>
+
+                    <input
+                        type="checkbox"
+                        id="interfaceDefaultRoute"
+                    >
+
+                    <span class="np-switch"></span>
+
+                </label>
+
+
+                <!-- MÉTRICA / MTU -->
+
+                <div class="np-form-grid">
+
+                    <div class="np-form-group">
+
+                        <label for="interfaceMetric">
+                            Métrica
+                        </label>
+
+                        <input
+                            type="number"
+                            class="np-input"
+                            id="interfaceMetric"
+                            min="0"
+                            value="100"
+                        >
+
+                    </div>
+
+
+                    <div class="np-form-group">
+
+                        <label for="interfaceMtu">
+                            MTU
+                        </label>
+
+                        <input
+                            type="number"
+                            class="np-input"
+                            id="interfaceMtu"
+                            min="576"
+                            max="65535"
+                            value="1500"
+                        >
+
+                    </div>
+
+                </div>
+
+
+                <!-- STATUS -->
+
+                <div
+                    class="np-form-notice"
+                    id="interfaceConfigNotice"
+                    hidden
+                ></div>
+
+            </form>
+
+
+            <!-- ====================================================
+                 FOOTER
+            ===================================================== -->
+
+            <div class="np-drawer__footer">
+
+                <button
+                    type="button"
+                    class="np-btn np-btn--ghost"
+                    data-close-interface-drawer
+                >
+                    Cancelar
+                </button>
+
+
+                <button
+                    type="submit"
+                    form="interfaceConfigForm"
+                    class="np-btn np-btn--primary"
+                    id="interfaceSaveButton"
+                >
+                    Salvar configuração
+                </button>
+
+            </div>
+
+        </aside>
+
+    </div>
+
+</section>

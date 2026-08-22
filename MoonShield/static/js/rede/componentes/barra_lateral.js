@@ -1,0 +1,229 @@
+/**
+ * MoonShield Network Panel
+ * Barra lateral
+ *
+ * Responsabilidades:
+ * - navegação entre seções;
+ * - abertura/fechamento mobile;
+ * - backdrop;
+ * - tecla ESC;
+ * - sincronização do item ativo.
+ */
+
+'use strict';
+
+import { $, $$ } from '../nucleo/dom.js';
+
+const MOBILE_BREAKPOINT = 920;
+
+let inicializado = false;
+let onNavigateCallback = null;
+
+let sidebar = null;
+let backdrop = null;
+let openButton = null;
+let closeButton = null;
+let navItems = [];
+
+
+/* ==========================================================================
+   INICIALIZAÇÃO
+========================================================================== */
+
+export function inicializarBarraLateral(opcoes = {}) {
+    if (inicializado) {
+        if (typeof opcoes.onNavigate === 'function') onNavigateCallback = opcoes.onNavigate;
+        return;
+    }
+
+    sidebar = $('#networkSidebar');
+    backdrop = $('#sidebarBackdrop');
+    openButton = $('#sidebarOpen');
+    closeButton = $('#sidebarClose');
+    navItems = $$('.np-nav__item[data-section]');
+
+    if (!sidebar) {
+        console.warn('[MoonShield Network] Sidebar não encontrada.');
+        return;
+    }
+
+    inicializado = true;
+    onNavigateCallback = typeof opcoes.onNavigate === 'function' ? opcoes.onNavigate : null;
+
+    registrarEventos();
+    sincronizarEstadoResponsivo();
+}
+
+
+/* ==========================================================================
+   EVENTOS
+========================================================================== */
+
+function registrarEventos() {
+    openButton?.addEventListener('click', abrirSidebarMobile);
+    closeButton?.addEventListener('click', fecharSidebarMobile);
+    backdrop?.addEventListener('click', fecharSidebarMobile);
+
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const secao = item.dataset.section;
+            if (!secao) return;
+
+            definirItemAtivo(secao);
+
+            if (typeof onNavigateCallback === 'function') onNavigateCallback(secao);
+            if (ehMobile()) fecharSidebarMobile();
+        });
+    });
+
+    document.addEventListener('keydown', tratarTeclado);
+    window.addEventListener('resize', sincronizarEstadoResponsivo, { passive: true });
+}
+
+
+/* ==========================================================================
+   ABRIR / FECHAR
+========================================================================== */
+
+export function abrirSidebarMobile() {
+    if (!sidebar || !ehMobile()) return;
+
+    sidebar.classList.add('is-open');
+    sidebar.setAttribute('aria-hidden', 'false');
+
+    if (backdrop) {
+        backdrop.hidden = false;
+        backdrop.setAttribute('aria-hidden', 'false');
+    }
+
+    openButton?.setAttribute('aria-expanded', 'true');
+    document.body.classList.add('np-sidebar-open');
+
+    requestAnimationFrame(() => {
+        const primeiro = sidebar.querySelector('.np-nav__item.is-active, .np-nav__item');
+        primeiro?.focus({ preventScroll: true });
+    });
+}
+
+
+export function fecharSidebarMobile() {
+    if (!sidebar) return;
+
+    const estavaAberta = sidebar.classList.contains('is-open');
+
+    sidebar.classList.remove('is-open');
+
+    if (ehMobile()) sidebar.setAttribute('aria-hidden', 'true');
+    else sidebar.removeAttribute('aria-hidden');
+
+    if (backdrop) {
+        backdrop.hidden = true;
+        backdrop.setAttribute('aria-hidden', 'true');
+    }
+
+    openButton?.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('np-sidebar-open');
+
+    if (estavaAberta && ehMobile()) openButton?.focus({ preventScroll: true });
+}
+
+
+export function alternarSidebarMobile() {
+    if (!sidebar || !ehMobile()) return;
+    sidebar.classList.contains('is-open') ? fecharSidebarMobile() : abrirSidebarMobile();
+}
+
+
+/* ==========================================================================
+   ITEM ATIVO
+========================================================================== */
+
+export function definirItemAtivo(secao) {
+    navItems.forEach(item => {
+        const ativo = item.dataset.section === secao;
+
+        item.classList.toggle('is-active', ativo);
+
+        if (ativo) item.setAttribute('aria-current', 'page');
+        else item.removeAttribute('aria-current');
+    });
+}
+
+
+export function obterItemAtivo() {
+    return navItems.find(item => item.classList.contains('is-active')) || null;
+}
+
+
+/* ==========================================================================
+   RESPONSIVIDADE
+========================================================================== */
+
+function sincronizarEstadoResponsivo() {
+    if (!sidebar) return;
+
+    if (ehMobile()) {
+        if (!sidebar.classList.contains('is-open')) sidebar.setAttribute('aria-hidden', 'true');
+        openButton?.setAttribute('aria-expanded', sidebar.classList.contains('is-open') ? 'true' : 'false');
+        return;
+    }
+
+    sidebar.classList.remove('is-open');
+    sidebar.removeAttribute('aria-hidden');
+
+    if (backdrop) {
+        backdrop.hidden = true;
+        backdrop.setAttribute('aria-hidden', 'true');
+    }
+
+    openButton?.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('np-sidebar-open');
+}
+
+
+function ehMobile() {
+    return window.innerWidth <= MOBILE_BREAKPOINT;
+}
+
+
+/* ==========================================================================
+   TECLADO
+========================================================================== */
+
+function tratarTeclado(event) {
+    if (event.key !== 'Escape') return;
+    if (!sidebar?.classList.contains('is-open')) return;
+
+    event.preventDefault();
+    fecharSidebarMobile();
+}
+
+
+/* ==========================================================================
+   ESTADO
+========================================================================== */
+
+export function sidebarAberta() {
+    return Boolean(sidebar?.classList.contains('is-open'));
+}
+
+
+export function sidebarEhMobile() {
+    return ehMobile();
+}
+
+
+/* ==========================================================================
+   EXPORT DEFAULT
+========================================================================== */
+
+export default {
+    inicializarBarraLateral,
+    abrirSidebarMobile,
+    fecharSidebarMobile,
+    alternarSidebarMobile,
+    definirItemAtivo,
+    obterItemAtivo,
+    sidebarAberta,
+    sidebarEhMobile,
+};

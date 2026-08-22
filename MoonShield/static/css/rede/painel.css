@@ -1,0 +1,1932 @@
+/* ==========================================================================
+   MOONSHIELD NETWORK PANEL
+   Core / Layout / Components
+
+   Prefixo:
+       np = Network Panel
+
+   Responsabilidades deste arquivo:
+   - Tema
+   - Reset
+   - Background
+   - Layout
+   - Sidebar
+   - Topbar
+   - Navegação
+   - Buttons
+   - Chips / Status
+   - Typography
+   - Panels
+   - Forms
+   - Switches
+   - Tables
+   - Drawers
+   - Modals
+   - Safe Apply
+   - Toasts
+   - Loading
+   - Responsividade
+
+   CSS específico de cada seção permanece em:
+       css/rede/secoes/
+========================================================================== */
+
+/* ==========================================================================
+   01. VARIÁVEIS — DARK
+========================================================================== */
+:root, [data-theme="dark"] {
+    /* BACKGROUNDS */
+    --np-bg: #07090d;
+    --np-bg-soft: #0b0e14;
+    --np-surface: #10141b;
+    --np-surface-soft: #0d1117;
+    --np-surface-strong: #151a22;
+    --np-surface-hover: #191f29;
+    --np-overlay: rgba(7, 9, 13, .78);
+
+    /* BORDERS */
+    --np-border: #202732;
+    --np-border-soft: #191f28;
+    --np-border-strong: #303946;
+
+    /* TEXT */
+    --np-text: #edf3fa;
+    --np-text-soft: #d7dee7;
+    --np-muted: #9ba8b6;
+    --np-dim: #687585;
+    --np-faint: #404b59;
+
+    /* BRAND / ACTION */
+    --np-blue: #60a5fa;
+    --np-blue-strong: #3b82f6;
+    --np-blue-soft: rgba(59, 130, 246, .11);
+    --np-blue-border: rgba(96, 165, 250, .27);
+    --np-purple: #a78bfa;
+    --np-purple-soft: rgba(167, 139, 250, .10);
+
+    /* STATUS */
+    --np-green: #4ade80;
+    --np-green-soft: rgba(74, 222, 128, .10);
+    --np-green-border: rgba(74, 222, 128, .25);
+    --np-yellow: #fbbf24;
+    --np-yellow-soft: rgba(251, 191, 36, .10);
+    --np-yellow-border: rgba(251, 191, 36, .25);
+    --np-orange: #fb923c;
+    --np-orange-soft: rgba(251, 146, 60, .10);
+    --np-red: #f87171;
+    --np-red-strong: #ef4444;
+    --np-red-soft: rgba(239, 68, 68, .10);
+    --np-red-border: rgba(248, 113, 113, .25);
+    --np-cyan: #22d3ee;
+    --np-cyan-soft: rgba(34, 211, 238, .10);
+
+    /* TYPOGRAPHY */
+    --np-font: "Space Grotesk", sans-serif;
+    --np-mono: "JetBrains Mono", monospace;
+
+    /* LAYOUT */
+    --np-sidebar-width: 274px;
+    --np-topbar-height: 76px;
+    --np-content-max: 1680px;
+
+    /* RADIUS */
+    --np-radius-xs: 6px;
+    --np-radius-sm: 8px;
+    --np-radius-md: 11px;
+    --np-radius-lg: 14px;
+    --np-radius-xl: 18px;
+    --np-radius-2xl: 22px;
+
+    /* MOTION */
+    --np-ease: cubic-bezier(.16, 1, .3, 1);
+    --np-fast: .14s;
+    --np-medium: .25s;
+    --np-slow: .36s;
+
+    /* SHADOW */
+    --np-shadow: 0 20px 60px rgba(0, 0, 0, .50);
+    --np-shadow-soft: 0 8px 28px rgba(0, 0, 0, .24);
+    --np-shadow-small: 0 3px 12px rgba(0, 0, 0, .18);
+}
+
+/* ==========================================================================
+   02. VARIÁVEIS — LIGHT
+========================================================================== */
+[data-theme="light"] {
+    --np-bg: #f4f6f8;
+    --np-bg-soft: #edf0f3;
+    --np-surface: #ffffff;
+    --np-surface-soft: #f8fafc;
+    --np-surface-strong: #ffffff;
+    --np-surface-hover: #f3f6f9;
+    --np-overlay: rgba(15, 23, 42, .36);
+
+    --np-border: #dce2e8;
+    --np-border-soft: #e8edf2;
+    --np-border-strong: #c6ced8;
+
+    --np-text: #111820;
+    --np-text-soft: #293441;
+    --np-muted: #596777;
+    --np-dim: #7a8795;
+    --np-faint: #a7b0ba;
+
+    --np-blue: #2563eb;
+    --np-blue-strong: #1d4ed8;
+    --np-blue-soft: rgba(37, 99, 235, .08);
+    --np-blue-border: rgba(37, 99, 235, .20);
+    --np-purple: #7c3aed;
+    --np-purple-soft: rgba(124, 58, 237, .08);
+
+    --np-green: #16a34a;
+    --np-green-soft: rgba(22, 163, 74, .08);
+    --np-green-border: rgba(22, 163, 74, .20);
+    --np-yellow: #d97706;
+    --np-yellow-soft: rgba(217, 119, 6, .08);
+    --np-yellow-border: rgba(217, 119, 6, .20);
+    --np-orange: #ea580c;
+    --np-orange-soft: rgba(234, 88, 12, .08);
+    --np-red: #dc2626;
+    --np-red-strong: #b91c1c;
+    --np-red-soft: rgba(220, 38, 38, .08);
+    --np-red-border: rgba(220, 38, 38, .20);
+    --np-cyan: #0891b2;
+    --np-cyan-soft: rgba(8, 145, 178, .08);
+
+    --np-shadow: 0 20px 50px rgba(15, 23, 42, .12);
+    --np-shadow-soft: 0 6px 22px rgba(15, 23, 42, .07);
+    --np-shadow-small: 0 2px 8px rgba(15, 23, 42, .06);
+}
+
+/* ==========================================================================
+   03. RESET
+========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+    min-height: 100%;
+    color-scheme: dark light;
+    scroll-behavior: smooth;
+    background: var(--np-bg);
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+    font-family: var(--np-font);
+    color: var(--np-text);
+    background: var(--np-bg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    transition: background-color var(--np-medium) var(--np-ease), color var(--np-medium) var(--np-ease);
+}
+
+button, input, select, textarea { font: inherit; }
+button { border: 0; color: inherit; cursor: pointer; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; text-decoration: none; }
+svg { display: block; }
+img { max-width: 100%; }
+pre, code { font-family: var(--np-mono); }
+[hidden] { display: none !important; }
+
+/* ==========================================================================
+   04. SELECTION / FOCUS
+========================================================================== */
+::selection {
+    color: #ffffff;
+    background: var(--np-blue-strong);
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid rgba(96, 165, 250, .48);
+    outline-offset: 2px;
+}
+
+/* ==========================================================================
+   05. SCROLLBAR
+========================================================================== */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .11) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .13);
+    background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, .20);
+    background-clip: padding-box;
+}
+
+[data-theme="light"] * {
+    scrollbar-color: rgba(15, 23, 42, .20) transparent;
+}
+[data-theme="light"] *::-webkit-scrollbar-thumb {
+    background: rgba(15, 23, 42, .18);
+    background-clip: padding-box;
+}
+
+/* ==========================================================================
+   06. BACKGROUND
+========================================================================== */
+.np-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+    background: radial-gradient(circle at 16% 16%, rgba(37, 99, 235, .075), transparent 30%), 
+                radial-gradient(circle at 84% 76%, rgba(124, 58, 237, .045), transparent 30%), 
+                linear-gradient(180deg, #06080c 0%, #080c12 52%, #06080c 100%);
+}
+
+.np-bg__grid {
+    position: absolute;
+    inset: 0;
+    opacity: .80;
+    background-image: linear-gradient(rgba(255, 255, 255, .018) 1px, transparent 1px), 
+                      linear-gradient(90deg, rgba(255, 255, 255, .018) 1px, transparent 1px);
+    background-size: 54px 54px;
+    mask-image: radial-gradient(circle at center, #000 20%, transparent 86%);
+}
+
+.np-bg__noise {
+    position: absolute;
+    inset: 0;
+    opacity: .22;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='4' stitchTiles='stitchTiles'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='.045'/%3E%3C/svg%3E");
+}
+
+.np-bg__glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(150px);
+}
+
+.np-bg__glow--blue {
+    width: 720px;
+    height: 720px;
+    top: -300px;
+    left: -280px;
+    background: rgba(37, 99, 235, .07);
+}
+
+.np-bg__glow--purple {
+    width: 600px;
+    height: 600px;
+    right: -240px;
+    bottom: -280px;
+    background: rgba(124, 58, 237, .055);
+}
+
+/* LIGHT BACKGROUND OVERRIDES */
+[data-theme="light"] .np-bg { background: var(--np-bg); }
+[data-theme="light"] .np-bg__grid,
+[data-theme="light"] .np-bg__noise,
+[data-theme="light"] .np-bg__glow { display: none; }
+
+/* ==========================================================================
+   07. SHELL
+========================================================================== */
+.np-shell {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-height: 100vh;
+}
+
+.np-main {
+    min-width: 0;
+    flex: 1;
+    margin-left: var(--np-sidebar-width);
+    transition: margin-left var(--np-slow) var(--np-ease);
+}
+
+.np-content {
+    width: 100%;
+    max-width: var(--np-content-max);
+    margin: 0 auto;
+    padding: 30px 34px 64px;
+}
+
+/* ==========================================================================
+   08. SECTIONS
+========================================================================== */
+.np-section {
+    display: none;
+    animation: np-section-enter .32s var(--np-ease) both;
+}
+
+.np-section.is-active { display: block; }
+
+@keyframes np-section-enter {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==========================================================================
+   09. SIDEBAR
+========================================================================== */
+.np-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: var(--np-sidebar-width);
+    display: flex;
+    flex-direction: column;
+    padding: 22px 17px 17px;
+    border-right: 1px solid var(--np-border);
+    background: rgba(10, 13, 18, .88);
+    backdrop-filter: blur(26px);
+    -webkit-backdrop-filter: blur(26px);
+    box-shadow: 18px 0 60px rgba(0, 0, 0, .17);
+    transition: transform var(--np-slow) var(--np-ease);
+}
+
+.np-sidebar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: -1px;
+    width: 1px;
+    height: 100%;
+    background: linear-gradient(180deg, transparent, rgba(96, 165, 250, .20) 26%, rgba(167, 139, 250, .12) 72%, transparent);
+}
+
+.np-sidebar__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 38px;
+    margin-bottom: 20px;
+}
+
+/* ==========================================================================
+   10. BRAND
+========================================================================== */
+.np-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+}
+
+.np-brand__shield {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-blue-border);
+    border-radius: 10px;
+    color: var(--np-blue);
+    background: var(--np-blue-soft);
+    box-shadow: 0 0 28px rgba(59, 130, 246, .09);
+}
+
+.np-brand__copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.np-brand__copy strong {
+    overflow: hidden;
+    color: var(--np-text);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-brand__copy small {
+    overflow: hidden;
+    color: var(--np-dim);
+    font-family: var(--np-mono);
+    font-size: 8px;
+    font-weight: 500;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-sidebar__close {
+    display: none;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid var(--np-border);
+    border-radius: 9px;
+    color: var(--np-muted);
+    background: rgba(255, 255, 255, .025);
+}
+
+/* ==========================================================================
+   11. AGENT CARD
+========================================================================== */
+.np-agent-card {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 23px;
+    padding: 11px;
+    border: 1px solid var(--np-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .023);
+}
+
+.np-agent-card__indicator {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .02);
+}
+
+.np-agent-card__indicator span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    color: var(--np-dim);
+    background: currentColor;
+    box-shadow: 0 0 11px currentColor;
+}
+
+.np-agent-card__indicator.is-online {
+    color: var(--np-green);
+    border-color: var(--np-green-border);
+    background: var(--np-green-soft);
+}
+
+.np-agent-card__indicator.is-offline {
+    color: var(--np-red);
+    border-color: var(--np-red-border);
+    background: var(--np-red-soft);
+}
+
+.np-agent-card__indicator.is-pending {
+    color: var(--np-yellow);
+}
+
+.np-agent-card__copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.np-agent-card__copy span {
+    overflow: hidden;
+    color: var(--np-dim);
+    font-size: 8px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-agent-card__copy strong {
+    overflow: hidden;
+    color: var(--np-text);
+    font-size: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-agent-card__meta {
+    overflow: hidden;
+    max-width: 62px;
+    color: var(--np-dim);
+    font-family: var(--np-mono);
+    font-size: 7px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   12. SIDEBAR LABEL
+========================================================================== */
+.np-sidebar__section-label {
+    margin: 0 8px 9px;
+    color: var(--np-dim);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+}
+
+/* ==========================================================================
+   13. NAVIGATION
+========================================================================== */
+.np-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 22px;
+}
+
+.np-nav--secondary {
+    margin-bottom: 14px;
+}
+
+.np-nav__item {
+    position: relative;
+    width: 100%;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 0 11px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    color: var(--np-muted);
+    background: transparent;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: left;
+    transition: color var(--np-fast) ease, border-color var(--np-fast) ease, background var(--np-fast) ease, transform var(--np-fast) ease;
+}
+
+.np-nav__item:hover {
+    color: var(--np-text);
+    border-color: rgba(255, 255, 255, .055);
+    background: rgba(255, 255, 255, .032);
+}
+
+.np-nav__item:active { transform: translateY(1px); }
+
+.np-nav__item.is-active {
+    color: var(--np-text);
+    border-color: rgba(96, 165, 250, .14);
+    background: linear-gradient(90deg, rgba(59, 130, 246, .115), rgba(59, 130, 246, .018));
+    box-shadow: inset 2px 0 0 var(--np-blue);
+}
+
+.np-nav__icon {
+    width: 19px;
+    flex: 0 0 19px;
+    display: grid;
+    place-items: center;
+    color: var(--np-dim);
+    transition: color var(--np-fast) ease;
+}
+
+.np-nav__item:hover .np-nav__icon,
+.np-nav__item.is-active .np-nav__icon {
+    color: var(--np-blue);
+}
+
+.np-nav__badge {
+    min-width: 19px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+    margin-left: auto;
+    padding: 0 5px;
+    border: 1px solid var(--np-blue-border);
+    border-radius: 999px;
+    color: #dbeafe;
+    background: var(--np-blue-soft);
+    font-family: var(--np-mono);
+    font-size: 8px;
+    font-weight: 600;
+}
+
+.np-nav__badge--warning {
+    color: var(--np-yellow);
+    border-color: var(--np-yellow-border);
+    background: var(--np-yellow-soft);
+}
+
+/* ==========================================================================
+   14. SIDEBAR BOTTOM
+========================================================================== */
+.np-sidebar__bottom { margin-top: auto; }
+
+.np-mini-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 11px;
+    border: 1px solid var(--np-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .022);
+}
+
+.np-mini-status__icon {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-border);
+    border-radius: 8px;
+    color: var(--np-muted);
+    background: rgba(255, 255, 255, .025);
+}
+
+.np-mini-status__copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.np-mini-status__copy strong {
+    overflow: hidden;
+    color: var(--np-text-soft);
+    font-size: 9px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-mini-status__copy small {
+    overflow: hidden;
+    color: var(--np-dim);
+    font-size: 8px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-sidebar__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 13px;
+    border-top: 1px solid var(--np-border);
+    color: var(--np-faint);
+    font-family: var(--np-mono);
+    font-size: 7px;
+}
+
+/* ==========================================================================
+   15. SIDEBAR BACKDROP
+========================================================================== */
+.np-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(4, 7, 11, .74);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+/* ==========================================================================
+   16. TOPBAR
+========================================================================== */
+.np-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    min-height: var(--np-topbar-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 22px;
+    padding: 15px 34px;
+    border-bottom: 1px solid var(--np-border);
+    background: rgba(9, 12, 17, .78);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+}
+
+.np-topbar__left {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.np-topbar__right {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 9px;
+}
+
+.np-topbar__menu { display: none !important; }
+
+/* ==========================================================================
+   17. PAGE HEADING
+========================================================================== */
+.np-page-heading {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.np-page-heading__eyebrow {
+    height: 12px;
+    display: flex;
+    align-items: center;
+    color: var(--np-dim);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.np-page-heading__line {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.np-page-heading h1 {
+    margin: 0;
+    color: var(--np-text);
+    font-size: 21px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.03em;
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   18. LAST UPDATE
+========================================================================== */
+.np-last-update {
+    min-width: 65px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.np-last-update span {
+    color: var(--np-dim);
+    font-size: 7px;
+    font-weight: 500;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.np-last-update strong {
+    color: var(--np-muted);
+    font-family: var(--np-mono);
+    font-size: 8px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   19. USER
+========================================================================== */
+.np-user {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-left: 2px;
+    padding-left: 11px;
+    border-left: 1px solid var(--np-border);
+}
+
+.np-user__avatar {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-blue-border);
+    border-radius: 9px;
+    color: var(--np-blue);
+    background: var(--np-blue-soft);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.np-user__copy {
+    max-width: 120px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.np-user__copy strong {
+    overflow: hidden;
+    color: var(--np-text-soft);
+    font-size: 9px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.np-user__copy span {
+    color: var(--np-dim);
+    font-size: 7px;
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   20. BUTTONS
+========================================================================== */
+.np-btn, .np-icon-btn {
+    transition: border-color var(--np-fast) ease, background var(--np-fast) ease, color var(--np-fast) ease, box-shadow var(--np-fast) ease, transform var(--np-fast) ease;
+}
+
+.np-btn {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .01em;
+    white-space: nowrap;
+}
+
+.np-btn:hover, .np-icon-btn:hover { transform: translateY(-1px); }
+.np-btn:active, .np-icon-btn:active { transform: translateY(0); }
+
+.np-btn:disabled, .np-icon-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* PRIMARY */
+.np-btn--primary {
+    color: #f8fbff;
+    border-color: rgba(96, 165, 250, .38);
+    background: linear-gradient(180deg, #3b82f6, #2563eb);
+    box-shadow: 0 8px 22px rgba(37, 99, 235, .19);
+}
+
+.np-btn--primary:hover {
+    border-color: rgba(147, 197, 253, .50);
+    background: linear-gradient(180deg, #4a8df7, #2563eb);
+    box-shadow: 0 10px 28px rgba(37, 99, 235, .26);
+}
+
+/* GHOST */
+.np-btn--ghost {
+    color: var(--np-muted);
+    border-color: var(--np-border);
+    background: rgba(255, 255, 255, .025);
+}
+
+.np-btn--ghost:hover {
+    color: var(--np-text);
+    border-color: var(--np-border-strong);
+    background: rgba(255, 255, 255, .048);
+}
+
+/* DANGER */
+.np-btn--danger {
+    color: #fecaca;
+    border-color: var(--np-red-border);
+    background: var(--np-red-soft);
+}
+
+.np-btn--danger:hover {
+    color: #ffffff;
+    border-color: rgba(248, 113, 113, .42);
+    background: rgba(239, 68, 68, .18);
+}
+
+/* SMALL & COMPACT */
+.np-btn--small { min-height: 32px; padding: 0 10px; border-radius: 7px; font-size: 9px; }
+.np-btn--compact { min-height: 36px; height: 36px; padding: 0 11px; border-radius: 8px; font-size: 9px; }
+
+/* ICON BUTTON */
+.np-icon-btn {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--np-border);
+    border-radius: 9px;
+    color: var(--np-muted);
+    background: rgba(255, 255, 255, .025);
+}
+
+.np-icon-btn:hover {
+    color: var(--np-text);
+    border-color: var(--np-border-strong);
+    background: rgba(255, 255, 255, .05);
+}
+
+.np-icon-btn--small { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 7px; }
+
+/* ==========================================================================
+   21. THEME ICON
+========================================================================== */
+.np-theme-icon { position: absolute; }
+[data-theme="dark"] .np-theme-icon--moon { display: block; }
+[data-theme="dark"] .np-theme-icon--sun { display: none; }
+[data-theme="light"] .np-theme-icon--moon { display: none; }
+[data-theme="light"] .np-theme-icon--sun { display: block; }
+
+/* ==========================================================================
+   22. STATUS
+========================================================================== */
+.np-status-pill {
+    min-height: 23px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 8px;
+    border: 1px solid var(--np-border);
+    border-radius: 999px;
+    color: var(--np-dim);
+    background: rgba(255, 255, 255, .025);
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: .055em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.np-status-dot {
+    width: 6px;
+    height: 6px;
+    flex: 0 0 6px;
+    display: inline-block;
+    border-radius: 50%;
+    color: var(--np-dim);
+    background: currentColor;
+    box-shadow: 0 0 9px currentColor;
+}
+
+.np-status-pill--ok, .np-status-dot--ok { color: var(--np-green); }
+.np-status-pill--warning, .np-status-dot--warning { color: var(--np-yellow); }
+.np-status-pill--error, .np-status-dot--error { color: var(--np-red); }
+.np-status-pill--pending, .np-status-dot--pending { color: var(--np-dim); }
+
+.np-status-pill--ok { border-color: var(--np-green-border); background: var(--np-green-soft); }
+.np-status-pill--warning { border-color: var(--np-yellow-border); background: var(--np-yellow-soft); }
+.np-status-pill--error { border-color: var(--np-red-border); background: var(--np-red-soft); }
+
+/* ==========================================================================
+   23. SECTION TITLES
+========================================================================== */
+.np-section-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.np-section-title > div:first-child { min-width: 0; }
+
+.np-section-title__eyebrow,
+.np-section-heading__eyebrow,
+.np-panel__eyebrow,
+.np-drawer__eyebrow,
+.np-modal__eyebrow {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--np-dim);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+}
+
+.np-section-title h2 {
+    margin: 0 0 7px;
+    color: var(--np-text);
+    font-size: 28px;
+    font-weight: 400;
+    line-height: 1.1;
+    letter-spacing: -.035em;
+}
+
+.np-section-title p {
+    max-width: 650px;
+    margin: 0;
+    color: var(--np-muted);
+    font-size: 11px;
+    line-height: 1.65;
+}
+
+.np-section-title__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* ==========================================================================
+   24. SECTION HEADING
+========================================================================== */
+.np-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin: 28px 0 13px;
+}
+
+.np-section-heading--spaced { margin-top: 34px; }
+
+.np-section-heading h3 {
+    margin: 0;
+    color: var(--np-text);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+}
+
+/* ==========================================================================
+   25. PANEL
+========================================================================== */
+.np-panel {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--np-border);
+    border-radius: var(--np-radius-md);
+    background: linear-gradient(180deg, rgba(255, 255, 255, .038), rgba(255, 255, 255, .018));
+    box-shadow: var(--np-shadow-soft);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+}
+
+.np-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+}
+
+.np-panel__head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 17px 18px;
+    border-bottom: 1px solid var(--np-border);
+}
+
+.np-panel__head h3 {
+    margin: 0;
+    color: var(--np-text);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+}
+
+.np-panel__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--np-border);
+    color: var(--np-dim);
+    font-size: 8px;
+}
+
+/* ==========================================================================
+   26. INFO LIST
+========================================================================== */
+.np-info-list {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.np-info-row {
+    min-height: 43px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--np-border-soft);
+}
+
+.np-info-row:last-child { border-bottom: 0; }
+.np-info-row > span { color: var(--np-muted); font-size: 9px; }
+.np-info-row > strong { color: var(--np-text-soft); font-size: 9px; font-weight: 500; text-align: right; }
+.np-info-row > code {
+    max-width: 66%;
+    overflow: hidden;
+    color: var(--np-muted);
+    font-size: 8px;
+    text-align: right;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* ==========================================================================
+   27. EMPTY STATE
+========================================================================== */
+.np-empty-state {
+    min-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 13px;
+    padding: 24px;
+    color: var(--np-muted);
+    text-align: left;
+}
+
+.np-empty-state--compact {
+    min-height: 82px;
+    justify-content: flex-start;
+    border: 1px dashed var(--np-border);
+    border-radius: var(--np-radius-md);
+    background: rgba(255, 255, 255, .012);
+}
+
+.np-empty-state__icon {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-border);
+    border-radius: 10px;
+    color: var(--np-dim);
+    background: rgba(255, 255, 255, .025);
+}
+
+.np-empty-state > div:last-child {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.np-empty-state strong { color: var(--np-text-soft); font-size: 10px; font-weight: 500; }
+.np-empty-state span { color: var(--np-dim); font-size: 8px; line-height: 1.45; }
+
+/* ==========================================================================
+   28. FORM
+========================================================================== */
+.np-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-bottom: 16px;
+}
+
+.np-form-group label { color: var(--np-muted); font-size: 9px; font-weight: 500; }
+
+.np-input, .np-select {
+    width: 100%;
+    min-height: 40px;
+    padding: 0 11px;
+    border: 1px solid var(--np-border);
+    border-radius: 8px;
+    outline: none;
+    color: var(--np-text);
+    background: rgba(255, 255, 255, .026);
+    font-size: 10px;
+    transition: border-color var(--np-fast) ease, background var(--np-fast) ease, box-shadow var(--np-fast) ease;
+}
+
+.np-input::placeholder { color: var(--np-faint); }
+.np-input:hover, .np-select:hover { border-color: var(--np-border-strong); }
+
+.np-input:focus, .np-select:focus {
+    border-color: rgba(96, 165, 250, .46);
+    background: rgba(59, 130, 246, .035);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, .075);
+}
+
+.np-input:disabled, .np-select:disabled, .np-input[readonly] {
+    opacity: .65;
+    cursor: not-allowed;
+    background: rgba(255, 255, 255, .016);
+}
+
+.np-select {
+    appearance: none;
+    padding-right: 34px;
+    cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--np-dim) 50%), linear-gradient(135deg, var(--np-dim) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 17px, calc(100% - 12px) 17px;
+    background-size: 4px 4px;
+    background-repeat: no-repeat;
+}
+
+.np-select option { color: var(--np-text); background: var(--np-surface); }
+
+.np-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 13px;
+}
+
+.np-form-divider {
+    margin: 23px 0 15px;
+    padding-top: 18px;
+    border-top: 1px solid var(--np-border);
+    color: var(--np-dim);
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: .10em;
+    text-transform: uppercase;
+}
+
+.np-field-help {
+    display: block;
+    margin-top: -1px;
+    color: var(--np-dim);
+    font-size: 8px;
+    line-height: 1.45;
+}
+
+.np-form-notice {
+    margin-top: 16px;
+    padding: 11px 12px;
+    border: 1px solid var(--np-yellow-border);
+    border-radius: 8px;
+    color: var(--np-yellow);
+    background: var(--np-yellow-soft);
+    font-size: 8px;
+    line-height: 1.5;
+}
+
+/* ==========================================================================
+   29. INPUT UNIT
+========================================================================== */
+.np-input-unit { display: flex; align-items: center; gap: 8px; }
+.np-input-unit .np-input { width: 90px; }
+.np-input-unit > span { color: var(--np-dim); font-size: 8px; }
+
+/* ==========================================================================
+   30. SWITCH
+========================================================================== */
+.np-form-switches {
+    display: flex;
+    flex-direction: column;
+    margin: 3px 0 18px;
+    border: 1px solid var(--np-border);
+    border-radius: 9px;
+    overflow: hidden;
+}
+
+.np-switch-row, .np-setting-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 58px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--np-border-soft);
+    cursor: pointer;
+}
+
+.np-switch-row:last-child, .np-setting-row:last-child { border-bottom: 0; }
+
+.np-switch-row > div:first-child, .np-setting-row__copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.np-switch-row strong, .np-setting-row__copy strong { color: var(--np-text-soft); font-size: 9px; font-weight: 500; }
+.np-switch-row > div:first-child > span, .np-setting-row__copy span { color: var(--np-dim); font-size: 8px; line-height: 1.4; }
+
+.np-switch-row input[type="checkbox"], .np-setting-row input[type="checkbox"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.np-switch {
+    position: relative;
+    width: 34px;
+    height: 19px;
+    flex: 0 0 34px;
+    border: 1px solid var(--np-border-strong);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .055);
+    transition: background var(--np-fast) ease, border-color var(--np-fast) ease;
+}
+
+.np-switch::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--np-muted);
+    transition: transform var(--np-medium) var(--np-ease), background var(--np-fast) ease;
+}
+
+.np-switch-row input:checked + .np-switch,
+.np-setting-row input:checked + .np-switch {
+    border-color: rgba(59, 130, 246, .48);
+    background: rgba(37, 99, 235, .55);
+}
+
+.np-switch-row input:checked + .np-switch::after,
+.np-setting-row input:checked + .np-switch::after {
+    transform: translateX(15px);
+    background: #ffffff;
+}
+
+/* ==========================================================================
+   31. TABLE
+========================================================================== */
+.np-table-wrap {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    overflow-x: auto;
+}
+
+.np-table { width: 100%; border-collapse: collapse; border-spacing: 0; }
+.np-table thead { background: rgba(255, 255, 255, .018); }
+
+.np-table th {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--np-border);
+    color: var(--np-dim);
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.np-table td {
+    min-height: 47px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--np-border-soft);
+    color: var(--np-muted);
+    font-size: 9px;
+    vertical-align: middle;
+}
+
+.np-table tbody tr:last-child td { border-bottom: 0; }
+.np-table tbody tr { transition: background var(--np-fast) ease; }
+.np-table tbody tr:hover { background: rgba(255, 255, 255, .022); }
+.np-table__actions { width: 1%; text-align: right !important; white-space: nowrap; }
+.np-table-empty { padding: 28px !important; color: var(--np-dim) !important; text-align: center !important; }
+
+/* ==========================================================================
+   32. DRAWER
+========================================================================== */
+.np-drawer { position: fixed; inset: 0; z-index: 130; display: none; }
+.np-drawer.is-open { display: block; }
+
+.np-drawer__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 6, 10, .74);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: np-fade-in .20s ease both;
+}
+
+.np-drawer__panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: min(540px, 100%);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--np-border);
+    background: rgba(13, 17, 23, .985);
+    box-shadow: -28px 0 80px rgba(0, 0, 0, .45);
+    animation: np-drawer-enter .30s var(--np-ease) both;
+}
+
+.np-drawer__panel--wide { width: min(660px, 100%); }
+
+@keyframes np-drawer-enter {
+    from { opacity: 0; transform: translateX(30px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes np-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.np-drawer__head {
+    min-height: 74px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 17px 19px;
+    border-bottom: 1px solid var(--np-border);
+}
+
+.np-drawer__head h2 { margin: 0; color: var(--np-text); font-size: 18px; font-weight: 400; letter-spacing: -.025em; }
+.np-drawer__body { flex: 1; overflow-y: auto; padding: 20px; }
+
+.np-drawer__footer {
+    min-height: 69px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 19px;
+    border-top: 1px solid var(--np-border);
+    background: rgba(255, 255, 255, .012);
+}
+
+.np-drawer__footer-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ==========================================================================
+   33. MODAL
+========================================================================== */
+.np-modal { position: fixed; inset: 0; z-index: 160; display: none; place-items: center; padding: 20px; }
+.np-modal.is-open { display: grid; }
+
+.np-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 6, 10, .78);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    animation: np-fade-in .20s ease both;
+}
+
+.np-modal__dialog {
+    position: relative;
+    z-index: 1;
+    width: min(430px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    padding: 23px;
+    border: 1px solid var(--np-border);
+    border-radius: 15px;
+    background: rgba(14, 18, 24, .985);
+    box-shadow: var(--np-shadow);
+    animation: np-modal-enter .27s var(--np-ease) both;
+}
+
+.np-modal__dialog--safe { width: min(500px, 100%); }
+.np-modal__dialog--operation { width: min(480px, 100%); }
+
+@keyframes np-modal-enter {
+    from { opacity: 0; transform: translateY(12px) scale(.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.np-modal__icon {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 15px;
+    border-radius: 11px;
+}
+
+.np-modal__icon--warning { color: var(--np-yellow); border: 1px solid var(--np-yellow-border); background: var(--np-yellow-soft); }
+.np-modal__icon--error { color: var(--np-red); border: 1px solid var(--np-red-border); background: var(--np-red-soft); }
+.np-modal__copy h2 { margin: 0 0 7px; color: var(--np-text); font-size: 19px; font-weight: 400; letter-spacing: -.025em; }
+.np-modal__copy p { margin: 0; color: var(--np-muted); font-size: 10px; line-height: 1.6; }
+
+.np-modal__details {
+    margin-top: 15px;
+    padding: 11px;
+    border: 1px solid var(--np-border);
+    border-radius: 8px;
+    color: var(--np-muted);
+    background: rgba(255, 255, 255, .018);
+    font-size: 8px;
+    line-height: 1.55;
+}
+
+.np-modal__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+/* ==========================================================================
+   34. SAFE APPLY — MODAL
+========================================================================== */
+.np-safe-apply-info {
+    display: flex;
+    flex-direction: column;
+    margin-top: 17px;
+    overflow: hidden;
+    border: 1px solid var(--np-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .017);
+}
+
+.np-safe-apply-info__row {
+    min-height: 39px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 8px 11px;
+    border-bottom: 1px solid var(--np-border-soft);
+}
+
+.np-safe-apply-info__row:last-child { border-bottom: 0; }
+.np-safe-apply-info__row span { color: var(--np-dim); font-size: 8px; }
+.np-safe-apply-info__row strong { color: var(--np-text-soft); font-size: 8px; font-weight: 500; text-align: right; }
+
+.np-safe-apply-info__row code {
+    max-width: 60%;
+    overflow: hidden;
+    color: var(--np-muted);
+    font-size: 7px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.np-safe-apply-timer {
+    margin-top: 16px;
+    padding: 17px;
+    border: 1px solid var(--np-yellow-border);
+    border-radius: 11px;
+    background: linear-gradient(180deg, rgba(251, 191, 36, .075), rgba(251, 191, 36, .025));
+    text-align: center;
+}
+
+.np-safe-apply-timer > span { display: block; margin-bottom: 4px; color: var(--np-yellow); font-size: 8px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+.np-safe-apply-timer > strong { display: block; margin-bottom: 13px; color: var(--np-text); font-family: var(--np-mono); font-size: 34px; font-weight: 500; line-height: 1; letter-spacing: -.04em; }
+.np-safe-apply-timer > small { display: block; margin-top: 10px; color: var(--np-dim); font-size: 7px; line-height: 1.5; }
+
+.np-safe-apply-progress {
+    width: 100%;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .08);
+}
+
+.np-safe-apply-progress__bar {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--np-yellow), var(--np-orange));
+    transition: width 1s linear;
+}
+
+/* ==========================================================================
+   35. OPERATION MODAL
+========================================================================== */
+.np-operation-loader {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 15px;
+    border: 1px solid var(--np-blue-border);
+    border-radius: 11px;
+    background: var(--np-blue-soft);
+}
+
+.np-operation-steps {
+    display: flex;
+    flex-direction: column;
+    margin-top: 20px;
+    overflow: hidden;
+    border: 1px solid var(--np-border);
+    border-radius: 10px;
+}
+
+.np-operation-step {
+    min-height: 54px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--np-border-soft);
+    opacity: .47;
+    transition: opacity var(--np-medium) ease, background var(--np-medium) ease;
+}
+
+.np-operation-step:last-child { border-bottom: 0; }
+.np-operation-step.is-active { opacity: 1; background: var(--np-blue-soft); }
+.np-operation-step.is-done { opacity: 1; }
+.np-operation-step.is-error { opacity: 1; background: var(--np-red-soft); }
+
+.np-operation-step__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--np-faint);
+}
+
+.np-operation-step.is-active .np-operation-step__dot { background: var(--np-blue); box-shadow: 0 0 12px var(--np-blue); }
+.np-operation-step.is-done .np-operation-step__dot { background: var(--np-green); }
+.np-operation-step.is-error .np-operation-step__dot { background: var(--np-red); }
+.np-operation-step > div { display: flex; flex-direction: column; gap: 2px; }
+.np-operation-step strong { color: var(--np-text-soft); font-size: 9px; font-weight: 500; }
+.np-operation-step small { color: var(--np-dim); font-size: 7px; }
+
+/* ==========================================================================
+   36. SPINNER
+========================================================================== */
+.np-spinner {
+    width: 17px;
+    height: 17px;
+    display: inline-block;
+    border: 2px solid rgba(255, 255, 255, .12);
+    border-top-color: var(--np-blue);
+    border-radius: 50%;
+    animation: np-spin .72s linear infinite;
+}
+
+@keyframes np-spin { to { transform: rotate(360deg); } }
+
+/* ==========================================================================
+   37. LOADING
+========================================================================== */
+.is-loading { position: relative; pointer-events: none; opacity: .66; }
+.is-loading svg { opacity: .60; }
+
+/* ==========================================================================
+   38. TOAST
+========================================================================== */
+.np-toasts {
+    position: fixed;
+    top: 88px;
+    right: 18px;
+    z-index: 220;
+    width: min(350px, calc(100vw - 36px));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.np-toast {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 11px;
+    border: 1px solid var(--np-border);
+    border-radius: 10px;
+    background: rgba(13, 17, 23, .97);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .32);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    pointer-events: auto;
+    animation: np-toast-enter .26s var(--np-ease) both;
+}
+
+@keyframes np-toast-enter {
+    from { opacity: 0; transform: translateX(16px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.np-toast__icon {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-border);
+    border-radius: 8px;
+}
+
+.np-toast__copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.np-toast__copy strong { overflow: hidden; color: var(--np-text); font-size: 9px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.np-toast__copy span { color: var(--np-dim); font-size: 8px; line-height: 1.4; }
+
+.np-toast--ok .np-toast__icon { color: var(--np-green); }
+.np-toast--warning .np-toast__icon { color: var(--np-yellow); }
+.np-toast--error .np-toast__icon { color: var(--np-red); }
+
+/* ==========================================================================
+   39. TYPE BADGE
+========================================================================== */
+.np-type-badge {
+    min-height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    border: 1px solid var(--np-border);
+    border-radius: 999px;
+    color: var(--np-muted);
+    background: rgba(255, 255, 255, .025);
+    font-family: var(--np-mono);
+    font-size: 7px;
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   40. GENERIC CODE BLOCK
+========================================================================== */
+.np-change-detail-block {
+    margin-top: 17px;
+    overflow: hidden;
+    border: 1px solid var(--np-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .016);
+}
+
+.np-change-detail-block__head { padding: 10px 12px; border-bottom: 1px solid var(--np-border); }
+.np-change-detail-block__head strong { color: var(--np-muted); font-size: 8px; font-weight: 500; }
+
+.np-change-detail-block pre {
+    max-height: 260px;
+    margin: 0;
+    overflow: auto;
+    padding: 13px;
+    color: var(--np-muted);
+    font-family: var(--np-mono);
+    font-size: 7px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.np-change-detail-error {
+    margin-top: 17px;
+    padding: 12px;
+    border: 1px solid var(--np-red-border);
+    border-radius: 9px;
+    color: var(--np-red);
+    background: var(--np-red-soft);
+}
+
+.np-change-detail-error strong { display: block; margin-bottom: 5px; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; }
+.np-change-detail-error p { margin: 0; font-size: 8px; line-height: 1.5; }
+
+/* ==========================================================================
+   41. LIGHT THEME
+========================================================================== */
+[data-theme="light"] .np-sidebar {
+    background: rgba(244, 246, 248, .96);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 12px 0 34px rgba(15, 23, 42, .06);
+}
+[data-theme="light"] .np-sidebar::after { display: none; }
+[data-theme="light"] .np-topbar { background: rgba(255, 255, 255, .90); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+[data-theme="light"] .np-brand__shield { border-color: var(--np-border-strong); color: var(--np-blue); background: var(--np-surface); box-shadow: var(--np-shadow-small); }
+[data-theme="light"] .np-nav__item:hover { border-color: var(--np-border); background: var(--np-surface); }
+
+[data-theme="light"] .np-nav__item.is-active {
+    color: var(--np-blue-strong);
+    border-color: rgba(37, 99, 235, .16);
+    background: rgba(37, 99, 235, .07);
+    box-shadow: inset 2px 0 0 var(--np-blue-strong);
+}
+
+[data-theme="light"] .np-agent-card,
+[data-theme="light"] .np-mini-status,
+[data-theme="light"] .np-icon-btn,
+[data-theme="light"] .np-btn--ghost { background: var(--np-surface); }
+
+[data-theme="light"] .np-panel { border-color: var(--np-border); background: var(--np-surface); box-shadow: var(--np-shadow-soft); backdrop-filter: none; -webkit-backdrop-filter: none; }
+[data-theme="light"] .np-input, [data-theme="light"] .np-select { color: var(--np-text); background-color: var(--np-surface); }
+[data-theme="light"] .np-input[readonly], [data-theme="light"] .np-input:disabled, [data-theme="light"] .np-select:disabled { background: var(--np-bg-soft); }
+[data-theme="light"] .np-table thead { background: var(--np-surface-soft); }
+[data-theme="light"] .np-table tbody tr:hover { background: #fafbfd; }
+[data-theme="light"] .np-drawer__panel { background: #ffffff; box-shadow: -24px 0 60px rgba(15, 23, 42, .12); }
+[data-theme="light"] .np-modal__dialog { background: #ffffff; box-shadow: 0 24px 70px rgba(15, 23, 42, .18); }
+[data-theme="light"] .np-toast { background: rgba(255, 255, 255, .98); box-shadow: 0 15px 40px rgba(15, 23, 42, .14); }
+[data-theme="light"] .np-safe-apply-progress { background: rgba(15, 23, 42, .09); }
+
+/* ==========================================================================
+   42. RESPONSIVE — 1280
+========================================================================== */
+@media (max-width: 1280px) {
+    .np-content { padding: 28px 26px 54px; }
+    .np-topbar { padding: 15px 26px; }
+    .np-user__copy { display: none; }
+    .np-user { padding-left: 9px; }
+}
+
+/* ==========================================================================
+   43. RESPONSIVE — 1100
+========================================================================== */
+@media (max-width: 1100px) {
+    .np-topbar__right .np-btn__label { display: none; }
+    .np-topbar__right .np-btn { width: 36px; padding: 0; }
+    .np-last-update { display: none; }
+}
+
+/* ==========================================================================
+   44. RESPONSIVE — 920
+========================================================================== */
+@media (max-width: 920px) {
+    :root { --np-sidebar-width: 270px; }
+    .np-main { margin-left: 0; }
+    .np-sidebar { transform: translateX(-102%); }
+    .np-sidebar.is-open { transform: translateX(0); }
+    .np-sidebar__close { display: grid; }
+    .np-topbar__menu { display: inline-grid !important; }
+    .np-topbar { min-height: 70px; padding: 13px 20px; }
+    .np-content { padding: 25px 20px 50px; }
+    .np-page-heading h1 { font-size: 19px; }
+    .np-section-title h2 { font-size: 25px; }
+    .np-section-title { gap: 18px; }
+}
+
+/* ==========================================================================
+   45. RESPONSIVE — 720
+========================================================================== */
+@media (max-width: 720px) {
+    .np-content { padding: 22px 15px 44px; }
+    .np-topbar { padding: 12px 15px; }
+    .np-topbar__right { gap: 6px; }
+    .np-user { display: none; }
+    #topbarAgentStatus { display: none; }
+    .np-section-title { flex-direction: column; align-items: stretch; margin-bottom: 20px; }
+    .np-section-title__actions { justify-content: flex-start; }
+    .np-section-title__actions .np-btn { flex: 1; }
+    .np-section-title h2 { font-size: 24px; }
+    .np-section-heading { align-items: flex-end; }
+    .np-form-grid { grid-template-columns: 1fr; gap: 0; }
+    .np-drawer__panel, .np-drawer__panel--wide { width: 100%; }
+    .np-drawer__body { padding: 17px; }
+    .np-drawer__footer { padding: 12px 16px; }
+    .np-modal { padding: 12px; }
+    .np-modal__dialog, .np-modal__dialog--safe, .np-modal__dialog--operation { width: 100%; padding: 20px; }
+    .np-safe-apply-timer > strong { font-size: 30px; }
+    .np-table th, .np-table td { padding: 10px 11px; }
+}
+
+/* ==========================================================================
+   46. RESPONSIVE — 520
+========================================================================== */
+@media (max-width: 520px) {
+    .np-topbar { min-height: 64px; }
+    .np-page-heading__eyebrow { font-size: 7px; }
+    .np-page-heading h1 { font-size: 17px; }
+    .np-topbar__right #refreshNetworkButton, .np-topbar__right #detectInterfacesButton { display: none; }
+    .np-content { padding: 19px 12px 38px; }
+    .np-section-title h2 { font-size: 22px; }
+    .np-section-title p { font-size: 10px; }
+    .np-section-title__actions { width: 100%; }
+    .np-section-title__actions .np-btn { width: 100%; }
+    .np-section-heading { gap: 10px; }
+    .np-section-heading h3 { font-size: 13px; }
+    .np-panel__head { padding: 15px 14px; }
+    .np-info-row { padding: 10px 14px; }
+    .np-switch-row, .np-setting-row { gap: 12px; padding: 11px 12px; }
+    .np-drawer__head { min-height: 67px; padding: 14px 15px; }
+    .np-drawer__head h2 { font-size: 16px; }
+    .np-drawer__footer { flex-wrap: wrap; }
+    .np-drawer__footer .np-btn { flex: 1; }
+    .np-drawer__footer-actions { flex: 1; }
+    .np-modal__actions { flex-direction: column-reverse; }
+    .np-modal__actions .np-btn { width: 100%; }
+    .np-safe-apply-info__row { align-items: flex-start; flex-direction: column; gap: 3px; }
+    .np-safe-apply-info__row strong, .np-safe-apply-info__row code { max-width: 100%; text-align: left; }
+    .np-toasts { top: 74px; right: 10px; width: calc(100vw - 20px); }
+}
+
+/* ==========================================================================
+   47. RESPONSIVE — 380
+========================================================================== */
+@media (max-width: 380px) {
+    .np-sidebar { width: min(274px, 88vw); }
+    .np-page-heading h1 { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+    #applyAllButton { display: none; }
+    .np-section-title h2 { font-size: 21px; }
+}
+
+/* ==========================================================================
+   48. REDUCED MOTION
+========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

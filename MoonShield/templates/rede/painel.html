@@ -1,0 +1,474 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <meta
+        name="color-scheme"
+        content="dark light"
+    >
+
+    <title>MoonShield — Rede</title>
+
+    <meta
+        name="description"
+        content="Painel de gerenciamento de rede do MoonShield."
+    >
+
+
+    <!-- ============================================================
+         TEMA INICIAL
+    ============================================================= -->
+
+    <script>
+        (() => {
+            'use strict';
+
+            const THEME_KEY =
+                'moonshield_network_theme';
+
+            const LEGACY_THEME_KEY =
+                'moonshield_theme';
+
+            let savedTheme = null;
+
+            try {
+                savedTheme =
+                    localStorage.getItem(
+                        THEME_KEY
+                    ) ||
+                    localStorage.getItem(
+                        LEGACY_THEME_KEY
+                    );
+
+                if (
+                    savedTheme === 'dark' ||
+                    savedTheme === 'light'
+                ) {
+                    document.documentElement.setAttribute(
+                        'data-theme',
+                        savedTheme
+                    );
+
+                    return;
+                }
+            } catch (error) {
+                console.warn(
+                    '[MoonShield Network] Falha ao ler tema:',
+                    error
+                );
+            }
+
+            const prefersDark =
+                window.matchMedia(
+                    '(prefers-color-scheme: dark)'
+                ).matches;
+
+            const initialTheme =
+                prefersDark
+                    ? 'dark'
+                    : 'light';
+
+            document.documentElement.setAttribute(
+                'data-theme',
+                initialTheme
+            );
+
+            try {
+                localStorage.setItem(
+                    THEME_KEY,
+                    initialTheme
+                );
+            } catch (error) {
+                console.warn(
+                    '[MoonShield Network] Falha ao salvar tema:',
+                    error
+                );
+            }
+        })();
+    </script>
+
+
+    <!-- ============================================================
+         FONTES
+    ============================================================= -->
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet"
+    >
+
+
+    <!-- ============================================================
+         CSS PRINCIPAL
+    ============================================================= -->
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/painel.css' %}"
+    >
+
+
+    <!-- ============================================================
+         CSS DAS SEÇÕES
+    ============================================================= -->
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/secoes/visao_geral.css' %}"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/secoes/interfaces.css' %}"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/secoes/roteamento_nat.css' %}"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/secoes/diagnostico.css' %}"
+    >
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/secoes/alteracoes.css' %}"
+    >
+
+
+    <!-- ============================================================
+         FAVICON
+    ============================================================= -->
+
+    <link
+        rel="icon"
+        type="image/png"
+        sizes="32x32"
+        href="{% static 'favicon/favicon-32x32.png' %}"
+    >
+</head>
+
+
+<body>
+
+    <!-- ============================================================
+         DADOS GLOBAIS
+    ============================================================= -->
+
+    <script>
+        window.MS_NETWORK_PANEL = {
+            csrfToken:
+                "{{ csrf_token }}",
+
+            usuario: {
+                username:
+                    "{{ request.user.username|escapejs }}",
+
+                nome:
+                    "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+            },
+
+            urls: {
+                /*
+                 * As URLs serão conectadas aos nomes oficiais
+                 * quando fecharmos rede/api/urls.py e rede/urls.py.
+                 */
+
+                status:
+                    "/rede/api/status/",
+
+                interfaces:
+                    "/rede/api/interfaces/",
+
+                detectarInterfaces:
+                    "/rede/api/interfaces/detectar/",
+
+                roteamento:
+                    "/rede/api/roteamento/",
+
+                roteamentoReal:
+                    "/rede/api/roteamento/real/",
+
+                configurarRoteamento:
+                    "/rede/api/roteamento/configurar/",
+
+                aplicarRoteamento:
+                    "/rede/api/roteamento/aplicar/",
+
+                rotas:
+                    "/rede/api/roteamento/rotas/",
+
+                nat:
+                    "/rede/api/nat/",
+
+                natReal:
+                    "/rede/api/nat/real/",
+
+                aplicarNat:
+                    "/rede/api/nat/aplicar/",
+
+                diagnostico:
+                    "/rede/api/diagnostico/",
+
+                alteracoes:
+                    "/rede/api/alteracoes/",
+
+                reconciliar:
+                    "/rede/api/alteracoes/reconciliar/",
+
+                aplicarTudo:
+                    "/rede/api/alteracoes/aplicar-tudo/"
+            }
+        };
+    </script>
+
+
+    <!-- ============================================================
+         BACKGROUND
+    ============================================================= -->
+
+    <div
+        class="np-bg"
+        aria-hidden="true"
+    >
+        <div class="np-bg__grid"></div>
+
+        <div
+            class="
+                np-bg__glow
+                np-bg__glow--blue
+            "
+        ></div>
+
+        <div
+            class="
+                np-bg__glow
+                np-bg__glow--purple
+            "
+        ></div>
+
+        <div class="np-bg__noise"></div>
+    </div>
+
+
+    <!-- ============================================================
+         TOASTS
+    ============================================================= -->
+
+    <div
+        class="np-toasts"
+        id="toastContainer"
+        aria-live="polite"
+        aria-atomic="true"
+    ></div>
+
+
+    <!-- ============================================================
+         SIDEBAR MOBILE BACKDROP
+    ============================================================= -->
+
+    <div
+        class="np-sidebar-backdrop"
+        id="sidebarBackdrop"
+        hidden
+    ></div>
+
+
+    <!-- ============================================================
+         SHELL PRINCIPAL
+    ============================================================= -->
+
+    <div class="np-shell">
+
+        <!-- ========================================================
+             BARRA LATERAL
+        ========================================================= -->
+
+        {% include "rede/parciais/_barra_lateral.html" %}
+
+
+        <!-- ========================================================
+             CONTEÚDO PRINCIPAL
+        ========================================================= -->
+
+        <div class="np-main">
+
+            <!-- ====================================================
+                 TOPBAR
+            ===================================================== -->
+
+            {% include "rede/parciais/_barra_superior.html" %}
+
+
+            <!-- ====================================================
+                 SEÇÕES
+            ===================================================== -->
+
+            <main class="np-content">
+
+                <!-- ================================================
+                     VISÃO GERAL
+                ================================================= -->
+
+                {% include "rede/parciais/_visao_geral.html" %}
+
+
+                <!-- ================================================
+                     INTERFACES
+                ================================================= -->
+
+                {% include "rede/parciais/_interfaces.html" %}
+
+
+                <!-- ================================================
+                     ROTEAMENTO & NAT
+                ================================================= -->
+
+                {% include "rede/parciais/_roteamento_nat.html" %}
+
+
+                <!-- ================================================
+                     DIAGNÓSTICO
+                ================================================= -->
+
+                {% include "rede/parciais/_diagnostico.html" %}
+
+
+                <!-- ================================================
+                     ALTERAÇÕES
+                ================================================= -->
+
+                {% include "rede/parciais/_alteracoes.html" %}
+
+            </main>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         MODAIS / DRAWERS
+    ============================================================= -->
+
+    {% include "rede/parciais/_modais.html" %}
+
+
+    <!-- ============================================================
+         TEMA
+    ============================================================= -->
+
+    <script>
+        (() => {
+            'use strict';
+
+            const THEME_KEY =
+                'moonshield_network_theme';
+
+            const button =
+                document.getElementById(
+                    'themeToggle'
+                );
+
+            const root =
+                document.documentElement;
+
+            if (!button) {
+                return;
+            }
+
+            const syncButton = () => {
+                const current =
+                    root.getAttribute(
+                        'data-theme'
+                    ) || 'dark';
+
+                const label =
+                    current === 'dark'
+                        ? 'Ativar tema claro'
+                        : 'Ativar tema escuro';
+
+                button.setAttribute(
+                    'aria-label',
+                    label
+                );
+
+                button.setAttribute(
+                    'title',
+                    label
+                );
+
+                button.dataset.theme =
+                    current;
+            };
+
+            button.addEventListener(
+                'click',
+                () => {
+                    const current =
+                        root.getAttribute(
+                            'data-theme'
+                        ) || 'dark';
+
+                    const next =
+                        current === 'dark'
+                            ? 'light'
+                            : 'dark';
+
+                    root.setAttribute(
+                        'data-theme',
+                        next
+                    );
+
+                    try {
+                        localStorage.setItem(
+                            THEME_KEY,
+                            next
+                        );
+                    } catch (error) {
+                        console.warn(
+                            '[MoonShield Network] Falha ao persistir tema:',
+                            error
+                        );
+                    }
+
+                    syncButton();
+                }
+            );
+
+            syncButton();
+        })();
+    </script>
+
+
+    <!-- ============================================================
+         JAVASCRIPT PRINCIPAL
+    ============================================================= -->
+
+    <script
+        type="module"
+        src="{% static 'js/rede/painel.js' %}"
+    ></script>
+
+</body>
+</html>

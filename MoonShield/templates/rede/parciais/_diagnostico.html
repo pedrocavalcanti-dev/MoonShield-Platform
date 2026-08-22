@@ -1,0 +1,539 @@
+<!-- ================================================================
+     MOONSHIELD NETWORK
+     DIAGNÓSTICO
+================================================================ -->
+
+<section
+    class="np-section"
+    id="section-diagnostico"
+    data-section-panel="diagnostico"
+>
+
+    <!-- ============================================================
+         CABEÇALHO
+    ============================================================= -->
+
+    <div class="np-section-title">
+
+        <div>
+
+            <span class="np-section-title__eyebrow">
+                Network Diagnostics
+            </span>
+
+            <h2>
+                Diagnóstico
+            </h2>
+
+            <p>
+                Execute verificações da pilha de rede, interfaces,
+                roteamento, NAT e conectividade do appliance.
+            </p>
+
+        </div>
+
+
+        <div class="np-section-title__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--primary
+                "
+                id="runDiagnosticsButton"
+            >
+
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle
+                        cx="11"
+                        cy="11"
+                        r="7"
+                    ></circle>
+
+                    <path d="M20 20L16 16"></path>
+
+                    <path d="M8 11H10L11 8L13 14L14 11H16"></path>
+                </svg>
+
+                Executar diagnóstico
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         RESUMO
+    ============================================================= -->
+
+    <div class="np-diagnostic-summary">
+
+        <!-- TOTAL -->
+
+        <article class="np-diagnostic-stat">
+
+            <span>
+                Verificações
+            </span>
+
+            <strong id="diagnosticTotal">
+                —
+            </strong>
+
+            <small>
+                Total executado
+            </small>
+
+        </article>
+
+
+        <!-- SUCESSOS -->
+
+        <article
+            class="
+                np-diagnostic-stat
+                np-diagnostic-stat--ok
+            "
+        >
+
+            <span>
+                Sucessos
+            </span>
+
+            <strong id="diagnosticSuccess">
+                —
+            </strong>
+
+            <small>
+                Testes aprovados
+            </small>
+
+        </article>
+
+
+        <!-- AVISOS -->
+
+        <article
+            class="
+                np-diagnostic-stat
+                np-diagnostic-stat--warning
+            "
+        >
+
+            <span>
+                Avisos
+            </span>
+
+            <strong id="diagnosticWarnings">
+                —
+            </strong>
+
+            <small>
+                Requer atenção
+            </small>
+
+        </article>
+
+
+        <!-- FALHAS -->
+
+        <article
+            class="
+                np-diagnostic-stat
+                np-diagnostic-stat--error
+            "
+        >
+
+            <span>
+                Falhas
+            </span>
+
+            <strong id="diagnosticErrors">
+                —
+            </strong>
+
+            <small>
+                Problemas encontrados
+            </small>
+
+        </article>
+
+    </div>
+
+
+    <!-- ============================================================
+         ESTADO GERAL
+    ============================================================= -->
+
+    <div
+        class="
+            np-panel
+            np-diagnostic-health
+        "
+        id="diagnosticHealthPanel"
+    >
+
+        <div class="np-diagnostic-health__icon">
+
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                ></circle>
+
+                <path d="M8 12L11 15L16 9"></path>
+            </svg>
+
+        </div>
+
+
+        <div class="np-diagnostic-health__copy">
+
+            <span>
+                Estado geral
+            </span>
+
+            <strong id="diagnosticHealthTitle">
+                Diagnóstico ainda não executado
+            </strong>
+
+            <p id="diagnosticHealthDescription">
+                Execute o diagnóstico para verificar a conectividade
+                e os componentes da rede.
+            </p>
+
+        </div>
+
+
+        <div>
+
+            <span
+                class="
+                    np-status-pill
+                    np-status-pill--pending
+                "
+                id="diagnosticHealthStatus"
+            >
+                Aguardando
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         LISTA DE TESTES
+    ============================================================= -->
+
+    <div
+        class="
+            np-section-heading
+            np-section-heading--spaced
+        "
+    >
+
+        <div>
+
+            <span class="np-section-heading__eyebrow">
+                Checks
+            </span>
+
+            <h3>
+                Verificações
+            </h3>
+
+        </div>
+
+
+        <span
+            class="np-diagnostic-timestamp"
+            id="diagnosticLastExecution"
+        >
+            Nunca executado
+        </span>
+
+    </div>
+
+
+    <div
+        class="np-diagnostic-list"
+        id="diagnosticChecksContainer"
+    >
+
+        <!-- ESTADO INICIAL -->
+
+        <div
+            class="np-empty-state"
+            id="diagnosticEmptyState"
+        >
+
+            <div class="np-empty-state__icon">
+
+                <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle
+                        cx="11"
+                        cy="11"
+                        r="7"
+                    ></circle>
+
+                    <path d="M20 20L16.2 16.2"></path>
+
+                    <path d="M8 11H14"></path>
+                </svg>
+
+            </div>
+
+
+            <div>
+
+                <strong>
+                    Nenhum diagnóstico disponível
+                </strong>
+
+                <span>
+                    Clique em Executar diagnóstico para iniciar.
+                </span>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         TEMPLATE DE TESTE
+    ============================================================= -->
+
+    <template id="diagnosticCheckTemplate">
+
+        <article
+            class="np-diagnostic-check"
+            data-diagnostic-check
+        >
+
+            <!-- STATUS -->
+
+            <div
+                class="
+                    np-diagnostic-check__status
+                    is-pending
+                "
+                data-diagnostic-status-icon
+            >
+
+                <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                    ></circle>
+
+                    <path d="M12 8V12"></path>
+
+                    <path d="M12 16H12.01"></path>
+                </svg>
+
+            </div>
+
+
+            <!-- COPY -->
+
+            <div class="np-diagnostic-check__copy">
+
+                <div class="np-diagnostic-check__title">
+
+                    <strong data-diagnostic-name>
+                        Verificação
+                    </strong>
+
+
+                    <code data-diagnostic-code>
+                        check
+                    </code>
+
+                </div>
+
+
+                <span data-diagnostic-message>
+                    —
+                </span>
+
+            </div>
+
+
+            <!-- BADGE -->
+
+            <span
+                class="
+                    np-status-pill
+                    np-status-pill--pending
+                "
+                data-diagnostic-status
+            >
+                —
+            </span>
+
+
+            <!-- EXPANDIR -->
+
+            <button
+                type="button"
+                class="
+                    np-icon-btn
+                    np-icon-btn--small
+                "
+                data-diagnostic-expand
+                aria-label="Ver detalhes"
+                title="Ver detalhes"
+            >
+
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M7 10L12 15L17 10"></path>
+                </svg>
+
+            </button>
+
+
+            <!-- DETALHES -->
+
+            <div
+                class="np-diagnostic-check__details"
+                data-diagnostic-details
+                hidden
+            >
+
+                <pre data-diagnostic-details-content>{}</pre>
+
+            </div>
+
+        </article>
+
+    </template>
+
+
+    <!-- ============================================================
+         INFORMAÇÕES DA EXECUÇÃO
+    ============================================================= -->
+
+    <div
+        class="
+            np-panel
+            np-diagnostic-meta
+        "
+        id="diagnosticMetaPanel"
+        hidden
+    >
+
+        <div class="np-panel__head">
+
+            <div>
+
+                <span class="np-panel__eyebrow">
+                    Execução
+                </span>
+
+                <h3>
+                    Informações do diagnóstico
+                </h3>
+
+            </div>
+
+        </div>
+
+
+        <div class="np-info-list">
+
+            <div class="np-info-row">
+
+                <span>
+                    Backend
+                </span>
+
+                <strong id="diagnosticBackend">
+                    —
+                </strong>
+
+            </div>
+
+
+            <div class="np-info-row">
+
+                <span>
+                    Resultado
+                </span>
+
+                <strong id="diagnosticOverallResult">
+                    —
+                </strong>
+
+            </div>
+
+
+            <div class="np-info-row">
+
+                <span>
+                    Executado em
+                </span>
+
+                <strong id="diagnosticExecutedAt">
+                    —
+                </strong>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>

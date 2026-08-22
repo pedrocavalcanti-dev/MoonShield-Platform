@@ -19,3 +19,5 @@ colorama>=0.4.6
 # Agente HTTP local
 flask>=3.0.0
 werkzeug>=3.0.0
+
+psycopg[binary]==3.3.4

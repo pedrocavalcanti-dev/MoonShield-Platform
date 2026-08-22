@@ -1,61 +1,195 @@
-from django.contrib import admin
-from django.urls import path, include
-from django.shortcuts import redirect
 from django.conf import settings
 from django.conf.urls.static import static
+from django.contrib import admin
+from django.shortcuts import redirect
+from django.urls import include, path
 
-# Importa todas as views de API global diretamente do app painel
+# APIs globais do painel
 from painel.views import (
-    api_sensores,
-    api_badges,
-    api_uptime,
     api_alertas,
     api_alertas_count,
+    api_badges,
+    api_sensores,
+    api_uptime,
 )
 
+
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # =========================================================================
+    # DJANGO ADMIN
+    # =========================================================================
 
-    # Autenticação
-    path('auth/', include('autenticacao.urls')),
+    path(
+        "admin/",
+        admin.site.urls,
+    ),
 
-    # Painel principal
-    path('painel/', include('painel.urls')),
 
-    # ── Rotas /api/* globais ─────────────────────────────────────────────────
-    path('api/sensores/',      api_sensores,      name='api_sensores_global'),
-    path('api/badges/',        api_badges,        name='api_badges_global'),
-    path('api/uptime/',        api_uptime,        name='api_uptime_global'),
-    path('api/alertas/',       api_alertas,       name='api_alertas_global'),
-    path('api/alertas/count/', api_alertas_count, name='api_alertas_count_global'),
+    # =========================================================================
+    # AUTENTICAÇÃO
+    # =========================================================================
 
-    # Mapa de Ameaças
-    path('mapa/', include('mapa_ameacas.urls')),
+    path(
+        "auth/",
+        include("autenticacao.urls"),
+    ),
 
-    # Incidentes (SOC)
-    path('incidentes/', include('incidentes.urls')),
 
-    # DNS & Rede (AdGuard)
-    path('dns/', include('dns.urls')),
+    # =========================================================================
+    # PAINEL PRINCIPAL
+    # =========================================================================
 
-    # Firewall
-    path('firewall/', include('firewall.urls')),
+    path(
+        "painel/",
+        include("painel.urls"),
+    ),
 
-    # Dispositivos
-    path('dispositivos/', include('dispositivos.urls')),
 
-    # MoonShield AI  ← era: Moon AI
-    path('moonai/', include('MoonShield.urls')),
+    # =========================================================================
+    # APIs GLOBAIS
+    # =========================================================================
 
-    # Relatórios
-    path('relatorios/', include('relatorios.urls')),
+    path(
+        "api/sensores/",
+        api_sensores,
+        name="api_sensores_global",
+    ),
 
-    # Configurações
-    path('configuracoes/', include('configuracoes.urls')),
+    path(
+        "api/badges/",
+        api_badges,
+        name="api_badges_global",
+    ),
 
-    # Redireciona raiz para login
-    path('', lambda request: redirect('auth/login/', permanent=False)),
+    path(
+        "api/uptime/",
+        api_uptime,
+        name="api_uptime_global",
+    ),
+
+    path(
+        "api/alertas/",
+        api_alertas,
+        name="api_alertas_global",
+    ),
+
+    path(
+        "api/alertas/count/",
+        api_alertas_count,
+        name="api_alertas_count_global",
+    ),
+
+
+    # =========================================================================
+    # MAPA DE AMEAÇAS
+    # =========================================================================
+
+    path(
+        "mapa/",
+        include("mapa_ameacas.urls"),
+    ),
+
+
+    # =========================================================================
+    # INCIDENTES / SOC / SURICATA
+    # =========================================================================
+
+    path(
+        "incidentes/",
+        include("incidentes.urls"),
+    ),
+
+
+    # =========================================================================
+    # REDE
+    # =========================================================================
+
+    path(
+        "rede/",
+        include("rede.urls"),
+    ),
+
+
+    # =========================================================================
+    # DNS
+    # =========================================================================
+
+    path(
+        "dns/",
+        include("dns.urls"),
+    ),
+
+
+    # =========================================================================
+    # FIREWALL
+    # =========================================================================
+
+    path(
+        "firewall/",
+        include("firewall.urls"),
+    ),
+
+
+    # =========================================================================
+    # DISPOSITIVOS
+    # =========================================================================
+
+    path(
+        "dispositivos/",
+        include("dispositivos.urls"),
+    ),
+
+
+    # =========================================================================
+    # MOONSHIELD AI
+    # =========================================================================
+
+    path(
+        "moonai/",
+        include("MoonShield.urls"),
+    ),
+
+
+    # =========================================================================
+    # RELATÓRIOS
+    # =========================================================================
+
+    path(
+        "relatorios/",
+        include("relatorios.urls"),
+    ),
+
+
+    # =========================================================================
+    # CONFIGURAÇÕES
+    # =========================================================================
+
+    path(
+        "configuracoes/",
+        include("configuracoes.urls"),
+    ),
+
+
+    # =========================================================================
+    # RAIZ
+    # =========================================================================
+
+    path(
+        "",
+        lambda request: redirect(
+            "auth/login/",
+            permanent=False,
+        ),
+    ),
 ]
 
+
+# =============================================================================
+# MEDIA — DESENVOLVIMENTO
+# =============================================================================
+
 if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(
+        settings.MEDIA_URL,
+        document_root=settings.MEDIA_ROOT,
+    )

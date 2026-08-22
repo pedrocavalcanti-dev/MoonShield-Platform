@@ -1,0 +1,872 @@
+/* ==========================================================================
+   MOONSHIELD NETWORK PANEL
+   Diagnóstico
+========================================================================== */
+
+
+/* ==========================================================================
+   RESUMO
+========================================================================== */
+
+.np-diagnostic-summary {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            4,
+            minmax(
+                0,
+                1fr
+            )
+        );
+
+    gap: 10px;
+
+    margin-bottom:
+        16px;
+}
+
+
+.np-diagnostic-stat {
+    position: relative;
+
+    min-height: 92px;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    justify-content:
+        center;
+
+    gap: 4px;
+
+    padding:
+        14px 15px;
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        var(--np-radius-md);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .02
+        );
+
+    box-shadow:
+        var(--np-shadow-small);
+}
+
+
+.np-diagnostic-stat::before {
+    content: "";
+
+    position: absolute;
+
+    top: 0;
+    left: 0;
+
+    width: 3px;
+    height: 100%;
+
+    background:
+        var(--np-faint);
+}
+
+
+.np-diagnostic-stat--ok::before {
+    background:
+        var(--np-green);
+}
+
+
+.np-diagnostic-stat--warning::before {
+    background:
+        var(--np-yellow);
+}
+
+
+.np-diagnostic-stat--error::before {
+    background:
+        var(--np-red);
+}
+
+
+.np-diagnostic-stat > span {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+    font-weight: 600;
+
+    letter-spacing:
+        .08em;
+
+    text-transform:
+        uppercase;
+}
+
+
+.np-diagnostic-stat > strong {
+    color:
+        var(--np-text);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 21px;
+    font-weight: 500;
+}
+
+
+.np-diagnostic-stat > small {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+}
+
+
+/* ==========================================================================
+   HEALTH PANEL
+========================================================================== */
+
+.np-diagnostic-health {
+    min-height: 104px;
+
+    display: grid;
+
+    grid-template-columns:
+        auto
+        minmax(
+            0,
+            1fr
+        )
+        auto;
+
+    align-items: center;
+
+    gap: 15px;
+
+    padding:
+        16px 18px;
+}
+
+
+.np-diagnostic-health__icon {
+    width: 48px;
+    height: 48px;
+
+    display: grid;
+
+    place-items:
+        center;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        12px;
+
+    color:
+        var(--np-dim);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .025
+        );
+}
+
+
+.np-diagnostic-health.is-ok
+.np-diagnostic-health__icon {
+
+    color:
+        var(--np-green);
+
+    border-color:
+        var(--np-green-border);
+
+    background:
+        var(--np-green-soft);
+}
+
+
+.np-diagnostic-health.is-warning
+.np-diagnostic-health__icon {
+
+    color:
+        var(--np-yellow);
+
+    border-color:
+        var(--np-yellow-border);
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+.np-diagnostic-health.is-error
+.np-diagnostic-health__icon {
+
+    color:
+        var(--np-red);
+
+    border-color:
+        var(--np-red-border);
+
+    background:
+        var(--np-red-soft);
+}
+
+
+/* ==========================================================================
+   HEALTH COPY
+========================================================================== */
+
+.np-diagnostic-health__copy {
+    min-width: 0;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 2px;
+}
+
+
+.np-diagnostic-health__copy > span {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+
+    letter-spacing:
+        .07em;
+
+    text-transform:
+        uppercase;
+}
+
+
+.np-diagnostic-health__copy > strong {
+    color:
+        var(--np-text);
+
+    font-size: 13px;
+    font-weight: 500;
+}
+
+
+.np-diagnostic-health__copy > p {
+    max-width: 700px;
+
+    margin:
+        3px 0 0;
+
+    color:
+        var(--np-muted);
+
+    font-size: 9px;
+
+    line-height: 1.5;
+}
+
+
+/* ==========================================================================
+   TIMESTAMP
+========================================================================== */
+
+.np-diagnostic-timestamp {
+    color:
+        var(--np-dim);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 7px;
+}
+
+
+/* ==========================================================================
+   LISTA
+========================================================================== */
+
+.np-diagnostic-list {
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 8px;
+}
+
+
+/* ==========================================================================
+   CHECK
+========================================================================== */
+
+.np-diagnostic-check {
+    position: relative;
+
+    display: grid;
+
+    grid-template-columns:
+        38px
+        minmax(
+            0,
+            1fr
+        )
+        auto
+        30px;
+
+    align-items: center;
+
+    gap: 11px;
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        10px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .018
+        );
+
+    transition:
+
+        border-color
+        var(--np-fast)
+        ease,
+
+        background
+        var(--np-fast)
+        ease;
+}
+
+
+.np-diagnostic-check:hover {
+    border-color:
+        var(--np-border-strong);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .028
+        );
+}
+
+
+.np-diagnostic-check.is-ok {
+    border-color:
+        rgba(
+            74,
+            222,
+            128,
+            .15
+        );
+}
+
+
+.np-diagnostic-check.is-warning {
+    border-color:
+        rgba(
+            251,
+            191,
+            36,
+            .18
+        );
+}
+
+
+.np-diagnostic-check.is-error {
+    border-color:
+        rgba(
+            248,
+            113,
+            113,
+            .20
+        );
+}
+
+
+/* ==========================================================================
+   STATUS ICON
+========================================================================== */
+
+.np-diagnostic-check__status {
+    width: 38px;
+
+    align-self: stretch;
+
+    display: grid;
+
+    place-items:
+        center;
+
+    border-right:
+        1px solid
+        var(--np-border);
+
+    color:
+        var(--np-dim);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .018
+        );
+}
+
+
+.np-diagnostic-check__status.is-ok {
+    color:
+        var(--np-green);
+
+    background:
+        var(--np-green-soft);
+}
+
+
+.np-diagnostic-check__status.is-warning {
+    color:
+        var(--np-yellow);
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+.np-diagnostic-check__status.is-error {
+    color:
+        var(--np-red);
+
+    background:
+        var(--np-red-soft);
+}
+
+
+.np-diagnostic-check__status.is-pending {
+    color:
+        var(--np-dim);
+}
+
+
+/* ==========================================================================
+   COPY
+========================================================================== */
+
+.np-diagnostic-check__copy {
+    min-width: 0;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 3px;
+
+    padding:
+        12px 0;
+}
+
+
+.np-diagnostic-check__title {
+    min-width: 0;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+}
+
+
+.np-diagnostic-check__title strong {
+    overflow: hidden;
+
+    color:
+        var(--np-text);
+
+    font-size: 10px;
+    font-weight: 500;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+.np-diagnostic-check__title code {
+    max-width: 180px;
+
+    overflow: hidden;
+
+    padding:
+        2px 5px;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        5px;
+
+    color:
+        var(--np-dim);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .02
+        );
+
+    font-size: 6px;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+.np-diagnostic-check__copy > span {
+    overflow: hidden;
+
+    color:
+        var(--np-muted);
+
+    font-size: 8px;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+/* ==========================================================================
+   DETAILS
+========================================================================== */
+
+.np-diagnostic-check__details {
+    grid-column:
+        1 / -1;
+
+    border-top:
+        1px solid
+        var(--np-border);
+
+    background:
+        rgba(
+            0,
+            0,
+            0,
+            .12
+        );
+}
+
+
+.np-diagnostic-check__details pre {
+    max-height: 280px;
+
+    margin: 0;
+
+    overflow: auto;
+
+    padding:
+        13px 15px;
+
+    color:
+        var(--np-muted);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 7px;
+
+    line-height: 1.6;
+
+    white-space:
+        pre-wrap;
+
+    word-break:
+        break-word;
+}
+
+
+/* ==========================================================================
+   LOADING DIAGNOSTIC
+========================================================================== */
+
+.np-diagnostic-list.is-loading {
+    min-height: 120px;
+
+    opacity: .65;
+}
+
+
+.np-diagnostic-list.is-loading::after {
+    content:
+        "Executando diagnóstico...";
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    min-height: 100px;
+
+    color:
+        var(--np-dim);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 8px;
+}
+
+
+/* ==========================================================================
+   META PANEL
+========================================================================== */
+
+.np-diagnostic-meta {
+    margin-top:
+        22px;
+}
+
+
+/* ==========================================================================
+   LIGHT
+========================================================================== */
+
+[data-theme="light"]
+.np-diagnostic-stat {
+
+    background:
+        var(--np-surface);
+
+    box-shadow:
+        var(--np-shadow-small);
+}
+
+
+[data-theme="light"]
+.np-diagnostic-health__icon {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+[data-theme="light"]
+.np-diagnostic-check {
+
+    background:
+        var(--np-surface);
+}
+
+
+[data-theme="light"]
+.np-diagnostic-check:hover {
+
+    background:
+        #fbfcfd;
+}
+
+
+[data-theme="light"]
+.np-diagnostic-check__status {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+[data-theme="light"]
+.np-diagnostic-check__details {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 900
+========================================================================== */
+
+@media (
+    max-width: 900px
+) {
+
+    .np-diagnostic-summary {
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(
+                    0,
+                    1fr
+                )
+            );
+    }
+
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 650
+========================================================================== */
+
+@media (
+    max-width: 650px
+) {
+
+    .np-diagnostic-health {
+        grid-template-columns:
+            auto
+            minmax(
+                0,
+                1fr
+            );
+
+        align-items:
+            flex-start;
+    }
+
+
+    .np-diagnostic-health
+    > div:last-child {
+
+        grid-column:
+            1 / -1;
+    }
+
+
+    .np-diagnostic-check {
+        grid-template-columns:
+            36px
+            minmax(
+                0,
+                1fr
+            )
+            30px;
+    }
+
+
+    .np-diagnostic-check
+    > .np-status-pill {
+
+        grid-column:
+            2 / 3;
+
+        justify-self:
+            flex-start;
+
+        margin-bottom:
+            10px;
+    }
+
+
+    .np-diagnostic-check
+    > [data-diagnostic-expand] {
+
+        grid-column:
+            3;
+
+        grid-row:
+            1 / 3;
+    }
+
+
+    .np-diagnostic-check__copy {
+        padding-bottom:
+            3px;
+    }
+
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 440
+========================================================================== */
+
+@media (
+    max-width: 440px
+) {
+
+    .np-diagnostic-summary {
+        grid-template-columns:
+            1fr
+            1fr;
+
+        gap: 8px;
+    }
+
+
+    .np-diagnostic-stat {
+        min-height: 82px;
+
+        padding:
+            12px;
+    }
+
+
+    .np-diagnostic-stat > strong {
+        font-size: 18px;
+    }
+
+
+    .np-diagnostic-health {
+        padding:
+            14px;
+    }
+
+
+    .np-diagnostic-health__icon {
+        width: 42px;
+        height: 42px;
+    }
+
+
+    .np-diagnostic-check__title {
+        align-items:
+            flex-start;
+
+        flex-direction:
+            column;
+
+        gap: 3px;
+    }
+
+}

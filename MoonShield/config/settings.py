@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -9,13 +8,24 @@ import environ
 # CAMINHOS BASE
 # =============================================================================
 
+# Exemplo Linux:
+#
 # /home/moonshield/MoonShield-Platform/MoonShield
+#
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
+# Raiz do repositório:
+#
 # /home/moonshield/MoonShield-Platform
+#
 PROJECT_ROOT = BASE_DIR.parent
 
+
+# Arquivo:
+#
 # /home/moonshield/MoonShield-Platform/.env
+#
 ENV_FILE = PROJECT_ROOT / ".env"
 
 
@@ -28,7 +38,9 @@ env = environ.Env(
 )
 
 if ENV_FILE.exists():
-    environ.Env.read_env(ENV_FILE)
+    environ.Env.read_env(
+        ENV_FILE,
+    )
 
 
 # =============================================================================
@@ -36,6 +48,7 @@ if ENV_FILE.exists():
 # =============================================================================
 
 SYSTEM_NAME = "MoonShield"
+
 SYSTEM_VERSION = "1.0.0"
 
 
@@ -87,13 +100,16 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 # =============================================================================
-# APLICATIVOS MOONSHIELD NO PYTHON PATH
+# PYTHON PATH — APLICATIVOS
 # =============================================================================
 
 APPS_DIR = BASE_DIR / "aplicativos"
 
 if str(APPS_DIR) not in sys.path:
-    sys.path.insert(0, str(APPS_DIR))
+    sys.path.insert(
+        0,
+        str(APPS_DIR),
+    )
 
 
 # =============================================================================
@@ -101,7 +117,10 @@ if str(APPS_DIR) not in sys.path:
 # =============================================================================
 
 INSTALLED_APPS = [
+    # -------------------------------------------------------------------------
     # Django
+    # -------------------------------------------------------------------------
+
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -109,17 +128,30 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
+    # -------------------------------------------------------------------------
     # MoonShield
+    # -------------------------------------------------------------------------
+
     "autenticacao",
     "painel",
+
     "mapa_ameacas",
+
+    # Infraestrutura
+    "rede.apps.RedeConfig",
     "dns",
-    "ids",
     "firewall",
     "dispositivos",
+
+    # Segurança / SOC
+    "ids",
+    "incidentes",
+
+    # Plataforma
     "relatorios",
     "configuracoes",
-    "incidentes",
+
+    # MoonShield AI
     "MoonShield",
 ]
 
@@ -130,11 +162,17 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+
     "django.contrib.sessions.middleware.SessionMiddleware",
+
     "django.middleware.common.CommonMiddleware",
+
     "django.middleware.csrf.CsrfViewMiddleware",
+
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+
     "django.contrib.messages.middleware.MessageMiddleware",
+
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -154,7 +192,10 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 TEMPLATES = [
     {
-        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "BACKEND": (
+            "django.template.backends.django."
+            "DjangoTemplates"
+        ),
 
         "DIRS": [
             BASE_DIR / "templates",
@@ -165,12 +206,18 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.debug",
+
                 "django.template.context_processors.request",
-                "django.contrib.auth.context_processors.auth",
-                "django.contrib.messages.context_processors.messages",
+
+                "django.contrib.auth."
+                "context_processors.auth",
+
+                "django.contrib.messages."
+                "context_processors.messages",
 
                 # MoonShield
-                "autenticacao.context_processors.user_profile_ctx",
+                "autenticacao.context_processors."
+                "user_profile_ctx",
             ],
         },
     },
@@ -181,19 +228,20 @@ TEMPLATES = [
 # BANCO DE DADOS — POSTGRESQL
 # =============================================================================
 
-# MoonShield V1 usa PostgreSQL como banco principal.
+# MoonShield utiliza PostgreSQL.
 #
-# O .env deve conter:
+# Exemplo no .env:
 #
 # DATABASE_URL=postgresql://usuario:senha@127.0.0.1:5432/moonshield
 #
 # Não existe fallback automático para SQLite.
-# Se DATABASE_URL estiver ausente, o Django deve falhar explicitamente.
+
 
 DATABASE_URL = env(
     "DATABASE_URL",
     default=None,
 )
+
 
 if not DATABASE_URL:
     raise RuntimeError(
@@ -205,12 +253,12 @@ if not DATABASE_URL:
 DATABASES = {
     "default": env.db_url(
         "DATABASE_URL",
-    )
+    ),
 }
 
 
 # =============================================================================
-# CONFIGURAÇÕES DO POSTGRESQL
+# POSTGRESQL — CONEXÕES
 # =============================================================================
 
 DATABASES["default"]["CONN_MAX_AGE"] = env.int(
@@ -218,11 +266,17 @@ DATABASES["default"]["CONN_MAX_AGE"] = env.int(
     default=60,
 )
 
+
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 
-# Preserva OPTIONS existentes caso django-environ adicione algum no futuro.
-_database_options = DATABASES["default"].get("OPTIONS", {})
+_database_options = DATABASES[
+    "default"
+].get(
+    "OPTIONS",
+    {},
+)
+
 
 _database_options.update(
     {
@@ -233,7 +287,10 @@ _database_options.update(
     }
 )
 
-DATABASES["default"]["OPTIONS"] = _database_options
+
+DATABASES["default"]["OPTIONS"] = (
+    _database_options
+)
 
 
 # =============================================================================
@@ -243,27 +300,34 @@ DATABASES["default"]["OPTIONS"] = _database_options
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": (
-            "django.contrib.auth.password_validation."
+            "django.contrib.auth."
+            "password_validation."
             "UserAttributeSimilarityValidator"
-        )
+        ),
     },
+
     {
         "NAME": (
-            "django.contrib.auth.password_validation."
+            "django.contrib.auth."
+            "password_validation."
             "MinimumLengthValidator"
-        )
+        ),
     },
+
     {
         "NAME": (
-            "django.contrib.auth.password_validation."
+            "django.contrib.auth."
+            "password_validation."
             "CommonPasswordValidator"
-        )
+        ),
     },
+
     {
         "NAME": (
-            "django.contrib.auth.password_validation."
+            "django.contrib.auth."
+            "password_validation."
             "NumericPasswordValidator"
-        )
+        ),
     },
 ]
 
@@ -287,11 +351,15 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 
+
 STATICFILES_DIRS = [
     BASE_DIR / "static",
 ]
 
-STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STATIC_ROOT = (
+    BASE_DIR / "staticfiles"
+)
 
 
 # =============================================================================
@@ -300,14 +368,18 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "/media/"
 
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = (
+    BASE_DIR / "media"
+)
 
 
 # =============================================================================
 # DEFAULT AUTO FIELD
 # =============================================================================
 
-DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+DEFAULT_AUTO_FIELD = (
+    "django.db.models.BigAutoField"
+)
 
 
 # =============================================================================
@@ -340,10 +412,12 @@ SECURE_SSL_REDIRECT = env.bool(
     default=False,
 )
 
+
 SESSION_COOKIE_SECURE = env.bool(
     "SESSION_COOKIE_SECURE",
     default=False,
 )
+
 
 CSRF_COOKIE_SECURE = env.bool(
     "CSRF_COOKIE_SECURE",
@@ -352,11 +426,8 @@ CSRF_COOKIE_SECURE = env.bool(
 
 
 # =============================================================================
-# PROXY REVERSO
+# REVERSE PROXY
 # =============================================================================
-
-# Quando futuramente usarmos Nginx/Caddy/HAProxy com HTTPS,
-# o proxy poderá informar ao Django que a conexão original era HTTPS.
 
 SECURE_PROXY_SSL_HEADER = (
     "HTTP_X_FORWARDED_PROTO",
@@ -368,13 +439,17 @@ SECURE_PROXY_SSL_HEADER = (
 # LOGS
 # =============================================================================
 
-# Durante desenvolvimento:
-# /home/moonshield/MoonShield-Platform/MoonShield/logs
+# Desenvolvimento:
 #
-# Na versão appliance podemos migrar isso para:
+# MoonShield/logs/
+#
+# Appliance futuramente:
+#
 # /var/log/moonshield/
 
+
 LOG_DIR = BASE_DIR / "logs"
+
 
 LOG_DIR.mkdir(
     parents=True,
@@ -387,6 +462,10 @@ LOGGING = {
 
     "disable_existing_loggers": False,
 
+    # -------------------------------------------------------------------------
+    # FORMATADORES
+    # -------------------------------------------------------------------------
+
     "formatters": {
         "standard": {
             "format": (
@@ -395,32 +474,54 @@ LOGGING = {
                 "{name} | "
                 "{message}"
             ),
+
             "style": "{",
         },
     },
 
+    # -------------------------------------------------------------------------
+    # HANDLERS
+    # -------------------------------------------------------------------------
+
     "handlers": {
         "console": {
-            "class": "logging.StreamHandler",
+            "class": (
+                "logging.StreamHandler"
+            ),
+
             "formatter": "standard",
         },
 
         "file": {
-            "class": "logging.handlers.RotatingFileHandler",
+            "class": (
+                "logging.handlers."
+                "RotatingFileHandler"
+            ),
+
             "filename": str(
                 LOG_DIR / "moonshield.log"
             ),
-            "maxBytes": 10 * 1024 * 1024,
+
+            "maxBytes": (
+                10 * 1024 * 1024
+            ),
+
             "backupCount": 5,
+
             "formatter": "standard",
         },
     },
+
+    # -------------------------------------------------------------------------
+    # ROOT LOGGER
+    # -------------------------------------------------------------------------
 
     "root": {
         "handlers": [
             "console",
             "file",
         ],
+
         "level": env(
             "LOG_LEVEL",
             default="INFO",

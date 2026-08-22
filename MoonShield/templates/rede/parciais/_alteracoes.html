@@ -1,0 +1,904 @@
+<!-- ================================================================
+     MOONSHIELD NETWORK
+     ALTERAÇÕES
+================================================================ -->
+
+<section
+    class="np-section"
+    id="section-alteracoes"
+    data-section-panel="alteracoes"
+>
+
+    <!-- ============================================================
+         CABEÇALHO
+    ============================================================= -->
+
+    <div class="np-section-title">
+
+        <div>
+
+            <span class="np-section-title__eyebrow">
+                Safe Network Changes
+            </span>
+
+            <h2>
+                Alterações
+            </h2>
+
+            <p>
+                Acompanhe aplicações, confirmações, rollbacks e
+                alterações executadas na configuração de rede.
+            </p>
+
+        </div>
+
+
+        <div class="np-section-title__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--ghost
+                "
+                id="reconcileChangesButton"
+            >
+
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M20 6V11H15"></path>
+                    <path d="M18.2 17A8 8 0 1 1 20 11"></path>
+                </svg>
+
+                Reconciliar
+
+            </button>
+
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--ghost
+                "
+                id="refreshChangesButton"
+            >
+
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M20 6V11H15"></path>
+                    <path d="M18.2 17A8 8 0 1 1 20 11"></path>
+                </svg>
+
+                Atualizar
+
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         RESUMO
+    ============================================================= -->
+
+    <div class="np-change-summary">
+
+        <article class="np-change-stat">
+
+            <span>
+                Total
+            </span>
+
+            <strong id="changesTotal">
+                0
+            </strong>
+
+        </article>
+
+
+        <article
+            class="
+                np-change-stat
+                np-change-stat--pending
+            "
+        >
+
+            <span>
+                Pendentes
+            </span>
+
+            <strong id="changesPending">
+                0
+            </strong>
+
+        </article>
+
+
+        <article
+            class="
+                np-change-stat
+                np-change-stat--ok
+            "
+        >
+
+            <span>
+                Confirmadas
+            </span>
+
+            <strong id="changesConfirmed">
+                0
+            </strong>
+
+        </article>
+
+
+        <article
+            class="
+                np-change-stat
+                np-change-stat--warning
+            "
+        >
+
+            <span>
+                Revertidas
+            </span>
+
+            <strong id="changesReverted">
+                0
+            </strong>
+
+        </article>
+
+
+        <article
+            class="
+                np-change-stat
+                np-change-stat--error
+            "
+        >
+
+            <span>
+                Falhas
+            </span>
+
+            <strong id="changesFailed">
+                0
+            </strong>
+
+        </article>
+
+    </div>
+
+
+    <!-- ============================================================
+         SAFE APPLY ATIVO
+    ============================================================= -->
+
+    <div
+        class="np-safe-change-card"
+        id="activeSafeChangeCard"
+        hidden
+    >
+
+        <div class="np-safe-change-card__icon">
+
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <path
+                    d="
+                        M12 3
+                        L19 6
+                        V11
+                        C19 16
+                        16 19
+                        12 21
+                        C8 19
+                        5 16
+                        5 11
+                        V6
+                        Z
+                    "
+                ></path>
+
+                <path d="M12 8V13"></path>
+                <path d="M12 16H12.01"></path>
+            </svg>
+
+        </div>
+
+
+        <div class="np-safe-change-card__copy">
+
+            <span>
+                Alteração aguardando confirmação
+            </span>
+
+            <strong id="activeSafeChangeTitle">
+                Configuração aplicada
+            </strong>
+
+            <small id="activeSafeChangeDescription">
+                Confirme que o acesso ao MoonShield continua funcionando.
+            </small>
+
+        </div>
+
+
+        <div class="np-safe-change-card__timer">
+
+            <span>
+                Rollback em
+            </span>
+
+            <strong id="activeSafeChangeTimer">
+                00:60
+            </strong>
+
+        </div>
+
+
+        <div class="np-safe-change-card__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--danger
+                    np-btn--small
+                "
+                id="activeSafeChangeRollbackButton"
+            >
+                Reverter
+            </button>
+
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--primary
+                    np-btn--small
+                "
+                id="activeSafeChangeConfirmButton"
+            >
+                Confirmar
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         FILTROS
+    ============================================================= -->
+
+    <div class="np-change-filters">
+
+        <div class="np-change-filters__group">
+
+            <label for="changesStatusFilter">
+                Status
+            </label>
+
+            <select
+                class="np-select"
+                id="changesStatusFilter"
+            >
+
+                <option value="">
+                    Todos
+                </option>
+
+                <option value="created">
+                    Criada
+                </option>
+
+                <option value="validating">
+                    Validando
+                </option>
+
+                <option value="applying">
+                    Aplicando
+                </option>
+
+                <option value="waiting_confirmation">
+                    Aguardando confirmação
+                </option>
+
+                <option value="confirmed">
+                    Confirmada
+                </option>
+
+                <option value="rollback">
+                    Rollback
+                </option>
+
+                <option value="reverted">
+                    Revertida
+                </option>
+
+                <option value="failed">
+                    Falhou
+                </option>
+
+                <option value="cancelled">
+                    Cancelada
+                </option>
+
+            </select>
+
+        </div>
+
+
+        <div class="np-change-filters__group">
+
+            <label for="changesTypeFilter">
+                Tipo
+            </label>
+
+            <select
+                class="np-select"
+                id="changesTypeFilter"
+            >
+
+                <option value="">
+                    Todos
+                </option>
+
+                <option value="interface">
+                    Interface
+                </option>
+
+                <option value="routing">
+                    Roteamento
+                </option>
+
+                <option value="nat">
+                    NAT
+                </option>
+
+                <option value="route">
+                    Rota
+                </option>
+
+                <option value="general">
+                    Geral
+                </option>
+
+            </select>
+
+        </div>
+
+
+        <button
+            type="button"
+            class="
+                np-btn
+                np-btn--ghost
+                np-btn--small
+            "
+            id="clearChangesFiltersButton"
+        >
+            Limpar filtros
+        </button>
+
+    </div>
+
+
+    <!-- ============================================================
+         TABELA
+    ============================================================= -->
+
+    <div class="np-panel">
+
+        <div class="np-table-wrap">
+
+            <table class="np-table">
+
+                <thead>
+
+                    <tr>
+
+                        <th>
+                            Data
+                        </th>
+
+                        <th>
+                            Alteração
+                        </th>
+
+                        <th>
+                            Tipo
+                        </th>
+
+                        <th>
+                            Status
+                        </th>
+
+                        <th>
+                            Usuário
+                        </th>
+
+                        <th class="np-table__actions">
+                            Ações
+                        </th>
+
+                    </tr>
+
+                </thead>
+
+
+                <tbody id="changesTableBody">
+
+                    <tr id="changesEmptyRow">
+
+                        <td
+                            colspan="6"
+                            class="np-table-empty"
+                        >
+                            Nenhuma alteração registrada.
+                        </td>
+
+                    </tr>
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+
+    <!-- ============================================================
+         TEMPLATE LINHA
+    ============================================================= -->
+
+    <template id="changeRowTemplate">
+
+        <tr data-change-row>
+
+            <td>
+
+                <div class="np-table-date">
+
+                    <strong data-change-date>
+                        —
+                    </strong>
+
+                    <span data-change-time>
+                        —
+                    </span>
+
+                </div>
+
+            </td>
+
+
+            <td>
+
+                <div class="np-change-title">
+
+                    <strong data-change-title>
+                        Alteração
+                    </strong>
+
+                    <code data-change-id>
+                        —
+                    </code>
+
+                </div>
+
+            </td>
+
+
+            <td>
+
+                <span
+                    class="np-type-badge"
+                    data-change-type
+                >
+                    —
+                </span>
+
+            </td>
+
+
+            <td>
+
+                <span
+                    class="
+                        np-status-pill
+                        np-status-pill--pending
+                    "
+                    data-change-status
+                >
+                    —
+                </span>
+
+            </td>
+
+
+            <td data-change-user>
+                —
+            </td>
+
+
+            <td class="np-table__actions">
+
+                <button
+                    type="button"
+                    class="
+                        np-btn
+                        np-btn--ghost
+                        np-btn--small
+                    "
+                    data-change-view
+                >
+                    Detalhes
+                </button>
+
+            </td>
+
+        </tr>
+
+    </template>
+
+
+    <!-- ============================================================
+         DRAWER DETALHE
+    ============================================================= -->
+
+    <div
+        class="np-drawer"
+        id="changeDrawer"
+        aria-hidden="true"
+    >
+
+        <div
+            class="np-drawer__backdrop"
+            data-close-change-drawer
+        ></div>
+
+
+        <aside
+            class="
+                np-drawer__panel
+                np-drawer__panel--wide
+            "
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="changeDrawerTitle"
+        >
+
+            <!-- HEADER -->
+
+            <div class="np-drawer__head">
+
+                <div>
+
+                    <span class="np-drawer__eyebrow">
+                        Alteração de Rede
+                    </span>
+
+                    <h2 id="changeDrawerTitle">
+                        Detalhes
+                    </h2>
+
+                </div>
+
+
+                <button
+                    type="button"
+                    class="np-icon-btn"
+                    data-close-change-drawer
+                    aria-label="Fechar"
+                >
+                    ×
+                </button>
+
+            </div>
+
+
+            <!-- BODY -->
+
+            <div class="np-drawer__body">
+
+                <!-- STATUS -->
+
+                <div class="np-change-detail-status">
+
+                    <span
+                        class="
+                            np-status-pill
+                            np-status-pill--pending
+                        "
+                        id="changeDetailStatus"
+                    >
+                        —
+                    </span>
+
+
+                    <span
+                        class="np-type-badge"
+                        id="changeDetailType"
+                    >
+                        —
+                    </span>
+
+                </div>
+
+
+                <!-- INFORMAÇÕES -->
+
+                <div class="np-info-list">
+
+                    <div class="np-info-row">
+
+                        <span>
+                            ID
+                        </span>
+
+                        <code id="changeDetailId">
+                            —
+                        </code>
+
+                    </div>
+
+
+                    <div class="np-info-row">
+
+                        <span>
+                            Título
+                        </span>
+
+                        <strong id="changeDetailTitle">
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-info-row">
+
+                        <span>
+                            Solicitado por
+                        </span>
+
+                        <strong id="changeDetailUser">
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-info-row">
+
+                        <span>
+                            Criado em
+                        </span>
+
+                        <strong id="changeDetailCreatedAt">
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-info-row">
+
+                        <span>
+                            Aplicado em
+                        </span>
+
+                        <strong id="changeDetailAppliedAt">
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-info-row">
+
+                        <span>
+                            Confirmado em
+                        </span>
+
+                        <strong id="changeDetailConfirmedAt">
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-info-row">
+
+                        <span>
+                            Rollback em
+                        </span>
+
+                        <strong id="changeDetailRollbackAt">
+                            —
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <!-- TIMER -->
+
+                <div
+                    class="np-change-detail-timer"
+                    id="changeDetailTimerContainer"
+                    hidden
+                >
+
+                    <span>
+                        Rollback automático em
+                    </span>
+
+                    <strong id="changeDetailTimer">
+                        00:00
+                    </strong>
+
+                </div>
+
+
+                <!-- CONFIGURAÇÃO -->
+
+                <div class="np-change-detail-block">
+
+                    <div class="np-change-detail-block__head">
+
+                        <strong>
+                            Configuração solicitada
+                        </strong>
+
+                    </div>
+
+                    <pre id="changeDetailConfiguration">{}</pre>
+
+                </div>
+
+
+                <!-- RESULTADO AGENT -->
+
+                <div class="np-change-detail-block">
+
+                    <div class="np-change-detail-block__head">
+
+                        <strong>
+                            Resultado do Agent
+                        </strong>
+
+                    </div>
+
+                    <pre id="changeDetailAgentResult">{}</pre>
+
+                </div>
+
+
+                <!-- LOG -->
+
+                <div class="np-change-detail-block">
+
+                    <div class="np-change-detail-block__head">
+
+                        <strong>
+                            Log
+                        </strong>
+
+                    </div>
+
+                    <pre id="changeDetailLog">—</pre>
+
+                </div>
+
+
+                <!-- ERRO -->
+
+                <div
+                    class="
+                        np-change-detail-error
+                    "
+                    id="changeDetailError"
+                    hidden
+                >
+
+                    <strong>
+                        Erro
+                    </strong>
+
+                    <p id="changeDetailErrorMessage">
+                        —
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <!-- FOOTER -->
+
+            <div class="np-drawer__footer">
+
+                <div>
+
+                    <button
+                        type="button"
+                        class="
+                            np-btn
+                            np-btn--danger
+                        "
+                        id="changeRollbackButton"
+                        hidden
+                    >
+                        Reverter agora
+                    </button>
+
+                </div>
+
+
+                <div class="np-drawer__footer-actions">
+
+                    <button
+                        type="button"
+                        class="
+                            np-btn
+                            np-btn--ghost
+                        "
+                        data-close-change-drawer
+                    >
+                        Fechar
+                    </button>
+
+
+                    <button
+                        type="button"
+                        class="
+                            np-btn
+                            np-btn--primary
+                        "
+                        id="changeConfirmButton"
+                        hidden
+                    >
+                        Confirmar configuração
+                    </button>
+
+                </div>
+
+            </div>
+
+        </aside>
+
+    </div>
+
+</section>

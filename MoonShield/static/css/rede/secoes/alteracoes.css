@@ -1,0 +1,1063 @@
+/* ==========================================================================
+   MOONSHIELD NETWORK PANEL
+   Alterações / Safe Changes
+========================================================================== */
+
+
+/* ==========================================================================
+   RESUMO
+========================================================================== */
+
+.np-change-summary {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            5,
+            minmax(
+                0,
+                1fr
+            )
+        );
+
+    gap: 10px;
+
+    margin-bottom:
+        16px;
+}
+
+
+.np-change-stat {
+    position: relative;
+
+    min-height: 76px;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    justify-content:
+        center;
+
+    gap: 4px;
+
+    padding:
+        12px 14px;
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        var(--np-radius-md);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .018
+        );
+
+    box-shadow:
+        var(--np-shadow-small);
+}
+
+
+.np-change-stat::after {
+    content: "";
+
+    position: absolute;
+
+    top: 0;
+    right: 0;
+
+    width: 3px;
+    height: 100%;
+
+    background:
+        var(--np-faint);
+}
+
+
+.np-change-stat--pending::after {
+    background:
+        var(--np-yellow);
+}
+
+
+.np-change-stat--ok::after {
+    background:
+        var(--np-green);
+}
+
+
+.np-change-stat--warning::after {
+    background:
+        var(--np-orange);
+}
+
+
+.np-change-stat--error::after {
+    background:
+        var(--np-red);
+}
+
+
+.np-change-stat span {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+
+    letter-spacing:
+        .06em;
+
+    text-transform:
+        uppercase;
+}
+
+
+.np-change-stat strong {
+    color:
+        var(--np-text);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 18px;
+    font-weight: 500;
+}
+
+
+/* ==========================================================================
+   SAFE CHANGE CARD
+========================================================================== */
+
+.np-safe-change-card {
+    display: grid;
+
+    grid-template-columns:
+        auto
+        minmax(
+            0,
+            1fr
+        )
+        auto
+        auto;
+
+    align-items: center;
+
+    gap: 15px;
+
+    margin-bottom:
+        18px;
+
+    padding:
+        14px 16px;
+
+    border:
+        1px solid
+        var(--np-yellow-border);
+
+    border-radius:
+        var(--np-radius-md);
+
+    background:
+        linear-gradient(
+            90deg,
+            rgba(
+                251,
+                191,
+                36,
+                .09
+            ),
+            rgba(
+                251,
+                191,
+                36,
+                .025
+            )
+        );
+
+    box-shadow:
+        0 8px 28px
+        rgba(
+            0,
+            0,
+            0,
+            .16
+        );
+}
+
+
+.np-safe-change-card__icon {
+    width: 44px;
+    height: 44px;
+
+    display: grid;
+
+    place-items:
+        center;
+
+    border:
+        1px solid
+        var(--np-yellow-border);
+
+    border-radius:
+        11px;
+
+    color:
+        var(--np-yellow);
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+.np-safe-change-card__copy {
+    min-width: 0;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 2px;
+}
+
+
+.np-safe-change-card__copy > span {
+    color:
+        var(--np-yellow);
+
+    font-size: 7px;
+    font-weight: 600;
+
+    letter-spacing:
+        .065em;
+
+    text-transform:
+        uppercase;
+}
+
+
+.np-safe-change-card__copy > strong {
+    overflow: hidden;
+
+    color:
+        var(--np-text);
+
+    font-size: 11px;
+    font-weight: 500;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+.np-safe-change-card__copy > small {
+    overflow: hidden;
+
+    color:
+        var(--np-muted);
+
+    font-size: 8px;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+/* ==========================================================================
+   TIMER
+========================================================================== */
+
+.np-safe-change-card__timer {
+    display: flex;
+
+    flex-direction:
+        column;
+
+    align-items:
+        flex-end;
+
+    gap: 2px;
+}
+
+
+.np-safe-change-card__timer span {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+}
+
+
+.np-safe-change-card__timer strong {
+    color:
+        var(--np-yellow);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 18px;
+    font-weight: 500;
+}
+
+
+/* ==========================================================================
+   ACTIONS
+========================================================================== */
+
+.np-safe-change-card__actions {
+    display: flex;
+
+    align-items: center;
+
+    gap: 7px;
+}
+
+
+/* ==========================================================================
+   FILTERS
+========================================================================== */
+
+.np-change-filters {
+    display: flex;
+
+    align-items:
+        flex-end;
+
+    gap: 10px;
+
+    margin-bottom:
+        14px;
+
+    padding:
+        12px;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        var(--np-radius-md);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .014
+        );
+}
+
+
+.np-change-filters__group {
+    min-width: 180px;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 6px;
+}
+
+
+.np-change-filters__group label {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+
+    letter-spacing:
+        .055em;
+
+    text-transform:
+        uppercase;
+}
+
+
+.np-change-filters
+.np-select {
+
+    min-height: 34px;
+
+    font-size: 8px;
+}
+
+
+/* ==========================================================================
+   TABLE DATE
+========================================================================== */
+
+.np-table-date {
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 1px;
+}
+
+
+.np-table-date strong {
+    color:
+        var(--np-text-soft);
+
+    font-size: 8px;
+    font-weight: 500;
+}
+
+
+.np-table-date span {
+    color:
+        var(--np-dim);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 7px;
+}
+
+
+/* ==========================================================================
+   CHANGE TITLE
+========================================================================== */
+
+.np-change-title {
+    min-width: 0;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 2px;
+}
+
+
+.np-change-title strong {
+    max-width: 280px;
+
+    overflow: hidden;
+
+    color:
+        var(--np-text);
+
+    font-size: 9px;
+    font-weight: 500;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+.np-change-title code {
+    max-width: 180px;
+
+    overflow: hidden;
+
+    color:
+        var(--np-dim);
+
+    font-size: 6px;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+/* ==========================================================================
+   CHANGE DETAIL STATUS
+========================================================================== */
+
+.np-change-detail-status {
+    display: flex;
+
+    align-items: center;
+
+    flex-wrap: wrap;
+
+    gap: 7px;
+
+    margin-bottom:
+        15px;
+}
+
+
+/* ==========================================================================
+   TIMER DETALHE
+========================================================================== */
+
+.np-change-detail-timer {
+    display: flex;
+
+    align-items: center;
+
+    justify-content:
+        space-between;
+
+    gap: 15px;
+
+    margin-top:
+        16px;
+
+    padding:
+        13px 14px;
+
+    border:
+        1px solid
+        var(--np-yellow-border);
+
+    border-radius:
+        9px;
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+.np-change-detail-timer span {
+    color:
+        var(--np-yellow);
+
+    font-size: 8px;
+}
+
+
+.np-change-detail-timer strong {
+    color:
+        var(--np-yellow);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 18px;
+    font-weight: 500;
+}
+
+
+/* ==========================================================================
+   STATUS ESPECÍFICOS
+========================================================================== */
+
+.np-status-pill[data-status="created"],
+.np-status-pill[data-status="validating"] {
+
+    color:
+        var(--np-dim);
+}
+
+
+.np-status-pill[data-status="applying"] {
+
+    color:
+        var(--np-blue);
+
+    border-color:
+        var(--np-blue-border);
+
+    background:
+        var(--np-blue-soft);
+}
+
+
+.np-status-pill[data-status="waiting_confirmation"] {
+
+    color:
+        var(--np-yellow);
+
+    border-color:
+        var(--np-yellow-border);
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+.np-status-pill[data-status="confirmed"] {
+
+    color:
+        var(--np-green);
+
+    border-color:
+        var(--np-green-border);
+
+    background:
+        var(--np-green-soft);
+}
+
+
+.np-status-pill[data-status="rollback"],
+.np-status-pill[data-status="reverted"] {
+
+    color:
+        var(--np-orange);
+
+    border-color:
+        rgba(
+            251,
+            146,
+            60,
+            .24
+        );
+
+    background:
+        var(--np-orange-soft);
+}
+
+
+.np-status-pill[data-status="failed"] {
+
+    color:
+        var(--np-red);
+
+    border-color:
+        var(--np-red-border);
+
+    background:
+        var(--np-red-soft);
+}
+
+
+.np-status-pill[data-status="cancelled"] {
+
+    color:
+        var(--np-dim);
+}
+
+
+/* ==========================================================================
+   TIPO
+========================================================================== */
+
+.np-type-badge[data-type="interface"] {
+    color:
+        var(--np-blue);
+
+    border-color:
+        var(--np-blue-border);
+
+    background:
+        var(--np-blue-soft);
+}
+
+
+.np-type-badge[data-type="routing"] {
+    color:
+        var(--np-purple);
+
+    border-color:
+        rgba(
+            167,
+            139,
+            250,
+            .22
+        );
+
+    background:
+        var(--np-purple-soft);
+}
+
+
+.np-type-badge[data-type="nat"] {
+    color:
+        var(--np-green);
+
+    border-color:
+        var(--np-green-border);
+
+    background:
+        var(--np-green-soft);
+}
+
+
+.np-type-badge[data-type="route"] {
+    color:
+        var(--np-cyan);
+
+    border-color:
+        rgba(
+            34,
+            211,
+            238,
+            .22
+        );
+
+    background:
+        var(--np-cyan-soft);
+}
+
+
+.np-type-badge[data-type="general"] {
+    color:
+        var(--np-yellow);
+
+    border-color:
+        var(--np-yellow-border);
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+/* ==========================================================================
+   DRAWER DETALHE
+========================================================================== */
+
+#changeDrawer
+.np-info-list {
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        9px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .012
+        );
+}
+
+
+#changeDrawer
+.np-info-row {
+
+    padding-left:
+        13px;
+
+    padding-right:
+        13px;
+}
+
+
+/* ==========================================================================
+   PULSE SAFE APPLY
+========================================================================== */
+
+.np-safe-change-card.is-critical {
+    animation:
+        np-safe-pulse
+        1.8s
+        ease-in-out
+        infinite;
+}
+
+
+@keyframes np-safe-pulse {
+
+    0%,
+    100% {
+
+        box-shadow:
+            0 8px 28px
+            rgba(
+                0,
+                0,
+                0,
+                .16
+            );
+    }
+
+    50% {
+
+        box-shadow:
+            0 0 0
+            3px
+            rgba(
+                251,
+                191,
+                36,
+                .07
+            ),
+            0 10px 36px
+            rgba(
+                251,
+                191,
+                36,
+                .09
+            );
+    }
+
+}
+
+
+/* ==========================================================================
+   LIGHT
+========================================================================== */
+
+[data-theme="light"]
+.np-change-stat {
+
+    background:
+        var(--np-surface);
+
+    box-shadow:
+        var(--np-shadow-small);
+}
+
+
+[data-theme="light"]
+.np-change-filters {
+
+    background:
+        var(--np-surface);
+}
+
+
+[data-theme="light"]
+#changeDrawer
+.np-info-list {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 1150
+========================================================================== */
+
+@media (
+    max-width: 1150px
+) {
+
+    .np-change-summary {
+        grid-template-columns:
+            repeat(
+                3,
+                minmax(
+                    0,
+                    1fr
+                )
+            );
+    }
+
+
+    .np-safe-change-card {
+        grid-template-columns:
+            auto
+            minmax(
+                0,
+                1fr
+            )
+            auto;
+
+        align-items:
+            center;
+    }
+
+
+    .np-safe-change-card__actions {
+        grid-column:
+            1 / -1;
+
+        justify-content:
+            flex-end;
+
+        padding-top:
+            10px;
+
+        border-top:
+            1px solid
+            rgba(
+                251,
+                191,
+                36,
+                .14
+            );
+    }
+
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 760
+========================================================================== */
+
+@media (
+    max-width: 760px
+) {
+
+    .np-change-summary {
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(
+                    0,
+                    1fr
+                )
+            );
+    }
+
+
+    .np-change-filters {
+        align-items:
+            stretch;
+
+        flex-wrap: wrap;
+    }
+
+
+    .np-change-filters__group {
+        flex: 1;
+
+        min-width:
+            calc(
+                50% - 6px
+            );
+    }
+
+
+    .np-safe-change-card {
+        grid-template-columns:
+            auto
+            minmax(
+                0,
+                1fr
+            );
+    }
+
+
+    .np-safe-change-card__timer {
+        grid-column:
+            1 / -1;
+
+        align-items:
+            flex-start;
+
+        padding-top:
+            10px;
+
+        border-top:
+            1px solid
+            rgba(
+                251,
+                191,
+                36,
+                .14
+            );
+    }
+
+
+    .np-safe-change-card__actions {
+        justify-content:
+            stretch;
+    }
+
+
+    .np-safe-change-card__actions
+    .np-btn {
+
+        flex: 1;
+    }
+
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 520
+========================================================================== */
+
+@media (
+    max-width: 520px
+) {
+
+    .np-change-summary {
+        gap: 8px;
+    }
+
+
+    .np-change-stat {
+        min-height: 68px;
+
+        padding:
+            10px 12px;
+    }
+
+
+    .np-change-stat strong {
+        font-size: 16px;
+    }
+
+
+    .np-change-filters {
+        flex-direction:
+            column;
+    }
+
+
+    .np-change-filters__group {
+        width: 100%;
+
+        min-width: 0;
+    }
+
+
+    .np-safe-change-card {
+        padding:
+            13px;
+
+        grid-template-columns:
+            1fr;
+    }
+
+
+    .np-safe-change-card__icon {
+        width: 40px;
+        height: 40px;
+    }
+
+
+    .np-safe-change-card__timer {
+        grid-column: auto;
+    }
+
+
+    .np-safe-change-card__actions {
+        grid-column: auto;
+
+        flex-direction:
+            column;
+    }
+
+
+    .np-safe-change-card__actions
+    .np-btn {
+
+        width: 100%;
+    }
+
+
+    .np-change-detail-timer {
+        align-items:
+            flex-start;
+
+        flex-direction:
+            column;
+
+        gap: 5px;
+    }
+
+}

@@ -1,0 +1,633 @@
+<!-- ================================================================
+     MOONSHIELD NETWORK
+     MODAIS GLOBAIS
+================================================================ -->
+
+
+<!-- ================================================================
+     SAFE APPLY
+================================================================ -->
+
+<div
+    class="np-modal"
+    id="safeApplyModal"
+    aria-hidden="true"
+>
+
+    <div
+        class="np-modal__backdrop"
+    ></div>
+
+
+    <div
+        class="
+            np-modal__dialog
+            np-modal__dialog--safe
+        "
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="safeApplyModalTitle"
+    >
+
+        <!-- ========================================================
+             ÍCONE
+        ========================================================= -->
+
+        <div
+            class="
+                np-modal__icon
+                np-modal__icon--warning
+            "
+        >
+
+            <svg
+                width="25"
+                height="25"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <path
+                    d="
+                        M12 3
+                        L19 6
+                        V11
+                        C19 16
+                        16 19
+                        12 21
+                        C8 19
+                        5 16
+                        5 11
+                        V6
+                        Z
+                    "
+                ></path>
+
+                <path d="M12 8V13"></path>
+                <path d="M12 16H12.01"></path>
+            </svg>
+
+        </div>
+
+
+        <!-- ========================================================
+             TEXTO
+        ========================================================= -->
+
+        <div class="np-modal__copy">
+
+            <span class="np-modal__eyebrow">
+                Safe Apply
+            </span>
+
+            <h2 id="safeApplyModalTitle">
+                Configuração de rede aplicada
+            </h2>
+
+            <p>
+                Confirme que você ainda consegue acessar
+                o MoonShield após a alteração.
+            </p>
+
+        </div>
+
+
+        <!-- ========================================================
+             ALTERAÇÃO
+        ========================================================= -->
+
+        <div class="np-safe-apply-info">
+
+            <div class="np-safe-apply-info__row">
+
+                <span>
+                    Alteração
+                </span>
+
+                <strong id="safeApplyChangeTitle">
+                    —
+                </strong>
+
+            </div>
+
+
+            <div class="np-safe-apply-info__row">
+
+                <span>
+                    Tipo
+                </span>
+
+                <strong id="safeApplyChangeType">
+                    —
+                </strong>
+
+            </div>
+
+
+            <div class="np-safe-apply-info__row">
+
+                <span>
+                    ID
+                </span>
+
+                <code id="safeApplyChangeId">
+                    —
+                </code>
+
+            </div>
+
+        </div>
+
+
+        <!-- ========================================================
+             TIMER
+        ========================================================= -->
+
+        <div class="np-safe-apply-timer">
+
+            <span>
+                Rollback automático em
+            </span>
+
+            <strong id="safeApplyCountdown">
+                01:00
+            </strong>
+
+            <div class="np-safe-apply-progress">
+
+                <div
+                    class="np-safe-apply-progress__bar"
+                    id="safeApplyProgressBar"
+                ></div>
+
+            </div>
+
+            <small>
+                O contador visual não controla o rollback.
+                A proteção real é executada pelo MoonShield Agent.
+            </small>
+
+        </div>
+
+
+        <!-- ========================================================
+             AVISO
+        ========================================================= -->
+
+        <div class="np-modal__details">
+
+            Se você perdeu o acesso ao painel em outro dispositivo
+            ou percebeu algum problema de conectividade, não confirme
+            a alteração. O Agent restaurará a configuração anterior
+            quando o prazo terminar.
+        </div>
+
+
+        <!-- ========================================================
+             AÇÕES
+        ========================================================= -->
+
+        <div class="np-modal__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--danger
+                "
+                id="safeApplyRollbackButton"
+            >
+                Reverter agora
+            </button>
+
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--primary
+                "
+                id="safeApplyConfirmButton"
+            >
+
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M20 6L9 17L4 12"></path>
+                </svg>
+
+                Confirmar configuração
+
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ================================================================
+     CONFIRMAÇÃO GENÉRICA
+================================================================ -->
+
+<div
+    class="np-modal"
+    id="confirmModal"
+    aria-hidden="true"
+>
+
+    <div
+        class="np-modal__backdrop"
+        data-confirm-modal-cancel
+    ></div>
+
+
+    <div
+        class="np-modal__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirmModalTitle"
+    >
+
+        <div
+            class="
+                np-modal__icon
+                np-modal__icon--warning
+            "
+        >
+
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <path
+                    d="
+                        M10.3 3.9
+                        L2.4 17.5
+                        A2 2 0 0 0
+                        4.1 20.5
+                        H19.9
+                        A2 2 0 0 0
+                        21.6 17.5
+                        L13.7 3.9
+                        A2 2 0 0 0
+                        10.3 3.9
+                        Z
+                    "
+                ></path>
+
+                <path d="M12 9V13"></path>
+                <path d="M12 17H12.01"></path>
+            </svg>
+
+        </div>
+
+
+        <div class="np-modal__copy">
+
+            <span class="np-modal__eyebrow">
+                Confirmação
+            </span>
+
+            <h2 id="confirmModalTitle">
+                Confirmar operação
+            </h2>
+
+            <p id="confirmModalMessage">
+                Deseja realmente continuar?
+            </p>
+
+        </div>
+
+
+        <div
+            class="np-modal__details"
+            id="confirmModalDetails"
+            hidden
+        ></div>
+
+
+        <div class="np-modal__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--ghost
+                "
+                id="confirmModalCancelButton"
+                data-confirm-modal-cancel
+            >
+                Cancelar
+            </button>
+
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--danger
+                "
+                id="confirmModalConfirmButton"
+            >
+                Confirmar
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ================================================================
+     APLICAÇÃO EM ANDAMENTO
+================================================================ -->
+
+<div
+    class="np-modal"
+    id="networkOperationModal"
+    aria-hidden="true"
+>
+
+    <div class="np-modal__backdrop"></div>
+
+
+    <div
+        class="
+            np-modal__dialog
+            np-modal__dialog--operation
+        "
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="networkOperationTitle"
+    >
+
+        <div class="np-operation-loader">
+
+            <span class="np-spinner"></span>
+
+        </div>
+
+
+        <div class="np-modal__copy">
+
+            <span class="np-modal__eyebrow">
+                MoonShield Agent
+            </span>
+
+            <h2 id="networkOperationTitle">
+                Aplicando configuração
+            </h2>
+
+            <p id="networkOperationDescription">
+                Aguarde enquanto o MoonShield prepara e aplica
+                a nova configuração de rede.
+            </p>
+
+        </div>
+
+
+        <div class="np-operation-steps">
+
+            <!-- VALIDAÇÃO -->
+
+            <div
+                class="
+                    np-operation-step
+                    is-active
+                "
+                id="operationStepValidate"
+            >
+
+                <span class="np-operation-step__dot"></span>
+
+                <div>
+
+                    <strong>
+                        Validando
+                    </strong>
+
+                    <small>
+                        Verificando configuração desejada
+                    </small>
+
+                </div>
+
+            </div>
+
+
+            <!-- SNAPSHOT -->
+
+            <div
+                class="np-operation-step"
+                id="operationStepSnapshot"
+            >
+
+                <span class="np-operation-step__dot"></span>
+
+                <div>
+
+                    <strong>
+                        Snapshot
+                    </strong>
+
+                    <small>
+                        Salvando estado atual da rede
+                    </small>
+
+                </div>
+
+            </div>
+
+
+            <!-- ROLLBACK -->
+
+            <div
+                class="np-operation-step"
+                id="operationStepRollback"
+            >
+
+                <span class="np-operation-step__dot"></span>
+
+                <div>
+
+                    <strong>
+                        Proteção
+                    </strong>
+
+                    <small>
+                        Preparando rollback automático
+                    </small>
+
+                </div>
+
+            </div>
+
+
+            <!-- APPLY -->
+
+            <div
+                class="np-operation-step"
+                id="operationStepApply"
+            >
+
+                <span class="np-operation-step__dot"></span>
+
+                <div>
+
+                    <strong>
+                        Aplicando
+                    </strong>
+
+                    <small>
+                        Atualizando configuração do sistema
+                    </small>
+
+                </div>
+
+            </div>
+
+
+            <!-- VERIFY -->
+
+            <div
+                class="np-operation-step"
+                id="operationStepVerify"
+            >
+
+                <span class="np-operation-step__dot"></span>
+
+                <div>
+
+                    <strong>
+                        Verificando
+                    </strong>
+
+                    <small>
+                        Validando o novo estado
+                    </small>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- ================================================================
+     ERRO GLOBAL
+================================================================ -->
+
+<div
+    class="np-modal"
+    id="networkErrorModal"
+    aria-hidden="true"
+>
+
+    <div
+        class="np-modal__backdrop"
+        data-close-error-modal
+    ></div>
+
+
+    <div
+        class="np-modal__dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="networkErrorTitle"
+    >
+
+        <div
+            class="
+                np-modal__icon
+                np-modal__icon--error
+            "
+        >
+
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <circle
+                    cx="12"
+                    cy="12"
+                    r="9"
+                ></circle>
+
+                <path d="M15 9L9 15"></path>
+                <path d="M9 9L15 15"></path>
+            </svg>
+
+        </div>
+
+
+        <div class="np-modal__copy">
+
+            <span class="np-modal__eyebrow">
+                Erro de Rede
+            </span>
+
+            <h2 id="networkErrorTitle">
+                Não foi possível concluir a operação
+            </h2>
+
+            <p id="networkErrorMessage">
+                Ocorreu um erro inesperado.
+            </p>
+
+        </div>
+
+
+        <div
+            class="np-modal__details"
+            id="networkErrorDetails"
+            hidden
+        ></div>
+
+
+        <div class="np-modal__actions">
+
+            <button
+                type="button"
+                class="
+                    np-btn
+                    np-btn--ghost
+                "
+                data-close-error-modal
+            >
+                Fechar
+            </button>
+
+        </div>
+
+    </div>
+
+</div>

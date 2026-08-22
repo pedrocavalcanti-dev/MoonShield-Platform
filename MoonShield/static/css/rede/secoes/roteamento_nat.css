@@ -1,0 +1,852 @@
+/* ==========================================================================
+   MOONSHIELD NETWORK PANEL
+   Roteamento & NAT
+========================================================================== */
+
+
+/* ==========================================================================
+   CONFIGURAÇÃO GLOBAL
+========================================================================== */
+
+.np-routing-config {
+    position: relative;
+
+    z-index: 1;
+}
+
+
+.np-routing-config
+.np-setting-row {
+
+    border-bottom:
+        1px solid
+        var(--np-border-soft);
+}
+
+
+.np-setting-row__control {
+    flex:
+        0 0 auto;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content:
+        flex-end;
+}
+
+
+/* ==========================================================================
+   FORM ACTIONS
+========================================================================== */
+
+.np-panel-form-actions {
+    display: flex;
+
+    align-items: center;
+
+    justify-content:
+        space-between;
+
+    gap: 14px;
+
+    padding:
+        14px 16px;
+
+    border-top:
+        1px solid
+        var(--np-border);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .012
+        );
+}
+
+
+.np-save-state {
+    color:
+        var(--np-dim);
+
+    font-size: 8px;
+}
+
+
+.np-save-state.is-pending {
+    color:
+        var(--np-yellow);
+}
+
+
+.np-save-state.is-ok {
+    color:
+        var(--np-green);
+}
+
+
+.np-save-state.is-error {
+    color:
+        var(--np-red);
+}
+
+
+/* ==========================================================================
+   ROTAS
+========================================================================== */
+
+#routesTableBody td {
+    vertical-align:
+        middle;
+}
+
+
+#routesTableBody code {
+    color:
+        var(--np-text-soft);
+
+    font-size: 8px;
+}
+
+
+.np-route-destination {
+    display: flex;
+
+    flex-direction:
+        column;
+
+    gap: 2px;
+}
+
+
+.np-route-destination strong {
+    color:
+        var(--np-text);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 9px;
+    font-weight: 500;
+}
+
+
+.np-route-destination small {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+}
+
+
+.np-route-interface {
+    display: inline-flex;
+
+    align-items: center;
+
+    gap: 6px;
+
+    color:
+        var(--np-muted);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 8px;
+}
+
+
+.np-route-interface::before {
+    content: "";
+
+    width: 6px;
+    height: 6px;
+
+    flex:
+        0 0 6px;
+
+    border-radius:
+        50%;
+
+    background:
+        var(--np-blue);
+}
+
+
+/* ==========================================================================
+   NAT LIST
+========================================================================== */
+
+.np-nat-list {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            2,
+            minmax(
+                0,
+                1fr
+            )
+        );
+
+    gap: 14px;
+}
+
+
+.np-nat-list
+> .np-empty-state {
+
+    grid-column:
+        1 / -1;
+}
+
+
+/* ==========================================================================
+   NAT CARD
+========================================================================== */
+
+.np-nat-card {
+    position: relative;
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        var(--np-radius-md);
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(
+                255,
+                255,
+                255,
+                .035
+            ),
+            rgba(
+                255,
+                255,
+                255,
+                .016
+            )
+        );
+
+    box-shadow:
+        var(--np-shadow-soft);
+
+    transition:
+
+        border-color
+        var(--np-fast)
+        ease,
+
+        transform
+        var(--np-fast)
+        ease;
+}
+
+
+.np-nat-card::before {
+    content: "";
+
+    position: absolute;
+
+    inset:
+        0
+        0
+        auto;
+
+    height: 1px;
+
+    background:
+        linear-gradient(
+            90deg,
+            transparent,
+            rgba(
+                74,
+                222,
+                128,
+                .30
+            ),
+            transparent
+        );
+}
+
+
+.np-nat-card:hover {
+    transform:
+        translateY(
+            -2px
+        );
+
+    border-color:
+        var(--np-border-strong);
+}
+
+
+.np-nat-card.is-pending {
+    border-color:
+        var(--np-yellow-border);
+}
+
+
+.np-nat-card.is-error {
+    border-color:
+        var(--np-red-border);
+}
+
+
+/* ==========================================================================
+   NAT HEADER
+========================================================================== */
+
+.np-nat-card__head {
+    display: flex;
+
+    align-items:
+        flex-start;
+
+    justify-content:
+        space-between;
+
+    gap: 14px;
+
+    padding:
+        15px 16px;
+
+    border-bottom:
+        1px solid
+        var(--np-border);
+}
+
+
+.np-nat-card__head h3 {
+    margin: 0;
+
+    color:
+        var(--np-text);
+
+    font-size: 13px;
+    font-weight: 500;
+
+    letter-spacing:
+        -.015em;
+}
+
+
+/* ==========================================================================
+   NAT FLOW
+========================================================================== */
+
+.np-nat-flow {
+    display: grid;
+
+    grid-template-columns:
+        minmax(
+            0,
+            1fr
+        )
+        44px
+        minmax(
+            0,
+            1fr
+        );
+
+    align-items: center;
+
+    gap: 10px;
+
+    padding:
+        20px 16px;
+}
+
+
+.np-nat-flow__node {
+    min-width: 0;
+
+    min-height: 88px;
+
+    display: flex;
+
+    flex-direction:
+        column;
+
+    justify-content:
+        center;
+
+    gap: 4px;
+
+    padding:
+        12px;
+
+    border:
+        1px solid
+        var(--np-border);
+
+    border-radius:
+        9px;
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .018
+        );
+}
+
+
+.np-nat-flow__node:first-child {
+    border-color:
+        var(--np-green-border);
+
+    background:
+        var(--np-green-soft);
+}
+
+
+.np-nat-flow__node:last-child {
+    border-color:
+        var(--np-blue-border);
+
+    background:
+        var(--np-blue-soft);
+}
+
+
+.np-nat-flow__node span {
+    color:
+        var(--np-dim);
+
+    font-size: 7px;
+
+    letter-spacing:
+        .055em;
+
+    text-transform:
+        uppercase;
+}
+
+
+.np-nat-flow__node strong {
+    overflow: hidden;
+
+    color:
+        var(--np-text);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 10px;
+    font-weight: 500;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+.np-nat-flow__node small {
+    overflow: hidden;
+
+    color:
+        var(--np-muted);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 7px;
+
+    white-space: nowrap;
+
+    text-overflow:
+        ellipsis;
+}
+
+
+/* ==========================================================================
+   NAT ARROW
+========================================================================== */
+
+.np-nat-flow__arrow {
+    display: grid;
+
+    place-items:
+        center;
+
+    color:
+        var(--np-dim);
+}
+
+
+.np-nat-flow__arrow svg {
+    filter:
+        drop-shadow(
+            0 0 7px
+            rgba(
+                96,
+                165,
+                250,
+                .14
+            )
+        );
+}
+
+
+/* ==========================================================================
+   NAT FOOTER
+========================================================================== */
+
+.np-nat-card__footer {
+    display: flex;
+
+    align-items: center;
+
+    justify-content:
+        space-between;
+
+    gap: 12px;
+
+    padding:
+        11px 16px;
+
+    border-top:
+        1px solid
+        var(--np-border);
+
+    background:
+        rgba(
+            255,
+            255,
+            255,
+            .012
+        );
+}
+
+
+.np-nat-card__footer
+> span {
+
+    color:
+        var(--np-dim);
+
+    font-size: 8px;
+}
+
+
+.np-nat-card__footer
+> div {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 7px;
+}
+
+
+/* ==========================================================================
+   DRAWERS ROTA / NAT
+========================================================================== */
+
+#routeForm,
+#natForm {
+
+    padding-bottom:
+        24px;
+}
+
+
+#routeDrawer
+.np-field-help,
+
+#natDrawer
+.np-field-help {
+
+    margin-top:
+        1px;
+}
+
+
+/* ==========================================================================
+   ROUTING STATUS
+========================================================================== */
+
+#routingSyncStatus.is-ok {
+    color:
+        var(--np-green);
+
+    border-color:
+        var(--np-green-border);
+
+    background:
+        var(--np-green-soft);
+}
+
+
+#routingSyncStatus.is-pending {
+    color:
+        var(--np-yellow);
+
+    border-color:
+        var(--np-yellow-border);
+
+    background:
+        var(--np-yellow-soft);
+}
+
+
+#routingSyncStatus.is-error {
+    color:
+        var(--np-red);
+
+    border-color:
+        var(--np-red-border);
+
+    background:
+        var(--np-red-soft);
+}
+
+
+/* ==========================================================================
+   ROUTE ACTIONS
+========================================================================== */
+
+.np-route-actions {
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content:
+        flex-end;
+
+    gap: 6px;
+}
+
+
+/* ==========================================================================
+   NAT TYPE
+========================================================================== */
+
+.np-nat-type {
+    min-height: 21px;
+
+    display: inline-flex;
+
+    align-items: center;
+
+    padding:
+        0 7px;
+
+    border:
+        1px solid
+        var(--np-green-border);
+
+    border-radius:
+        999px;
+
+    color:
+        var(--np-green);
+
+    background:
+        var(--np-green-soft);
+
+    font-family:
+        var(--np-mono);
+
+    font-size: 7px;
+    font-weight: 600;
+
+    letter-spacing:
+        .05em;
+
+    text-transform:
+        uppercase;
+}
+
+
+/* ==========================================================================
+   LIGHT
+========================================================================== */
+
+[data-theme="light"]
+.np-panel-form-actions {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+[data-theme="light"]
+.np-nat-card {
+
+    background:
+        var(--np-surface);
+
+    box-shadow:
+        var(--np-shadow-soft);
+}
+
+
+[data-theme="light"]
+.np-nat-card__footer {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+[data-theme="light"]
+.np-nat-flow__node {
+
+    background:
+        var(--np-surface-soft);
+}
+
+
+[data-theme="light"]
+.np-nat-flow__node:first-child {
+
+    background:
+        rgba(
+            22,
+            163,
+            74,
+            .055
+        );
+}
+
+
+[data-theme="light"]
+.np-nat-flow__node:last-child {
+
+    background:
+        rgba(
+            37,
+            99,
+            235,
+            .055
+        );
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 1100
+========================================================================== */
+
+@media (
+    max-width: 1100px
+) {
+
+    .np-nat-list {
+        grid-template-columns:
+            1fr;
+    }
+
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 720
+========================================================================== */
+
+@media (
+    max-width: 720px
+) {
+
+    .np-panel-form-actions {
+        align-items:
+            stretch;
+
+        flex-direction:
+            column;
+    }
+
+
+    .np-panel-form-actions
+    .np-btn {
+
+        width: 100%;
+    }
+
+
+    .np-save-state {
+        text-align: left;
+    }
+
+
+    .np-nat-flow {
+        grid-template-columns:
+            1fr;
+
+        gap: 8px;
+    }
+
+
+    .np-nat-flow__arrow {
+        transform:
+            rotate(
+                90deg
+            );
+    }
+
+
+    .np-nat-card__footer {
+        align-items:
+            flex-start;
+
+        flex-direction:
+            column;
+    }
+
+
+    .np-nat-card__footer
+    > div {
+
+        width: 100%;
+    }
+
+
+    .np-nat-card__footer
+    .np-btn {
+
+        flex: 1;
+    }
+
+}
+
+
+/* ==========================================================================
+   RESPONSIVE — 520
+========================================================================== */
+
+@media (
+    max-width: 520px
+) {
+
+    .np-setting-row {
+        min-height: 64px;
+    }
+
+
+    .np-nat-card__head,
+    .np-nat-flow,
+    .np-nat-card__footer {
+
+        padding-left: 13px;
+        padding-right: 13px;
+    }
+
+
+    .np-nat-flow__node {
+        min-height: 76px;
+    }
+
+}

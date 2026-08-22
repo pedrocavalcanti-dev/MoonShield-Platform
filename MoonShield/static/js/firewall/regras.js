@@ -1,5 +1,5 @@
 /**
- * MOONSHIELD — FIREWALL / REGRAS v9
+ * MOONSHIELD — FIREWALL / REGRAS v10
  * Fonte de verdade do frontend: APIs Django da arquitetura local.
  */
 
@@ -480,7 +480,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         bar.hidden = false;
-        setText("fwrSyncTitle", `${total} alteração${total === 1 ? "" : "ões"} pendente${total === 1 ? "" : "s"}`);
+        setText(
+            "fwrSyncTitle",
+            total === 1
+                ? "1 alteração pendente"
+                : `${total} alterações pendentes`
+        );
         setText("fwrSyncMsg", "O Django mantém a alteração pendente até o MoonShield-Agent confirmar a aplicação.");
     }
 
@@ -710,6 +715,31 @@ document.addEventListener("DOMContentLoaded", () => {
         return "";
     }
 
+    function normalizedRuleSignature(rule) {
+        return JSON.stringify({
+            desc: String(rule?.desc || "").trim(),
+            action: String(rule?.action || "deny").trim().toLowerCase(),
+            priority: Number(rule?.priority || 100),
+            iface: String(rule?.iface || "any").trim(),
+            dir: normalizeRuleDirection(rule?.dir),
+            proto: String(rule?.proto || "any").trim().toUpperCase() === "ANY"
+                ? "any"
+                : String(rule?.proto || "any").trim().toUpperCase(),
+            src: String(rule?.src || "any").trim() || "any",
+            dst: String(rule?.dst || "any").trim() || "any",
+            port: String(rule?.port || "any").trim() || "any",
+            enabled: Boolean(rule?.enabled),
+            log: Boolean(rule?.log),
+        });
+    }
+
+    function findEquivalentRule(payload) {
+        const wanted = normalizedRuleSignature(payload);
+        return state.rules.find((rule) =>
+            !rule?.deletado && normalizedRuleSignature(rule) === wanted
+        ) || null;
+    }
+
     async function saveRule() {
         const payload = collectRule();
         const validation = validateRule(payload);
@@ -756,9 +786,36 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            const data = state.editingRuleId
-                ? await api(detailUrl(URLS.rules, state.editingRuleId), { method: "PATCH", body: JSON.stringify(payload) })
-                : await api(URLS.rules, { method: "POST", body: JSON.stringify(payload) });
+            /*
+             * Evita duplicatas durante uma falha de apply. Se já existir no
+             * estado do painel uma regra idêntica, reutilizamos a regra
+             * existente via PATCH em vez de criar outro registro com POST.
+             */
+            const equivalent = !state.editingRuleId
+                ? findEquivalentRule(payload)
+                : null;
+
+            const targetId = state.editingRuleId || equivalent?.id || null;
+
+            const data = targetId
+                ? await api(detailUrl(URLS.rules, targetId), {
+                    method: "PATCH",
+                    body: JSON.stringify(payload),
+                })
+                : await api(URLS.rules, {
+                    method: "POST",
+                    body: JSON.stringify(payload),
+                });
+
+            /*
+             * Se foi um POST e o Agent recusou, a regra já existe no Django.
+             * Guardamos o id imediatamente para todo novo clique em Salvar
+             * editar a mesma regra, nunca criar outra.
+             */
+            const persistedId = Number(data?.rule?.id || targetId || 0);
+            if (persistedId > 0) {
+                state.editingRuleId = persistedId;
+            }
 
             const applied = Boolean(data.aplicado ?? data.sync_result?.ok ?? false);
             const syncError =
@@ -769,16 +826,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
             await reloadRules();
 
-            if (!applied && syncError) {
+            if (!applied) {
+                const detail = syncError
+                    ? `: ${syncError}`
+                    : ".";
+
                 showFormError(
                     "fwrRuleFormError",
-                    `A regra foi salva como pendente, mas o Agent recusou a aplicação: ${syncError}`
+                    `A regra foi salva como pendente, mas ainda não foi aplicada pelo Agent${detail}`
                 );
-                toast("Regra salva, mas o Agent recusou a aplicação.", "err");
+                toast("Regra pendente; corrija o erro antes de tentar novamente.", "err");
                 return;
             }
 
-            toast(applied ? "Regra salva e aplicada." : "Regra salva; aplicação pendente.", applied ? "ok" : "warn");
+            toast("Regra salva e aplicada.", "ok");
             closeRuleDrawer();
         } catch (error) {
             showFormError("fwrRuleFormError", error.message);

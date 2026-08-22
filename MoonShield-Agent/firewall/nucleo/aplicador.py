@@ -470,20 +470,20 @@ def _endereco_expr(
 
     if len(itens) == 1:
         item = itens[0]
-        familia = (
-            "ip6"
-            if ipaddress.ip_network(
-                item if "/" in item else f"{item}/128",
-                strict=False,
-            ).version == 6
-            else "ip"
-        )
+        # ip_network(..., strict=False) aceita host puro e CIDR e
+        # escolhe corretamente /32 para IPv4 e /128 para IPv6.
+        versao = ipaddress.ip_network(
+            item,
+            strict=False,
+        ).version
+        familia = "ip6" if versao == 6 else "ip"
         return f"{familia} {direcao} {item}"
 
     # múltiplos endereços -> set inline
+    # Não anexar /32 manualmente: isso quebraria hosts IPv6.
     versoes = {
         ipaddress.ip_network(
-            x if "/" in x else f"{x}/32",
+            x,
             strict=False,
         ).version
         for x in itens

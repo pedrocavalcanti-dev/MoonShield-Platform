@@ -6,18 +6,26 @@ import environ
 
 
 # =============================================================================
-# BASE
+# CAMINHOS BASE
 # =============================================================================
 
+# /home/moonshield/MoonShield-Platform/MoonShield
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# /home/moonshield/MoonShield-Platform
+PROJECT_ROOT = BASE_DIR.parent
+
+# /home/moonshield/MoonShield-Platform/.env
+ENV_FILE = PROJECT_ROOT / ".env"
+
+
+# =============================================================================
+# VARIÁVEIS DE AMBIENTE
+# =============================================================================
 
 env = environ.Env(
     DEBUG=(bool, False),
 )
-
-# Lê:
-# /home/moonshield/MoonShield-Platform/MoonShield/.env
-ENV_FILE = BASE_DIR / ".env"
 
 if ENV_FILE.exists():
     environ.Env.read_env(ENV_FILE)
@@ -32,12 +40,12 @@ SYSTEM_VERSION = "1.0.0"
 
 
 # =============================================================================
-# SEGURANÇA / DJANGO
+# DJANGO / SEGURANÇA
 # =============================================================================
 
 SECRET_KEY = env(
     "SECRET_KEY",
-    default="django-insecure-moonshield-development-key",
+    default="django-insecure-moonshield-development-only",
 )
 
 DEBUG = env.bool(
@@ -46,9 +54,9 @@ DEBUG = env.bool(
 )
 
 
-# -----------------------------------------------------------------------------
-# Hosts permitidos
-# -----------------------------------------------------------------------------
+# =============================================================================
+# HOSTS
+# =============================================================================
 
 _allowed_hosts_raw = env(
     "ALLOWED_HOSTS",
@@ -62,9 +70,9 @@ ALLOWED_HOSTS = [
 ]
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # CSRF
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 _csrf_origins_raw = env(
     "CSRF_TRUSTED_ORIGINS",
@@ -79,11 +87,9 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 # =============================================================================
-# SYS.PATH
+# APLICATIVOS MOONSHIELD NO PYTHON PATH
 # =============================================================================
 
-# Os aplicativos do projeto são utilizados por nome curto:
-# autenticacao, painel, firewall, ids etc.
 APPS_DIR = BASE_DIR / "aplicativos"
 
 if str(APPS_DIR) not in sys.path:
@@ -172,54 +178,62 @@ TEMPLATES = [
 
 
 # =============================================================================
-# BANCO DE DADOS
+# BANCO DE DADOS — POSTGRESQL
 # =============================================================================
 
-# O MoonShield V1 utiliza PostgreSQL.
+# MoonShield V1 usa PostgreSQL como banco principal.
 #
-# A conexão NÃO fica fixa no código.
+# O .env deve conter:
 #
-# É carregada através da variável:
+# DATABASE_URL=postgresql://usuario:senha@127.0.0.1:5432/moonshield
 #
-# DATABASE_URL=postgresql://usuario:senha@host:porta/banco
-#
-# Exemplo:
-#
-# DATABASE_URL=postgresql://moonshield:SENHA@127.0.0.1:5432/moonshield
+# Não existe fallback automático para SQLite.
+# Se DATABASE_URL estiver ausente, o Django deve falhar explicitamente.
+
+DATABASE_URL = env(
+    "DATABASE_URL",
+    default=None,
+)
+
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL não configurada. "
+        f"Configure a variável no arquivo: {ENV_FILE}"
+    )
 
 
 DATABASES = {
     "default": env.db_url(
         "DATABASE_URL",
-        default="postgresql://moonshield@127.0.0.1:5432/moonshield",
     )
 }
 
 
-# -----------------------------------------------------------------------------
-# Configurações extras do PostgreSQL
-# -----------------------------------------------------------------------------
+# =============================================================================
+# CONFIGURAÇÕES DO POSTGRESQL
+# =============================================================================
 
-DATABASES["default"].update(
+DATABASES["default"]["CONN_MAX_AGE"] = env.int(
+    "DATABASE_CONN_MAX_AGE",
+    default=60,
+)
+
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+
+
+# Preserva OPTIONS existentes caso django-environ adicione algum no futuro.
+_database_options = DATABASES["default"].get("OPTIONS", {})
+
+_database_options.update(
     {
-        # Mantém conexões reutilizáveis.
-        # Evita abrir uma conexão PostgreSQL nova a cada request.
-        "CONN_MAX_AGE": env.int(
-            "DATABASE_CONN_MAX_AGE",
-            default=60,
+        "connect_timeout": env.int(
+            "DATABASE_CONNECT_TIMEOUT",
+            default=10,
         ),
-
-        # Verifica conexão antes de reutilizá-la.
-        "CONN_HEALTH_CHECKS": True,
-
-        "OPTIONS": {
-            "connect_timeout": env.int(
-                "DATABASE_CONNECT_TIMEOUT",
-                default=10,
-            ),
-        },
     }
 )
+
+DATABASES["default"]["OPTIONS"] = _database_options
 
 
 # =============================================================================
@@ -290,7 +304,7 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 
 # =============================================================================
-# DEFAULT
+# DEFAULT AUTO FIELD
 # =============================================================================
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -307,7 +321,7 @@ MAPBOX_ACCESS_TOKEN = env(
 
 
 # =============================================================================
-# SESSÃO / SEGURANÇA WEB
+# SESSÃO / COOKIES
 # =============================================================================
 
 SESSION_COOKIE_HTTPONLY = True
@@ -317,9 +331,9 @@ CSRF_COOKIE_HTTPONLY = False
 X_FRAME_OPTIONS = "DENY"
 
 
-# -----------------------------------------------------------------------------
-# Produção HTTPS
-# -----------------------------------------------------------------------------
+# =============================================================================
+# HTTPS
+# =============================================================================
 
 SECURE_SSL_REDIRECT = env.bool(
     "SECURE_SSL_REDIRECT",
@@ -338,8 +352,27 @@ CSRF_COOKIE_SECURE = env.bool(
 
 
 # =============================================================================
-# LOG
+# PROXY REVERSO
 # =============================================================================
+
+# Quando futuramente usarmos Nginx/Caddy/HAProxy com HTTPS,
+# o proxy poderá informar ao Django que a conexão original era HTTPS.
+
+SECURE_PROXY_SSL_HEADER = (
+    "HTTP_X_FORWARDED_PROTO",
+    "https",
+)
+
+
+# =============================================================================
+# LOGS
+# =============================================================================
+
+# Durante desenvolvimento:
+# /home/moonshield/MoonShield-Platform/MoonShield/logs
+#
+# Na versão appliance podemos migrar isso para:
+# /var/log/moonshield/
 
 LOG_DIR = BASE_DIR / "logs"
 
@@ -357,8 +390,10 @@ LOGGING = {
     "formatters": {
         "standard": {
             "format": (
-                "{asctime} | {levelname} | "
-                "{name} | {message}"
+                "{asctime} | "
+                "{levelname} | "
+                "{name} | "
+                "{message}"
             ),
             "style": "{",
         },
@@ -372,7 +407,9 @@ LOGGING = {
 
         "file": {
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": LOG_DIR / "moonshield.log",
+            "filename": str(
+                LOG_DIR / "moonshield.log"
+            ),
             "maxBytes": 10 * 1024 * 1024,
             "backupCount": 5,
             "formatter": "standard",
@@ -384,6 +421,9 @@ LOGGING = {
             "console",
             "file",
         ],
-        "level": "INFO",
+        "level": env(
+            "LOG_LEVEL",
+            default="INFO",
+        ),
     },
 }

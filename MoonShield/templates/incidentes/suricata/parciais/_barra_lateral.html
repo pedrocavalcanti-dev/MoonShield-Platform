@@ -1,272 +1,145 @@
-<!-- ============================================================
-     SIDEBAR
-============================================================= -->
-<aside class="sp-sidebar" id="panelSidebar">
+<!-- ================================================================
+     MOONSHIELD NETWORK
+     BARRA LATERAL
+================================================================ -->
 
-    <div class="sp-sidebar__head">
-        <a
-            href="{% url 'incidentes:suricata_painel' %}"
-            class="sp-brand"
-            aria-label="MoonShield Suricata"
-        >
-            <span class="sp-brand__shield">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    aria-hidden="true"
-                >
-                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
+<aside class="np-sidebar" id="networkSidebar">
+    <div class="np-sidebar__head">
+        <div class="np-brand" aria-label="MoonShield Network Control">
+            <span class="np-brand__shield" aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z"></path>
+                    <path d="M8 13h2l1.2-4 1.8 7 1.2-4H17"></path>
                 </svg>
             </span>
 
-            <span class="sp-brand__copy">
+            <span class="np-brand__copy">
                 <strong>MoonShield</strong>
-                <small>Suricata IDS</small>
+                <small>Network Control</small>
             </span>
-        </a>
+        </div>
 
-        <button
-            class="sp-sidebar__close"
-            id="btnCloseSidebar"
-            type="button"
-            aria-label="Fechar menu"
-        >
-            <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-            >
-                <path d="M18 6 6 18M6 6l12 12" />
+        <button type="button" class="np-sidebar__close" id="sidebarClose" aria-label="Fechar menu" title="Fechar menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M6 6 18 18M18 6 6 18"></path>
             </svg>
         </button>
     </div>
 
-    <div class="sp-sidebar__section-label">Monitoramento</div>
+    <div class="np-sidebar__section-label">Operação</div>
 
-    <nav class="sp-nav" aria-label="Navegação do Suricata">
-        <button
-            class="sp-nav__item is-active"
-            type="button"
-            data-section-target="overview"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
+    <nav class="np-nav" aria-label="Navegação do painel de rede">
+        <button type="button" class="np-nav__item is-active" data-section="visao-geral" data-title="Visão Geral" data-eyebrow="Rede">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="14" width="7" height="7" rx="1"></rect>
                 </svg>
             </span>
-            <span>Visão geral</span>
+            <span>Visão Geral</span>
         </button>
 
-        <button
-            class="sp-nav__item"
-            type="button"
-            data-section-target="health"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <path d="M3 12h4l2.2-6 4.1 12 2.2-6H21" />
+        <button type="button" class="np-nav__item" data-section="interfaces" data-title="Interfaces" data-eyebrow="Rede">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="6" rx="2"></rect>
+                    <rect x="3" y="14" width="18" height="6" rx="2"></rect>
+                    <path d="M7 7h.01M7 17h.01M17 7h2M17 17h2"></path>
                 </svg>
             </span>
-            <span>Saúde da stack</span>
+            <span>Interfaces</span>
+            <span class="np-nav__badge" id="sidebarInterfacesBadge" hidden>0</span>
         </button>
 
-        <button
-            class="sp-nav__item"
-            type="button"
-            data-section-target="configuration"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.14.4-1.51 1Z" />
+        <button type="button" class="np-nav__item" data-section="roteamento-nat" data-title="Roteamento & NAT" data-eyebrow="Rede">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 7h13M14 4l3 3-3 3M20 17H7M10 14l-3 3 3 3"></path>
                 </svg>
             </span>
-            <span>Configuração</span>
+            <span>Roteamento & NAT</span>
         </button>
 
-        <button
-            class="sp-nav__item"
-            type="button"
-            data-section-target="rules"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <path d="M4 4h16v16H4z" />
-                    <path d="M8 9h8M8 13h8M8 17h5" />
-                </svg>
-            </span>
-            <span>Regras</span>
-        </button>
-
-        <button
-            class="sp-nav__item"
-            type="button"
-            data-section-target="tasks"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <path d="M9 11l3 3L22 4" />
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                </svg>
-            </span>
-            <span>Tarefas</span>
-            <span class="sp-nav__badge" id="navTaskBadge" hidden>0</span>
-        </button>
-
-        <button
-            class="sp-nav__item"
-            type="button"
-            data-section-target="diagnostic"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="m20 20-4-4" />
-                    <path d="M8 11h6M11 8v6" />
+        <button type="button" class="np-nav__item" data-section="diagnostico" data-title="Diagnóstico" data-eyebrow="Rede">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="m20 20-4-4M8 11h2l1-3 2 6 1-3h2"></path>
                 </svg>
             </span>
             <span>Diagnóstico</span>
         </button>
+
+        <button type="button" class="np-nav__item" data-section="alteracoes" data-title="Alterações" data-eyebrow="Rede">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2"></path>
+                </svg>
+            </span>
+            <span>Alterações</span>
+            <span class="np-nav__badge np-nav__badge--warning" id="sidebarChangesBadge" hidden>0</span>
+        </button>
     </nav>
 
-    <div class="sp-sidebar__section-label">Atalhos</div>
+    <div class="np-sidebar__section-label">Sistema</div>
 
-    <nav class="sp-nav sp-nav--secondary">
-        <a
-            class="sp-nav__item"
-            href="{% url 'incidentes:suricata_onboarding' %}"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    <nav class="np-nav np-nav--secondary" aria-label="Atalhos do sistema">
+        <a href="/painel/" class="np-nav__item">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12 12 3l9 9M5 10v11h14V10"></path>
                 </svg>
             </span>
-            <span>Configurar Suricata</span>
+            <span>Painel Principal</span>
         </a>
 
-        <a
-            class="sp-nav__item"
-            href="{% url 'painel:index' %}"
-        >
-            <span class="sp-nav__icon">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                >
-                    <path d="M3 12 12 3l9 9" />
-                    <path d="M5 10v11h14V10" />
+        <a href="/configuracoes/" class="np-nav__item">
+            <span class="np-nav__icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.14.4-1.51 1Z"></path>
                 </svg>
             </span>
-            <span>Voltar ao MoonShield</span>
+            <span>Configurações</span>
         </a>
     </nav>
 
-    <div class="sp-sidebar__bottom">
-        <div class="sp-mini-status">
-            <span
-                class="sp-status-dot sp-status-dot--pending"
-                id="sidebarStatusDot"
-            ></span>
+    <div class="np-sidebar__bottom">
+        <div class="np-mini-status" id="sidebarAgentStatus">
+            <span class="np-agent-card__indicator is-pending" id="sidebarAgentIndicator" aria-hidden="true"><span></span></span>
 
-            <span class="sp-mini-status__copy">
-                <strong id="sidebarStatusTitle">Verificando...</strong>
-                <small id="sidebarStatusText">Aguardando status</small>
+            <span class="np-mini-status__copy">
+                <span class="np-mini-status__headline">
+                    <strong>MoonShield Agent</strong>
+                    <em id="sidebarAgentLabel">Verificando...</em>
+                </span>
+                <small>
+                    <span id="sidebarBackendName">Detectando backend</span>
+                    <span class="np-mini-status__separator">·</span>
+                    <span id="sidebarInterfaceSummary">Aguardando inventário</span>
+                </small>
             </span>
+
+            <span class="np-mini-status__meta" id="sidebarAgentBackend">—</span>
         </div>
 
-        <div class="sp-sidebar__footer">
-            <span>MoonShield 2026</span>
+        <div class="np-sidebar__footer">
+            <span class="np-sidebar__version">
+                <strong>MoonShield</strong>
+                <small>Network</small>
+            </span>
 
-            <button
-                class="sp-icon-btn sp-icon-btn--small"
-                id="themeToggle"
-                type="button"
-                aria-label="Alternar tema"
-                title="Alternar tema"
-            >
-                <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    aria-hidden="true"
-                >
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            <button type="button" class="np-icon-btn np-icon-btn--small np-sidebar__theme" id="themeToggle" aria-label="Alternar tema" title="Alternar tema">
+                <svg class="np-theme-icon np-theme-icon--moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>
+                </svg>
+                <svg class="np-theme-icon np-theme-icon--sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
                 </svg>
             </button>
         </div>
     </div>
 </aside>
-
-<div
-    class="sp-sidebar-backdrop"
-    id="sidebarBackdrop"
-    aria-hidden="true"
-></div>

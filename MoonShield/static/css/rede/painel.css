@@ -2056,3 +2056,80 @@ pre, code { font-family: var(--np-mono); }
     border-color: rgba(255, 255, 255, .28);
     background: #555555;
 }
+
+
+/* ========================================================================== 
+   MODAIS / SAFE APPLY — NEUTRAL V2
+   Complemento visual da etapa de modais. Não altera timers nem API.
+========================================================================== */
+
+:root:not([data-theme="light"]) .np-modal__backdrop,
+[data-theme="dark"] .np-modal__backdrop {
+    background: rgba(0, 0, 0, .72);
+}
+
+:root:not([data-theme="light"]) .np-modal__dialog,
+[data-theme="dark"] .np-modal__dialog {
+    border-color: #303030;
+    background: #141414;
+    box-shadow: 0 26px 90px rgba(0, 0, 0, .58);
+}
+
+.np-modal__dialog--safe {
+    width: min(520px, 100%);
+    border-radius: 14px;
+}
+
+.np-modal__dialog--safe .np-modal__icon--warning {
+    color: var(--np-yellow);
+    background: var(--np-yellow-soft);
+}
+
+.np-modal__dialog--safe .np-safe-apply-info {
+    border-radius: 9px;
+    box-shadow: none;
+}
+
+.np-modal__dialog--safe .np-safe-apply-timer {
+    padding: 15px 16px;
+    border-radius: 10px;
+    box-shadow: none;
+}
+
+.np-modal__dialog--safe .np-safe-apply-timer > strong {
+    font-size: 32px;
+    letter-spacing: -.035em;
+}
+
+.np-modal__dialog--safe .np-modal__actions {
+    padding-top: 2px;
+}
+
+#safeApplyRollbackButton.is-confirming,
+#activeSafeChangeRollbackButton.is-confirming {
+    color: #ffffff;
+    border-color: var(--np-red);
+    background: var(--np-red);
+    box-shadow: 0 8px 24px rgba(239, 68, 68, .18);
+}
+
+#safeApplyRollbackButton.is-confirming:hover,
+#activeSafeChangeRollbackButton.is-confirming:hover {
+    border-color: var(--np-red-strong);
+    background: var(--np-red-strong);
+}
+
+[data-theme="light"] .np-modal__dialog--safe {
+    background: #ffffff;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, .18);
+}
+
+@media (max-width: 520px) {
+    .np-modal__dialog--safe .np-modal__actions {
+        gap: 7px;
+    }
+
+    .np-modal__dialog--safe .np-safe-apply-timer > strong {
+        font-size: 29px;
+    }
+}

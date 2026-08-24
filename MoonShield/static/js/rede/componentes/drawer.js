@@ -2,7 +2,7 @@
  * MoonShield Network Panel
  * Drawer
  *
- * Controla os painéis laterais de configuração e detalhes.
+ * Controla os painéis laterais/modais de configuração e detalhes.
  */
 
 'use strict';
@@ -22,8 +22,7 @@ let inicializado = false;
 let drawerAtual = null;
 let elementoFocoAnterior = null;
 
-
-/* ==========================================================================
+/* ========================================================================== 
    INICIALIZAÇÃO
 ========================================================================== */
 
@@ -37,8 +36,7 @@ export function inicializarDrawers() {
     document.addEventListener('keydown', tratarTeclado);
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    PREPARAÇÃO
 ========================================================================== */
 
@@ -49,15 +47,13 @@ function prepararDrawer(drawer) {
     }
 
     drawer.setAttribute('aria-hidden', drawer.classList.contains('is-open') ? 'false' : 'true');
-
     if (!drawer.classList.contains('is-open')) drawer.hidden = false;
 
     const painel = $('.np-drawer__panel', drawer);
     if (painel && !painel.hasAttribute('tabindex')) painel.setAttribute('tabindex', '-1');
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    ABRIR
 ========================================================================== */
 
@@ -81,10 +77,7 @@ export function abrirDrawer(drawerOuId, opcoes = {}) {
     atualizarBloqueioPagina();
 
     requestAnimationFrame(() => {
-        const foco = opcoes.foco
-            ? resolverElemento(opcoes.foco, drawer)
-            : obterPrimeiroFocavel(drawer) || $('.np-drawer__panel', drawer);
-
+        const foco = opcoes.foco ? resolverElemento(opcoes.foco, drawer) : obterPrimeiroFocavel(drawer) || $('.np-drawer__panel', drawer);
         foco?.focus({ preventScroll: true });
     });
 
@@ -96,8 +89,7 @@ export function abrirDrawer(drawerOuId, opcoes = {}) {
     return true;
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    FECHAR
 ========================================================================== */
 
@@ -128,7 +120,6 @@ export function fecharDrawer(drawerOuId = drawerAtual, opcoes = {}) {
     return true;
 }
 
-
 export function fecharTodosDrawers(opcoes = {}) {
     const abertos = $$('.np-drawer.is-open');
 
@@ -142,20 +133,17 @@ export function fecharTodosDrawers(opcoes = {}) {
     atualizarBloqueioPagina();
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    TOGGLE
 ========================================================================== */
 
 export function alternarDrawer(drawerOuId) {
     const drawer = resolverDrawer(drawerOuId);
     if (!drawer) return false;
-
     return drawer.classList.contains('is-open') ? fecharDrawer(drawer) : abrirDrawer(drawer);
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    CLICK GLOBAL
 ========================================================================== */
 
@@ -177,12 +165,14 @@ function tratarCliqueGlobal(event) {
     const drawer = fechamento.closest('.np-drawer');
     if (!drawer) return;
 
+    const clicouBackdrop = fechamento.classList.contains('np-drawer__backdrop');
+    if (clicouBackdrop && fechamentoExplicito(drawer)) return;
+
     event.preventDefault();
     fecharDrawer(drawer);
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    TECLADO
 ========================================================================== */
 
@@ -190,6 +180,11 @@ function tratarTeclado(event) {
     if (!drawerAtual?.classList.contains('is-open')) return;
 
     if (event.key === 'Escape') {
+        if (fechamentoExplicito(drawerAtual)) {
+            event.preventDefault();
+            return;
+        }
+
         event.preventDefault();
         fecharDrawer(drawerAtual);
         return;
@@ -198,8 +193,7 @@ function tratarTeclado(event) {
     if (event.key === 'Tab') controlarTab(event, drawerAtual);
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    FOCUS TRAP
 ========================================================================== */
 
@@ -227,10 +221,13 @@ function controlarTab(event, drawer) {
     }
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    HELPERS
 ========================================================================== */
+
+function fechamentoExplicito(drawer) {
+    return drawer?.dataset.closePolicy === 'explicit';
+}
 
 function resolverDrawer(drawerOuId) {
     if (!drawerOuId) return null;
@@ -241,12 +238,10 @@ function resolverDrawer(drawerOuId) {
     }
 
     if (typeof drawerOuId !== 'string') return null;
-
     if (drawerOuId.startsWith('#')) return $(drawerOuId);
 
     return document.getElementById(drawerOuId) || $(drawerOuId);
 }
-
 
 function resolverElemento(elementoOuSeletor, raiz = document) {
     if (!elementoOuSeletor) return null;
@@ -255,25 +250,21 @@ function resolverElemento(elementoOuSeletor, raiz = document) {
     return null;
 }
 
-
 function obterFocaveis(drawer) {
     return $$(FOCUSABLE_SELECTOR, drawer).filter(elemento => {
         if (!(elemento instanceof HTMLElement)) return false;
         if (elemento.hidden) return false;
 
         const style = window.getComputedStyle(elemento);
-
         return style.display !== 'none' && style.visibility !== 'hidden';
     });
 }
-
 
 function obterPrimeiroFocavel(drawer) {
     return obterFocaveis(drawer)[0] || null;
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    BLOQUEIO DO BODY
 ========================================================================== */
 
@@ -290,15 +281,13 @@ function atualizarBloqueioPagina() {
     if (!$('.np-modal.is-open')) document.body.style.removeProperty('overflow');
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    ESTADO
 ========================================================================== */
 
 export function obterDrawerAberto() {
     return drawerAtual || $('.np-drawer.is-open');
 }
-
 
 export function drawerAberto(drawerOuId = null) {
     if (!drawerOuId) return Boolean($('.np-drawer.is-open'));
@@ -307,8 +296,7 @@ export function drawerAberto(drawerOuId = null) {
     return Boolean(drawer?.classList.contains('is-open'));
 }
 
-
-/* ==========================================================================
+/* ========================================================================== 
    DRAWERS CONHECIDOS
 ========================================================================== */
 
@@ -318,11 +306,6 @@ export const drawers = Object.freeze({
     nat: 'natDrawer',
     alteracao: 'changeDrawer',
 });
-
-
-/* ==========================================================================
-   EXPORT DEFAULT
-========================================================================== */
 
 export default {
     inicializarDrawers,

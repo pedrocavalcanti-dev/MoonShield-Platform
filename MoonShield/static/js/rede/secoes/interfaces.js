@@ -302,7 +302,7 @@ async function salvarConfiguracaoInterface(event) {
 
         estado.set('interfaces.sujo', true);
         renderizar();
-        fecharDrawer(drawers.interface);
+        mostrarAvisoFormulario('Configuração salva. Revise os dados e feche no X quando terminar.', 'ok');
         notificacao.sucesso('Configuração salva', 'O estado desejado foi salvo. Use Aplicar para sincronizar a interface com o Linux.');
         return interfaceSalva;
     } catch (error) {

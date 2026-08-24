@@ -459,448 +459,219 @@
 
     </template>
 
-
     <!-- ============================================================
-         DRAWER DE CONFIGURAÇÃO
+         MODAL DE CONFIGURAÇÃO DA INTERFACE
     ============================================================= -->
 
     <div
-        class="np-drawer"
+        class="np-drawer np-interface-modal"
         id="interfaceDrawer"
+        data-close-policy="explicit"
         aria-hidden="true"
     >
-
-        <div
-            class="np-drawer__backdrop"
-            data-close-interface-drawer
-        ></div>
-
+        <div class="np-drawer__backdrop np-interface-modal__backdrop"></div>
 
         <aside
-            class="np-drawer__panel"
+            class="np-drawer__panel np-interface-modal__panel"
             role="dialog"
             aria-modal="true"
             aria-labelledby="interfaceDrawerTitle"
+            aria-describedby="interfaceDrawerDescription"
         >
+            <div class="np-drawer__head np-interface-modal__head">
+                <div class="np-interface-modal__heading">
+                    <div class="np-interface-modal__heading-icon" aria-hidden="true">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                            <path d="M8 9H16"></path>
+                            <path d="M8 13H10"></path>
+                            <path d="M14 13H16"></path>
+                        </svg>
+                    </div>
 
-            <!-- ====================================================
-                 HEADER
-            ===================================================== -->
-
-            <div class="np-drawer__head">
-
-                <div>
-
-                    <span class="np-drawer__eyebrow">
-                        Interface
-                    </span>
-
-                    <h2 id="interfaceDrawerTitle">
-                        Configurar interface
-                    </h2>
-
+                    <div class="np-interface-modal__heading-copy">
+                        <span class="np-drawer__eyebrow">Interface de rede</span>
+                        <h2 id="interfaceDrawerTitle">Configurar interface</h2>
+                        <p id="interfaceDrawerDescription">Ajuste o estado desejado. Nada é aplicado ao Linux até você usar Aplicar.</p>
+                    </div>
                 </div>
-
 
                 <button
                     type="button"
-                    class="np-icon-btn"
+                    class="np-icon-btn np-interface-modal__close"
                     data-close-interface-drawer
-                    aria-label="Fechar"
+                    aria-label="Fechar configuração"
                     title="Fechar"
                 >
-
-                    <svg
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                        stroke-linecap="round"
-                    >
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                         <path d="M6 6L18 18"></path>
                         <path d="M18 6L6 18"></path>
                     </svg>
-
                 </button>
-
             </div>
 
+            <form id="interfaceConfigForm" class="np-drawer__body np-interface-modal__body">
+                <input type="hidden" id="interfaceConfigId">
 
-            <!-- ====================================================
-                 FORM
-            ===================================================== -->
-
-            <form
-                id="interfaceConfigForm"
-                class="np-drawer__body"
-            >
-
-                <input
-                    type="hidden"
-                    id="interfaceConfigId"
-                >
-
-
-                <!-- INTERFACE -->
-
-                <div class="np-form-group">
-
-                    <label>
-                        Interface
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="interfaceConfigName"
-                        readonly
-                    >
-
-                </div>
-
-
-                <!-- DESCRIÇÃO -->
-
-                <div class="np-form-group">
-
-                    <label for="interfaceDescription">
-                        Descrição
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="interfaceDescription"
-                        maxlength="120"
-                        placeholder="Ex: Link principal"
-                    >
-
-                </div>
-
-
-                <!-- PAPEL -->
-
-                <div class="np-form-group">
-
-                    <label for="interfaceRole">
-                        Papel
-                    </label>
-
-                    <select
-                        class="np-select"
-                        id="interfaceRole"
-                    >
-
-                        <option value="unassigned">
-                            Não atribuída
-                        </option>
-
-                        <option value="wan">
-                            WAN
-                        </option>
-
-                        <option value="lan">
-                            LAN
-                        </option>
-
-                        <option value="mgmt">
-                            Gerenciamento
-                        </option>
-
-                        <option value="dmz">
-                            DMZ
-                        </option>
-
-                        <option value="custom">
-                            Personalizada
-                        </option>
-
-                    </select>
-
-                </div>
-
-
-                <!-- FLAGS -->
-
-                <div class="np-form-switches">
-
-                    <label class="np-switch-row">
-
+                <section class="np-interface-modal__section">
+                    <div class="np-interface-modal__section-head">
                         <div>
-                            <strong>
-                                Interface principal
-                            </strong>
+                            <span>Identificação</span>
+                            <strong>Interface e função</strong>
+                        </div>
+                        <small>Configuração lógica da porta</small>
+                    </div>
 
-                            <span>
-                                Principal dentro do papel selecionado.
-                            </span>
+                    <div class="np-interface-modal__grid np-interface-modal__grid--identity">
+                        <div class="np-form-group">
+                            <label for="interfaceConfigName">Interface</label>
+                            <input type="text" class="np-input np-interface-modal__readonly" id="interfaceConfigName" readonly>
                         </div>
 
-                        <input
-                            type="checkbox"
-                            id="interfacePrimary"
-                        >
-
-                        <span class="np-switch"></span>
-
-                    </label>
-
-
-                    <label class="np-switch-row">
-
-                        <div>
-                            <strong>
-                                Interface habilitada
-                            </strong>
-
-                            <span>
-                                Mantém a interface ativa no sistema.
-                            </span>
+                        <div class="np-form-group">
+                            <label for="interfaceRole">Papel</label>
+                            <select class="np-select" id="interfaceRole">
+                                <option value="unassigned">Não atribuída</option>
+                                <option value="wan">WAN</option>
+                                <option value="lan">LAN</option>
+                                <option value="mgmt">Gerenciamento</option>
+                                <option value="dmz">DMZ</option>
+                                <option value="custom">Personalizada</option>
+                            </select>
                         </div>
 
-                        <input
-                            type="checkbox"
-                            id="interfaceEnabled"
-                            checked
-                        >
+                        <div class="np-form-group np-interface-modal__span-2">
+                            <label for="interfaceDescription">Descrição</label>
+                            <input type="text" class="np-input" id="interfaceDescription" maxlength="120" placeholder="Ex: Link principal">
+                        </div>
+                    </div>
+                </section>
 
-                        <span class="np-switch"></span>
-
-                    </label>
-
-
-                    <label class="np-switch-row">
-
+                <section class="np-interface-modal__section">
+                    <div class="np-interface-modal__section-head">
                         <div>
-                            <strong>
-                                Acesso ao gerenciamento
-                            </strong>
+                            <span>Comportamento</span>
+                            <strong>Estado e gerenciamento</strong>
+                        </div>
+                        <small>Controles operacionais</small>
+                    </div>
 
-                            <span>
-                                Permite acesso ao painel por esta interface.
-                            </span>
+                    <div class="np-form-switches np-interface-modal__switches">
+                        <label class="np-switch-row">
+                            <div>
+                                <strong>Interface principal</strong>
+                                <span>Define esta porta como principal dentro do papel selecionado.</span>
+                            </div>
+                            <input type="checkbox" id="interfacePrimary">
+                            <span class="np-switch"></span>
+                        </label>
+
+                        <label class="np-switch-row">
+                            <div>
+                                <strong>Interface habilitada</strong>
+                                <span>Mantém a interface disponível no estado desejado.</span>
+                            </div>
+                            <input type="checkbox" id="interfaceEnabled" checked>
+                            <span class="np-switch"></span>
+                        </label>
+
+                        <label class="np-switch-row">
+                            <div>
+                                <strong>Acesso ao gerenciamento</strong>
+                                <span>Permite acesso administrativo ao MoonShield por esta interface.</span>
+                            </div>
+                            <input type="checkbox" id="interfaceManagement">
+                            <span class="np-switch"></span>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="np-interface-modal__section">
+                    <div class="np-interface-modal__section-head">
+                        <div>
+                            <span>Endereçamento</span>
+                            <strong>IPv4</strong>
+                        </div>
+                        <small>DHCP, estático ou desativado</small>
+                    </div>
+
+                    <div class="np-interface-modal__grid">
+                        <div class="np-form-group np-interface-modal__span-2">
+                            <label for="interfaceIpv4Mode">Modo IPv4</label>
+                            <select class="np-select" id="interfaceIpv4Mode">
+                                <option value="dhcp">DHCP</option>
+                                <option value="static">Estático</option>
+                                <option value="disabled">Desativado</option>
+                            </select>
                         </div>
 
-                        <input
-                            type="checkbox"
-                            id="interfaceManagement"
-                        >
+                        <div class="np-form-grid np-interface-modal__static-grid np-interface-modal__span-2" id="interfaceStaticFields" hidden>
+                            <div class="np-form-group">
+                                <label for="interfaceIpv4Address">Endereço IPv4</label>
+                                <input type="text" class="np-input" id="interfaceIpv4Address" placeholder="10.10.0.1" autocomplete="off">
+                            </div>
 
+                            <div class="np-form-group">
+                                <label for="interfaceIpv4Prefix">Prefixo</label>
+                                <input type="number" class="np-input" id="interfaceIpv4Prefix" min="0" max="32" value="24">
+                            </div>
+                        </div>
+
+                        <div class="np-form-group np-interface-modal__span-2" id="interfaceGatewayGroup" hidden>
+                            <label for="interfaceGateway">Gateway</label>
+                            <input type="text" class="np-input" id="interfaceGateway" placeholder="192.168.0.1" autocomplete="off">
+                        </div>
+                    </div>
+                </section>
+
+                <section class="np-interface-modal__section">
+                    <div class="np-interface-modal__section-head">
+                        <div>
+                            <span>Rede avançada</span>
+                            <strong>Roteamento e enlace</strong>
+                        </div>
+                        <small>Métrica, MTU e rota padrão</small>
+                    </div>
+
+                    <label class="np-switch-row np-interface-modal__default-route" id="interfaceDefaultRouteRow">
+                        <div>
+                            <strong>Rota padrão</strong>
+                            <span>Define esta WAN como saída padrão do appliance.</span>
+                        </div>
+                        <input type="checkbox" id="interfaceDefaultRoute">
                         <span class="np-switch"></span>
-
                     </label>
 
-                </div>
+                    <div class="np-interface-modal__grid">
+                        <div class="np-form-group">
+                            <label for="interfaceMetric">Métrica</label>
+                            <input type="number" class="np-input" id="interfaceMetric" min="0" value="100">
+                        </div>
 
-
-                <!-- IPv4 -->
-
-                <div class="np-form-divider">
-                    IPv4
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="interfaceIpv4Mode">
-                        Modo
-                    </label>
-
-                    <select
-                        class="np-select"
-                        id="interfaceIpv4Mode"
-                    >
-
-                        <option value="dhcp">
-                            DHCP
-                        </option>
-
-                        <option value="static">
-                            Estático
-                        </option>
-
-                        <option value="disabled">
-                            Desativado
-                        </option>
-
-                    </select>
-
-                </div>
-
-
-                <div
-                    class="np-form-grid"
-                    id="interfaceStaticFields"
-                    hidden
-                >
-
-                    <div class="np-form-group">
-
-                        <label for="interfaceIpv4Address">
-                            Endereço IPv4
-                        </label>
-
-                        <input
-                            type="text"
-                            class="np-input"
-                            id="interfaceIpv4Address"
-                            placeholder="10.10.0.1"
-                            autocomplete="off"
-                        >
-
+                        <div class="np-form-group">
+                            <label for="interfaceMtu">MTU</label>
+                            <input type="number" class="np-input" id="interfaceMtu" min="576" max="65535" value="1500">
+                        </div>
                     </div>
+                </section>
 
-
-                    <div class="np-form-group">
-
-                        <label for="interfaceIpv4Prefix">
-                            Prefixo
-                        </label>
-
-                        <input
-                            type="number"
-                            class="np-input"
-                            id="interfaceIpv4Prefix"
-                            min="0"
-                            max="32"
-                            value="24"
-                        >
-
-                    </div>
-
-                </div>
-
-
-                <div
-                    class="np-form-group"
-                    id="interfaceGatewayGroup"
-                    hidden
-                >
-
-                    <label for="interfaceGateway">
-                        Gateway
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="interfaceGateway"
-                        placeholder="192.168.0.1"
-                        autocomplete="off"
-                    >
-
-                </div>
-
-
-                <!-- ROTA DEFAULT -->
-
-                <label
-                    class="np-switch-row"
-                    id="interfaceDefaultRouteRow"
-                >
-
-                    <div>
-                        <strong>
-                            Rota padrão
-                        </strong>
-
-                        <span>
-                            Define esta WAN como saída padrão.
-                        </span>
-                    </div>
-
-                    <input
-                        type="checkbox"
-                        id="interfaceDefaultRoute"
-                    >
-
-                    <span class="np-switch"></span>
-
-                </label>
-
-
-                <!-- MÉTRICA / MTU -->
-
-                <div class="np-form-grid">
-
-                    <div class="np-form-group">
-
-                        <label for="interfaceMetric">
-                            Métrica
-                        </label>
-
-                        <input
-                            type="number"
-                            class="np-input"
-                            id="interfaceMetric"
-                            min="0"
-                            value="100"
-                        >
-
-                    </div>
-
-
-                    <div class="np-form-group">
-
-                        <label for="interfaceMtu">
-                            MTU
-                        </label>
-
-                        <input
-                            type="number"
-                            class="np-input"
-                            id="interfaceMtu"
-                            min="576"
-                            max="65535"
-                            value="1500"
-                        >
-
-                    </div>
-
-                </div>
-
-
-                <!-- STATUS -->
-
-                <div
-                    class="np-form-notice"
-                    id="interfaceConfigNotice"
-                    hidden
-                ></div>
-
+                <div class="np-form-notice np-interface-modal__notice" id="interfaceConfigNotice" hidden></div>
             </form>
 
+            <div class="np-drawer__footer np-interface-modal__footer">
+                <div class="np-interface-modal__footer-copy">
+                    <span>Estado desejado</span>
+                    <small>Salvar não aplica a configuração ao sistema operacional.</small>
+                </div>
 
-            <!-- ====================================================
-                 FOOTER
-            ===================================================== -->
-
-            <div class="np-drawer__footer">
-
-                <button
-                    type="button"
-                    class="np-btn np-btn--ghost"
-                    data-close-interface-drawer
-                >
-                    Cancelar
-                </button>
-
-
-                <button
-                    type="submit"
-                    form="interfaceConfigForm"
-                    class="np-btn np-btn--primary"
-                    id="interfaceSaveButton"
-                >
+                <button type="submit" form="interfaceConfigForm" class="np-btn np-btn--primary" id="interfaceSaveButton">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 6L9 17L4 12"></path>
+                    </svg>
                     Salvar configuração
                 </button>
-
             </div>
-
         </aside>
-
     </div>
 
 </section>

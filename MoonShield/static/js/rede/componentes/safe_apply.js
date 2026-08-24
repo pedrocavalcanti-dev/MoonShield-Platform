@@ -36,6 +36,8 @@ let countdownTimer = null;
 let pollTimer = null;
 let processando = false;
 let totalSegundos = 60;
+let rollbackConfirmando = false;
+let rollbackConfirmTimer = null;
 
 const elementos = {
     modal: null,
@@ -374,30 +376,53 @@ async function confirmarAlteracao() {
 async function solicitarRollback() {
     if (!alteracaoAtiva || processando) return false;
 
-    if (elementos.modal?.classList.contains('is-open')) {
-        fecharModal(elementos.modal, { restaurarFoco: false });
-    }
+    if (!rollbackConfirmando) {
+        rollbackConfirmando = true;
 
-    const confirmado = await confirmarModal({
-        titulo: 'Reverter configuração de rede?',
-        mensagem: 'O MoonShield Agent tentará restaurar o snapshot anterior desta alteração.',
-        detalhes: 'Use esta opção se perdeu conectividade, acesso administrativo ou identificou uma configuração incorreta.',
-        textoConfirmar: 'Reverter agora',
-        textoCancelar: 'Manter configuração',
-        perigoso: true,
-    });
+        if (rollbackConfirmTimer) window.clearTimeout(rollbackConfirmTimer);
 
-    if (!confirmado) {
-        if (alteracaoAtiva && alteracaoAguardaConfirmacao(alteracaoAtiva)) {
-            abrirModal(elementos.modal);
-        }
+        [elementos.rollbackButton, elementos.activeRollbackButton].forEach(botao => {
+            if (!botao) return;
+            botao.classList.add('is-confirming');
+            botao.textContent = 'Confirmar reversão';
+        });
+
+        setText(elementos.modalTitle, 'Confirmar reversão da configuração');
+        setText(
+            elementos.activeDescription,
+            'Clique novamente em Confirmar reversão para restaurar o snapshot anterior.'
+        );
+
+        rollbackConfirmTimer = window.setTimeout(() => {
+            resetarConfirmacaoRollback();
+        }, 8000);
 
         return false;
     }
 
+    resetarConfirmacaoRollback(false);
+
     return executarRollback(
         'Rollback solicitado manualmente pelo administrador.'
     );
+}
+
+
+function resetarConfirmacaoRollback(restaurarInterface = true) {
+    rollbackConfirmando = false;
+
+    if (rollbackConfirmTimer) {
+        window.clearTimeout(rollbackConfirmTimer);
+        rollbackConfirmTimer = null;
+    }
+
+    [elementos.rollbackButton, elementos.activeRollbackButton].forEach(botao => {
+        if (!botao) return;
+        botao.classList.remove('is-confirming');
+        botao.textContent = 'Reverter agora';
+    });
+
+    if (restaurarInterface && alteracaoAtiva) atualizarInterface(alteracaoAtiva);
 }
 
 
@@ -794,6 +819,7 @@ function emitirEvento(tipo, alteracao) {
 function pararTimers() {
     pararCountdown();
     pararPolling();
+    resetarConfirmacaoRollback(false);
 }
 
 

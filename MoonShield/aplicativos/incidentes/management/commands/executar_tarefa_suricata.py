@@ -183,7 +183,7 @@ def _adquirir_tarefa_banco(
     with transaction.atomic():
         tarefa = (
             TarefaSuricata.objects
-            .select_for_update()
+            .select_for_update(of=("self",))
             .select_related("configuracao")
             .get(pk=tarefa_id)
         )
@@ -991,3 +991,4 @@ class Command(BaseCommand):
             raise CommandError(
                 f"Crash inesperado do executor: {exc}"
             ) from exc
+

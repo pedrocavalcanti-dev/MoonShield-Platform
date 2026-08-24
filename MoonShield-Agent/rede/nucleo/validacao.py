@@ -47,7 +47,13 @@ ALIASES_TIPO = {
 
 
 class ValidacaoRedeErro(RuntimeError):
-    def __init__(self, mensagem: str, *, codigo: str = "validacao_rede_falhou", detalhes: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        mensagem: str,
+        *,
+        codigo: str = "validacao_rede_falhou",
+        detalhes: dict[str, Any] | None = None,
+    ):
         super().__init__(mensagem)
         self.codigo = codigo
         self.detalhes = detalhes or {}
@@ -69,10 +75,27 @@ def _bool(valor: Any, padrao: bool = False) -> bool:
 
     texto = str(valor).strip().lower()
 
-    if texto in {"1", "true", "yes", "sim", "on", "ativo", "enabled"}:
+    if texto in {
+        "1",
+        "true",
+        "yes",
+        "sim",
+        "on",
+        "ativo",
+        "enabled",
+    }:
         return True
 
-    if texto in {"0", "false", "no", "nao", "não", "off", "inativo", "disabled"}:
+    if texto in {
+        "0",
+        "false",
+        "no",
+        "nao",
+        "não",
+        "off",
+        "inativo",
+        "disabled",
+    }:
         return False
 
     return padrao
@@ -85,7 +108,10 @@ def _inteiro(valor: Any, padrao: int) -> int:
         return padrao
 
 
-def _primeiro_valor(payload: dict[str, Any], *chaves: str) -> Any:
+def _primeiro_valor(
+    payload: dict[str, Any],
+    *chaves: str,
+) -> Any:
     for chave in chaves:
         if chave in payload and payload[chave] is not None:
             return payload[chave]
@@ -110,7 +136,9 @@ def _validar_interface_nome(nome: Any) -> str:
         raise ValidacaoRedeErro(
             "Nome de interface inválido.",
             codigo="interface_nome_invalido",
-            detalhes={"interface": valor},
+            detalhes={
+                "interface": valor,
+            },
         )
 
     if valor == "lo":
@@ -127,7 +155,9 @@ def _interfaces_existentes() -> dict[str, dict[str, Any]]:
 
     return {
         item["nome"]: item
-        for item in backend.listar_interfaces(incluir_loopback=False)
+        for item in backend.listar_interfaces(
+            incluir_loopback=False
+        )
         if item.get("nome")
     }
 
@@ -136,14 +166,19 @@ def _interfaces_existentes() -> dict[str, dict[str, Any]]:
 # IPV4
 # =============================================================================
 
-def _validar_ipv4(valor: Any, campo: str) -> str | None:
+def _validar_ipv4(
+    valor: Any,
+    campo: str,
+) -> str | None:
     texto = str(valor or "").strip()
 
     if not texto:
         return None
 
     try:
-        endereco = ipaddress.ip_address(texto)
+        endereco = ipaddress.ip_address(
+            texto
+        )
     except ValueError as exc:
         raise ValidacaoRedeErro(
             f"{campo} contém um IPv4 inválido.",
@@ -171,9 +206,13 @@ def _validar_ipv4(valor: Any, campo: str) -> str | None:
 # SAFE APPLY
 # =============================================================================
 
-def _normalizar_timeout(payload: dict[str, Any]) -> int:
+def _normalizar_timeout(
+    payload: dict[str, Any],
+) -> int:
     requer_confirmacao = _bool(
-        payload.get("confirmation_required"),
+        payload.get(
+            "confirmation_required"
+        ),
         True,
     )
 
@@ -187,31 +226,50 @@ def _normalizar_timeout(payload: dict[str, Any]) -> int:
     )
 
     if valor is None:
-        valor = ROLLBACK_PADRAO_SEGUNDOS
+        valor = (
+            ROLLBACK_PADRAO_SEGUNDOS
+        )
 
     segundos = _inteiro(
         valor,
         ROLLBACK_PADRAO_SEGUNDOS,
     )
 
-    if not requer_confirmacao and segundos <= 0:
+    if (
+        not requer_confirmacao
+        and segundos <= 0
+    ):
         return 0
 
-    if segundos < ROLLBACK_MINIMO_SEGUNDOS or segundos > ROLLBACK_MAXIMO_SEGUNDOS:
+    if (
+        segundos
+        < ROLLBACK_MINIMO_SEGUNDOS
+        or segundos
+        > ROLLBACK_MAXIMO_SEGUNDOS
+    ):
         raise ValidacaoRedeErro(
-            "Tempo de confirmação do Safe Apply fora dos limites permitidos.",
+            (
+                "Tempo de confirmação do "
+                "Safe Apply fora dos limites permitidos."
+            ),
             codigo="timeout_rollback_invalido",
             detalhes={
                 "valor": segundos,
-                "minimo": ROLLBACK_MINIMO_SEGUNDOS,
-                "maximo": ROLLBACK_MAXIMO_SEGUNDOS,
+                "minimo": (
+                    ROLLBACK_MINIMO_SEGUNDOS
+                ),
+                "maximo": (
+                    ROLLBACK_MAXIMO_SEGUNDOS
+                ),
             },
         )
 
     return segundos
 
 
-def _normalizar_tipo(payload: dict[str, Any]) -> str:
+def _normalizar_tipo(
+    payload: dict[str, Any],
+) -> str:
     tipo = str(
         payload.get("tipo")
         or payload.get("type")
@@ -220,7 +278,10 @@ def _normalizar_tipo(payload: dict[str, Any]) -> str:
 
     if tipo not in TIPOS_ALTERACAO:
         raise ValidacaoRedeErro(
-            f"Tipo de alteração não suportado: {tipo}",
+            (
+                "Tipo de alteração não "
+                f"suportado: {tipo}"
+            ),
             codigo="tipo_alteracao_invalido",
             detalhes={
                 "tipo": tipo,
@@ -234,6 +295,118 @@ def _normalizar_tipo(payload: dict[str, Any]) -> str:
 
 
 # =============================================================================
+# ADAPTAÇÃO DO CONTRATO DJANGO → BACKEND
+# =============================================================================
+
+def _adaptar_configuracao_interface(
+    configuracao: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Converte o contrato enviado pelo Django para o formato plano
+    utilizado internamente pelo backend de Rede.
+
+    Django:
+
+        {
+            "habilitada": True,
+            "ipv4": {
+                "modo": "static",
+                "endereco": "10.10.0.1",
+                "prefixo": 24,
+                "gateway": None,
+                "rota_padrao": False,
+                "metrica": 100
+            },
+            "mtu": 1500
+        }
+
+    Backend:
+
+        {
+            "habilitada": True,
+            "ipv4_modo": "static",
+            "ipv4_endereco": "10.10.0.1",
+            "ipv4_prefixo": 24,
+            "gateway": None,
+            "rota_padrao": False,
+            "metrica": 100,
+            "mtu": 1500
+        }
+
+    Se o payload já vier no formato plano, os campos planos
+    têm prioridade.
+    """
+
+    resultado = dict(
+        configuracao
+    )
+
+    ipv4 = resultado.get(
+        "ipv4"
+    )
+
+    if ipv4 is None:
+        return resultado
+
+    if not isinstance(
+        ipv4,
+        dict,
+    ):
+        raise ValidacaoRedeErro(
+            (
+                "Campo 'ipv4' da interface "
+                "precisa ser um objeto."
+            ),
+            codigo=(
+                "ipv4_configuracao_invalida"
+            ),
+        )
+
+    aliases = {
+        "ipv4_modo": (
+            "modo",
+            "mode",
+        ),
+        "ipv4_endereco": (
+            "endereco",
+            "address",
+        ),
+        "ipv4_prefixo": (
+            "prefixo",
+            "prefix",
+        ),
+        "gateway": (
+            "gateway",
+        ),
+        "rota_padrao": (
+            "rota_padrao",
+            "default_route",
+        ),
+        "metrica": (
+            "metrica",
+            "metric",
+        ),
+    }
+
+    for destino, origens in aliases.items():
+        # Se já existe campo plano,
+        # ele é considerado autoritativo.
+        if destino in resultado:
+            continue
+
+        for origem in origens:
+            if origem in ipv4:
+                resultado[
+                    destino
+                ] = ipv4[
+                    origem
+                ]
+                break
+
+    return resultado
+
+
+# =============================================================================
 # CONFIGURAÇÃO DE INTERFACE
 # =============================================================================
 
@@ -241,7 +414,10 @@ def validar_configuracao_interface(
     nome: str,
     configuracao: dict[str, Any],
     *,
-    interfaces_existentes: dict[str, dict[str, Any]] | None = None,
+    interfaces_existentes: (
+        dict[str, dict[str, Any]]
+        | None
+    ) = None,
 ) -> dict[str, Any]:
     nome = _validar_interface_nome(
         nome
@@ -254,36 +430,87 @@ def validar_configuracao_interface(
 
     if nome not in existentes:
         raise ValidacaoRedeErro(
-            f"Interface não encontrada no sistema: {nome}",
+            (
+                "Interface não encontrada "
+                f"no sistema: {nome}"
+            ),
             codigo="interface_nao_encontrada",
             detalhes={
                 "interface": nome,
             },
         )
 
-    if not isinstance(configuracao, dict):
+    if not isinstance(
+        configuracao,
+        dict,
+    ):
         raise ValidacaoRedeErro(
-            "Configuração da interface precisa ser um objeto.",
-            codigo="configuracao_interface_invalida",
+            (
+                "Configuração da interface "
+                "precisa ser um objeto."
+            ),
+            codigo=(
+                "configuracao_interface_invalida"
+            ),
             detalhes={
                 "interface": nome,
             },
         )
 
-    config = normalizar_configuracao_interface(
-        configuracao
+    # -------------------------------------------------------------------------
+    # CORREÇÃO CRÍTICA
+    # -------------------------------------------------------------------------
+    #
+    # O Django envia IPv4 aninhado:
+    #
+    #     ipv4: {
+    #         modo: static,
+    #         endereco: 10.10.0.1,
+    #         prefixo: 24
+    #     }
+    #
+    # O backend trabalha internamente com:
+    #
+    #     ipv4_modo
+    #     ipv4_endereco
+    #     ipv4_prefixo
+    #
+    # Portanto precisamos adaptar ANTES de chamar
+    # normalizar_configuracao_interface().
+    # -------------------------------------------------------------------------
+
+    configuracao_backend = (
+        _adaptar_configuracao_interface(
+            configuracao
+        )
     )
 
-    modo = config["ipv4_modo"]
+    config = (
+        normalizar_configuracao_interface(
+            configuracao_backend
+        )
+    )
+
+    modo = config[
+        "ipv4_modo"
+    ]
+
+    # -------------------------------------------------------------------------
+    # STATIC
+    # -------------------------------------------------------------------------
 
     if modo == "static":
         endereco = _validar_ipv4(
-            config.get("ipv4_endereco"),
+            config.get(
+                "ipv4_endereco"
+            ),
             "ipv4_endereco",
         )
 
         gateway = _validar_ipv4(
-            config.get("gateway"),
+            config.get(
+                "gateway"
+            ),
             "gateway",
         )
 
@@ -293,8 +520,13 @@ def validar_configuracao_interface(
 
         if not endereco:
             raise ValidacaoRedeErro(
-                "Endereço IPv4 estático não informado.",
-                codigo="ipv4_estatico_ausente",
+                (
+                    "Endereço IPv4 estático "
+                    "não informado."
+                ),
+                codigo=(
+                    "ipv4_estatico_ausente"
+                ),
                 detalhes={
                     "interface": nome,
                 },
@@ -308,7 +540,9 @@ def validar_configuracao_interface(
         except ValueError as exc:
             raise ValidacaoRedeErro(
                 "Rede IPv4 estática inválida.",
-                codigo="rede_estatica_invalida",
+                codigo=(
+                    "rede_estatica_invalida"
+                ),
                 detalhes={
                     "interface": nome,
                     "endereco": endereco,
@@ -316,9 +550,20 @@ def validar_configuracao_interface(
                 },
             ) from exc
 
-        if gateway and ipaddress.ip_address(gateway) == ipaddress.ip_address(endereco):
+        if (
+            gateway
+            and ipaddress.ip_address(
+                gateway
+            )
+            == ipaddress.ip_address(
+                endereco
+            )
+        ):
             raise ValidacaoRedeErro(
-                "Gateway não pode ser igual ao endereço da própria interface.",
+                (
+                    "Gateway não pode ser igual "
+                    "ao endereço da própria interface."
+                ),
                 codigo="gateway_invalido",
                 detalhes={
                     "interface": nome,
@@ -326,42 +571,84 @@ def validar_configuracao_interface(
                 },
             )
 
-        if config["rota_padrao"] and not gateway:
+        if (
+            config["rota_padrao"]
+            and not gateway
+        ):
             raise ValidacaoRedeErro(
-                "Interface estática marcada como rota padrão precisa possuir gateway.",
-                codigo="gateway_obrigatorio",
+                (
+                    "Interface estática marcada "
+                    "como rota padrão precisa "
+                    "possuir gateway."
+                ),
+                codigo=(
+                    "gateway_obrigatorio"
+                ),
                 detalhes={
                     "interface": nome,
                 },
             )
 
-        config["ipv4_endereco"] = endereco
-        config["gateway"] = gateway
-        config["rede_ipv4"] = str(
+        config[
+            "ipv4_endereco"
+        ] = endereco
+
+        config[
+            "gateway"
+        ] = gateway
+
+        config[
+            "rede_ipv4"
+        ] = str(
             rede
         )
 
+    # -------------------------------------------------------------------------
+    # DHCP
+    # -------------------------------------------------------------------------
+
     elif modo == "dhcp":
-        gateway_original = configuracao.get(
-            "gateway"
+        # Precisamos consultar o payload já adaptado,
+        # porque o gateway também pode ter vindo de ipv4.gateway.
+        gateway_original = (
+            configuracao_backend.get(
+                "gateway"
+            )
         )
 
         if gateway_original:
             raise ValidacaoRedeErro(
-                "Gateway manual não deve ser informado para IPv4 DHCP.",
-                codigo="gateway_dhcp_invalido",
+                (
+                    "Gateway manual não deve "
+                    "ser informado para IPv4 DHCP."
+                ),
+                codigo=(
+                    "gateway_dhcp_invalido"
+                ),
                 detalhes={
                     "interface": nome,
                 },
             )
+
+    # -------------------------------------------------------------------------
+    # MTU
+    # -------------------------------------------------------------------------
 
     mtu = config.get(
         "mtu"
     )
 
-    if mtu is not None and not 576 <= int(mtu) <= 9216:
+    if (
+        mtu is not None
+        and not 576
+        <= int(mtu)
+        <= 9216
+    ):
         raise ValidacaoRedeErro(
-            "MTU fora do intervalo permitido.",
+            (
+                "MTU fora do intervalo "
+                "permitido."
+            ),
             codigo="mtu_invalido",
             detalhes={
                 "interface": nome,
@@ -372,8 +659,12 @@ def validar_configuracao_interface(
     return {
         "nome": nome,
         "conexao": (
-            configuracao.get("conexao")
-            or configuracao.get("connection")
+            configuracao.get(
+                "conexao"
+            )
+            or configuracao.get(
+                "connection"
+            )
         ),
         "configuracao": config,
     }
@@ -388,12 +679,12 @@ def _extrair_interfaces(
     configuracao: dict[str, Any],
 ) -> list[Any]:
     """
-    Aceita os contratos:
+    Aceita:
 
         desired.interfaces = [...]
         desired.interface = {...}
 
-    e também os formatos legados:
+    E formatos legados:
 
         payload.interfaces = [...]
         payload.interface = {...}
@@ -409,22 +700,27 @@ def _extrair_interfaces(
         )
 
     if interfaces is not None:
-        if not isinstance(interfaces, list):
+        if not isinstance(
+            interfaces,
+            list,
+        ):
             raise ValidacaoRedeErro(
-                "'interfaces' precisa ser uma lista.",
-                codigo="interfaces_invalidas",
+                (
+                    "'interfaces' precisa "
+                    "ser uma lista."
+                ),
+                codigo=(
+                    "interfaces_invalidas"
+                ),
             )
 
         return interfaces
 
-    # IMPORTANTE:
-    # O Django envia:
+    # O contrato atual do Django usa:
     #
     # desired: {
     #     interface: {...}
     # }
-    #
-    # portanto primeiro procuramos dentro da configuração desejada.
 
     interface = configuracao.get(
         "interface"
@@ -435,13 +731,19 @@ def _extrair_interfaces(
             "interface"
         )
 
-    if interface is None and "nome" in configuracao:
+    if (
+        interface is None
+        and "nome" in configuracao
+    ):
         interface = configuracao
 
     if interface is None:
         return []
 
-    if isinstance(interface, str):
+    if isinstance(
+        interface,
+        str,
+    ):
         item = dict(
             configuracao
         )
@@ -451,20 +753,29 @@ def _extrair_interfaces(
             None,
         )
 
-        item["nome"] = interface
+        item[
+            "nome"
+        ] = interface
 
         return [
             item
         ]
 
-    if isinstance(interface, dict):
+    if isinstance(
+        interface,
+        dict,
+    ):
         return [
-            dict(interface)
+            dict(
+                interface
+            )
         ]
 
     raise ValidacaoRedeErro(
         "Formato de interface inválido.",
-        codigo="interface_payload_invalido",
+        codigo=(
+            "interface_payload_invalido"
+        ),
     )
 
 
@@ -472,17 +783,30 @@ def _validar_interfaces(
     payload: dict[str, Any],
     configuracao: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    existentes = _interfaces_existentes()
-    resultado: list[dict[str, Any]] = []
+    existentes = (
+        _interfaces_existentes()
+    )
+
+    resultado: list[
+        dict[str, Any]
+    ] = []
 
     for item in _extrair_interfaces(
         payload,
         configuracao,
     ):
-        if not isinstance(item, dict):
+        if not isinstance(
+            item,
+            dict,
+        ):
             raise ValidacaoRedeErro(
-                "Item de interface inválido.",
-                codigo="interface_payload_invalido",
+                (
+                    "Item de interface "
+                    "inválido."
+                ),
+                codigo=(
+                    "interface_payload_invalido"
+                ),
             )
 
         nome = (
@@ -495,10 +819,14 @@ def _validar_interfaces(
             "configuracao"
         )
 
-        if not isinstance(config, dict):
+        if not isinstance(
+            config,
+            dict,
+        ):
             config = {
                 chave: valor
-                for chave, valor in item.items()
+                for chave, valor
+                in item.items()
                 if chave not in {
                     "nome",
                     "name",
@@ -508,13 +836,29 @@ def _validar_interfaces(
                 }
             }
 
-        if item.get("conexao") and "conexao" not in config:
-            config["conexao"] = item[
+        if (
+            item.get(
+                "conexao"
+            )
+            and "conexao"
+            not in config
+        ):
+            config[
+                "conexao"
+            ] = item[
                 "conexao"
             ]
 
-        if item.get("connection") and "connection" not in config:
-            config["connection"] = item[
+        if (
+            item.get(
+                "connection"
+            )
+            and "connection"
+            not in config
+        ):
+            config[
+                "connection"
+            ] = item[
                 "connection"
             ]
 
@@ -522,7 +866,9 @@ def _validar_interfaces(
             validar_configuracao_interface(
                 nome,
                 config,
-                interfaces_existentes=existentes,
+                interfaces_existentes=(
+                    existentes
+                ),
             )
         )
 
@@ -534,7 +880,9 @@ def _validar_interfaces(
 # =============================================================================
 
 def _validar_sobreposicao_redes(
-    interfaces: list[dict[str, Any]],
+    interfaces: list[
+        dict[str, Any]
+    ],
 ) -> None:
     estaticas = []
 
@@ -543,11 +891,19 @@ def _validar_sobreposicao_redes(
             "configuracao"
         ]
 
-        if config.get("ipv4_modo") != "static":
+        if (
+            config.get(
+                "ipv4_modo"
+            )
+            != "static"
+        ):
             continue
 
         rede = ipaddress.ip_network(
-            f"{config['ipv4_endereco']}/{config['ipv4_prefixo']}",
+            (
+                f"{config['ipv4_endereco']}"
+                f"/{config['ipv4_prefixo']}"
+            ),
             strict=False,
         )
 
@@ -558,23 +914,41 @@ def _validar_sobreposicao_redes(
             )
         )
 
-    for indice, (nome_a, rede_a) in enumerate(
+    for indice, (
+        nome_a,
+        rede_a,
+    ) in enumerate(
         estaticas
     ):
-        for nome_b, rede_b in estaticas[
-            indice + 1:
-        ]:
-            if nome_a != nome_b and rede_a.overlaps(
-                rede_b
+        for nome_b, rede_b in (
+            estaticas[
+                indice + 1:
+            ]
+        ):
+            if (
+                nome_a != nome_b
+                and rede_a.overlaps(
+                    rede_b
+                )
             ):
                 raise ValidacaoRedeErro(
-                    "Duas interfaces estáticas da alteração possuem redes sobrepostas.",
-                    codigo="redes_sobrepostas",
+                    (
+                        "Duas interfaces estáticas "
+                        "da alteração possuem redes "
+                        "sobrepostas."
+                    ),
+                    codigo=(
+                        "redes_sobrepostas"
+                    ),
                     detalhes={
                         "interface_a": nome_a,
-                        "rede_a": str(rede_a),
+                        "rede_a": str(
+                            rede_a
+                        ),
                         "interface_b": nome_b,
-                        "rede_b": str(rede_b),
+                        "rede_b": str(
+                            rede_b
+                        ),
                     },
                 )
 
@@ -585,21 +959,35 @@ def _validar_sobreposicao_redes(
 
 def _validar_rotas(
     rotas: Any,
-    existentes: dict[str, dict[str, Any]],
+    existentes: dict[
+        str,
+        dict[str, Any],
+    ],
 ) -> list[dict[str, Any]]:
     if rotas is None:
         return []
 
-    if not isinstance(rotas, list):
+    if not isinstance(
+        rotas,
+        list,
+    ):
         raise ValidacaoRedeErro(
-            "'rotas' precisa ser uma lista.",
+            (
+                "'rotas' precisa ser "
+                "uma lista."
+            ),
             codigo="rotas_invalidas",
         )
 
-    resultado: list[dict[str, Any]] = []
+    resultado: list[
+        dict[str, Any]
+    ] = []
 
     for rota_original in rotas:
-        if not isinstance(rota_original, dict):
+        if not isinstance(
+            rota_original,
+            dict,
+        ):
             raise ValidacaoRedeErro(
                 "Rota estática inválida.",
                 codigo="rota_invalida",
@@ -611,54 +999,96 @@ def _validar_rotas(
 
         try:
             rede = ipaddress.ip_network(
-                rota["destino"],
+                rota[
+                    "destino"
+                ],
                 strict=False,
             )
         except ValueError as exc:
             raise ValidacaoRedeErro(
-                "Destino de rota inválido.",
-                codigo="destino_rota_invalido",
+                (
+                    "Destino de rota "
+                    "inválido."
+                ),
+                codigo=(
+                    "destino_rota_invalido"
+                ),
                 detalhes={
-                    "destino": rota["destino"],
+                    "destino": rota[
+                        "destino"
+                    ],
                 },
             ) from exc
 
         if rede.version != 4:
             raise ValidacaoRedeErro(
-                "Somente rotas IPv4 são suportadas no V1.",
-                codigo="rota_ipv6_nao_suportada",
+                (
+                    "Somente rotas IPv4 são "
+                    "suportadas no V1."
+                ),
+                codigo=(
+                    "rota_ipv6_nao_suportada"
+                ),
             )
 
-        if str(rede) == "0.0.0.0/0":
+        if str(
+            rede
+        ) == "0.0.0.0/0":
             raise ValidacaoRedeErro(
-                "Rota default deve ser configurada pela interface WAN, não como rota estática.",
-                codigo="rota_default_estatica_bloqueada",
+                (
+                    "Rota default deve ser "
+                    "configurada pela interface "
+                    "WAN, não como rota estática."
+                ),
+                codigo=(
+                    "rota_default_estatica_bloqueada"
+                ),
             )
 
-        rota["destino"] = str(
+        rota[
+            "destino"
+        ] = str(
             rede
         )
 
-        if rota.get("gateway"):
-            rota["gateway"] = _validar_ipv4(
-                rota["gateway"],
+        if rota.get(
+            "gateway"
+        ):
+            rota[
+                "gateway"
+            ] = _validar_ipv4(
+                rota[
+                    "gateway"
+                ],
                 "gateway_rota",
             )
 
-        interface = _validar_interface_nome(
-            rota.get("interface_nome")
+        interface = (
+            _validar_interface_nome(
+                rota.get(
+                    "interface_nome"
+                )
+            )
         )
 
         if interface not in existentes:
             raise ValidacaoRedeErro(
-                f"Interface da rota não encontrada: {interface}",
-                codigo="interface_rota_nao_encontrada",
+                (
+                    "Interface da rota "
+                    "não encontrada: "
+                    f"{interface}"
+                ),
+                codigo=(
+                    "interface_rota_nao_encontrada"
+                ),
                 detalhes={
                     "interface": interface,
                 },
             )
 
-        rota["interface_nome"] = interface
+        rota[
+            "interface_nome"
+        ] = interface
 
         resultado.append(
             rota
@@ -673,21 +1103,37 @@ def _validar_rotas(
 
 def _validar_nat(
     regras: Any,
-    existentes: dict[str, dict[str, Any]],
+    existentes: dict[
+        str,
+        dict[str, Any],
+    ],
 ) -> list[dict[str, Any]]:
     if regras is None:
         return []
 
-    if not isinstance(regras, list):
+    if not isinstance(
+        regras,
+        list,
+    ):
         raise ValidacaoRedeErro(
-            "'regras' de NAT precisa ser uma lista.",
-            codigo="nat_regras_invalidas",
+            (
+                "'regras' de NAT precisa "
+                "ser uma lista."
+            ),
+            codigo=(
+                "nat_regras_invalidas"
+            ),
         )
 
-    resultado: list[dict[str, Any]] = []
+    resultado: list[
+        dict[str, Any]
+    ] = []
 
     for regra_original in regras:
-        if not isinstance(regra_original, dict):
+        if not isinstance(
+            regra_original,
+            dict,
+        ):
             raise ValidacaoRedeErro(
                 "Regra NAT inválida.",
                 codigo="nat_regra_invalida",
@@ -707,8 +1153,13 @@ def _validar_nat(
 
         if entrada == saida:
             raise ValidacaoRedeErro(
-                "Interface de origem e saída do NAT precisam ser diferentes.",
-                codigo="nat_interfaces_iguais",
+                (
+                    "Interface de origem e saída "
+                    "do NAT precisam ser diferentes."
+                ),
+                codigo=(
+                    "nat_interfaces_iguais"
+                ),
                 detalhes={
                     "interface": entrada,
                 },
@@ -716,14 +1167,26 @@ def _validar_nat(
 
         if entrada not in existentes:
             raise ValidacaoRedeErro(
-                f"Interface de origem NAT não encontrada: {entrada}",
-                codigo="nat_interface_origem_nao_encontrada",
+                (
+                    "Interface de origem NAT "
+                    "não encontrada: "
+                    f"{entrada}"
+                ),
+                codigo=(
+                    "nat_interface_origem_nao_encontrada"
+                ),
             )
 
         if saida not in existentes:
             raise ValidacaoRedeErro(
-                f"Interface de saída NAT não encontrada: {saida}",
-                codigo="nat_interface_saida_nao_encontrada",
+                (
+                    "Interface de saída NAT "
+                    "não encontrada: "
+                    f"{saida}"
+                ),
+                codigo=(
+                    "nat_interface_saida_nao_encontrada"
+                ),
             )
 
         resultado.append(
@@ -740,9 +1203,15 @@ def _validar_nat(
 def validar_alteracao(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    if not isinstance(payload, dict):
+    if not isinstance(
+        payload,
+        dict,
+    ):
         raise ValidacaoRedeErro(
-            "Payload da alteração precisa ser um objeto.",
+            (
+                "Payload da alteração "
+                "precisa ser um objeto."
+            ),
             codigo="payload_invalido",
         )
 
@@ -755,19 +1224,35 @@ def validar_alteracao(
     )
 
     configuracao = (
-        payload.get("configuracao")
-        or payload.get("estado_desejado")
-        or payload.get("desired")
+        payload.get(
+            "configuracao"
+        )
+        or payload.get(
+            "estado_desejado"
+        )
+        or payload.get(
+            "desired"
+        )
         or {}
     )
 
-    if not isinstance(configuracao, dict):
+    if not isinstance(
+        configuracao,
+        dict,
+    ):
         raise ValidacaoRedeErro(
-            "'configuracao' precisa ser um objeto.",
-            codigo="configuracao_invalida",
+            (
+                "'configuracao' precisa "
+                "ser um objeto."
+            ),
+            codigo=(
+                "configuracao_invalida"
+            ),
         )
 
-    existentes = _interfaces_existentes()
+    existentes = (
+        _interfaces_existentes()
+    )
 
     interfaces = (
         _validar_interfaces(
@@ -789,21 +1274,33 @@ def validar_alteracao(
     # ROTEAMENTO
     # =========================================================================
 
-    roteamento_origem = configuracao.get(
-        "roteamento"
+    roteamento_origem = (
+        configuracao.get(
+            "roteamento"
+        )
     )
 
     if roteamento_origem is None:
-        roteamento_origem = configuracao.get(
-            "routing"
+        roteamento_origem = (
+            configuracao.get(
+                "routing"
+            )
         )
 
-    if roteamento_origem is None and tipo == "routing":
-        roteamento_origem = configuracao
+    if (
+        roteamento_origem is None
+        and tipo == "routing"
+    ):
+        roteamento_origem = (
+            configuracao
+        )
 
     roteamento = None
 
-    if isinstance(roteamento_origem, dict):
+    if isinstance(
+        roteamento_origem,
+        dict,
+    ):
         forward_presente = (
             "ipv4_forward"
             in roteamento_origem
@@ -837,23 +1334,34 @@ def validar_alteracao(
             list,
         ):
             raise ValidacaoRedeErro(
-                "'interfaces_alvo' precisa ser uma lista.",
-                codigo="interfaces_alvo_invalidas",
+                (
+                    "'interfaces_alvo' precisa "
+                    "ser uma lista."
+                ),
+                codigo=(
+                    "interfaces_alvo_invalidas"
+                ),
             )
 
         interfaces_alvo = [
             _validar_interface_nome(
                 item
             )
-            for item in interfaces_alvo
+            for item
+            in interfaces_alvo
         ]
 
         for rota in rotas:
-            nome_interface = rota[
-                "interface_nome"
-            ]
+            nome_interface = (
+                rota[
+                    "interface_nome"
+                ]
+            )
 
-            if nome_interface not in interfaces_alvo:
+            if (
+                nome_interface
+                not in interfaces_alvo
+            ):
                 interfaces_alvo.append(
                     nome_interface
                 )
@@ -873,7 +1381,9 @@ def validar_alteracao(
                 if rotas_presentes
                 else None
             ),
-            "interfaces_alvo": interfaces_alvo,
+            "interfaces_alvo": (
+                interfaces_alvo
+            ),
         }
 
     # =========================================================================
@@ -884,12 +1394,18 @@ def validar_alteracao(
         "nat"
     )
 
-    if nat_origem is None and tipo == "nat":
+    if (
+        nat_origem is None
+        and tipo == "nat"
+    ):
         nat_origem = configuracao
 
     nat = None
 
-    if isinstance(nat_origem, dict):
+    if isinstance(
+        nat_origem,
+        dict,
+    ):
         regras_presentes = (
             "regras"
             in nat_origem
@@ -908,38 +1424,62 @@ def validar_alteracao(
 
         nat = {
             "regras": regras,
-            "aplicar": regras_presentes,
+            "aplicar": (
+                regras_presentes
+            ),
         }
 
     # =========================================================================
-    # VALIDAÇÃO DE CONTEÚDO
+    # CONTEÚDO OBRIGATÓRIO
     # =========================================================================
 
-    if tipo == "interface" and not interfaces:
+    if (
+        tipo == "interface"
+        and not interfaces
+    ):
         raise ValidacaoRedeErro(
-            "Alteração de interface sem interface informada.",
+            (
+                "Alteração de interface "
+                "sem interface informada."
+            ),
             codigo="interface_ausente",
             detalhes={
                 "chaves_payload": sorted(
                     str(chave)
-                    for chave in payload.keys()
+                    for chave
+                    in payload.keys()
                 ),
                 "chaves_desired": sorted(
                     str(chave)
-                    for chave in configuracao.keys()
+                    for chave
+                    in configuracao.keys()
                 ),
             },
         )
 
-    if tipo == "routing" and roteamento is None:
+    if (
+        tipo == "routing"
+        and roteamento is None
+    ):
         raise ValidacaoRedeErro(
-            "Alteração de roteamento sem configuração.",
-            codigo="roteamento_ausente",
+            (
+                "Alteração de roteamento "
+                "sem configuração."
+            ),
+            codigo=(
+                "roteamento_ausente"
+            ),
         )
 
-    if tipo == "nat" and nat is None:
+    if (
+        tipo == "nat"
+        and nat is None
+    ):
         raise ValidacaoRedeErro(
-            "Alteração NAT sem configuração.",
+            (
+                "Alteração NAT sem "
+                "configuração."
+            ),
             codigo="nat_ausente",
         )
 
@@ -950,7 +1490,10 @@ def validar_alteracao(
         and nat is None
     ):
         raise ValidacaoRedeErro(
-            "Alteração geral não possui operações.",
+            (
+                "Alteração geral não "
+                "possui operações."
+            ),
             codigo="alteracao_vazia",
         )
 
@@ -959,9 +1502,15 @@ def validar_alteracao(
     # =========================================================================
 
     alteracao_id = str(
-        payload.get("alteracao_id")
-        or payload.get("change_id")
-        or payload.get("id")
+        payload.get(
+            "alteracao_id"
+        )
+        or payload.get(
+            "change_id"
+        )
+        or payload.get(
+            "id"
+        )
         or ""
     ).strip()
 
@@ -976,8 +1525,12 @@ def validar_alteracao(
         "roteamento": roteamento,
         "nat": nat,
         "metadados": dict(
-            payload.get("metadados")
-            or payload.get("metadata")
+            payload.get(
+                "metadados"
+            )
+            or payload.get(
+                "metadata"
+            )
             or {}
         ),
     }

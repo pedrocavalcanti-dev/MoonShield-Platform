@@ -1,0 +1,193 @@
+/* ========================================================================== 
+   MOONSHIELD NETWORK — TEMA NEUTRO GLOBAL
+   Carregar este arquivo POR ÚLTIMO, depois de todos os CSS do módulo Rede.
+   Mantém verde/âmbar/vermelho apenas para estados semânticos.
+========================================================================== */
+
+:root {
+    --np-blue: #d4d4d4;
+    --np-blue-strong: #f0f0f0;
+    --np-blue-soft: rgba(255, 255, 255, .055);
+    --np-blue-border: rgba(255, 255, 255, .14);
+    --np-purple: #b5b5b5;
+    --np-purple-soft: rgba(255, 255, 255, .045);
+    --np-cyan: #b8b8b8;
+    --np-cyan-soft: rgba(255, 255, 255, .045);
+}
+
+[data-theme="light"] {
+    --np-blue: #454a50;
+    --np-blue-strong: #202327;
+    --np-blue-soft: rgba(17, 24, 39, .055);
+    --np-blue-border: rgba(17, 24, 39, .16);
+    --np-purple: #60656b;
+    --np-purple-soft: rgba(17, 24, 39, .045);
+    --np-cyan: #60656b;
+    --np-cyan-soft: rgba(17, 24, 39, .045);
+}
+
+::selection { color: #fff; background: #4a4a4a; }
+
+:where(button, a, input, select, textarea):focus-visible {
+    outline-color: rgba(128, 128, 128, .55) !important;
+}
+
+/* SIDEBAR / NAVEGAÇÃO */
+.np-nav__item.is-active {
+    color: var(--np-text) !important;
+    border-color: var(--np-border-strong) !important;
+    background: rgba(255, 255, 255, .055) !important;
+    box-shadow: inset 2px 0 0 #bdbdbd !important;
+}
+
+.np-nav__item:hover .np-nav__icon,
+.np-nav__item.is-active .np-nav__icon { color: var(--np-text-soft) !important; }
+
+.np-nav__badge,
+.np-brand__shield,
+.np-user__avatar {
+    color: var(--np-text-soft) !important;
+    border-color: var(--np-border-strong) !important;
+    background: rgba(255, 255, 255, .045) !important;
+    box-shadow: none !important;
+}
+
+[data-theme="light"] .np-nav__item.is-active {
+    color: #202327 !important;
+    border-color: rgba(17, 24, 39, .14) !important;
+    background: rgba(17, 24, 39, .055) !important;
+    box-shadow: inset 2px 0 0 #34383d !important;
+}
+
+[data-theme="light"] .np-nav__item.is-active .np-nav__icon,
+[data-theme="light"] .np-nav__badge,
+[data-theme="light"] .np-brand__shield,
+[data-theme="light"] .np-user__avatar { color: #34383d !important; }
+
+[data-theme="light"] .np-nav__badge,
+[data-theme="light"] .np-brand__shield,
+[data-theme="light"] .np-user__avatar {
+    border-color: rgba(17, 24, 39, .14) !important;
+    background: rgba(17, 24, 39, .04) !important;
+}
+
+/* AÇÕES PRINCIPAIS */
+.np-btn--primary {
+    color: #111 !important;
+    border-color: #d6d6d6 !important;
+    background: #e7e7e7 !important;
+    box-shadow: none !important;
+}
+
+.np-btn--primary:hover {
+    color: #080808 !important;
+    border-color: #fff !important;
+    background: #fff !important;
+    box-shadow: none !important;
+}
+
+[data-theme="light"] .np-btn--primary {
+    color: #fff !important;
+    border-color: #2c3035 !important;
+    background: #25292e !important;
+    box-shadow: 0 7px 18px rgba(15, 23, 42, .12) !important;
+}
+
+[data-theme="light"] .np-btn--primary:hover {
+    border-color: #17191c !important;
+    background: #17191c !important;
+}
+
+/* INPUTS / SWITCHES */
+.np-input:focus,
+.np-select:focus {
+    border-color: #555 !important;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, .055) !important;
+}
+
+[data-theme="light"] .np-input:focus,
+[data-theme="light"] .np-select:focus {
+    border-color: rgba(17, 24, 39, .30) !important;
+    box-shadow: 0 0 0 3px rgba(17, 24, 39, .07) !important;
+}
+
+.np-switch-row input:checked + .np-switch,
+.np-setting-row input:checked + .np-switch {
+    border-color: rgba(255, 255, 255, .24) !important;
+    background: #686868 !important;
+}
+
+[data-theme="light"] .np-switch-row input:checked + .np-switch,
+[data-theme="light"] .np-setting-row input:checked + .np-switch {
+    border-color: #34383d !important;
+    background: #34383d !important;
+}
+
+/* LOADERS / OPERAÇÕES */
+.np-operation-loader {
+    color: var(--np-text-soft) !important;
+    border-color: var(--np-border-strong) !important;
+    background: rgba(255, 255, 255, .04) !important;
+}
+
+.np-operation-step.is-active { background: rgba(255, 255, 255, .045) !important; }
+.np-operation-step.is-active .np-operation-step__dot { background: #bdbdbd !important; box-shadow: none !important; }
+.np-spinner { border-top-color: #bdbdbd !important; }
+
+/* ALTERAÇÕES — TIPOS SEM COR DECORATIVA */
+#section-alteracoes .np-type-badge,
+#changeDrawer .np-type-badge,
+.np-type-badge[data-type="interface"],
+.np-type-badge[data-type="routing"],
+.np-type-badge[data-type="nat"],
+.np-type-badge[data-type="route"],
+.np-type-badge[data-type="general"] {
+    color: var(--np-muted) !important;
+    border-color: var(--np-border-strong) !important;
+    background: rgba(255, 255, 255, .035) !important;
+}
+
+[data-theme="light"] #section-alteracoes .np-type-badge,
+[data-theme="light"] #changeDrawer .np-type-badge {
+    color: #59616a !important;
+    border-color: rgba(17, 24, 39, .14) !important;
+    background: rgba(17, 24, 39, .04) !important;
+}
+
+/* Estado "aplicando" é operacional, não azul. */
+#section-alteracoes .np-status-pill[data-status="applying"],
+#changeDrawer .np-status-pill[data-status="applying"] {
+    color: var(--np-text-soft) !important;
+    border-color: var(--np-border-strong) !important;
+    background: rgba(255, 255, 255, .055) !important;
+}
+
+/* Modal de detalhes */
+#changeDrawer .np-change-detail-modal,
+#changeDrawer .np-change-detail-modal__head,
+#changeDrawer .np-change-detail-modal__footer,
+#changeDrawer .np-change-detail-hero,
+#changeDrawer .np-change-detail-meta,
+#changeDrawer .np-change-detail-block,
+#changeDrawer .np-change-detail-block__head {
+    background-image: none !important;
+}
+
+/* LIGHT: garante ausência de azul mesmo se CSS antigo carregar regras específicas. */
+[data-theme="light"] #changeDrawer .np-change-detail-modal { background: #fff !important; }
+[data-theme="light"] #changeDrawer .np-change-detail-modal__head,
+[data-theme="light"] #changeDrawer .np-change-detail-modal__footer,
+[data-theme="light"] #changeDrawer .np-change-detail-hero,
+[data-theme="light"] #changeDrawer .np-change-detail-meta,
+[data-theme="light"] #changeDrawer .np-change-detail-block { background: #fff !important; }
+[data-theme="light"] #changeDrawer .np-change-detail-block__head { background: #f6f7f8 !important; }
+
+/* Não neutralizar estados reais. */
+.np-status-pill--ok,
+.np-status-pill[data-status="confirmed"] { color: var(--np-green) !important; }
+
+.np-status-pill--warning,
+.np-status-pill[data-status="waiting_confirmation"] { color: var(--np-yellow) !important; }
+
+.np-status-pill--error,
+.np-status-pill[data-status="failed"] { color: var(--np-red) !important; }

@@ -1,63 +1,86 @@
-<!-- ================================================================
-     MOONSHIELD NETWORK
-     BARRA SUPERIOR
-================================================================ -->
-
-<header class="np-topbar">
-    <div class="np-topbar__left">
-        <button type="button" class="np-icon-btn np-topbar__menu" id="sidebarOpen" aria-label="Abrir menu" title="Abrir menu">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-                <path d="M4 7H20M4 12H20M4 17H20"></path>
+<!-- TOPBAR -->
+<header class="sp-topbar">
+    <div class="sp-topbar__left">
+        <button
+            class="sp-icon-btn sp-topbar__menu"
+            id="btnOpenSidebar"
+            type="button"
+            aria-label="Abrir menu"
+        >
+            <svg
+                width="19"
+                height="19"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
         </button>
 
-        <div class="np-page-heading">
-            <span class="np-page-heading__eyebrow" id="pageEyebrow">Rede</span>
-            <div class="np-page-heading__line">
-                <h1 id="pageTitle">Visão Geral</h1>
-                <span class="np-status-pill np-status-pill--pending" id="topbarAgentStatus">
-                    <span class="np-status-dot"></span>
-                    Verificando Agent
+        <div class="sp-page-heading">
+            <span class="sp-page-heading__eyebrow">
+                Segurança de rede
+            </span>
+
+            <div class="sp-page-heading__line">
+                <h1>Suricata</h1>
+
+                <span
+                    class="sp-chip sp-chip--pending"
+                    id="headerStackChip"
+                >
+                    <span class="sp-chip__dot"></span>
+                    <span id="headerStackText">Verificando</span>
                 </span>
             </div>
         </div>
     </div>
 
-    <div class="np-topbar__right">
-        <div class="np-last-update">
-            <span>Atualizado</span>
-            <strong id="lastUpdateTime">—</strong>
+    <div class="sp-topbar__right">
+        <div class="sp-last-update">
+            <span>Última atualização</span>
+            <strong id="lastUpdateText">agora</strong>
         </div>
 
-        <button type="button" class="np-btn np-btn--ghost np-btn--compact" id="refreshNetworkButton" title="Atualizar dados">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 6V11H15"></path>
-                <path d="M18.2 17A8 8 0 1 1 20 11"></path>
+        <button
+            class="sp-icon-btn"
+            id="btnRefreshStatus"
+            type="button"
+            aria-label="Atualizar status"
+            title="Atualizar status"
+        >
+            <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.9"
+            >
+                <path d="M20 11a8.1 8.1 0 1 0 2 5.3" />
+                <path d="M20 4v7h-7" />
             </svg>
-            <span class="np-btn__label">Atualizar</span>
         </button>
 
-        <button type="button" class="np-btn np-btn--ghost np-btn--compact" id="detectInterfacesButton" title="Detectar interfaces do sistema">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M3 12H6M18 12H21M12 3V6M12 18V21M5.6 5.6L7.7 7.7M16.3 16.3L18.4 18.4M18.4 5.6L16.3 7.7M7.7 16.3L5.6 18.4"></path>
+        <button
+            class="sp-btn sp-btn--primary sp-btn--compact"
+            id="btnRunDiagnosticTop"
+            type="button"
+        >
+            <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+            >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-4-4" />
             </svg>
-            <span class="np-btn__label">Detectar</span>
+            Diagnosticar
         </button>
-
-        <button type="button" class="np-btn np-btn--primary np-btn--compact" id="applyAllButton" title="Aplicar todas as alterações pendentes">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 6L9 17L4 12"></path>
-            </svg>
-            <span class="np-btn__label">Aplicar Tudo</span>
-        </button>
-
-        <div class="np-user">
-            <div class="np-user__avatar" aria-hidden="true">{{ request.user.username|slice:":1"|upper }}</div>
-            <div class="np-user__copy">
-                <strong>{{ request.user.get_full_name|default:request.user.username }}</strong>
-                <span>Administrador</span>
-            </div>
-        </div>
     </div>
 </header>

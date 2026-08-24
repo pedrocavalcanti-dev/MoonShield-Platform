@@ -8,6 +8,9 @@
  * - backdrop;
  * - tecla ESC;
  * - sincronização do item ativo.
+ *
+ * O tema continua sendo controlado pelo script global do painel através
+ * do mesmo #themeToggle, agora localizado no rodapé da sidebar.
  */
 
 'use strict';
@@ -18,17 +21,11 @@ const MOBILE_BREAKPOINT = 920;
 
 let inicializado = false;
 let onNavigateCallback = null;
-
 let sidebar = null;
 let backdrop = null;
 let openButton = null;
 let closeButton = null;
 let navItems = [];
-
-
-/* ==========================================================================
-   INICIALIZAÇÃO
-========================================================================== */
 
 export function inicializarBarraLateral(opcoes = {}) {
     if (inicializado) {
@@ -49,15 +46,9 @@ export function inicializarBarraLateral(opcoes = {}) {
 
     inicializado = true;
     onNavigateCallback = typeof opcoes.onNavigate === 'function' ? opcoes.onNavigate : null;
-
     registrarEventos();
     sincronizarEstadoResponsivo();
 }
-
-
-/* ==========================================================================
-   EVENTOS
-========================================================================== */
 
 function registrarEventos() {
     openButton?.addEventListener('click', abrirSidebarMobile);
@@ -70,7 +61,6 @@ function registrarEventos() {
             if (!secao) return;
 
             definirItemAtivo(secao);
-
             if (typeof onNavigateCallback === 'function') onNavigateCallback(secao);
             if (ehMobile()) fecharSidebarMobile();
         });
@@ -79,11 +69,6 @@ function registrarEventos() {
     document.addEventListener('keydown', tratarTeclado);
     window.addEventListener('resize', sincronizarEstadoResponsivo, { passive: true });
 }
-
-
-/* ==========================================================================
-   ABRIR / FECHAR
-========================================================================== */
 
 export function abrirSidebarMobile() {
     if (!sidebar || !ehMobile()) return;
@@ -100,17 +85,14 @@ export function abrirSidebarMobile() {
     document.body.classList.add('np-sidebar-open');
 
     requestAnimationFrame(() => {
-        const primeiro = sidebar.querySelector('.np-nav__item.is-active, .np-nav__item');
-        primeiro?.focus({ preventScroll: true });
+        sidebar.querySelector('.np-nav__item.is-active, .np-nav__item')?.focus({ preventScroll: true });
     });
 }
-
 
 export function fecharSidebarMobile() {
     if (!sidebar) return;
 
     const estavaAberta = sidebar.classList.contains('is-open');
-
     sidebar.classList.remove('is-open');
 
     if (ehMobile()) sidebar.setAttribute('aria-hidden', 'true');
@@ -127,37 +109,23 @@ export function fecharSidebarMobile() {
     if (estavaAberta && ehMobile()) openButton?.focus({ preventScroll: true });
 }
 
-
 export function alternarSidebarMobile() {
     if (!sidebar || !ehMobile()) return;
     sidebar.classList.contains('is-open') ? fecharSidebarMobile() : abrirSidebarMobile();
 }
 
-
-/* ==========================================================================
-   ITEM ATIVO
-========================================================================== */
-
 export function definirItemAtivo(secao) {
     navItems.forEach(item => {
         const ativo = item.dataset.section === secao;
-
         item.classList.toggle('is-active', ativo);
-
         if (ativo) item.setAttribute('aria-current', 'page');
         else item.removeAttribute('aria-current');
     });
 }
 
-
 export function obterItemAtivo() {
     return navItems.find(item => item.classList.contains('is-active')) || null;
 }
-
-
-/* ==========================================================================
-   RESPONSIVIDADE
-========================================================================== */
 
 function sincronizarEstadoResponsivo() {
     if (!sidebar) return;
@@ -180,42 +148,23 @@ function sincronizarEstadoResponsivo() {
     document.body.classList.remove('np-sidebar-open');
 }
 
-
 function ehMobile() {
     return window.innerWidth <= MOBILE_BREAKPOINT;
 }
 
-
-/* ==========================================================================
-   TECLADO
-========================================================================== */
-
 function tratarTeclado(event) {
-    if (event.key !== 'Escape') return;
-    if (!sidebar?.classList.contains('is-open')) return;
-
+    if (event.key !== 'Escape' || !sidebar?.classList.contains('is-open')) return;
     event.preventDefault();
     fecharSidebarMobile();
 }
-
-
-/* ==========================================================================
-   ESTADO
-========================================================================== */
 
 export function sidebarAberta() {
     return Boolean(sidebar?.classList.contains('is-open'));
 }
 
-
 export function sidebarEhMobile() {
     return ehMobile();
 }
-
-
-/* ==========================================================================
-   EXPORT DEFAULT
-========================================================================== */
 
 export default {
     inicializarBarraLateral,

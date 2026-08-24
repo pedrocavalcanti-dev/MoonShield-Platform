@@ -4,330 +4,60 @@
 ================================================================ -->
 
 <header class="np-topbar">
-
-    <!-- ============================================================
-         ESQUERDA
-    ============================================================= -->
-
     <div class="np-topbar__left">
-
-        <!-- MOBILE MENU -->
-
-        <button
-            type="button"
-            class="np-icon-btn np-topbar__menu"
-            id="sidebarOpen"
-            aria-label="Abrir menu"
-            title="Abrir menu"
-        >
-            <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-            >
-                <path d="M4 7H20"></path>
-                <path d="M4 12H20"></path>
-                <path d="M4 17H20"></path>
+        <button type="button" class="np-icon-btn np-topbar__menu" id="sidebarOpen" aria-label="Abrir menu" title="Abrir menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M4 7H20M4 12H20M4 17H20"></path>
             </svg>
         </button>
-
-
-        <!-- TÍTULO -->
 
         <div class="np-page-heading">
-
-            <span
-                class="np-page-heading__eyebrow"
-                id="pageEyebrow"
-            >
-                Rede
-            </span>
-
+            <span class="np-page-heading__eyebrow" id="pageEyebrow">Rede</span>
             <div class="np-page-heading__line">
-
-                <h1 id="pageTitle">
-                    Visão Geral
-                </h1>
-
-
-                <span
-                    class="
-                        np-status-pill
-                        np-status-pill--pending
-                    "
-                    id="topbarAgentStatus"
-                >
-                    <span
-                        class="np-status-dot"
-                    ></span>
-
+                <h1 id="pageTitle">Visão Geral</h1>
+                <span class="np-status-pill np-status-pill--pending" id="topbarAgentStatus">
+                    <span class="np-status-dot"></span>
                     Verificando Agent
                 </span>
-
             </div>
-
         </div>
-
     </div>
-
-
-    <!-- ============================================================
-         DIREITA
-    ============================================================= -->
 
     <div class="np-topbar__right">
-
-        <!-- ÚLTIMA ATUALIZAÇÃO -->
-
         <div class="np-last-update">
-
-            <span>
-                Atualizado
-            </span>
-
-            <strong
-                id="lastUpdateTime"
-            >
-                —
-            </strong>
-
+            <span>Atualizado</span>
+            <strong id="lastUpdateTime">—</strong>
         </div>
 
-
-        <!-- ========================================================
-             SINCRONIZAR
-        ========================================================= -->
-
-        <button
-            type="button"
-            class="
-                np-btn
-                np-btn--ghost
-                np-btn--compact
-            "
-            id="refreshNetworkButton"
-            title="Atualizar dados"
-        >
-
-            <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
+        <button type="button" class="np-btn np-btn--ghost np-btn--compact" id="refreshNetworkButton" title="Atualizar dados">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 6V11H15"></path>
-
-                <path
-                    d="
-                        M18.2 17
-                        A8 8 0 1 1
-                        20 11
-                    "
-                ></path>
+                <path d="M18.2 17A8 8 0 1 1 20 11"></path>
             </svg>
-
-            <span class="np-btn__label">
-                Atualizar
-            </span>
-
+            <span class="np-btn__label">Atualizar</span>
         </button>
 
-
-        <!-- ========================================================
-             DETECTAR INTERFACES
-        ========================================================= -->
-
-        <button
-            type="button"
-            class="
-                np-btn
-                np-btn--ghost
-                np-btn--compact
-            "
-            id="detectInterfacesButton"
-            title="Detectar interfaces do sistema"
-        >
-
-            <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <circle
-                    cx="12"
-                    cy="12"
-                    r="3"
-                ></circle>
-
-                <path d="M3 12H6"></path>
-                <path d="M18 12H21"></path>
-
-                <path d="M12 3V6"></path>
-                <path d="M12 18V21"></path>
-
-                <path d="M5.6 5.6L7.7 7.7"></path>
-                <path d="M16.3 16.3L18.4 18.4"></path>
-
-                <path d="M18.4 5.6L16.3 7.7"></path>
-                <path d="M7.7 16.3L5.6 18.4"></path>
+        <button type="button" class="np-btn np-btn--ghost np-btn--compact" id="detectInterfacesButton" title="Detectar interfaces do sistema">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M3 12H6M18 12H21M12 3V6M12 18V21M5.6 5.6L7.7 7.7M16.3 16.3L18.4 18.4M18.4 5.6L16.3 7.7M7.7 16.3L5.6 18.4"></path>
             </svg>
-
-            <span class="np-btn__label">
-                Detectar
-            </span>
-
+            <span class="np-btn__label">Detectar</span>
         </button>
 
-
-        <!-- ========================================================
-             APLICAR TUDO
-        ========================================================= -->
-
-        <button
-            type="button"
-            class="
-                np-btn
-                np-btn--primary
-                np-btn--compact
-            "
-            id="applyAllButton"
-            title="Aplicar todas as alterações pendentes"
-        >
-
-            <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
+        <button type="button" class="np-btn np-btn--primary np-btn--compact" id="applyAllButton" title="Aplicar todas as alterações pendentes">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M20 6L9 17L4 12"></path>
             </svg>
-
-            <span class="np-btn__label">
-                Aplicar Tudo
-            </span>
-
+            <span class="np-btn__label">Aplicar Tudo</span>
         </button>
-
-
-        <!-- ========================================================
-             TEMA
-        ========================================================= -->
-
-        <button
-            type="button"
-            class="np-icon-btn"
-            id="themeToggle"
-            aria-label="Alternar tema"
-            title="Alternar tema"
-        >
-
-            <!-- LUA -->
-
-            <svg
-                class="np-theme-icon np-theme-icon--moon"
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <path
-                    d="
-                        M21 12.8
-                        A9 9 0 1 1
-                        11.2 3
-                        A7 7 0 0 0
-                        21 12.8
-                        Z
-                    "
-                ></path>
-            </svg>
-
-
-            <!-- SOL -->
-
-            <svg
-                class="np-theme-icon np-theme-icon--sun"
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-            >
-                <circle
-                    cx="12"
-                    cy="12"
-                    r="4"
-                ></circle>
-
-                <path d="M12 2V4"></path>
-                <path d="M12 20V22"></path>
-
-                <path d="M4.93 4.93L6.34 6.34"></path>
-                <path d="M17.66 17.66L19.07 19.07"></path>
-
-                <path d="M2 12H4"></path>
-                <path d="M20 12H22"></path>
-
-                <path d="M4.93 19.07L6.34 17.66"></path>
-                <path d="M17.66 6.34L19.07 4.93"></path>
-            </svg>
-
-        </button>
-
-
-        <!-- ========================================================
-             USUÁRIO
-        ========================================================= -->
 
         <div class="np-user">
-
-            <div
-                class="np-user__avatar"
-                aria-hidden="true"
-            >
-                {{ request.user.username|slice:":1"|upper }}
-            </div>
-
-
+            <div class="np-user__avatar" aria-hidden="true">{{ request.user.username|slice:":1"|upper }}</div>
             <div class="np-user__copy">
-
-                <strong>
-                    {{ request.user.get_full_name|default:request.user.username }}
-                </strong>
-
-                <span>
-                    Administrador
-                </span>
-
+                <strong>{{ request.user.get_full_name|default:request.user.username }}</strong>
+                <span>Administrador</span>
             </div>
-
         </div>
-
     </div>
-
 </header>

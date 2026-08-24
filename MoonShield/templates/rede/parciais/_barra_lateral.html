@@ -3,615 +3,143 @@
      BARRA LATERAL
 ================================================================ -->
 
-<aside
-    class="np-sidebar"
-    id="networkSidebar"
->
-
-    <!-- ============================================================
-         CABEÇALHO
-    ============================================================= -->
-
+<aside class="np-sidebar" id="networkSidebar">
     <div class="np-sidebar__head">
-
-        <div class="np-brand">
-
-            <div
-                class="np-brand__shield"
-                aria-hidden="true"
-            >
-
-                <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path
-                        d="
-                            M12 3
-                            L19 6
-                            V11
-                            C19 16
-                            16.2 19.5
-                            12 21
-                            C7.8 19.5
-                            5 16
-                            5 11
-                            V6
-                            Z
-                        "
-                    />
-
-                    <path
-                        d="
-                            M8 13
-                            H10
-                            L11.2 9
-                            L13 16
-                            L14.2 12
-                            H17
-                        "
-                    />
+        <div class="np-brand" aria-label="MoonShield Network Control">
+            <span class="np-brand__shield" aria-hidden="true">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z"></path>
+                    <path d="M8 13h2l1.2-4 1.8 7 1.2-4H17"></path>
                 </svg>
+            </span>
 
-            </div>
-
-
-            <div class="np-brand__copy">
-
-                <strong>
-                    MoonShield
-                </strong>
-
-                <small>
-                    Network Control
-                </small>
-
-            </div>
-
+            <span class="np-brand__copy">
+                <strong>MoonShield</strong>
+                <small>Network Control</small>
+            </span>
         </div>
 
-
-        <button
-            type="button"
-            class="np-sidebar__close"
-            id="sidebarClose"
-            aria-label="Fechar menu"
-            title="Fechar menu"
-        >
-            <svg
-                width="17"
-                height="17"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-            >
-                <path d="M6 6L18 18"></path>
-                <path d="M18 6L6 18"></path>
+        <button type="button" class="np-sidebar__close" id="sidebarClose" aria-label="Fechar menu" title="Fechar menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <path d="M6 6 18 18M18 6 6 18"></path>
             </svg>
         </button>
-
     </div>
 
+    <div class="np-sidebar__section-label">Operação</div>
 
-    <!-- ============================================================
-         STATUS DO AGENT
-    ============================================================= -->
-
-    <div
-        class="np-agent-card"
-        id="sidebarAgentStatus"
-    >
-
-        <div
-            class="
-                np-agent-card__indicator
-                is-pending
-            "
-            id="sidebarAgentIndicator"
-        >
-            <span></span>
-        </div>
-
-
-        <div class="np-agent-card__copy">
-
-            <span>
-                MoonShield Agent
-            </span>
-
-            <strong
-                id="sidebarAgentLabel"
-            >
-                Verificando...
-            </strong>
-
-        </div>
-
-
-        <div
-            class="np-agent-card__meta"
-            id="sidebarAgentBackend"
-        >
-            —
-        </div>
-
-    </div>
-
-
-    <!-- ============================================================
-         MENU
-    ============================================================= -->
-
-    <div class="np-sidebar__section-label">
-        Operação
-    </div>
-
-
-    <nav
-        class="np-nav"
-        aria-label="Navegação do painel de rede"
-    >
-
-        <!-- VISÃO GERAL -->
-
-        <button
-            type="button"
-            class="
-                np-nav__item
-                is-active
-            "
-            data-section="visao-geral"
-            data-title="Visão Geral"
-            data-eyebrow="Rede"
-        >
-
+    <nav class="np-nav" aria-label="Navegação do painel de rede">
+        <button type="button" class="np-nav__item is-active" data-section="visao-geral" data-title="Visão Geral" data-eyebrow="Rede">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <rect
-                        x="3"
-                        y="3"
-                        width="7"
-                        height="7"
-                        rx="1.5"
-                    />
-
-                    <rect
-                        x="14"
-                        y="3"
-                        width="7"
-                        height="7"
-                        rx="1.5"
-                    />
-
-                    <rect
-                        x="3"
-                        y="14"
-                        width="7"
-                        height="7"
-                        rx="1.5"
-                    />
-
-                    <rect
-                        x="14"
-                        y="14"
-                        width="7"
-                        height="7"
-                        rx="1.5"
-                    />
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="14" width="7" height="7" rx="1"></rect>
                 </svg>
-
             </span>
-
-            <span>
-                Visão Geral
-            </span>
-
+            <span>Visão Geral</span>
         </button>
 
-
-        <!-- INTERFACES -->
-
-        <button
-            type="button"
-            class="np-nav__item"
-            data-section="interfaces"
-            data-title="Interfaces"
-            data-eyebrow="Rede"
-        >
-
+        <button type="button" class="np-nav__item" data-section="interfaces" data-title="Interfaces" data-eyebrow="Rede">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <rect
-                        x="3"
-                        y="4"
-                        width="18"
-                        height="6"
-                        rx="2"
-                    />
-
-                    <rect
-                        x="3"
-                        y="14"
-                        width="18"
-                        height="6"
-                        rx="2"
-                    />
-
-                    <path d="M7 7H7.01"></path>
-                    <path d="M7 17H7.01"></path>
-
-                    <path d="M17 7H19"></path>
-                    <path d="M17 17H19"></path>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="6" rx="2"></rect>
+                    <rect x="3" y="14" width="18" height="6" rx="2"></rect>
+                    <path d="M7 7h.01M7 17h.01M17 7h2M17 17h2"></path>
                 </svg>
-
             </span>
-
-            <span>
-                Interfaces
-            </span>
-
-            <span
-                class="np-nav__badge"
-                id="sidebarInterfacesBadge"
-                hidden
-            >
-                0
-            </span>
-
+            <span>Interfaces</span>
+            <span class="np-nav__badge" id="sidebarInterfacesBadge" hidden>0</span>
         </button>
 
-
-        <!-- ROTEAMENTO & NAT -->
-
-        <button
-            type="button"
-            class="np-nav__item"
-            data-section="roteamento-nat"
-            data-title="Roteamento & NAT"
-            data-eyebrow="Rede"
-        >
-
+        <button type="button" class="np-nav__item" data-section="roteamento-nat" data-title="Roteamento & NAT" data-eyebrow="Rede">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M4 7H17"></path>
-                    <path d="M14 4L17 7L14 10"></path>
-
-                    <path d="M20 17H7"></path>
-                    <path d="M10 14L7 17L10 20"></path>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 7h13M14 4l3 3-3 3M20 17H7M10 14l-3 3 3 3"></path>
                 </svg>
-
             </span>
-
-            <span>
-                Roteamento & NAT
-            </span>
-
+            <span>Roteamento & NAT</span>
         </button>
 
-
-        <!-- DIAGNÓSTICO -->
-
-        <button
-            type="button"
-            class="np-nav__item"
-            data-section="diagnostico"
-            data-title="Diagnóstico"
-            data-eyebrow="Rede"
-        >
-
+        <button type="button" class="np-nav__item" data-section="diagnostico" data-title="Diagnóstico" data-eyebrow="Rede">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <circle
-                        cx="11"
-                        cy="11"
-                        r="7"
-                    />
-
-                    <path d="M20 20L16.2 16.2"></path>
-
-                    <path d="M8 11H10L11 8L13 14L14 11H16"></path>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="m20 20-4-4M8 11h2l1-3 2 6 1-3h2"></path>
                 </svg>
-
             </span>
-
-            <span>
-                Diagnóstico
-            </span>
-
+            <span>Diagnóstico</span>
         </button>
 
-
-        <!-- ALTERAÇÕES -->
-
-        <button
-            type="button"
-            class="np-nav__item"
-            data-section="alteracoes"
-            data-title="Alterações"
-            data-eyebrow="Rede"
-        >
-
+        <button type="button" class="np-nav__item" data-section="alteracoes" data-title="Alterações" data-eyebrow="Rede">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M3 12A9 9 0 1 0 6 5.3"></path>
-
-                    <path d="M3 4V9H8"></path>
-
-                    <path d="M12 7V12L15 14"></path>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2"></path>
                 </svg>
-
             </span>
-
-            <span>
-                Alterações
-            </span>
-
-            <span
-                class="
-                    np-nav__badge
-                    np-nav__badge--warning
-                "
-                id="sidebarChangesBadge"
-                hidden
-            >
-                0
-            </span>
-
+            <span>Alterações</span>
+            <span class="np-nav__badge np-nav__badge--warning" id="sidebarChangesBadge" hidden>0</span>
         </button>
-
     </nav>
 
+    <div class="np-sidebar__section-label">Sistema</div>
 
-    <!-- ============================================================
-         AÇÕES
-    ============================================================= -->
-
-    <div class="np-sidebar__section-label">
-        Sistema
-    </div>
-
-
-    <nav
-        class="
-            np-nav
-            np-nav--secondary
-        "
-    >
-
-        <a
-            href="/painel/"
-            class="np-nav__item"
-        >
-
+    <nav class="np-nav np-nav--secondary" aria-label="Atalhos do sistema">
+        <a href="/painel/" class="np-nav__item">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M3 12L12 4L21 12"></path>
-
-                    <path d="M5 10V20H19V10"></path>
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12 12 3l9 9M5 10v11h14V10"></path>
                 </svg>
-
             </span>
-
-            <span>
-                Painel Principal
-            </span>
-
+            <span>Painel Principal</span>
         </a>
 
-
-        <a
-            href="/configuracoes/"
-            class="np-nav__item"
-        >
-
+        <a href="/configuracoes/" class="np-nav__item">
             <span class="np-nav__icon">
-
-                <svg
-                    width="19"
-                    height="19"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <circle
-                        cx="12"
-                        cy="12"
-                        r="3"
-                    />
-
-                    <path
-                        d="
-                            M19.4 15
-                            A1.7 1.7 0 0 0 19.7 16.9
-                            L19.8 17
-                            A2 2 0 1 1 17 19.8
-                            L16.9 19.7
-                            A1.7 1.7 0 0 0 15 19.4
-                            A1.7 1.7 0 0 0 14 21
-                            V21.1
-                            A2 2 0 1 1 10 21.1
-                            V21
-                            A1.7 1.7 0 0 0 9 19.4
-                            A1.7 1.7 0 0 0 7.1 19.7
-                            L7 19.8
-                            A2 2 0 1 1 4.2 17
-                            L4.3 16.9
-                            A1.7 1.7 0 0 0 4.6 15
-                            A1.7 1.7 0 0 0 3 14
-                            H2.9
-                            A2 2 0 1 1 2.9 10
-                            H3
-                            A1.7 1.7 0 0 0 4.6 9
-                            A1.7 1.7 0 0 0 4.3 7.1
-                            L4.2 7
-                            A2 2 0 1 1 7 4.2
-                            L7.1 4.3
-                            A1.7 1.7 0 0 0 9 4.6
-                            A1.7 1.7 0 0 0 10 3
-                            V2.9
-                            A2 2 0 1 1 14 2.9
-                            V3
-                            A1.7 1.7 0 0 0 15 4.6
-                            A1.7 1.7 0 0 0 16.9 4.3
-                            L17 4.2
-                            A2 2 0 1 1 19.8 7
-                            L19.7 7.1
-                            A1.7 1.7 0 0 0 19.4 9
-                            A1.7 1.7 0 0 0 21 10
-                            H21.1
-                            A2 2 0 1 1 21.1 14
-                            H21
-                            A1.7 1.7 0 0 0 19.4 15
-                            Z
-                        "
-                    />
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.14.4-1.51 1Z"></path>
                 </svg>
-
             </span>
-
-            <span>
-                Configurações
-            </span>
-
+            <span>Configurações</span>
         </a>
-
     </nav>
-
-
-    <!-- ============================================================
-         RODAPÉ DA SIDEBAR
-    ============================================================= -->
 
     <div class="np-sidebar__bottom">
+        <div class="np-mini-status" id="sidebarAgentStatus">
+            <span class="np-agent-card__indicator is-pending" id="sidebarAgentIndicator" aria-hidden="true"><span></span></span>
 
-        <div class="np-mini-status">
-
-            <div
-                class="np-mini-status__icon"
-                aria-hidden="true"
-            >
-
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
-                    <path d="M4 17H20"></path>
-                    <path d="M6 13H18"></path>
-                    <path d="M8 9H16"></path>
-                    <path d="M10 5H14"></path>
-                </svg>
-
-            </div>
-
-
-            <div class="np-mini-status__copy">
-
-                <strong
-                    id="sidebarBackendName"
-                >
-                    Detectando backend
-                </strong>
-
-                <small
-                    id="sidebarInterfaceSummary"
-                >
-                    Aguardando inventário
+            <span class="np-mini-status__copy">
+                <span class="np-mini-status__headline">
+                    <strong>MoonShield Agent</strong>
+                    <em id="sidebarAgentLabel">Verificando...</em>
+                </span>
+                <small>
+                    <span id="sidebarBackendName">Detectando backend</span>
+                    <span class="np-mini-status__separator">·</span>
+                    <span id="sidebarInterfaceSummary">Aguardando inventário</span>
                 </small>
+            </span>
 
-            </div>
-
+            <span class="np-mini-status__meta" id="sidebarAgentBackend">—</span>
         </div>
-
 
         <div class="np-sidebar__footer">
-
-            <span>
-                MoonShield Network
+            <span class="np-sidebar__version">
+                <strong>MoonShield</strong>
+                <small>Network</small>
             </span>
 
-            <span>
-                v1.0
-            </span>
-
+            <button type="button" class="np-icon-btn np-icon-btn--small np-sidebar__theme" id="themeToggle" aria-label="Alternar tema" title="Alternar tema">
+                <svg class="np-theme-icon np-theme-icon--moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>
+                </svg>
+                <svg class="np-theme-icon np-theme-icon--sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+                </svg>
+            </button>
         </div>
-
     </div>
-
 </aside>

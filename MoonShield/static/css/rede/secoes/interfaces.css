@@ -1244,3 +1244,288 @@
     }
 
 }
+
+/* ========================================================================== 
+   MODAL DE INTERFACE — V2 / MOONSHIELD NEUTRAL
+   Mantém todos os IDs funcionais e altera somente apresentação/UX.
+========================================================================== */
+
+.np-interface-modal { z-index: 150; }
+
+.np-interface-modal__backdrop {
+    background: rgba(0, 0, 0, .70);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.np-interface-modal__panel {
+    inset: 50% auto auto 50%;
+    width: min(760px, calc(100vw - 44px));
+    height: min(820px, calc(100vh - 44px));
+    border: 1px solid var(--np-border-strong);
+    border-radius: 16px;
+    background: var(--np-surface);
+    box-shadow: 0 26px 90px rgba(0, 0, 0, .56);
+    overflow: hidden;
+    animation: np-interface-modal-enter .24s var(--np-ease) both;
+}
+
+@keyframes np-interface-modal-enter {
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)) scale(.985); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.np-interface-modal__head {
+    min-height: 84px;
+    padding: 16px 18px;
+    background: var(--np-surface);
+}
+
+.np-interface-modal__heading {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.np-interface-modal__heading-icon {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-border-strong);
+    border-radius: 10px;
+    color: var(--np-text-soft);
+    background: var(--np-surface-strong);
+}
+
+.np-interface-modal__heading-copy { min-width: 0; }
+.np-interface-modal__heading-copy .np-drawer__eyebrow { margin-bottom: 3px; }
+
+.np-interface-modal__heading-copy h2 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+}
+
+.np-interface-modal__heading-copy p {
+    max-width: 510px;
+    margin: 4px 0 0;
+    color: var(--np-dim);
+    font-size: 8px;
+    line-height: 1.45;
+}
+
+.np-interface-modal__close {
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+}
+
+#interfaceConfigForm.np-interface-modal__body {
+    padding: 16px 18px 22px;
+    background: var(--np-bg-soft);
+}
+
+.np-interface-modal__section {
+    overflow: hidden;
+    margin-bottom: 12px;
+    border: 1px solid var(--np-border);
+    border-radius: 11px;
+    background: var(--np-surface);
+}
+
+.np-interface-modal__section:last-of-type { margin-bottom: 0; }
+
+.np-interface-modal__section-head {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 13px;
+    border-bottom: 1px solid var(--np-border-soft);
+    background: rgba(255, 255, 255, .012);
+}
+
+.np-interface-modal__section-head > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.np-interface-modal__section-head span {
+    color: var(--np-dim);
+    font-size: 6px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.np-interface-modal__section-head strong {
+    color: var(--np-text-soft);
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.np-interface-modal__section-head small {
+    color: var(--np-dim);
+    font-size: 7px;
+    white-space: nowrap;
+}
+
+.np-interface-modal__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 13px;
+}
+
+.np-interface-modal__span-2 { grid-column: 1 / -1; }
+
+.np-interface-modal__grid .np-form-group { margin: 0; }
+
+.np-interface-modal__grid label {
+    margin-bottom: 6px;
+    color: var(--np-dim);
+    font-size: 7px;
+    font-weight: 600;
+    letter-spacing: .045em;
+    text-transform: uppercase;
+}
+
+.np-interface-modal__grid .np-input,
+.np-interface-modal__grid .np-select {
+    min-height: 40px;
+    border-radius: 8px;
+    background-color: var(--np-surface-strong);
+}
+
+.np-interface-modal__readonly {
+    color: var(--np-muted) !important;
+    background: var(--np-bg-soft) !important;
+    cursor: default;
+}
+
+.np-interface-modal__static-grid {
+    grid-template-columns: minmax(0, 1fr) 130px;
+    gap: 12px;
+    padding: 0;
+}
+
+.np-interface-modal__switches {
+    margin: 0 !important;
+    padding: 0;
+}
+
+.np-interface-modal__switches .np-switch-row {
+    min-height: 58px;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--np-border-soft);
+    border-radius: 0;
+    background: transparent;
+}
+
+.np-interface-modal__switches .np-switch-row:last-child { border-bottom: 0; }
+
+.np-interface-modal__switches .np-switch-row:hover { background: rgba(255, 255, 255, .018); }
+
+.np-interface-modal__default-route {
+    margin: 0 !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--np-border-soft) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+
+.np-interface-modal__notice {
+    margin-top: 12px;
+    border-radius: 9px;
+}
+
+.np-interface-modal__footer {
+    min-height: 72px;
+    padding: 12px 18px;
+    background: var(--np-surface);
+}
+
+.np-interface-modal__footer-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.np-interface-modal__footer-copy span {
+    color: var(--np-text-soft);
+    font-size: 8px;
+    font-weight: 500;
+}
+
+.np-interface-modal__footer-copy small {
+    color: var(--np-dim);
+    font-size: 7px;
+}
+
+.np-interface-modal__footer #interfaceSaveButton { min-width: 160px; }
+
+/* DARK: totalmente neutro, sem azul decorativo. */
+:root:not([data-theme="light"]) .np-interface-modal__panel,
+[data-theme="dark"] .np-interface-modal__panel { background: #141414; }
+
+:root:not([data-theme="light"]) #interfaceConfigForm.np-interface-modal__body,
+[data-theme="dark"] #interfaceConfigForm.np-interface-modal__body { background: #0f0f0f; }
+
+:root:not([data-theme="light"]) .np-interface-modal__section,
+[data-theme="dark"] .np-interface-modal__section { background: #141414; }
+
+:root:not([data-theme="light"]) .np-interface-modal__heading-icon,
+[data-theme="dark"] .np-interface-modal__heading-icon { background: #181818; }
+
+/* LIGHT: mantém o padrão branco atual, apenas melhora hierarquia. */
+[data-theme="light"] .np-interface-modal__backdrop { background: rgba(15, 23, 42, .48); }
+[data-theme="light"] .np-interface-modal__panel { background: #ffffff; box-shadow: 0 28px 80px rgba(15, 23, 42, .20); }
+[data-theme="light"] #interfaceConfigForm.np-interface-modal__body { background: #f6f7f9; }
+[data-theme="light"] .np-interface-modal__section { background: #ffffff; }
+[data-theme="light"] .np-interface-modal__section-head { background: #fafbfc; }
+[data-theme="light"] .np-interface-modal__grid .np-input,
+[data-theme="light"] .np-interface-modal__grid .np-select { background-color: #ffffff; }
+[data-theme="light"] .np-interface-modal__readonly { background: #f2f4f6 !important; }
+[data-theme="light"] .np-interface-modal__footer { background: #ffffff; }
+
+@media (max-width: 760px) {
+    .np-interface-modal__panel {
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 0;
+        animation: np-interface-modal-mobile-enter .22s var(--np-ease) both;
+    }
+
+    @keyframes np-interface-modal-mobile-enter {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .np-interface-modal__head { min-height: 78px; padding: 13px 14px; }
+    .np-interface-modal__heading-copy p { display: none; }
+    #interfaceConfigForm.np-interface-modal__body { padding: 13px; }
+    .np-interface-modal__grid { grid-template-columns: 1fr; gap: 11px; padding: 12px; }
+    .np-interface-modal__span-2 { grid-column: auto; }
+    .np-interface-modal__static-grid { grid-template-columns: minmax(0, 1fr) 105px; }
+    .np-interface-modal__section-head small { display: none; }
+    .np-interface-modal__footer { padding: 11px 13px; }
+    .np-interface-modal__footer-copy { display: none; }
+    .np-interface-modal__footer #interfaceSaveButton { width: 100%; }
+}
+
+@media (max-width: 430px) {
+    .np-interface-modal__heading-icon { display: none; }
+    .np-interface-modal__static-grid { grid-template-columns: 1fr; }
+    .np-interface-modal__switches .np-switch-row { min-height: 64px; }
+}

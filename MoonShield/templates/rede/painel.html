@@ -158,12 +158,23 @@
 
     <!-- ============================================================
          TEMA NEUTRO GLOBAL
-         SEMPRE DEVE SER O ÚLTIMO CSS DA REDE
+         IMPORTANTE: DEVE SER O ÚLTIMO CSS CARREGADO
     ============================================================= -->
 
     <link
         rel="stylesheet"
         href="{% static 'css/rede/tema_neutro.css' %}"
+    >
+
+
+    <!-- ============================================================
+         MODAL DE ALTERAÇÕES
+         ARQUIVO NOVO PARA EVITAR CACHE DO CSS ANTIGO
+    ============================================================= -->
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/rede/secoes/modal_alteracoes.css' %}"
     >
 
 
@@ -379,7 +390,7 @@
 
 
     <!-- ============================================================
-         MODAIS / DRAWERS GLOBAIS
+         MODAIS / DRAWERS
     ============================================================= -->
 
     {% include "rede/parciais/_modais.html" %}

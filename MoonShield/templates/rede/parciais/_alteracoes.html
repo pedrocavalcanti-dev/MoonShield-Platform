@@ -3,7 +3,11 @@
      ALTERAÇÕES
 ================================================================ -->
 
-<section class="np-section" id="section-alteracoes" data-section-panel="alteracoes">
+<section
+    class="np-section"
+    id="section-alteracoes"
+    data-section-panel="alteracoes"
+>
 
     <!-- ============================================================
          CABEÇALHO
@@ -31,13 +35,25 @@
 
         <div class="np-section-title__actions">
 
-            <button type="button" class="
+            <button
+                type="button"
+                class="
                     np-btn
                     np-btn--ghost
-                " id="reconcileChangesButton">
+                "
+                id="reconcileChangesButton"
+            >
 
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                    stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
                     <path d="M20 6V11H15"></path>
                     <path d="M18.2 17A8 8 0 1 1 20 11"></path>
                 </svg>
@@ -47,13 +63,25 @@
             </button>
 
 
-            <button type="button" class="
+            <button
+                type="button"
+                class="
                     np-btn
                     np-btn--ghost
-                " id="refreshChangesButton">
+                "
+                id="refreshChangesButton"
+            >
 
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                    stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
                     <path d="M20 6V11H15"></path>
                     <path d="M18.2 17A8 8 0 1 1 20 11"></path>
                 </svg>
@@ -86,10 +114,12 @@
         </article>
 
 
-        <article class="
+        <article
+            class="
                 np-change-stat
                 np-change-stat--pending
-            ">
+            "
+        >
 
             <span>
                 Pendentes
@@ -102,10 +132,12 @@
         </article>
 
 
-        <article class="
+        <article
+            class="
                 np-change-stat
                 np-change-stat--ok
-            ">
+            "
+        >
 
             <span>
                 Confirmadas
@@ -118,10 +150,12 @@
         </article>
 
 
-        <article class="
+        <article
+            class="
                 np-change-stat
                 np-change-stat--warning
-            ">
+            "
+        >
 
             <span>
                 Revertidas
@@ -134,10 +168,12 @@
         </article>
 
 
-        <article class="
+        <article
+            class="
                 np-change-stat
                 np-change-stat--error
-            ">
+            "
+        >
 
             <span>
                 Falhas
@@ -156,13 +192,26 @@
          SAFE APPLY ATIVO
     ============================================================= -->
 
-    <div class="np-safe-change-card" id="activeSafeChangeCard" hidden>
+    <div
+        class="np-safe-change-card"
+        id="activeSafeChangeCard"
+        hidden
+    >
 
         <div class="np-safe-change-card__icon">
 
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-                stroke-linecap="round" stroke-linejoin="round">
-                <path d="
+            <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <path
+                    d="
                         M12 3
                         L19 6
                         V11
@@ -174,7 +223,8 @@
                         5 11
                         V6
                         Z
-                    "></path>
+                    "
+                ></path>
 
                 <path d="M12 8V13"></path>
                 <path d="M12 16H12.01"></path>
@@ -215,20 +265,28 @@
 
         <div class="np-safe-change-card__actions">
 
-            <button type="button" class="
+            <button
+                type="button"
+                class="
                     np-btn
                     np-btn--danger
                     np-btn--small
-                " id="activeSafeChangeRollbackButton">
+                "
+                id="activeSafeChangeRollbackButton"
+            >
                 Reverter
             </button>
 
 
-            <button type="button" class="
+            <button
+                type="button"
+                class="
                     np-btn
                     np-btn--primary
                     np-btn--small
-                " id="activeSafeChangeConfirmButton">
+                "
+                id="activeSafeChangeConfirmButton"
+            >
                 Confirmar
             </button>
 
@@ -249,7 +307,10 @@
                 Status
             </label>
 
-            <select class="np-select" id="changesStatusFilter">
+            <select
+                class="np-select"
+                id="changesStatusFilter"
+            >
 
                 <option value="">
                     Todos
@@ -302,7 +363,10 @@
                 Tipo
             </label>
 
-            <select class="np-select" id="changesTypeFilter">
+            <select
+                class="np-select"
+                id="changesTypeFilter"
+            >
 
                 <option value="">
                     Todos
@@ -333,11 +397,15 @@
         </div>
 
 
-        <button type="button" class="
+        <button
+            type="button"
+            class="
                 np-btn
                 np-btn--ghost
                 np-btn--small
-            " id="clearChangesFiltersButton">
+            "
+            id="clearChangesFiltersButton"
+        >
             Limpar filtros
         </button>
 
@@ -391,7 +459,10 @@
 
                     <tr id="changesEmptyRow">
 
-                        <td colspan="6" class="np-table-empty">
+                        <td
+                            colspan="6"
+                            class="np-table-empty"
+                        >
                             Nenhuma alteração registrada.
                         </td>
 
@@ -450,7 +521,10 @@
 
             <td>
 
-                <span class="np-type-badge" data-change-type>
+                <span
+                    class="np-type-badge"
+                    data-change-type
+                >
                     —
                 </span>
 
@@ -459,10 +533,13 @@
 
             <td>
 
-                <span class="
+                <span
+                    class="
                         np-status-pill
                         np-status-pill--pending
-                    " data-change-status>
+                    "
+                    data-change-status
+                >
                     —
                 </span>
 
@@ -476,11 +553,15 @@
 
             <td class="np-table__actions">
 
-                <button type="button" class="
+                <button
+                    type="button"
+                    class="
                         np-btn
                         np-btn--ghost
                         np-btn--small
-                    " data-change-view>
+                    "
+                    data-change-view
+                >
                     Detalhes
                 </button>
 
@@ -498,13 +579,25 @@
      MESMO PADRÃO DOS MODAIS DE INTERFACE / ROTA / NAT
 ================================================================ -->
 
-<div class="np-drawer np-change-modal" id="changeDrawer" data-close-policy="explicit" aria-hidden="true">
+<div
+    class="np-drawer np-change-modal"
+    id="changeDrawer"
+    data-close-policy="explicit"
+    aria-hidden="true"
+>
 
-    <div class="np-drawer__backdrop np-change-modal__backdrop"></div>
+    <div
+        class="np-drawer__backdrop np-change-modal__backdrop"
+    ></div>
 
 
-    <aside class="np-drawer__panel np-change-modal__panel" role="dialog" aria-modal="true"
-        aria-labelledby="changeDrawerTitle" aria-describedby="changeDrawerDescription">
+    <aside
+        class="np-drawer__panel np-change-modal__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="changeDrawerTitle"
+        aria-describedby="changeDrawerDescription"
+    >
 
         <!-- ========================================================
              HEADER
@@ -514,9 +607,20 @@
 
             <div class="np-change-modal__heading">
 
-                <div class="np-change-modal__heading-icon" aria-hidden="true">
-                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-                        stroke-linecap="round" stroke-linejoin="round">
+                <div
+                    class="np-change-modal__heading-icon"
+                    aria-hidden="true"
+                >
+                    <svg
+                        width="19"
+                        height="19"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.7"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
                         <path d="M3 12A9 9 0 1 0 6 5.3"></path>
                         <path d="M3 4V9H8"></path>
                         <path d="M12 7V12L15 14"></path>
@@ -543,10 +647,22 @@
             </div>
 
 
-            <button type="button" class="np-icon-btn np-change-modal__close" data-close-change-drawer
-                aria-label="Fechar detalhes" title="Fechar">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                    stroke-linecap="round">
+            <button
+                type="button"
+                class="np-icon-btn np-change-modal__close"
+                data-close-change-drawer
+                aria-label="Fechar detalhes"
+                title="Fechar"
+            >
+                <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                >
                     <path d="M6 6L18 18"></path>
                     <path d="M18 6L6 18"></path>
                 </svg>
@@ -602,11 +718,17 @@
 
                     <div class="np-change-detail-status">
 
-                        <span class="np-type-badge" id="changeDetailType">
+                        <span
+                            class="np-type-badge"
+                            id="changeDetailType"
+                        >
                             —
                         </span>
 
-                        <span class="np-status-pill np-status-pill--pending" id="changeDetailStatus">
+                        <span
+                            class="np-status-pill np-status-pill--pending"
+                            id="changeDetailStatus"
+                        >
                             —
                         </span>
 
@@ -673,7 +795,11 @@
                  SAFE APPLY
             ===================================================== -->
 
-            <div class="np-change-detail-timer" id="changeDetailTimerContainer" hidden>
+            <div
+                class="np-change-detail-timer"
+                id="changeDetailTimerContainer"
+                hidden
+            >
 
                 <div>
                     <span>Safe Apply</span>
@@ -709,7 +835,10 @@
 
                 </div>
 
-                <pre class="np-change-modal__code" id="changeDetailConfiguration">{}</pre>
+                <pre
+                    class="np-change-modal__code"
+                    id="changeDetailConfiguration"
+                >{}</pre>
 
             </section>
 
@@ -733,7 +862,10 @@
 
                 </div>
 
-                <pre class="np-change-modal__code" id="changeDetailAgentResult">{}</pre>
+                <pre
+                    class="np-change-modal__code"
+                    id="changeDetailAgentResult"
+                >{}</pre>
 
             </section>
 
@@ -757,7 +889,10 @@
 
                 </div>
 
-                <pre class="np-change-modal__code np-change-modal__code--log" id="changeDetailLog">—</pre>
+                <pre
+                    class="np-change-modal__code np-change-modal__code--log"
+                    id="changeDetailLog"
+                >—</pre>
 
             </section>
 
@@ -766,11 +901,26 @@
                  ERRO
             ===================================================== -->
 
-            <div class="np-change-detail-error" id="changeDetailError" hidden>
+            <div
+                class="np-change-detail-error"
+                id="changeDetailError"
+                hidden
+            >
 
-                <div class="np-change-detail-error__icon" aria-hidden="true">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                        stroke-linecap="round" stroke-linejoin="round">
+                <div
+                    class="np-change-detail-error__icon"
+                    aria-hidden="true"
+                >
+                    <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
                         <circle cx="12" cy="12" r="9"></circle>
                         <path d="M12 8V13"></path>
                         <path d="M12 17H12.01"></path>
@@ -803,15 +953,29 @@
 
             <div class="np-change-modal__footer-actions">
 
-                <button type="button" class="np-btn np-btn--danger" id="changeRollbackButton" hidden>
+                <button
+                    type="button"
+                    class="np-btn np-btn--danger"
+                    id="changeRollbackButton"
+                    hidden
+                >
                     Reverter agora
                 </button>
 
-                <button type="button" class="np-btn np-btn--ghost" data-close-change-drawer>
+                <button
+                    type="button"
+                    class="np-btn np-btn--ghost"
+                    data-close-change-drawer
+                >
                     Fechar
                 </button>
 
-                <button type="button" class="np-btn np-btn--primary" id="changeConfirmButton" hidden>
+                <button
+                    type="button"
+                    class="np-btn np-btn--primary"
+                    id="changeConfirmButton"
+                    hidden
+                >
                     Confirmar configuração
                 </button>
 

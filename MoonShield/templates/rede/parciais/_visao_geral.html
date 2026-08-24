@@ -2,801 +2,228 @@
      MOONSHIELD NETWORK
      VISÃO GERAL
 ================================================================ -->
+<section class="np-section is-active" id="section-visao-geral" data-section-panel="visao-geral">
 
-<section
-    class="np-section is-active"
-    id="section-visao-geral"
-    data-section-panel="visao-geral"
->
-
-    <!-- ============================================================
-         CABEÇALHO
-    ============================================================= -->
-
-    <div class="np-section-title">
-
+    <div class="np-section-title np-overview-title">
         <div>
-            <span class="np-section-title__eyebrow">
-                Network Control
-            </span>
-
-            <h2>
-                Visão Geral
-            </h2>
-
-            <p>
-                Estado atual da conectividade, interfaces,
-                roteamento e serviços de rede do MoonShield.
-            </p>
+            <span class="np-section-title__eyebrow">Network Control</span>
+            <h2>Visão Geral</h2>
+            <p>Estado atual da conectividade, interfaces, roteamento e serviços de rede do MoonShield.</p>
         </div>
 
-
         <div class="np-section-title__actions">
-
-            <button
-                type="button"
-                class="
-                    np-btn
-                    np-btn--ghost
-                "
-                id="overviewRefreshButton"
-            >
-
-                <svg
-                    width="15"
-                    height="15"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                >
+            <button type="button" class="np-btn np-btn--ghost" id="overviewRefreshButton">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M20 6V11H15"></path>
                     <path d="M18.2 17A8 8 0 1 1 20 11"></path>
                 </svg>
-
                 Atualizar
-
             </button>
-
         </div>
-
     </div>
 
-
-    <!-- ============================================================
-         CARDS PRINCIPAIS
-    ============================================================= -->
-
+    <!-- RESUMO -->
     <div class="np-overview-cards">
-
-        <!-- AGENT -->
-
         <article class="np-stat-card">
-
             <div class="np-stat-card__head">
-
-                <span>
-                    MoonShield Agent
-                </span>
-
-                <div
-                    class="
-                        np-stat-card__icon
-                        np-stat-card__icon--blue
-                    "
-                >
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <rect
-                            x="4"
-                            y="4"
-                            width="16"
-                            height="16"
-                            rx="3"
-                        ></rect>
-
-                        <path d="M8 9H16"></path>
-                        <path d="M8 13H13"></path>
-                        <path d="M8 17H11"></path>
-                    </svg>
+                <div>
+                    <span class="np-stat-card__eyebrow">Serviço</span>
+                    <strong>MoonShield Agent</strong>
                 </div>
-
-            </div>
-
-
-            <div class="np-stat-card__value">
-
-                <strong id="overviewAgentStatus">
-                    Verificando
-                </strong>
-
-                <span
-                    class="
-                        np-status-dot
-                        np-status-dot--pending
-                    "
-                    id="overviewAgentDot"
-                ></span>
-
-            </div>
-
-
-            <div class="np-stat-card__footer">
-
-                <span>
-                    Comunicação IPC
+                <span class="np-stat-card__icon np-stat-card__icon--neutral" aria-hidden="true">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+                        <path d="M8 9H16M8 13H13M8 17H11"></path>
+                    </svg>
                 </span>
-
-                <strong id="overviewAgentSocket">
-                    /run/moonshield/agent.sock
-                </strong>
-
             </div>
-
+            <div class="np-stat-card__value">
+                <strong id="overviewAgentStatus">Verificando</strong>
+                <span class="np-status-dot np-status-dot--pending" id="overviewAgentDot"></span>
+            </div>
+            <div class="np-stat-card__footer">
+                <span>Comunicação IPC</span>
+                <strong id="overviewAgentSocket">/run/moonshield/agent.sock</strong>
+            </div>
         </article>
 
-
-        <!-- BACKEND -->
-
         <article class="np-stat-card">
-
             <div class="np-stat-card__head">
-
-                <span>
-                    Backend de Rede
-                </span>
-
-                <div
-                    class="
-                        np-stat-card__icon
-                        np-stat-card__icon--purple
-                    "
-                >
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <rect
-                            x="3"
-                            y="5"
-                            width="18"
-                            height="5"
-                            rx="2"
-                        ></rect>
-
-                        <rect
-                            x="3"
-                            y="14"
-                            width="18"
-                            height="5"
-                            rx="2"
-                        ></rect>
-
-                        <path d="M7 7.5H7.01"></path>
-                        <path d="M7 16.5H7.01"></path>
-                    </svg>
+                <div>
+                    <span class="np-stat-card__eyebrow">Rede</span>
+                    <strong>Backend</strong>
                 </div>
-
-            </div>
-
-
-            <div class="np-stat-card__value">
-
-                <strong id="overviewBackend">
-                    Detectando
-                </strong>
-
-            </div>
-
-
-            <div class="np-stat-card__footer">
-
-                <span>
-                    Gerenciador
+                <span class="np-stat-card__icon np-stat-card__icon--neutral" aria-hidden="true">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="5" width="18" height="5" rx="2"></rect>
+                        <rect x="3" y="14" width="18" height="5" rx="2"></rect>
+                        <path d="M7 7.5H7.01M7 16.5H7.01"></path>
+                    </svg>
                 </span>
-
-                <strong id="overviewBackendState">
-                    —
-                </strong>
-
             </div>
-
+            <div class="np-stat-card__value">
+                <strong id="overviewBackend">Detectando</strong>
+            </div>
+            <div class="np-stat-card__footer">
+                <span>Gerenciador</span>
+                <strong id="overviewBackendState">—</strong>
+            </div>
         </article>
 
-
-        <!-- INTERFACES -->
-
         <article class="np-stat-card">
-
             <div class="np-stat-card__head">
-
-                <span>
-                    Interfaces
-                </span>
-
-                <div
-                    class="
-                        np-stat-card__icon
-                        np-stat-card__icon--green
-                    "
-                >
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path d="M5 7H19"></path>
-                        <path d="M5 12H19"></path>
-                        <path d="M5 17H19"></path>
-
-                        <circle
-                            cx="8"
-                            cy="7"
-                            r="1"
-                        ></circle>
-
-                        <circle
-                            cx="16"
-                            cy="12"
-                            r="1"
-                        ></circle>
-
-                        <circle
-                            cx="10"
-                            cy="17"
-                            r="1"
-                        ></circle>
-                    </svg>
+                <div>
+                    <span class="np-stat-card__eyebrow">Inventário</span>
+                    <strong>Interfaces</strong>
                 </div>
-
-            </div>
-
-
-            <div class="np-stat-card__value">
-
-                <strong id="overviewInterfacesTotal">
-                    0
-                </strong>
-
-                <small>
-                    detectadas
-                </small>
-
-            </div>
-
-
-            <div class="np-stat-card__footer">
-
-                <span>
-                    Configuradas
+                <span class="np-stat-card__icon np-stat-card__icon--neutral" aria-hidden="true">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 7H19M5 12H19M5 17H19"></path>
+                        <circle cx="8" cy="7" r="1"></circle>
+                        <circle cx="16" cy="12" r="1"></circle>
+                        <circle cx="10" cy="17" r="1"></circle>
+                    </svg>
                 </span>
-
-                <strong id="overviewInterfacesConfigured">
-                    0
-                </strong>
-
             </div>
-
+            <div class="np-stat-card__value">
+                <strong id="overviewInterfacesTotal">0</strong>
+                <small>detectadas</small>
+            </div>
+            <div class="np-stat-card__footer">
+                <span>Configuradas</span>
+                <strong id="overviewInterfacesConfigured">0</strong>
+            </div>
         </article>
 
-
-        <!-- ALTERAÇÕES -->
-
         <article class="np-stat-card">
-
             <div class="np-stat-card__head">
-
-                <span>
-                    Alterações
-                </span>
-
-                <div
-                    class="
-                        np-stat-card__icon
-                        np-stat-card__icon--yellow
-                    "
-                >
-                    <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.7"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
+                <div>
+                    <span class="np-stat-card__eyebrow">Mudanças</span>
+                    <strong>Alterações</strong>
+                </div>
+                <span class="np-stat-card__icon np-stat-card__icon--warning" aria-hidden="true">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M3 12A9 9 0 1 0 6 5.3"></path>
                         <path d="M3 4V9H8"></path>
                         <path d="M12 7V12L15 14"></path>
                     </svg>
-                </div>
-
-            </div>
-
-
-            <div class="np-stat-card__value">
-
-                <strong id="overviewPendingChanges">
-                    0
-                </strong>
-
-                <small>
-                    pendentes
-                </small>
-
-            </div>
-
-
-            <div class="np-stat-card__footer">
-
-                <span>
-                    Estado
                 </span>
-
-                <strong id="overviewSyncState">
-                    Sincronizado
-                </strong>
-
             </div>
-
+            <div class="np-stat-card__value">
+                <strong id="overviewPendingChanges">0</strong>
+                <small>pendentes</small>
+            </div>
+            <div class="np-stat-card__footer">
+                <span>Estado</span>
+                <strong id="overviewSyncState">Sincronizado</strong>
+            </div>
         </article>
-
     </div>
 
-
-    <!-- ============================================================
-         TOPOLOGIA
-    ============================================================= -->
-
-    <div class="np-section-heading">
-
+    <!-- TOPOLOGIA -->
+    <div class="np-section-heading np-section-heading--spaced">
         <div>
-            <span class="np-section-heading__eyebrow">
-                Topologia
-            </span>
-
-            <h3>
-                Caminho da Rede
-            </h3>
+            <span class="np-section-heading__eyebrow">Topologia</span>
+            <h3>Caminho da Rede</h3>
         </div>
-
     </div>
-
 
     <div class="np-panel np-topology-panel">
-
         <div class="np-topology">
-
-            <!-- INTERNET -->
-
-            <div
-                class="
-                    np-topology-node
-                    np-topology-node--internet
-                "
-            >
-
-                <div class="np-topology-node__icon">
-
-                    <svg
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.6"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <circle
-                            cx="12"
-                            cy="12"
-                            r="9"
-                        ></circle>
-
+            <article class="np-topology-node np-topology-node--internet">
+                <div class="np-topology-node__icon" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9"></circle>
                         <path d="M3 12H21"></path>
-
-                        <path
-                            d="
-                                M12 3
-                                A14 14 0 0 1
-                                12 21
-                            "
-                        ></path>
-
-                        <path
-                            d="
-                                M12 3
-                                A14 14 0 0 0
-                                12 21
-                            "
-                        ></path>
+                        <path d="M12 3A14 14 0 0 1 12 21M12 3A14 14 0 0 0 12 21"></path>
                     </svg>
-
                 </div>
-
                 <div class="np-topology-node__copy">
-                    <span>
-                        Internet
-                    </span>
-
-                    <strong id="topologyInternetStatus">
-                        —
-                    </strong>
+                    <span>Internet</span>
+                    <strong id="topologyInternetStatus">—</strong>
+                    <small>Conectividade externa</small>
                 </div>
+            </article>
 
-            </div>
+            <div class="np-topology-link"><span></span><small>WAN</small></div>
 
-
-            <div class="np-topology-link">
-
-                <span></span>
-
-                <small>
-                    WAN
-                </small>
-
-            </div>
-
-
-            <!-- WAN -->
-
-            <div
-                class="
-                    np-topology-node
-                    np-topology-node--wan
-                "
-                id="topologyWan"
-            >
-
-                <div class="np-topology-node__badge">
-                    WAN
-                </div>
-
+            <article class="np-topology-node np-topology-node--wan" id="topologyWan">
+                <span class="np-topology-node__badge">WAN</span>
                 <div class="np-topology-node__copy">
-
-                    <span id="topologyWanInterface">
-                        Não configurada
-                    </span>
-
-                    <strong id="topologyWanAddress">
-                        —
-                    </strong>
-
-                    <small id="topologyWanGateway">
-                        Gateway —
-                    </small>
-
+                    <span id="topologyWanInterface">Não configurada</span>
+                    <strong id="topologyWanAddress">—</strong>
+                    <small id="topologyWanGateway">Gateway —</small>
                 </div>
+            </article>
 
-            </div>
+            <div class="np-topology-link"><span></span><small>Firewall</small></div>
 
-
-            <div class="np-topology-link">
-
-                <span></span>
-
-                <small>
-                    Firewall
-                </small>
-
-            </div>
-
-
-            <!-- MOONSHIELD -->
-
-            <div
-                class="
-                    np-topology-node
-                    np-topology-node--moonshield
-                "
-            >
-
-                <div class="np-topology-node__shield">
-
-                    <svg
-                        width="28"
-                        height="28"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                    >
-                        <path
-                            d="
-                                M12 3
-                                L19 6
-                                V11
-                                C19 16
-                                16 19
-                                12 21
-                                C8 19
-                                5 16
-                                5 11
-                                V6
-                                Z
-                            "
-                        ></path>
+            <article class="np-topology-node np-topology-node--moonshield">
+                <div class="np-topology-node__shield" aria-hidden="true">
+                    <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3L19 6V11C19 16 16 19 12 21C8 19 5 16 5 11V6Z"></path>
                     </svg>
-
                 </div>
-
                 <div class="np-topology-node__copy">
-
-                    <span>
-                        MoonShield
-                    </span>
-
-                    <strong>
-                        Network Gateway
-                    </strong>
-
-                    <small id="topologyForwardStatus">
-                        IPv4 Forward —
-                    </small>
-
+                    <span>MoonShield</span>
+                    <strong>Network Gateway</strong>
+                    <small id="topologyForwardStatus">IPv4 Forward —</small>
                 </div>
+            </article>
 
-            </div>
+            <div class="np-topology-link"><span></span><small>LAN</small></div>
 
-
-            <div class="np-topology-link">
-
-                <span></span>
-
-                <small>
-                    LAN
-                </small>
-
-            </div>
-
-
-            <!-- LAN -->
-
-            <div
-                class="
-                    np-topology-node
-                    np-topology-node--lan
-                "
-                id="topologyLan"
-            >
-
-                <div class="np-topology-node__badge">
-                    LAN
-                </div>
-
+            <article class="np-topology-node np-topology-node--lan" id="topologyLan">
+                <span class="np-topology-node__badge">LAN</span>
                 <div class="np-topology-node__copy">
-
-                    <span id="topologyLanInterface">
-                        Não configurada
-                    </span>
-
-                    <strong id="topologyLanAddress">
-                        —
-                    </strong>
-
-                    <small id="topologyLanStatus">
-                        —
-                    </small>
-
+                    <span id="topologyLanInterface">Não configurada</span>
+                    <strong id="topologyLanAddress">—</strong>
+                    <small id="topologyLanStatus">—</small>
                 </div>
-
-            </div>
-
+            </article>
         </div>
-
     </div>
 
-
-    <!-- ============================================================
-         ESTADO OPERACIONAL
-    ============================================================= -->
-
-    <div
-        class="
-            np-section-heading
-            np-section-heading--spaced
-        "
-    >
-
+    <!-- ESTADO OPERACIONAL -->
+    <div class="np-section-heading np-section-heading--spaced">
         <div>
-            <span class="np-section-heading__eyebrow">
-                Operação
-            </span>
-
-            <h3>
-                Estado da Rede
-            </h3>
+            <span class="np-section-heading__eyebrow">Operação</span>
+            <h3>Estado da Rede</h3>
         </div>
-
     </div>
-
 
     <div class="np-overview-grid">
-
-        <!-- WAN -->
-
-        <article class="np-panel">
-
+        <article class="np-panel np-network-state-card">
             <div class="np-panel__head">
-
                 <div>
-                    <span class="np-panel__eyebrow">
-                        Uplink
-                    </span>
-
-                    <h3>
-                        WAN Principal
-                    </h3>
+                    <span class="np-panel__eyebrow">Uplink</span>
+                    <h3>WAN Principal</h3>
                 </div>
-
-
-                <span
-                    class="
-                        np-status-pill
-                        np-status-pill--pending
-                    "
-                    id="overviewWanState"
-                >
-                    Não configurada
-                </span>
-
+                <span class="np-status-pill np-status-pill--pending" id="overviewWanState">Não configurada</span>
             </div>
-
-
             <div class="np-info-list">
-
-                <div class="np-info-row">
-                    <span>
-                        Interface
-                    </span>
-
-                    <strong id="overviewWanName">
-                        —
-                    </strong>
-                </div>
-
-
-                <div class="np-info-row">
-                    <span>
-                        IPv4
-                    </span>
-
-                    <strong id="overviewWanIpv4">
-                        —
-                    </strong>
-                </div>
-
-
-                <div class="np-info-row">
-                    <span>
-                        Gateway
-                    </span>
-
-                    <strong id="overviewWanGateway">
-                        —
-                    </strong>
-                </div>
-
-
-                <div class="np-info-row">
-                    <span>
-                        Métrica
-                    </span>
-
-                    <strong id="overviewWanMetric">
-                        —
-                    </strong>
-                </div>
-
+                <div class="np-info-row"><span>Interface</span><strong id="overviewWanName">—</strong></div>
+                <div class="np-info-row"><span>IPv4</span><strong id="overviewWanIpv4">—</strong></div>
+                <div class="np-info-row"><span>Gateway</span><strong id="overviewWanGateway">—</strong></div>
+                <div class="np-info-row"><span>Métrica</span><strong id="overviewWanMetric">—</strong></div>
             </div>
-
         </article>
 
-
-        <!-- LAN -->
-
-        <article class="np-panel">
-
+        <article class="np-panel np-network-state-card">
             <div class="np-panel__head">
-
                 <div>
-                    <span class="np-panel__eyebrow">
-                        Rede Interna
-                    </span>
-
-                    <h3>
-                        LAN Principal
-                    </h3>
+                    <span class="np-panel__eyebrow">Rede Interna</span>
+                    <h3>LAN Principal</h3>
                 </div>
-
-
-                <span
-                    class="
-                        np-status-pill
-                        np-status-pill--pending
-                    "
-                    id="overviewLanState"
-                >
-                    Não configurada
-                </span>
-
+                <span class="np-status-pill np-status-pill--pending" id="overviewLanState">Não configurada</span>
             </div>
-
-
             <div class="np-info-list">
-
-                <div class="np-info-row">
-                    <span>
-                        Interface
-                    </span>
-
-                    <strong id="overviewLanName">
-                        —
-                    </strong>
-                </div>
-
-
-                <div class="np-info-row">
-                    <span>
-                        IPv4
-                    </span>
-
-                    <strong id="overviewLanIpv4">
-                        —
-                    </strong>
-                </div>
-
-
-                <div class="np-info-row">
-                    <span>
-                        Acesso administrativo
-                    </span>
-
-                    <strong id="overviewLanManagement">
-                        —
-                    </strong>
-                </div>
-
-
-                <div class="np-info-row">
-                    <span>
-                        NAT
-                    </span>
-
-                    <strong id="overviewLanNat">
-                        —
-                    </strong>
-                </div>
-
+                <div class="np-info-row"><span>Interface</span><strong id="overviewLanName">—</strong></div>
+                <div class="np-info-row"><span>IPv4</span><strong id="overviewLanIpv4">—</strong></div>
+                <div class="np-info-row"><span>Acesso administrativo</span><strong id="overviewLanManagement">—</strong></div>
+                <div class="np-info-row"><span>NAT</span><strong id="overviewLanNat">—</strong></div>
             </div>
-
         </article>
-
     </div>
 
 </section>

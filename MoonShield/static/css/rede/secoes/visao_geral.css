@@ -1,1014 +1,127 @@
-/* ==========================================================================
-   MOONSHIELD NETWORK PANEL
-   Visão Geral
-========================================================================== */
+/* ==========================================================================\n   MOONSHIELD NETWORK PANEL — VISÃO GERAL\n========================================================================== */
 
+.np-overview-title { margin-bottom: 22px; }
 
-/* ==========================================================================
-   CARDS DE RESUMO
-========================================================================== */
-
-.np-overview-cards {
-    display: grid;
-
-    grid-template-columns:
-        repeat(
-            4,
-            minmax(
-                0,
-                1fr
-            )
-        );
-
-    gap: 14px;
-}
-
+/* RESUMO */
+.np-overview-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 
 .np-stat-card {
     position: relative;
-
-    min-height: 146px;
-
+    min-height: 138px;
     display: flex;
-
     flex-direction: column;
-
-    justify-content:
-        space-between;
-
-    padding: 16px;
-
+    justify-content: space-between;
+    padding: 15px;
     overflow: hidden;
-
-    border:
-        1px solid
-        var(--np-border);
-
-    border-radius:
-        var(--np-radius-md);
-
-    background:
-        linear-gradient(
-            180deg,
-            rgba(
-                255,
-                255,
-                255,
-                .038
-            ),
-            rgba(
-                255,
-                255,
-                255,
-                .015
-            )
-        );
-
-    box-shadow:
-        var(--np-shadow-soft);
-
-    transition:
-
-        transform
-        var(--np-fast)
-        ease,
-
-        border-color
-        var(--np-fast)
-        ease,
-
-        background
-        var(--np-fast)
-        ease;
+    border: 1px solid var(--np-border);
+    border-radius: var(--np-radius-md);
+    background: #111111;
+    box-shadow: var(--np-shadow-soft);
+    transition: border-color var(--np-fast) ease, background var(--np-fast) ease;
 }
 
-
-.np-stat-card::before {
-    content: "";
-
-    position: absolute;
-
-    inset:
-        0
-        0
-        auto;
-
-    height: 1px;
-
-    background:
-        linear-gradient(
-            90deg,
-            transparent,
-            rgba(
-                255,
-                255,
-                255,
-                .09
-            ),
-            transparent
-        );
-}
-
-
-.np-stat-card:hover {
-    transform:
-        translateY(
-            -2px
-        );
-
-    border-color:
-        var(--np-border-strong);
-
-    background:
-        linear-gradient(
-            180deg,
-            rgba(
-                255,
-                255,
-                255,
-                .052
-            ),
-            rgba(
-                255,
-                255,
-                255,
-                .022
-            )
-        );
-}
-
-
-/* ==========================================================================
-   HEAD
-========================================================================== */
-
-.np-stat-card__head {
-    display: flex;
-
-    align-items: center;
-
-    justify-content:
-        space-between;
-
-    gap: 12px;
-}
-
-
-.np-stat-card__head > span {
-    color:
-        var(--np-muted);
-
-    font-size: 9px;
-    font-weight: 500;
-}
-
-
-.np-stat-card__icon {
-    width: 34px;
-    height: 34px;
-
-    flex:
-        0 0 34px;
-
-    display: grid;
-
-    place-items:
-        center;
-
-    border:
-        1px solid
-        var(--np-border);
-
-    border-radius:
-        9px;
-
-    color:
-        var(--np-muted);
-
-    background:
-        rgba(
-            255,
-            255,
-            255,
-            .025
-        );
-}
-
-
-.np-stat-card__icon--blue {
-    color:
-        var(--np-blue);
-
-    border-color:
-        var(--np-blue-border);
-
-    background:
-        var(--np-blue-soft);
-}
-
-
-.np-stat-card__icon--purple {
-    color:
-        var(--np-purple);
-
-    border-color:
-        rgba(
-            167,
-            139,
-            250,
-            .22
-        );
-
-    background:
-        var(--np-purple-soft);
-}
-
-
-.np-stat-card__icon--green {
-    color:
-        var(--np-green);
-
-    border-color:
-        var(--np-green-border);
-
-    background:
-        var(--np-green-soft);
-}
-
-
-.np-stat-card__icon--yellow {
-    color:
-        var(--np-yellow);
-
-    border-color:
-        var(--np-yellow-border);
-
-    background:
-        var(--np-yellow-soft);
-}
-
-
-/* ==========================================================================
-   VALUE
-========================================================================== */
-
-.np-stat-card__value {
-    display: flex;
-
-    align-items:
-        baseline;
-
-    gap: 8px;
-
-    min-height: 42px;
-
-    padding:
-        10px
-        0 5px;
-}
-
-
-.np-stat-card__value strong {
-    color:
-        var(--np-text);
-
-    font-size: 24px;
-    font-weight: 500;
-
-    letter-spacing:
-        -.035em;
-}
-
-
-.np-stat-card__value small {
-    color:
-        var(--np-dim);
-
-    font-size: 8px;
-}
-
-
-/* ==========================================================================
-   FOOTER
-========================================================================== */
-
-.np-stat-card__footer {
-    display: flex;
-
-    align-items: center;
-
-    justify-content:
-        space-between;
-
-    gap: 12px;
-
-    padding-top:
-        10px;
-
-    border-top:
-        1px solid
-        var(--np-border-soft);
-}
-
-
-.np-stat-card__footer span {
-    color:
-        var(--np-dim);
-
-    font-size: 7px;
-}
-
-
-.np-stat-card__footer strong {
-    max-width: 68%;
-
-    overflow: hidden;
-
-    color:
-        var(--np-muted);
-
-    font-family:
-        var(--np-mono);
-
-    font-size: 7px;
-    font-weight: 500;
-
-    white-space: nowrap;
-
-    text-overflow:
-        ellipsis;
-}
-
-
-/* ==========================================================================
-   TOPOLOGIA
-========================================================================== */
-
-.np-topology-panel {
-    overflow: visible;
-
-    padding:
-        24px 22px;
-}
-
-
-.np-topology {
-    position: relative;
-
-    display: grid;
-
-    grid-template-columns:
-        minmax(
-            120px,
-            1fr
-        )
-        72px
-        minmax(
-            150px,
-            1.1fr
-        )
-        72px
-        minmax(
-            170px,
-            1.2fr
-        )
-        72px
-        minmax(
-            150px,
-            1.1fr
-        );
-
-    align-items: center;
-
-    gap: 0;
-}
-
-
-/* ==========================================================================
-   NÓS
-========================================================================== */
+.np-stat-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 1px; background: rgba(255, 255, 255, .055); }
+.np-stat-card:hover { border-color: var(--np-border-strong); background: #141414; }
+
+.np-stat-card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.np-stat-card__head > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.np-stat-card__eyebrow { color: var(--np-faint); font-family: var(--np-mono); font-size: 6px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.np-stat-card__head > div > strong { overflow: hidden; color: var(--np-muted); font-size: 9px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+
+.np-stat-card__icon { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid #2b2b2b; border-radius: 8px; color: #a0a0a0; background: #171717; }
+.np-stat-card__icon--warning { color: var(--np-yellow); border-color: var(--np-yellow-border); background: var(--np-yellow-soft); }
+
+.np-stat-card__value { min-height: 42px; display: flex; align-items: baseline; gap: 8px; padding: 9px 0 5px; }
+.np-stat-card__value strong { color: var(--np-text); font-size: 23px; font-weight: 500; letter-spacing: -.035em; }
+.np-stat-card__value small { color: var(--np-dim); font-size: 7px; }
+
+.np-stat-card__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 9px; border-top: 1px solid var(--np-border-soft); }
+.np-stat-card__footer span { color: var(--np-faint); font-size: 7px; }
+.np-stat-card__footer strong { max-width: 70%; overflow: hidden; color: var(--np-muted); font-family: var(--np-mono); font-size: 7px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.np-stat-card__footer strong.is-warning { color: var(--np-yellow); }
+
+/* TOPOLOGIA */
+.np-topology-panel { overflow: visible; padding: 18px; background: #101010; }
+.np-topology { display: grid; grid-template-columns: minmax(150px, 1fr) 54px minmax(160px, 1fr) 54px minmax(180px, 1.08fr) 54px minmax(160px, 1fr); align-items: center; gap: 0; }
 
 .np-topology-node {
     position: relative;
-
-    min-height: 118px;
-
+    min-width: 0;
+    min-height: 106px;
     display: flex;
-
     align-items: center;
-
     gap: 12px;
-
-    padding: 15px;
-
-    border:
-        1px solid
-        var(--np-border);
-
-    border-radius:
-        var(--np-radius-md);
-
-    background:
-        rgba(
-            255,
-            255,
-            255,
-            .022
-        );
-
-    transition:
-
-        border-color
-        var(--np-fast)
-        ease,
-
-        background
-        var(--np-fast)
-        ease,
-
-        transform
-        var(--np-fast)
-        ease;
+    padding: 14px;
+    border: 1px solid #292929;
+    border-radius: 10px;
+    color: #a9a9a9;
+    background: #151515;
+    transition: border-color var(--np-fast) ease, background var(--np-fast) ease;
 }
 
-
-.np-topology-node:hover {
-    transform:
-        translateY(
-            -2px
-        );
-
-    border-color:
-        var(--np-border-strong);
-
-    background:
-        rgba(
-            255,
-            255,
-            255,
-            .035
-        );
-}
-
-
-/* INTERNET */
-
-.np-topology-node--internet {
-    color:
-        var(--np-cyan);
-
-    border-color:
-        rgba(
-            34,
-            211,
-            238,
-            .18
-        );
-
-    background:
-        var(--np-cyan-soft);
-}
-
-
-/* WAN */
-
-.np-topology-node--wan {
-    border-color:
-        rgba(
-            96,
-            165,
-            250,
-            .20
-        );
-
-    background:
-        rgba(
-            59,
-            130,
-            246,
-            .045
-        );
-}
-
-
-/* MOONSHIELD */
-
-.np-topology-node--moonshield {
-    min-height: 132px;
-
-    color:
-        var(--np-blue);
-
-    border-color:
-        var(--np-blue-border);
-
-    background:
-        linear-gradient(
-            180deg,
-            rgba(
-                59,
-                130,
-                246,
-                .11
-            ),
-            rgba(
-                59,
-                130,
-                246,
-                .035
-            )
-        );
-
-    box-shadow:
-        0 0 34px
-        rgba(
-            37,
-            99,
-            235,
-            .08
-        );
-}
-
-
-/* LAN */
-
-.np-topology-node--lan {
-    border-color:
-        var(--np-green-border);
-
-    background:
-        var(--np-green-soft);
-}
-
-
-/* ==========================================================================
-   TOPOLOGIA — ICON
-========================================================================== */
+.np-topology-node:hover { border-color: #383838; background: #181818; }
+.np-topology-node--moonshield { min-height: 118px; border-color: #3a3a3a; background: #181818; }
+.np-topology-node--internet,
+.np-topology-node--wan,
+.np-topology-node--lan { border-color: #2b2b2b; background: #141414; }
 
 .np-topology-node__icon,
-.np-topology-node__shield {
-    width: 42px;
-    height: 42px;
+.np-topology-node__shield { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; border: 1px solid #383838; border-radius: 9px; color: #c7c7c7; background: #191919; }
+.np-topology-node__shield { width: 44px; height: 44px; flex-basis: 44px; color: #ededed; }
 
-    flex:
-        0 0 42px;
+.np-topology-node__copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.np-topology-node__copy > span { overflow: hidden; color: var(--np-muted); font-size: 8px; white-space: nowrap; text-overflow: ellipsis; }
+.np-topology-node__copy > strong { overflow: hidden; color: var(--np-text); font-family: var(--np-mono); font-size: 9px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.np-topology-node__copy > small { overflow: hidden; color: var(--np-dim); font-size: 7px; white-space: nowrap; text-overflow: ellipsis; }
 
-    display: grid;
+.np-topology-node__badge { position: absolute; top: 8px; right: 8px; min-height: 18px; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; border: 1px solid #303030; border-radius: 999px; color: #8d8d8d; background: #1b1b1b; font-family: var(--np-mono); font-size: 6px; font-weight: 600; letter-spacing: .07em; }
 
-    place-items:
-        center;
+.np-topology-link { min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.np-topology-link > span { position: relative; width: 100%; height: 1px; background: #303030; }
+.np-topology-link > span::after { content: ""; position: absolute; top: 50%; right: 5px; width: 5px; height: 5px; border-top: 1px solid #707070; border-right: 1px solid #707070; transform: translateY(-50%) rotate(45deg); }
+.np-topology-link small { color: #555; font-family: var(--np-mono); font-size: 6px; letter-spacing: .05em; text-transform: uppercase; }
 
-    border:
-        1px solid
-        currentColor;
+/* WAN / LAN */
+.np-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.np-network-state-card { overflow: hidden; background: #111111; }
+.np-network-state-card .np-panel__head { background: #131313; }
+.np-network-state-card .np-info-row { min-height: 39px; }
+.np-network-state-card .np-info-row strong { font-family: var(--np-mono); }
 
-    border-radius:
-        11px;
+/* LIGHT */
+[data-theme="light"] .np-stat-card,
+[data-theme="light"] .np-topology-panel,
+[data-theme="light"] .np-network-state-card { background: var(--np-surface); }
+[data-theme="light"] .np-stat-card:hover { background: #fafafa; }
+[data-theme="light"] .np-stat-card__icon { border-color: #dfe3e8; color: #5f6670; background: #f6f7f8; }
+[data-theme="light"] .np-topology-node { border-color: #dfe3e8; color: #606872; background: #fafbfc; }
+[data-theme="light"] .np-topology-node:hover { border-color: #cfd5dc; background: #ffffff; }
+[data-theme="light"] .np-topology-node--moonshield { border-color: #cfd5dc; background: #f7f8f9; }
+[data-theme="light"] .np-topology-node__icon,
+[data-theme="light"] .np-topology-node__shield { border-color: #d6dbe1; color: #4c545d; background: #ffffff; }
+[data-theme="light"] .np-topology-node__badge { border-color: #d9dee4; color: #69717a; background: #f4f5f6; }
+[data-theme="light"] .np-topology-link > span { background: #d5dae0; }
+[data-theme="light"] .np-network-state-card .np-panel__head { background: var(--np-surface-soft); }
 
-    background:
-        rgba(
-            255,
-            255,
-            255,
-            .025
-        );
-
-    opacity: .90;
+/* RESPONSIVE */
+@media (max-width: 1320px) {
+    .np-overview-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .np-topology { grid-template-columns: 1fr 46px 1fr 46px 1.08fr 46px 1fr; }
 }
 
-
-.np-topology-node__shield {
-    width: 48px;
-    height: 48px;
-
-    flex:
-        0 0 48px;
-
-    box-shadow:
-        0 0 24px
-        rgba(
-            59,
-            130,
-            246,
-            .12
-        );
+@media (max-width: 1050px) {
+    .np-topology-panel { overflow-x: auto; }
+    .np-topology { min-width: 850px; }
 }
 
-
-/* ==========================================================================
-   TOPOLOGIA — COPY
-========================================================================== */
-
-.np-topology-node__copy {
-    min-width: 0;
-
-    display: flex;
-
-    flex-direction:
-        column;
-
-    gap: 4px;
+@media (max-width: 760px) {
+    .np-overview-cards, .np-overview-grid { grid-template-columns: 1fr; }
+    .np-stat-card { min-height: 128px; }
+    .np-stat-card__value strong { font-size: 21px; }
 }
 
-
-.np-topology-node__copy > span {
-    overflow: hidden;
-
-    color:
-        var(--np-muted);
-
-    font-size: 8px;
-
-    white-space: nowrap;
-
-    text-overflow:
-        ellipsis;
-}
-
-
-.np-topology-node__copy > strong {
-    overflow: hidden;
-
-    color:
-        var(--np-text);
-
-    font-family:
-        var(--np-mono);
-
-    font-size: 9px;
-    font-weight: 500;
-
-    white-space: nowrap;
-
-    text-overflow:
-        ellipsis;
-}
-
-
-.np-topology-node__copy > small {
-    overflow: hidden;
-
-    color:
-        var(--np-dim);
-
-    font-size: 7px;
-
-    white-space: nowrap;
-
-    text-overflow:
-        ellipsis;
-}
-
-
-/* ==========================================================================
-   ROLE BADGE
-========================================================================== */
-
-.np-topology-node__badge {
-    position: absolute;
-
-    top: 8px;
-    right: 8px;
-
-    min-height: 18px;
-
-    display: inline-flex;
-
-    align-items: center;
-    justify-content: center;
-
-    padding:
-        0 6px;
-
-    border:
-        1px solid
-        var(--np-border);
-
-    border-radius:
-        999px;
-
-    color:
-        var(--np-muted);
-
-    background:
-        rgba(
-            255,
-            255,
-            255,
-            .03
-        );
-
-    font-family:
-        var(--np-mono);
-
-    font-size: 6px;
-    font-weight: 600;
-
-    letter-spacing:
-        .07em;
-}
-
-
-/* ==========================================================================
-   TOPOLOGIA LINKS
-========================================================================== */
-
-.np-topology-link {
-    position: relative;
-
-    min-width: 0;
-
-    display: flex;
-
-    flex-direction:
-        column;
-
-    align-items: center;
-    justify-content: center;
-
-    gap: 6px;
-}
-
-
-.np-topology-link > span {
-    position: relative;
-
-    width: 100%;
-    height: 1px;
-
-    background:
-        linear-gradient(
-            90deg,
-            transparent,
-            var(--np-border-strong),
-            transparent
-        );
-}
-
-
-.np-topology-link > span::after {
-    content: "";
-
-    position: absolute;
-
-    top: 50%;
-    right: 5px;
-
-    width: 5px;
-    height: 5px;
-
-    border-top:
-        1px solid
-        var(--np-dim);
-
-    border-right:
-        1px solid
-        var(--np-dim);
-
-    transform:
-        translateY(
-            -50%
-        )
-        rotate(
-            45deg
-        );
-}
-
-
-.np-topology-link small {
-    color:
-        var(--np-faint);
-
-    font-family:
-        var(--np-mono);
-
-    font-size: 6px;
-
-    letter-spacing:
-        .05em;
-
-    text-transform:
-        uppercase;
-}
-
-
-/* ==========================================================================
-   ESTADO OPERACIONAL
-========================================================================== */
-
-.np-overview-grid {
-    display: grid;
-
-    grid-template-columns:
-        repeat(
-            2,
-            minmax(
-                0,
-                1fr
-            )
-        );
-
-    gap: 14px;
-}
-
-
-/* ==========================================================================
-   LIGHT
-========================================================================== */
-
-[data-theme="light"]
-.np-stat-card {
-
-    background:
-        var(--np-surface);
-
-    box-shadow:
-        var(--np-shadow-soft);
-}
-
-
-[data-theme="light"]
-.np-stat-card:hover {
-
-    background:
-        #ffffff;
-}
-
-
-[data-theme="light"]
-.np-topology-node {
-
-    background:
-        var(--np-surface);
-}
-
-
-[data-theme="light"]
-.np-topology-node--internet {
-
-    background:
-        rgba(
-            8,
-            145,
-            178,
-            .055
-        );
-}
-
-
-[data-theme="light"]
-.np-topology-node--wan {
-
-    background:
-        rgba(
-            37,
-            99,
-            235,
-            .045
-        );
-}
-
-
-[data-theme="light"]
-.np-topology-node--moonshield {
-
-    background:
-        rgba(
-            37,
-            99,
-            235,
-            .065
-        );
-}
-
-
-[data-theme="light"]
-.np-topology-node--lan {
-
-    background:
-        rgba(
-            22,
-            163,
-            74,
-            .055
-        );
-}
-
-
-/* ==========================================================================
-   RESPONSIVE — 1320
-========================================================================== */
-
-@media (
-    max-width: 1320px
-) {
-
-    .np-overview-cards {
-        grid-template-columns:
-            repeat(
-                2,
-                minmax(
-                    0,
-                    1fr
-                )
-            );
-    }
-
-
-    .np-topology {
-        grid-template-columns:
-            1fr
-            55px
-            1fr
-            55px
-            1.1fr
-            55px
-            1fr;
-    }
-
-}
-
-
-/* ==========================================================================
-   RESPONSIVE — 1050
-========================================================================== */
-
-@media (
-    max-width: 1050px
-) {
-
-    .np-topology-panel {
-        overflow-x: auto;
-
-        padding:
-            20px;
-    }
-
-
-    .np-topology {
-        min-width: 900px;
-    }
-
-}
-
-
-/* ==========================================================================
-   RESPONSIVE — 760
-========================================================================== */
-
-@media (
-    max-width: 760px
-) {
-
-    .np-overview-cards {
-        grid-template-columns:
-            1fr;
-    }
-
-
-    .np-overview-grid {
-        grid-template-columns:
-            1fr;
-    }
-
-
-    .np-stat-card {
-        min-height: 132px;
-    }
-
-
-    .np-stat-card__value strong {
-        font-size: 22px;
-    }
-
-}
-
-
-/* ==========================================================================
-   RESPONSIVE — 520
-========================================================================== */
-
-@media (
-    max-width: 520px
-) {
-
-    .np-topology-panel {
-        margin-left: -2px;
-
-        margin-right: -2px;
-
-        padding:
-            15px;
-    }
-
-
-    .np-topology {
-        min-width: 830px;
-    }
-
-
-    .np-stat-card {
-        padding: 14px;
-    }
-
+@media (max-width: 520px) {
+    .np-topology-panel { padding: 13px; }
+    .np-topology { min-width: 790px; }
+    .np-stat-card { padding: 13px; }
 }

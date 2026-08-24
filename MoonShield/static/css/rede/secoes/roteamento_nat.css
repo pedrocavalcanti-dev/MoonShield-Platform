@@ -850,3 +850,215 @@
     }
 
 }
+
+/* ==========================================================================
+   MOONSHIELD — ROTEAMENTO & NAT / PALETA NEUTRA
+   Remove acentos azuis decorativos sem alterar estados semânticos.
+========================================================================== */
+.np-route-interface::before { background: var(--np-muted); }
+.np-nat-flow__node:last-child { border-color: var(--np-border-strong); background: rgba(255, 255, 255, .024); }
+.np-nat-flow__arrow svg { filter: none; }
+
+[data-theme="light"] .np-nat-flow__node:last-child { border-color: var(--np-border); background: #f6f7f9; }
+
+/* ==========================================================================
+   MODAIS DE ROTA / NAT — MESMO PADRÃO DA INTERFACE
+========================================================================== */
+#routeDrawer.np-routing-modal,
+#natDrawer.np-routing-modal {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    z-index: 1000;
+}
+
+.np-routing-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .72);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.np-routing-modal__panel {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    width: min(760px, calc(100vw - 44px));
+    height: auto;
+    max-height: calc(100dvh - 44px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--np-border-strong);
+    border-radius: 16px;
+    background: var(--np-surface);
+    box-shadow: 0 26px 90px rgba(0, 0, 0, .58);
+    animation: np-routing-modal-enter .24s var(--np-ease) both;
+}
+
+.np-routing-modal--route .np-routing-modal__panel { width: min(700px, calc(100vw - 44px)); }
+
+@keyframes np-routing-modal-enter {
+    from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)) scale(.985); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.np-routing-modal__head {
+    min-height: 84px;
+    flex: 0 0 auto;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--np-border);
+    background: var(--np-surface);
+}
+
+.np-routing-modal__heading { min-width: 0; display: flex; align-items: center; gap: 12px; }
+
+.np-routing-modal__heading-icon {
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--np-border-strong);
+    border-radius: 10px;
+    color: var(--np-text-soft);
+    background: var(--np-surface-strong);
+}
+
+.np-routing-modal__heading-copy { min-width: 0; }
+.np-routing-modal__heading-copy .np-drawer__eyebrow { margin-bottom: 3px; }
+.np-routing-modal__heading-copy h2 { margin: 0; color: var(--np-text); font-size: 17px; font-weight: 500; letter-spacing: -.02em; }
+.np-routing-modal__heading-copy p { max-width: 520px; margin: 4px 0 0; color: var(--np-dim); font-size: 8px; line-height: 1.45; }
+.np-routing-modal__close { width: 36px; height: 36px; flex: 0 0 36px; }
+
+#routeForm.np-routing-modal__body,
+#natForm.np-routing-modal__body {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 16px 18px 22px;
+    background: var(--np-bg-soft);
+}
+
+.np-routing-modal__section {
+    overflow: hidden;
+    margin-bottom: 12px;
+    border: 1px solid var(--np-border);
+    border-radius: 11px;
+    background: var(--np-surface);
+}
+
+.np-routing-modal__section:last-child { margin-bottom: 0; }
+
+.np-routing-modal__section-head {
+    min-height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 13px;
+    border-bottom: 1px solid var(--np-border-soft);
+    background: rgba(255, 255, 255, .012);
+}
+
+.np-routing-modal__section-head > div { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.np-routing-modal__section-head span { color: var(--np-dim); font-size: 6px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.np-routing-modal__section-head strong { color: var(--np-text-soft); font-size: 10px; font-weight: 500; }
+.np-routing-modal__section-head small { color: var(--np-dim); font-size: 7px; white-space: nowrap; }
+
+.np-routing-modal__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 13px; }
+.np-routing-modal__grid--single { grid-template-columns: 1fr; }
+.np-routing-modal__grid .np-form-group { margin: 0; }
+.np-routing-modal__grid .np-form-group > label { margin-bottom: 6px; color: var(--np-dim); font-size: 7px; font-weight: 600; letter-spacing: .045em; text-transform: uppercase; }
+.np-routing-modal__grid .np-input,
+.np-routing-modal__grid .np-select { min-height: 40px; border-radius: 8px; background-color: var(--np-surface-strong); }
+
+.np-routing-modal__switch-card {
+    min-height: 58px;
+    margin: 0 !important;
+    border: 1px solid var(--np-border-soft) !important;
+    border-radius: 9px !important;
+    background: rgba(255, 255, 255, .012) !important;
+}
+
+.np-routing-modal__switch-card--full { border: 0 !important; border-radius: 0 !important; background: transparent !important; }
+
+.np-routing-modal__footer {
+    min-height: 72px;
+    flex: 0 0 auto;
+    padding: 12px 18px;
+    border-top: 1px solid var(--np-border);
+    background: var(--np-surface);
+}
+
+.np-routing-modal__footer-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.np-routing-modal__footer-copy span { color: var(--np-text-soft); font-size: 8px; font-weight: 500; }
+.np-routing-modal__footer-copy small { color: var(--np-dim); font-size: 7px; }
+.np-routing-modal__save { min-width: 145px; }
+
+/* DARK — preto/grafite neutro, sem azul decorativo. */
+:root:not([data-theme="light"]) .np-routing-modal__panel,
+[data-theme="dark"] .np-routing-modal__panel { background: #141414; }
+
+:root:not([data-theme="light"]) #routeForm.np-routing-modal__body,
+:root:not([data-theme="light"]) #natForm.np-routing-modal__body,
+[data-theme="dark"] #routeForm.np-routing-modal__body,
+[data-theme="dark"] #natForm.np-routing-modal__body { background: #0f0f0f; }
+
+:root:not([data-theme="light"]) .np-routing-modal__section,
+[data-theme="dark"] .np-routing-modal__section { background: #141414; }
+
+:root:not([data-theme="light"]) .np-routing-modal__heading-icon,
+[data-theme="dark"] .np-routing-modal__heading-icon { background: #181818; }
+
+/* LIGHT — branco/cinza, também sem azul decorativo. */
+[data-theme="light"] .np-routing-modal__backdrop { background: rgba(15, 23, 42, .48); }
+[data-theme="light"] .np-routing-modal__panel { background: #ffffff; box-shadow: 0 28px 80px rgba(15, 23, 42, .20); }
+[data-theme="light"] #routeForm.np-routing-modal__body,
+[data-theme="light"] #natForm.np-routing-modal__body { background: #f6f7f9; }
+[data-theme="light"] .np-routing-modal__section { background: #ffffff; }
+[data-theme="light"] .np-routing-modal__section-head { background: #fafbfc; }
+[data-theme="light"] .np-routing-modal__grid .np-input,
+[data-theme="light"] .np-routing-modal__grid .np-select { background-color: #ffffff; }
+[data-theme="light"] .np-routing-modal__footer { background: #ffffff; }
+[data-theme="light"] .np-routing-modal__switch-card { background: #fafbfc !important; }
+
+@media (max-width: 760px) {
+    .np-routing-modal__panel,
+    .np-routing-modal--route .np-routing-modal__panel {
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        border: 0;
+        border-radius: 0;
+        animation: np-routing-modal-mobile-enter .22s var(--np-ease) both;
+    }
+
+    @keyframes np-routing-modal-mobile-enter {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .np-routing-modal__head { min-height: 78px; padding: 13px 14px; }
+    .np-routing-modal__heading-copy p { display: none; }
+    #routeForm.np-routing-modal__body,
+    #natForm.np-routing-modal__body { padding: 13px; }
+    .np-routing-modal__grid,
+    .np-routing-modal__grid--compact { grid-template-columns: 1fr; gap: 11px; padding: 12px; }
+    .np-routing-modal__section-head small { display: none; }
+    .np-routing-modal__footer { padding: 11px 13px; }
+    .np-routing-modal__footer-copy { display: none; }
+    .np-routing-modal__save { width: 100%; }
+}
+
+@media (max-width: 430px) {
+    .np-routing-modal__heading-icon { display: none; }
+    .np-routing-modal__switch-card { min-height: 64px; }
+}
+

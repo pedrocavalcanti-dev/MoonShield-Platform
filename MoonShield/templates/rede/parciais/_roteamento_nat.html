@@ -622,395 +622,289 @@
 
     </template>
 
-
-    <!-- ============================================================
-         DRAWER ROTA
-    ============================================================= -->
-
-    <div
-        class="np-drawer"
-        id="routeDrawer"
-        aria-hidden="true"
-    >
-
-        <div
-            class="np-drawer__backdrop"
-            data-close-route-drawer
-        ></div>
-
-
-        <aside
-            class="np-drawer__panel"
-            role="dialog"
-            aria-modal="true"
-        >
-
-            <div class="np-drawer__head">
-
-                <div>
-                    <span class="np-drawer__eyebrow">
-                        Roteamento
-                    </span>
-
-                    <h2 id="routeDrawerTitle">
-                        Nova rota
-                    </h2>
-                </div>
-
-
-                <button
-                    type="button"
-                    class="np-icon-btn"
-                    data-close-route-drawer
-                    aria-label="Fechar"
-                >
-                    ×
-                </button>
-
-            </div>
-
-
-            <form
-                id="routeForm"
-                class="np-drawer__body"
-            >
-
-                <input
-                    type="hidden"
-                    id="routeId"
-                >
-
-
-                <div class="np-form-group">
-
-                    <label for="routeName">
-                        Nome
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="routeName"
-                        placeholder="Rede filial"
-                    >
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="routeDestination">
-                        Destino
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="routeDestination"
-                        placeholder="10.20.0.0/16"
-                    >
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="routeGateway">
-                        Gateway
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="routeGateway"
-                        placeholder="10.10.0.254"
-                    >
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="routeInterface">
-                        Interface
-                    </label>
-
-                    <select
-                        class="np-select"
-                        id="routeInterface"
-                    >
-                        <option value="">
-                            Selecionar
-                        </option>
-                    </select>
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="routeMetric">
-                        Métrica
-                    </label>
-
-                    <input
-                        type="number"
-                        class="np-input"
-                        id="routeMetric"
-                        value="100"
-                        min="0"
-                    >
-
-                </div>
-
-
-                <label class="np-switch-row">
-
-                    <div>
-                        <strong>
-                            Rota ativa
-                        </strong>
-
-                        <span>
-                            Incluir esta rota na configuração desejada.
-                        </span>
-                    </div>
-
-                    <input
-                        type="checkbox"
-                        id="routeEnabled"
-                        checked
-                    >
-
-                    <span class="np-switch"></span>
-
-                </label>
-
-            </form>
-
-
-            <div class="np-drawer__footer">
-
-                <button
-                    type="button"
-                    class="np-btn np-btn--ghost"
-                    data-close-route-drawer
-                >
-                    Cancelar
-                </button>
-
-
-                <button
-                    type="submit"
-                    form="routeForm"
-                    class="np-btn np-btn--primary"
-                >
-                    Salvar rota
-                </button>
-
-            </div>
-
-        </aside>
-
-    </div>
-
-
-    <!-- ============================================================
-         DRAWER NAT
-    ============================================================= -->
-
-    <div
-        class="np-drawer"
-        id="natDrawer"
-        aria-hidden="true"
-    >
-
-        <div
-            class="np-drawer__backdrop"
-            data-close-nat-drawer
-        ></div>
-
-
-        <aside
-            class="np-drawer__panel"
-            role="dialog"
-            aria-modal="true"
-        >
-
-            <div class="np-drawer__head">
-
-                <div>
-                    <span class="np-drawer__eyebrow">
-                        NAT
-                    </span>
-
-                    <h2 id="natDrawerTitle">
-                        Nova regra NAT
-                    </h2>
-                </div>
-
-
-                <button
-                    type="button"
-                    class="np-icon-btn"
-                    data-close-nat-drawer
-                    aria-label="Fechar"
-                >
-                    ×
-                </button>
-
-            </div>
-
-
-            <form
-                id="natForm"
-                class="np-drawer__body"
-            >
-
-                <input
-                    type="hidden"
-                    id="natId"
-                >
-
-
-                <div class="np-form-group">
-
-                    <label for="natName">
-                        Nome
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="natName"
-                        value="NAT LAN → WAN"
-                    >
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="natSourceInterface">
-                        Interface de origem
-                    </label>
-
-                    <select
-                        class="np-select"
-                        id="natSourceInterface"
-                    >
-                        <option value="">
-                            Selecionar
-                        </option>
-                    </select>
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="natOutputInterface">
-                        Interface de saída
-                    </label>
-
-                    <select
-                        class="np-select"
-                        id="natOutputInterface"
-                    >
-                        <option value="">
-                            Selecionar WAN
-                        </option>
-                    </select>
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="natSourceCidr">
-                        Rede de origem
-                    </label>
-
-                    <input
-                        type="text"
-                        class="np-input"
-                        id="natSourceCidr"
-                        placeholder="10.10.0.0/24"
-                    >
-
-                    <small class="np-field-help">
-                        Se vazio, o MoonShield tentará usar
-                        a rede configurada na interface de origem.
-                    </small>
-
-                </div>
-
-
-                <div class="np-form-group">
-
-                    <label for="natPriority">
-                        Prioridade
-                    </label>
-
-                    <input
-                        type="number"
-                        class="np-input"
-                        id="natPriority"
-                        value="100"
-                        min="0"
-                    >
-
-                </div>
-
-
-                <label class="np-switch-row">
-
-                    <div>
-                        <strong>
-                            Regra ativa
-                        </strong>
-
-                        <span>
-                            Inclui a regra no estado desejado.
-                        </span>
-                    </div>
-
-                    <input
-                        type="checkbox"
-                        id="natEnabled"
-                        checked
-                    >
-
-                    <span class="np-switch"></span>
-
-                </label>
-
-            </form>
-
-
-            <div class="np-drawer__footer">
-
-                <button
-                    type="button"
-                    class="np-btn np-btn--ghost"
-                    data-close-nat-drawer
-                >
-                    Cancelar
-                </button>
-
-
-                <button
-                    type="submit"
-                    form="natForm"
-                    class="np-btn np-btn--primary"
-                >
-                    Salvar regra
-                </button>
-
-            </div>
-
-        </aside>
-
-    </div>
-
 </section>
+
+<!-- ================================================================
+     MODAL — ROTA ESTÁTICA
+================================================================ -->
+<div
+    class="np-drawer np-routing-modal np-routing-modal--route"
+    id="routeDrawer"
+    data-close-policy="explicit"
+    aria-hidden="true"
+>
+    <div class="np-drawer__backdrop np-routing-modal__backdrop"></div>
+
+    <aside
+        class="np-drawer__panel np-routing-modal__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="routeDrawerTitle"
+        aria-describedby="routeDrawerDescription"
+    >
+        <div class="np-drawer__head np-routing-modal__head">
+            <div class="np-routing-modal__heading">
+                <div class="np-routing-modal__heading-icon" aria-hidden="true">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 7H17"></path>
+                        <path d="M14 4L17 7L14 10"></path>
+                        <path d="M20 17H7"></path>
+                        <path d="M10 14L7 17L10 20"></path>
+                    </svg>
+                </div>
+
+                <div class="np-routing-modal__heading-copy">
+                    <span class="np-drawer__eyebrow">Roteamento estático</span>
+                    <h2 id="routeDrawerTitle">Nova rota</h2>
+                    <p id="routeDrawerDescription">Defina destino, próximo salto e interface. A alteração será salva no estado desejado.</p>
+                </div>
+            </div>
+
+            <button type="button" class="np-icon-btn np-routing-modal__close" data-close-route-drawer aria-label="Fechar rota" title="Fechar">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                    <path d="M6 6L18 18"></path>
+                    <path d="M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
+
+        <form id="routeForm" class="np-drawer__body np-routing-modal__body">
+            <input type="hidden" id="routeId">
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Identificação</span>
+                        <strong>Nome e interface</strong>
+                    </div>
+                    <small>Organização da rota</small>
+                </div>
+
+                <div class="np-routing-modal__grid">
+                    <div class="np-form-group">
+                        <label for="routeName">Nome</label>
+                        <input type="text" class="np-input" id="routeName" placeholder="Ex: Rede filial">
+                    </div>
+
+                    <div class="np-form-group">
+                        <label for="routeInterface">Interface</label>
+                        <select class="np-select" id="routeInterface">
+                            <option value="">Selecionar</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Caminho</span>
+                        <strong>Destino e próximo salto</strong>
+                    </div>
+                    <small>Parâmetros IPv4 da rota</small>
+                </div>
+
+                <div class="np-routing-modal__grid">
+                    <div class="np-form-group">
+                        <label for="routeDestination">Destino</label>
+                        <input type="text" class="np-input" id="routeDestination" placeholder="10.20.0.0/16" autocomplete="off">
+                    </div>
+
+                    <div class="np-form-group">
+                        <label for="routeGateway">Gateway</label>
+                        <input type="text" class="np-input" id="routeGateway" placeholder="10.10.0.254" autocomplete="off">
+                    </div>
+                </div>
+            </section>
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Preferência</span>
+                        <strong>Métrica e estado</strong>
+                    </div>
+                    <small>Prioridade operacional</small>
+                </div>
+
+                <div class="np-routing-modal__grid np-routing-modal__grid--compact">
+                    <div class="np-form-group">
+                        <label for="routeMetric">Métrica</label>
+                        <input type="number" class="np-input" id="routeMetric" value="100" min="0">
+                    </div>
+
+                    <label class="np-switch-row np-routing-modal__switch-card">
+                        <div>
+                            <strong>Rota ativa</strong>
+                            <span>Inclui esta rota na configuração desejada.</span>
+                        </div>
+                        <input type="checkbox" id="routeEnabled" checked>
+                        <span class="np-switch"></span>
+                    </label>
+                </div>
+            </section>
+        </form>
+
+        <div class="np-drawer__footer np-routing-modal__footer">
+            <div class="np-routing-modal__footer-copy">
+                <span>Estado desejado</span>
+                <small>Salvar não aplica a rota no sistema operacional.</small>
+            </div>
+
+            <button type="submit" form="routeForm" class="np-btn np-btn--primary np-routing-modal__save">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17L4 12"></path>
+                </svg>
+                Salvar rota
+            </button>
+        </div>
+    </aside>
+</div>
+
+<!-- ================================================================
+     MODAL — REGRA NAT
+================================================================ -->
+<div
+    class="np-drawer np-routing-modal np-routing-modal--nat"
+    id="natDrawer"
+    data-close-policy="explicit"
+    aria-hidden="true"
+>
+    <div class="np-drawer__backdrop np-routing-modal__backdrop"></div>
+
+    <aside
+        class="np-drawer__panel np-routing-modal__panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="natDrawerTitle"
+        aria-describedby="natDrawerDescription"
+    >
+        <div class="np-drawer__head np-routing-modal__head">
+            <div class="np-routing-modal__heading">
+                <div class="np-routing-modal__heading-icon" aria-hidden="true">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 7H17"></path>
+                        <path d="M14 4L17 7L14 10"></path>
+                        <path d="M20 17H7"></path>
+                        <path d="M10 14L7 17L10 20"></path>
+                    </svg>
+                </div>
+
+                <div class="np-routing-modal__heading-copy">
+                    <span class="np-drawer__eyebrow">Network Address Translation</span>
+                    <h2 id="natDrawerTitle">Nova regra NAT</h2>
+                    <p id="natDrawerDescription">Configure o mascaramento entre a rede de origem e a interface de saída.</p>
+                </div>
+            </div>
+
+            <button type="button" class="np-icon-btn np-routing-modal__close" data-close-nat-drawer aria-label="Fechar regra NAT" title="Fechar">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                    <path d="M6 6L18 18"></path>
+                    <path d="M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
+
+        <form id="natForm" class="np-drawer__body np-routing-modal__body">
+            <input type="hidden" id="natId">
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Regra</span>
+                        <strong>Identificação e prioridade</strong>
+                    </div>
+                    <small>MASQUERADE</small>
+                </div>
+
+                <div class="np-routing-modal__grid">
+                    <div class="np-form-group">
+                        <label for="natName">Nome</label>
+                        <input type="text" class="np-input" id="natName" value="NAT LAN → WAN">
+                    </div>
+
+                    <div class="np-form-group">
+                        <label for="natPriority">Prioridade</label>
+                        <input type="number" class="np-input" id="natPriority" value="100" min="0">
+                    </div>
+                </div>
+            </section>
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Fluxo</span>
+                        <strong>Origem e saída</strong>
+                    </div>
+                    <small>Interfaces envolvidas</small>
+                </div>
+
+                <div class="np-routing-modal__grid">
+                    <div class="np-form-group">
+                        <label for="natSourceInterface">Interface de origem</label>
+                        <select class="np-select" id="natSourceInterface">
+                            <option value="">Selecionar</option>
+                        </select>
+                    </div>
+
+                    <div class="np-form-group">
+                        <label for="natOutputInterface">Interface de saída</label>
+                        <select class="np-select" id="natOutputInterface">
+                            <option value="">Selecionar WAN</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Rede</span>
+                        <strong>Origem do mascaramento</strong>
+                    </div>
+                    <small>CIDR opcional</small>
+                </div>
+
+                <div class="np-routing-modal__grid np-routing-modal__grid--single">
+                    <div class="np-form-group">
+                        <label for="natSourceCidr">Rede de origem</label>
+                        <input type="text" class="np-input" id="natSourceCidr" placeholder="10.10.0.0/24" autocomplete="off">
+                        <small class="np-field-help">Se vazio, o MoonShield tentará usar a rede configurada na interface de origem.</small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="np-routing-modal__section">
+                <div class="np-routing-modal__section-head">
+                    <div>
+                        <span>Estado</span>
+                        <strong>Disponibilidade da regra</strong>
+                    </div>
+                    <small>Controle operacional</small>
+                </div>
+
+                <label class="np-switch-row np-routing-modal__switch-card np-routing-modal__switch-card--full">
+                    <div>
+                        <strong>Regra ativa</strong>
+                        <span>Inclui a regra NAT no estado desejado.</span>
+                    </div>
+                    <input type="checkbox" id="natEnabled" checked>
+                    <span class="np-switch"></span>
+                </label>
+            </section>
+        </form>
+
+        <div class="np-drawer__footer np-routing-modal__footer">
+            <div class="np-routing-modal__footer-copy">
+                <span>Estado desejado</span>
+                <small>Salvar não executa a regra no Linux até a aplicação da configuração.</small>
+            </div>
+
+            <button type="submit" form="natForm" class="np-btn np-btn--primary np-routing-modal__save">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17L4 12"></path>
+                </svg>
+                Salvar regra
+            </button>
+        </div>
+    </aside>
+</div>

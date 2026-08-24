@@ -140,11 +140,25 @@ def _ler_json_request(request: HttpRequest) -> dict:
 
 
 def _tornar_json_serializavel(valor: Any) -> Any:
-    """Converte DTOs e estruturas aninhadas em tipos aceitos por JSONField."""
+    """Converte DTOs, resultados de etapa e estruturas aninhadas em tipos seguros."""
+    if valor is None or isinstance(valor, (str, int, float, bool)):
+        return valor
+
     if isinstance(valor, ConfiguracaoSuricataDados):
         return _tornar_json_serializavel(valor.to_dict())
 
-    if hasattr(valor, "value") and not isinstance(valor, (str, int, float, bool)):
+    to_dict = getattr(valor, "to_dict", None)
+    if callable(to_dict):
+        try:
+            return _tornar_json_serializavel(to_dict())
+        except Exception:
+            logger.debug(
+                "Falha ao serializar %s via to_dict().",
+                type(valor).__name__,
+                exc_info=True,
+            )
+
+    if hasattr(valor, "value"):
         return _tornar_json_serializavel(valor.value)
 
     if isinstance(valor, dict):
@@ -156,7 +170,25 @@ def _tornar_json_serializavel(valor: Any) -> Any:
     if isinstance(valor, (list, tuple, set)):
         return [_tornar_json_serializavel(item) for item in valor]
 
-    return valor
+    return str(valor)
+
+
+def _normalizar_ip_opcional(valor: Any) -> str | None:
+    """
+    Normaliza campos IP opcionais antes de persistir no Model.
+
+    Ausência pode chegar como None, "", "None", "null" ou "undefined".
+    GenericIPAddressField aceita None quando nullable, mas não essas sentinelas
+    representadas como texto.
+    """
+    if valor is None:
+        return None
+
+    texto = str(valor).strip()
+    if not texto or texto.lower() in {"none", "null", "undefined"}:
+        return None
+
+    return texto
 
 
 def _obter_configuracao_ativa(criar: bool = False) -> ConfiguracaoSuricata | None:
@@ -841,7 +873,7 @@ def onboarding_suricata(request):
     painel_disponivel = _configuracao_pode_abrir_painel(cfg)
 
     try:
-        st_onb = obter_status_onboarding(dto_cfg)
+        st_onb = _tornar_json_serializavel(obter_status_onboarding(dto_cfg))
     except Exception as exc:
         logger.exception("Falha ao determinar a etapa inicial do onboarding.")
         st_onb = {
@@ -850,7 +882,7 @@ def onboarding_suricata(request):
         }
 
     try:
-        plano = obter_plano_instalacao(dto_cfg)
+        plano = _tornar_json_serializavel(obter_plano_instalacao(dto_cfg))
     except Exception as exc:
         logger.exception("Falha na formatação preditiva do plano de implantação.")
         plano = {
@@ -1031,9 +1063,9 @@ def api_onboarding_status(request):
     dto_cfg = _configuracao_service(cfg)
     
     try:
-        onb = obter_status_onboarding(dto_cfg)
-        plano = obter_plano_instalacao(dto_cfg)
-        tipos_disp = obter_tipos_tarefa_disponiveis()
+        onb = _tornar_json_serializavel(obter_status_onboarding(dto_cfg))
+        plano = _tornar_json_serializavel(obter_plano_instalacao(dto_cfg))
+        tipos_disp = _tornar_json_serializavel(obter_tipos_tarefa_disponiveis())
         
         urls_nav = _urls_navegacao_suricata()
         painel_disponivel = _configuracao_pode_abrir_painel(cfg)
@@ -1263,7 +1295,8 @@ def api_salvar_configuracao(request):
             if "interface_mgmt" in dados_limpos: cfg_model.interface_mgmt = cfg_dto.interface_mgmt
             if "interfaces_monitoradas" in dados_limpos: cfg_model.interfaces_monitoradas = cfg_dto.interfaces_monitoradas
             if "home_net" in dados_limpos: cfg_model.home_net = cfg_dto.home_net
-            if "dns_interno" in dados_limpos: cfg_model.dns_interno = cfg_dto.dns_interno
+            if "dns_interno" in dados_limpos:
+                cfg_model.dns_interno = _normalizar_ip_opcional(cfg_dto.dns_interno)
             
             if "yaml_path" in dados_limpos: cfg_model.yaml_path = cfg_dto.yaml_path
             if "eve_path" in dados_limpos: cfg_model.eve_path = cfg_dto.eve_path

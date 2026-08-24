@@ -77,6 +77,11 @@ document.addEventListener('DOMContentLoaded', () => {
         bindReviewActions();
         bindInstallationActions();
         bindLeaveProtection();
+
+        // Sempre hidrata o ambiente ao carregar a página. Isso evita que valores
+        // brutos renderizados pelo backend (ex.: ResultadoEtapa(...)) permaneçam
+        // visíveis quando o usuário atualiza o navegador já dentro do wizard.
+        loadEnvironment(false).catch(() => {});
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -192,20 +197,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const payload = await requestJSON(url, { method: 'GET' });
             const data = unwrapData(payload);
 
-            const stack = data.stack || data.dados?.stack || data.status || data;
-            const env = stack.ambiente || data.ambiente || stack.environment || stack;
-            const sys = env.sistema || stack.sistema || {};
-            const suri = stack.suricata || data.suricata || env.suricata || {};
+            const stack = normaliseObject(data.stack || data.dados?.stack || data.status || data);
+            const env = normaliseObject(stack.ambiente || data.ambiente || stack.environment || stack);
+            const sys = normaliseObject(env.sistema || stack.sistema || {});
+            const suri = normaliseSuricataStatus(stack.suricata ?? data.suricata ?? env.suricata ?? {});
 
             const linux = readBoolean(sys, ['linux', 'eh_linux', 'is_linux'], false);
             const root = readBoolean(sys, ['root', 'privilegios', 'privilegiado', 'is_root'], false);
             const installed = readBoolean(suri, ['instalado'], false);
-            const version = firstText(suri.versao, env.versao_suricata, data.versao_suricata);
+            const version = firstText(suri.versao, suri.version, env.versao_suricata, data.versao_suricata);
 
             const checks = {
                 linux: { ok: linux, warning: !linux, value: linux ? 'Linux detectado' : 'Linux necessário' },
                 privilegios: { ok: root, warning: !root, value: root ? 'Privilégios disponíveis' : 'Execução privilegiada necessária' },
-                suricata: { ok: true, warning: false, value: installed ? (version || 'Instalado') : 'Será instalado' },
+                suricata: {
+                    ok: true,
+                    warning: false,
+                    value: installed ? (version ? `Suricata ${version}` : 'Suricata instalado') : 'Será instalado automaticamente'
+                },
             };
 
             Object.entries(checks).forEach(([name, check]) => setEnvironmentCheck(name, check));
@@ -218,17 +227,21 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el('btnStep2Next')) el('btnStep2Next').disabled = !state.environmentReady;
 
             if (state.environmentReady) {
-                setEnvironmentSummary('success', 'Ambiente pronto para continuar', installed ? `Suricata ${version || 'detectado'}` : 'Pré-requisitos validados com sucesso.');
-                updateSidebarSystem('ok', installed ? `Suricata ${version || 'ativo'}` : 'Ambiente compatível');
+                const summary = installed
+                    ? (version ? `Suricata ${version} detectado. O ambiente está pronto para continuar.` : 'Suricata detectado. O ambiente está pronto para continuar.')
+                    : 'Os pré-requisitos foram validados. O Suricata será instalado durante a execução.';
+                setEnvironmentSummary('success', 'Ambiente pronto para continuar', summary);
+                updateSidebarSystem('ok', installed ? (version ? `Suricata ${version}` : 'Suricata detectado') : 'Ambiente compatível');
             } else {
                 setEnvironmentSummary('error', 'O ambiente possui bloqueios', errors.join(' '));
-                showEnvironmentError(errors.join('<br>'));
+                showEnvironmentError(errors.join('\n'));
                 updateSidebarSystem('error', 'Incompatível');
             }
         } catch (error) {
             state.environmentReady = false;
-            setEnvironmentSummary('error', 'Falha ao verificar ambiente', error.message || 'API indisponível');
-            showEnvironmentError(error.message || 'Erro ao consultar o ambiente do servidor.');
+            const message = safeUserMessage(error?.message, 'Erro ao consultar o ambiente do servidor.');
+            setEnvironmentSummary('error', 'Falha ao verificar ambiente', message);
+            showEnvironmentError(message);
             updateSidebarSystem('error', 'Falha na verificação');
             if (el('btnStep2Next')) el('btnStep2Next').disabled = true;
         }
@@ -245,32 +258,50 @@ document.addEventListener('DOMContentLoaded', () => {
         if (icon) {
             icon.className = type === 'loading' ? 'spinner' : '';
             icon.innerHTML = type === 'loading' ? '' : iconSvg(type);
-            icon.style.color = type === 'success' ? 'var(--ok)' : type === 'error' ? 'var(--danger)' : 'inherit';
+            icon.style.color = type === 'success' ? 'var(--ok)' : type === 'error' ? 'var(--danger)' : type === 'warning' ? 'var(--warn)' : 'inherit';
             icon.style.border = type === 'loading' ? '' : 'none';
         }
-        setText('environmentSummaryTitle', title);
-        setText('environmentSummaryText', text);
+        setText('environmentSummaryTitle', safeDisplayText(title, 'Verificação do ambiente'));
+        setText('environmentSummaryText', safeDisplayText(text, ''));
     }
 
     function setEnvironmentCheck(name, check) {
         const row = document.querySelector(`[data-check="${cssEscape(name)}"]`);
         if (!row) return;
-        const status = row.querySelector('.info-card__icon');
-        const value = row.querySelector('div[id^="check"]');
-        
+
+        // Compatibilidade com as duas versões do HTML do onboarding.
+        const status = row.querySelector('.info-card__icon, .ob-check-row__status');
+        const value = row.querySelector('.ob-check-row__value, [id^="check"]');
+
         if (status) {
             status.style.background = 'transparent';
+            status.classList.remove(
+                'ob-check-row__status--pending',
+                'ob-check-row__status--ok',
+                'ob-check-row__status--warning',
+                'ob-check-row__status--error'
+            );
+
             if (check.pending) {
                 status.innerHTML = '<span class="spinner"></span>';
+                status.classList.add('ob-check-row__status--pending');
+                status.style.color = '';
             } else if (check.ok) {
                 status.innerHTML = iconSvg('check');
+                status.classList.add('ob-check-row__status--ok');
                 status.style.color = 'var(--ok)';
+            } else if (check.warning) {
+                status.innerHTML = iconSvg('warning');
+                status.classList.add('ob-check-row__status--warning');
+                status.style.color = 'var(--warn)';
             } else {
                 status.innerHTML = iconSvg('error');
+                status.classList.add('ob-check-row__status--error');
                 status.style.color = 'var(--danger)';
             }
         }
-        if (value) value.textContent = check.value || '—';
+
+        if (value) value.textContent = safeDisplayText(check.value, '—');
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -561,7 +592,7 @@ document.addEventListener('DOMContentLoaded', () => {
             interface_mgmt: el('fieldMgmt')?.value || '',
             interfaces_monitoradas: Array.from(state.selectedInterfaces),
             home_net: [...state.homeNet],
-            dns_interno: el('fieldDns')?.value.trim() || null,
+            dns_interno: el('fieldDns')?.value.trim() || '',
             yaml_path: el('fieldYamlPath')?.value.trim() || '/etc/suricata/suricata.yaml',
             eve_path: el('fieldEvePath')?.value.trim() || '/var/log/suricata/eve.json',
             modo_captura: getCaptureMode(),
@@ -998,8 +1029,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!res.ok || data?.ok === false) {
                 // Extrai o erro não importa como o backend retorne
-                const msg = data?.mensagem || data?.msg || data?.erro || data?.error || (data?.erros ? data.erros.join('<br>') : `Erro de requisição (HTTP ${res.status})`);
-                throw new Error(msg);
+                const rawMessage = data?.mensagem || data?.msg || data?.erro || data?.error || (Array.isArray(data?.erros) ? data.erros.join('\n') : `Erro de requisição (HTTP ${res.status})`);
+                throw new Error(safeUserMessage(rawMessage, `Erro de requisição (HTTP ${res.status})`));
             }
             return data;
         } catch (error) {
@@ -1048,7 +1079,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showEnvironmentError(msg) {
         if (el('environmentError')) el('environmentError').hidden = false;
         const textNode = el('environmentErrorText');
-        if (textNode) textNode.innerHTML = String(msg).replace(/\n/g, '<br>');
+        if (textNode) textNode.innerHTML = messageToSafeHtml(msg);
     }
 
     function clearEnvironmentError() {
@@ -1058,7 +1089,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showNetworkError(msg) {
         if (el('networkError')) el('networkError').hidden = false;
         const textNode = el('networkErrorText');
-        if (textNode) textNode.innerHTML = String(msg).replace(/\n/g, '<br>');
+        if (textNode) textNode.innerHTML = messageToSafeHtml(msg);
     }
 
     function clearNetworkError() {
@@ -1068,7 +1099,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showReviewError(msg) {
         if (el('reviewError')) el('reviewError').hidden = false;
         const textNode = el('reviewErrorText');
-        if (textNode) textNode.innerHTML = String(msg).replace(/\n/g, '<br>');
+        if (textNode) textNode.innerHTML = messageToSafeHtml(msg);
     }
 
     function clearReviewError() {
@@ -1110,9 +1141,109 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function normaliseObject(v) { return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {}; }
-    function firstText(...vals) { for (const v of vals) { const t = String(v || '').trim(); if (t) return t; } return ''; }
-    function readBoolean(obj, keys, fallback = false) { for (const k of keys) if (Object.hasOwn(obj || {}, k)) return Boolean(obj[k]); return fallback; }
+    function normaliseObject(v) {
+        return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+    }
+
+    function looksLikeInternalRepresentation(value) {
+        const text = String(value ?? '').trim();
+        if (!text) return false;
+        return /ResultadoEtapa\s*\(|<StatusEtapa\.|StatusEtapa\.|ConfiguracaoSuricataDados\s*\(|^\[object Object\]$/i.test(text);
+    }
+
+    function safeDisplayText(value, fallback = '') {
+        if (value === null || value === undefined) return fallback;
+        if (typeof value === 'object') return fallback;
+
+        const text = String(value).trim();
+        if (!text || looksLikeInternalRepresentation(text)) return fallback;
+        return text;
+    }
+
+    function safeUserMessage(value, fallback = 'Ocorreu um erro ao processar a solicitação.') {
+        const text = safeDisplayText(value, '');
+        if (!text) return fallback;
+
+        if (/Dificuldade técnica na gravação do modelo/i.test(text)) {
+            return 'Não foi possível salvar a configuração. Verifique os campos informados e tente novamente.';
+        }
+
+        return text;
+    }
+
+    function messageToSafeHtml(value) {
+        return escapeHtml(safeUserMessage(value, 'Não foi possível concluir esta operação.')).replace(/\n/g, '<br>');
+    }
+
+    function normaliseSuricataStatus(value) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const obj = value;
+            const dados = normaliseObject(obj.dados);
+            const servico = normaliseObject(obj.servico);
+            const resultado = normaliseObject(obj.resultado);
+
+            return {
+                ...dados,
+                ...servico,
+                ...resultado,
+                ...obj,
+                instalado: readBoolean(
+                    { ...dados, ...servico, ...resultado, ...obj },
+                    ['instalado', 'installed'],
+                    false
+                ),
+                versao: firstText(
+                    obj.versao,
+                    obj.version,
+                    dados.versao,
+                    dados.version,
+                    servico.versao,
+                    resultado.versao
+                ),
+            };
+        }
+
+        // Alguns retornos antigos chegavam como repr() Python:
+        // ResultadoEtapa(... dados={'instalado': False, 'versao': '...'} ...)
+        const raw = String(value ?? '').trim();
+        if (!raw) return {};
+
+        if (looksLikeInternalRepresentation(raw)) {
+            const instaladoMatch = raw.match(/['"]?instalado['"]?\s*:\s*(True|False|true|false)/);
+            const versaoMatch = raw.match(/['"]?versao['"]?\s*:\s*['"]([^'"]*)['"]/);
+            return {
+                instalado: instaladoMatch ? instaladoMatch[1].toLowerCase() === 'true' : false,
+                versao: versaoMatch ? versaoMatch[1].trim() : '',
+            };
+        }
+
+        return {};
+    }
+
+    function firstText(...vals) {
+        for (const value of vals) {
+            const text = safeDisplayText(value, '');
+            if (text) return text;
+        }
+        return '';
+    }
+
+    function readBoolean(obj, keys, fallback = false) {
+        for (const key of keys) {
+            if (!Object.hasOwn(obj || {}, key)) continue;
+            const value = obj[key];
+
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value !== 0;
+
+            const text = String(value ?? '').trim().toLowerCase();
+            if (['1', 'true', 'yes', 'sim', 'on', 'ativo', 'installed', 'instalado'].includes(text)) return true;
+            if (['0', 'false', 'no', 'nao', 'não', 'off', 'inativo', ''].includes(text)) return false;
+
+            return Boolean(value);
+        }
+        return fallback;
+    }
     function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
     
     function isValidIpv4(v) {

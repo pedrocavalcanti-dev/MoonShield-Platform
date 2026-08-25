@@ -985,12 +985,50 @@ class AlteracaoRede(TimeStampedModel):
     # STATUS HELPERS
     # -------------------------------------------------------------------------
 
+    @classmethod
+    def statuses_em_andamento(cls) -> tuple[str, ...]:
+        """
+        Estados que reservam exclusivamente o pipeline de alteração de Rede.
+
+        Enquanto existir qualquer alteração em um destes estados, nenhuma
+        outra operação mutável deve ser iniciada.
+        """
+        return (
+            cls.Status.CRIADA,
+            cls.Status.VALIDANDO,
+            cls.Status.APLICANDO,
+            cls.Status.AGUARDANDO_CONFIRMACAO,
+            cls.Status.ROLLBACK,
+        )
+
+    @classmethod
+    def statuses_finais(cls) -> tuple[str, ...]:
+        return (
+            cls.Status.CONFIRMADA,
+            cls.Status.REVERTIDA,
+            cls.Status.FALHOU,
+            cls.Status.CANCELADA,
+        )
+
+    @property
+    def em_andamento(self) -> bool:
+        return self.status in self.statuses_em_andamento()
+
     @property
     def aguardando_confirmacao(self) -> bool:
-        return (
-            self.status
-            == self.Status.AGUARDANDO_CONFIRMACAO
-        )
+        return self.status == self.Status.AGUARDANDO_CONFIRMACAO
+
+    @property
+    def pode_confirmar(self) -> bool:
+        return self.aguardando_confirmacao and not self.expirou
+
+    @property
+    def pode_rollback(self) -> bool:
+        return self.status in {
+            self.Status.APLICANDO,
+            self.Status.AGUARDANDO_CONFIRMACAO,
+            self.Status.ROLLBACK,
+        }
 
     @property
     def expirou(self) -> bool:
@@ -1001,22 +1039,16 @@ class AlteracaoRede(TimeStampedModel):
 
     @property
     def finalizada(self) -> bool:
-        return self.status in {
-            self.Status.CONFIRMADA,
-            self.Status.REVERTIDA,
-            self.Status.FALHOU,
-            self.Status.CANCELADA,
-        }
+        return self.status in self.statuses_finais()
 
     def adicionar_log(self, mensagem: str) -> None:
-        """
-        Acrescenta uma linha ao log da alteração.
-        """
+        """Acrescenta uma linha ao log da alteração."""
+        mensagem = str(mensagem or "").strip()
 
-        agora = timezone.localtime().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        if not mensagem:
+            return
 
+        agora = timezone.localtime().strftime("%Y-%m-%d %H:%M:%S")
         linha = f"[{agora}] {mensagem}"
 
         if self.log:
@@ -1024,48 +1056,62 @@ class AlteracaoRede(TimeStampedModel):
 
         self.log += linha
 
-    def marcar_aplicada(
-        self,
-        expira_em=None,
-    ) -> None:
-        agora = timezone.now()
+    def marcar_validando(self) -> None:
+        self.status = self.Status.VALIDANDO
+        self.iniciada_em = self.iniciada_em or timezone.now()
+        self.finalizada_em = None
+        self.erro = ""
 
+    def marcar_aplicando(self) -> None:
+        self.status = self.Status.APLICANDO
+        self.iniciada_em = self.iniciada_em or timezone.now()
+        self.finalizada_em = None
+
+    def marcar_aplicada(self, expira_em=None) -> None:
+        agora = timezone.now()
         self.aplicada_em = agora
+        self.erro = ""
 
         if self.requer_confirmacao:
-            self.status = (
-                self.Status.AGUARDANDO_CONFIRMACAO
-            )
+            self.status = self.Status.AGUARDANDO_CONFIRMACAO
             self.expira_em = expira_em
+            self.finalizada_em = None
         else:
             self.status = self.Status.CONFIRMADA
             self.confirmada_em = agora
             self.finalizada_em = agora
+            self.expira_em = None
 
-    def marcar_confirmada(
-        self,
-        usuario=None,
-    ) -> None:
+    def marcar_confirmada(self, usuario=None) -> None:
         agora = timezone.now()
-
         self.status = self.Status.CONFIRMADA
-        self.confirmada_em = agora
+        self.confirmada_em = self.confirmada_em or agora
         self.finalizada_em = agora
+        self.expira_em = None
+        self.erro = ""
 
         if usuario is not None:
             self.confirmado_por = usuario
 
-    def marcar_falha(
-        self,
-        mensagem: str,
-    ) -> None:
+    def marcar_rollback(self) -> None:
+        self.status = self.Status.ROLLBACK
+        self.rollback_em = self.rollback_em or timezone.now()
+        self.finalizada_em = None
+
+    def marcar_revertida(self) -> None:
+        agora = timezone.now()
+        self.status = self.Status.REVERTIDA
+        self.rollback_em = self.rollback_em or agora
+        self.finalizada_em = agora
+        self.expira_em = None
+        self.erro = ""
+
+    def marcar_falha(self, mensagem: str) -> None:
         self.status = self.Status.FALHOU
         self.erro = str(mensagem or "")
         self.finalizada_em = timezone.now()
-
-        self.adicionar_log(
-            f"FALHA: {self.erro}"
-        )
+        self.expira_em = None
+        self.adicionar_log(f"FALHA: {self.erro}")
 
 
 # =============================================================================

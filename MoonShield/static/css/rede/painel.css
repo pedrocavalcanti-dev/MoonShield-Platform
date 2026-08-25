@@ -709,7 +709,7 @@ code {
     background: rgba(255, 255, 255, .025);
 }
 
-.np-mini-status .np-agent-card__indicator > span {
+.np-mini-status .np-agent-card__indicator>span {
     width: 7px;
     height: 7px;
     border-radius: 50%;
@@ -717,18 +717,18 @@ code {
     box-shadow: none;
 }
 
-.np-mini-status .np-agent-card__indicator.is-online > span,
-.np-mini-status .np-agent-card__indicator.is-ok > span {
+.np-mini-status .np-agent-card__indicator.is-online>span,
+.np-mini-status .np-agent-card__indicator.is-ok>span {
     background: var(--np-green);
     box-shadow: 0 0 8px rgba(74, 222, 128, .26);
 }
 
-.np-mini-status .np-agent-card__indicator.is-pending > span {
+.np-mini-status .np-agent-card__indicator.is-pending>span {
     background: var(--np-yellow);
 }
 
-.np-mini-status .np-agent-card__indicator.is-offline > span,
-.np-mini-status .np-agent-card__indicator.is-error > span {
+.np-mini-status .np-agent-card__indicator.is-offline>span,
+.np-mini-status .np-agent-card__indicator.is-error>span {
     background: var(--np-red);
 }
 
@@ -779,7 +779,7 @@ code {
     white-space: nowrap;
 }
 
-.np-mini-status__details > span:not(.np-mini-status__separator) {
+.np-mini-status__details>span:not(.np-mini-status__separator) {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -864,6 +864,7 @@ code {
         padding-top: 8px;
     }
 }
+
 /* ==========================================================================
    15. SIDEBAR BACKDROP
 ========================================================================== */
@@ -871,9 +872,13 @@ code {
     position: fixed;
     inset: 0;
     z-index: 55;
-    background: rgba(4, 7, 11, .74);
-    backdrop-filter: blur(5px);
-    -webkit-backdrop-filter: blur(5px);
+    background: rgba(0, 0, 0, .42);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+[data-theme="light"] .np-sidebar-backdrop {
+    background: rgba(15, 23, 42, .16);
 }
 
 /* ==========================================================================
@@ -2890,198 +2895,5 @@ code {
         animation-duration: .01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: .01ms !important;
-    }
-}
-/* ==========================================================================
-   49. SIDEBAR — COLLAPSE DESKTOP
-   Integrado ao painel.css
-========================================================================== */
-
-:root {
-    --np-sidebar-collapsed-width: 72px;
-}
-
-/* ALAVANCA */
-.np-sidebar__collapse {
-    position: absolute;
-    top: 78px;
-    right: -12px;
-    z-index: 6;
-    width: 25px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: 1px solid var(--np-border-strong);
-    border-radius: 8px;
-    color: var(--np-muted);
-    background: var(--np-surface);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
-    cursor: pointer;
-    transition: color .18s ease, border-color .18s ease, background .18s ease, transform .22s ease;
-}
-
-.np-sidebar__collapse:hover {
-    color: var(--np-text);
-    border-color: var(--np-faint);
-    background: var(--np-surface-hover);
-}
-
-.np-sidebar__collapse:active {
-    transform: translateY(1px);
-}
-
-.np-sidebar__collapse svg {
-    transition: transform .24s ease;
-}
-
-/* Transição da largura */
-.np-sidebar {
-    transition: width var(--np-slow) var(--np-ease), padding var(--np-slow) var(--np-ease), transform var(--np-slow) var(--np-ease);
-}
-
-/* ESTADO RECOLHIDO */
-html.np-sidebar-collapsed {
-    --np-sidebar-width: var(--np-sidebar-collapsed-width);
-}
-
-html.np-sidebar-collapsed .np-sidebar {
-    padding-left: 10px;
-    padding-right: 10px;
-}
-
-html.np-sidebar-collapsed .np-sidebar__collapse svg {
-    transform: rotate(180deg);
-}
-
-/* MARCA */
-html.np-sidebar-collapsed .np-sidebar__head {
-    justify-content: center;
-}
-
-html.np-sidebar-collapsed .np-brand {
-    justify-content: center;
-    gap: 0;
-}
-
-html.np-sidebar-collapsed .np-brand__copy {
-    display: none;
-}
-
-/* TÍTULOS DOS GRUPOS */
-html.np-sidebar-collapsed .np-sidebar__section-label {
-    height: 13px;
-    min-height: 13px;
-    margin: 8px 0 5px;
-    padding: 0;
-    overflow: hidden;
-    font-size: 0;
-    line-height: 0;
-}
-
-html.np-sidebar-collapsed .np-sidebar__section-label::after {
-    content: "";
-    display: block;
-    width: 24px;
-    height: 1px;
-    margin: 6px auto 0;
-    background: var(--np-border);
-}
-
-/* NAVEGAÇÃO */
-html.np-sidebar-collapsed .np-nav {
-    align-items: center;
-}
-
-html.np-sidebar-collapsed .np-nav__item {
-    position: relative;
-    width: 44px;
-    min-width: 44px;
-    height: 42px;
-    min-height: 42px;
-    justify-content: center;
-    gap: 0;
-    margin-left: auto;
-    margin-right: auto;
-    padding: 0;
-}
-
-html.np-sidebar-collapsed .np-nav__item > .np-nav__label,
-html.np-sidebar-collapsed .np-nav__item > span:not(.np-nav__icon):not(.np-nav__badge) {
-    display: none;
-}
-
-html.np-sidebar-collapsed .np-nav__icon {
-    width: auto;
-    flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-}
-
-html.np-sidebar-collapsed .np-nav__badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    min-width: 15px;
-    height: 15px;
-    margin: 0;
-    padding: 0 3px;
-    font-size: 6px;
-}
-
-/* STATUS INFERIOR */
-html.np-sidebar-collapsed .np-sidebar__bottom {
-    align-items: center;
-}
-
-html.np-sidebar-collapsed .np-mini-status {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
-    display: grid;
-    grid-template-columns: 1fr;
-    place-items: center;
-    gap: 0;
-    margin-left: auto;
-    margin-right: auto;
-    padding: 0;
-}
-
-html.np-sidebar-collapsed .np-mini-status__content,
-html.np-sidebar-collapsed .np-mini-status__copy,
-html.np-sidebar-collapsed .np-mini-status__meta {
-    display: none !important;
-}
-
-html.np-sidebar-collapsed .np-mini-status .np-agent-card__indicator {
-    margin: 0;
-}
-
-/* RODAPÉ */
-html.np-sidebar-collapsed .np-sidebar__footer {
-    justify-content: center;
-}
-
-html.np-sidebar-collapsed .np-sidebar__version {
-    display: none;
-}
-
-/* LIGHT */
-[data-theme="light"] .np-sidebar__collapse {
-    color: var(--np-muted);
-    background: #ffffff;
-    box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
-}
-
-[data-theme="light"] .np-sidebar__collapse:hover {
-    color: var(--np-text);
-    background: var(--np-surface-soft);
-}
-
-/* MOBILE — mantém o drawer tradicional */
-@media (max-width: 920px) {
-    .np-sidebar__collapse {
-        display: none !important;
     }
 }

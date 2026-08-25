@@ -25,7 +25,8 @@ import { notificacao } from './notificacoes.js';
 
 const POLL_INTERVAL = 4000;
 const CRITICAL_SECONDS = 15;
-const RECONCILIATION_RETRY = 2500;
+const RECONCILIATION_RETRY = 10000;
+const RECONCILIATION_INITIAL_DELAY = 600;
 
 const STATUS_ATIVOS = new Set([
     'created',
@@ -232,15 +233,26 @@ function sincronizar(alteracao) {
 
     if (alteracaoAguardaConfirmacao(alteracao)) {
         if (trocouAlteracao || !countdownTimer) prepararTempo(alteracao);
+
         atualizarInterface(alteracao);
         setHidden(elementos.activeCard, false);
-        iniciarCountdown();
+
+        const segundos = obterSegundosRestantes(alteracao);
+
+        if (segundos <= 0) {
+            pararCountdown();
+            pararPolling();
+            marcarPrazoExpirado();
+            agendarNovaReconciliacao(RECONCILIATION_INITIAL_DELAY);
+        } else {
+            iniciarCountdown();
+            iniciarPolling();
+        }
     } else {
         pararCountdown();
         setHidden(elementos.activeCard, true);
+        iniciarPolling();
     }
-
-    iniciarPolling();
 }
 
 
@@ -321,8 +333,9 @@ function iniciarCountdown() {
 
         if (obterSegundosRestantes(alteracaoAtiva) <= 0) {
             pararCountdown();
+            pararPolling();
             marcarPrazoExpirado();
-            reconciliarAposExpiracao();
+            agendarNovaReconciliacao(RECONCILIATION_INITIAL_DELAY);
         }
     }, 1000);
 }
@@ -397,18 +410,31 @@ async function reconciliarAposExpiracao() {
 
     try {
         const url = urlReconciliar();
+
         if (url) {
             try {
                 await api.post(url, {});
             } catch (error) {
-                console.warn('[MoonShield Network] Reconciliação automática não respondeu:', error);
+                console.warn(
+                    '[MoonShield Network] Reconciliação automática não respondeu:',
+                    error
+                );
             }
         }
 
-        const atualizada = await consultarEstadoAtual({ silencioso: true });
+        const atualizada = await consultarEstadoAtual({
+            silencioso: true,
+            reagendarExpirada: false,
+        });
 
-        if (atualizada && alteracaoEmAndamento(atualizada)) {
-            agendarNovaReconciliacao();
+        if (
+            atualizada &&
+            alteracaoAguardaConfirmacao(atualizada) &&
+            obterSegundosRestantes(atualizada) <= 0
+        ) {
+            agendarNovaReconciliacao(RECONCILIATION_RETRY);
+        } else if (atualizada && alteracaoEmAndamento(atualizada)) {
+            iniciarPolling();
         }
 
         return atualizada;
@@ -419,16 +445,20 @@ async function reconciliarAposExpiracao() {
 }
 
 
-function agendarNovaReconciliacao() {
+function agendarNovaReconciliacao(delay = RECONCILIATION_RETRY) {
     if (reconciliationTimer) return;
 
     reconciliationTimer = window.setTimeout(() => {
         reconciliationTimer = null;
 
-        if (alteracaoAtiva && alteracaoEmAndamento(alteracaoAtiva)) {
+        if (
+            alteracaoAtiva &&
+            alteracaoAguardaConfirmacao(alteracaoAtiva) &&
+            obterSegundosRestantes(alteracaoAtiva) <= 0
+        ) {
             reconciliarAposExpiracao();
         }
-    }, RECONCILIATION_RETRY);
+    }, Math.max(500, Number(delay) || RECONCILIATION_RETRY));
 }
 
 
@@ -624,7 +654,7 @@ function pararPolling() {
 }
 
 
-async function consultarEstadoAtual({ silencioso = false } = {}) {
+async function consultarEstadoAtual({ silencioso = false, reagendarExpirada = true } = {}) {
     const id = obterId(alteracaoAtiva);
     if (!id) return null;
 
@@ -635,7 +665,20 @@ async function consultarEstadoAtual({ silencioso = false } = {}) {
         if (!alteracao) return null;
 
         if (alteracaoEmAndamento(alteracao)) {
-            sincronizar(alteracao);
+            if (
+                !reagendarExpirada &&
+                alteracaoAguardaConfirmacao(alteracao) &&
+                obterSegundosRestantes(alteracao) <= 0
+            ) {
+                alteracaoAtiva = alteracao;
+                estado.set('alteracoes.ativa', alteracao);
+                atualizarInterface(alteracao);
+                marcarPrazoExpirado();
+                atualizarLockGlobal();
+            } else {
+                sincronizar(alteracao);
+            }
+
             return alteracao;
         }
 

@@ -524,6 +524,7 @@ def _montar_payload_agent(alteracao: AlteracaoRede) -> dict:
         timeout = 0
 
     return {
+        "alteracao_id": str(alteracao.id),
         "change_id": str(alteracao.id),
         "type": alteracao.tipo,
         "safe_apply": True,
@@ -1018,38 +1019,54 @@ def reconciliar_alteracao(alteracao_id: str | UUID) -> AlteracaoRede:
 
     Nenhum rollback é disparado aqui. O Agent continua sendo a autoridade
     sobre timeout e recuperação de conectividade.
+
+    Se o Agent disser explicitamente que a operação não existe mais, o registro
+    local é encerrado como falha órfã para não bloquear a Rede indefinidamente.
+    Falha de comunicação/timeout não é considerada operação órfã.
     """
     alteracao = obter_alteracao(alteracao_id)
 
     if alteracao.finalizada:
         return alteracao
 
-    # Alteração apenas criada ainda não foi enviada ao Agent.
     if alteracao.status == AlteracaoRede.Status.CRIADA:
         return alteracao
 
-    resultado = requisitar_agent(
-        "network.change.status",
-        _payload_operacao_agent(alteracao),
-    )
+    try:
+        resultado = requisitar_agent(
+            "network.change.status",
+            _payload_operacao_agent(alteracao),
+        )
+    except Exception as exc:
+        if _erro_indica_alteracao_orfa(exc):
+            _marcar_orfa_por_agent(alteracao.id, motivo=str(exc))
+            return obter_alteracao(alteracao.id)
+        raise
 
     if not isinstance(resultado, dict):
         return alteracao
 
     estado_agent = _normalizar_estado_agent(resultado)
 
-    if estado_agent in {"reverted", "rolled_back"}:
+    if _resultado_indica_alteracao_orfa(resultado, estado_agent):
+        _marcar_orfa_por_agent(
+            alteracao.id,
+            motivo=str(
+                resultado.get("message")
+                or resultado.get("mensagem")
+                or resultado.get("error")
+                or "MoonShield-Agent não possui mais esta operação."
+            ),
+            resultado=resultado,
+        )
+    elif estado_agent in {"reverted", "rolled_back"}:
         _marcar_revertida_por_agent(alteracao.id, resultado)
-
     elif estado_agent in {"confirmed", "committed"}:
         _marcar_confirmada_por_agent(alteracao.id, resultado)
-
     elif estado_agent in {"failed", "error"}:
         _marcar_falha_por_agent(alteracao.id, resultado)
-
     elif estado_agent in {"rollback", "rolling_back"}:
         _marcar_rollback_por_agent(alteracao.id, resultado)
-
     elif estado_agent in {"waiting_confirmation", "waiting", "armed"}:
         _atualizar_estado_aguardando_por_agent(alteracao.id, resultado)
 
@@ -1188,6 +1205,7 @@ def _payload_operacao_agent(
     resultado = alteracao.resultado_agent or {}
 
     return {
+        "alteracao_id": str(alteracao.id),
         "change_id": str(alteracao.id),
         "operation_id": resultado.get("operation_id"),
         "confirmation_token": resultado.get("confirmation_token"),
@@ -1332,6 +1350,139 @@ def _registrar_aviso_snapshot(
         codigo="network_snapshot_persistence_warning",
         titulo="Snapshot de auditoria não persistido",
         mensagem=str(exc),
+        alteracao=alteracao,
+        usuario=alteracao.solicitado_por,
+    )
+
+
+# =============================================================================
+# RECONCILIAÇÃO — OPERAÇÃO ÓRFÃ
+# =============================================================================
+
+def _erro_indica_alteracao_orfa(exc: Exception) -> bool:
+    codigo = str(getattr(exc, "codigo", "") or "").strip().lower()
+    detalhes = getattr(exc, "detalhes", {}) or {}
+
+    texto = " ".join([
+        str(exc),
+        codigo,
+        str(detalhes.get("erro", "") or ""),
+        str(detalhes.get("mensagem", "") or ""),
+        str(detalhes.get("message", "") or ""),
+        str(detalhes.get("codigo", "") or ""),
+    ]).lower()
+
+    codigos = {
+        "alteracao_nao_encontrada",
+        "alteracao_rede_nao_encontrada",
+        "network_change_not_found",
+        "change_not_found",
+        "operation_not_found",
+        "operacao_nao_encontrada",
+    }
+
+    if codigo in codigos:
+        return True
+
+    termos = (
+        "alteração não encontrada",
+        "alteracao nao encontrada",
+        "operação não encontrada",
+        "operacao nao encontrada",
+        "operation not found",
+        "change not found",
+        "unknown change",
+        "unknown operation",
+    )
+
+    return any(termo in texto for termo in termos)
+
+
+def _resultado_indica_alteracao_orfa(resultado: dict, estado_agent: str) -> bool:
+    if estado_agent in {"not_found", "missing", "unknown", "orphaned", "orphan"}:
+        return True
+
+    codigo = str(
+        resultado.get("code")
+        or resultado.get("codigo")
+        or ""
+    ).strip().lower()
+
+    if codigo in {
+        "alteracao_nao_encontrada",
+        "alteracao_rede_nao_encontrada",
+        "network_change_not_found",
+        "change_not_found",
+        "operation_not_found",
+        "operacao_nao_encontrada",
+    }:
+        return True
+
+    texto = " ".join(
+        str(resultado.get(chave) or "")
+        for chave in ("message", "mensagem", "error", "erro", "detail", "detalhe")
+    ).lower()
+
+    termos = (
+        "alteração não encontrada",
+        "alteracao nao encontrada",
+        "operação não encontrada",
+        "operacao nao encontrada",
+        "operation not found",
+        "change not found",
+        "unknown change",
+        "unknown operation",
+    )
+
+    return any(termo in texto for termo in termos)
+
+
+def _marcar_orfa_por_agent(
+    alteracao_id,
+    *,
+    motivo: str,
+    resultado: dict | None = None,
+) -> None:
+    mensagem = (
+        "Estado órfão reconciliado: a alteração estava ativa no PostgreSQL, "
+        "mas o MoonShield-Agent informou que a operação não existe mais."
+    )
+
+    if motivo:
+        mensagem = f"{mensagem} Agent: {motivo}"
+
+    with transaction.atomic():
+        alteracao = obter_alteracao(alteracao_id, bloquear=True)
+
+        if alteracao.finalizada:
+            return
+
+        alteracao.marcar_falha(mensagem)
+        alteracao.expira_em = None
+        alteracao.resultado_agent = {
+            **(alteracao.resultado_agent or {}),
+            "reconciliation": resultado or {},
+            "orphaned": True,
+            "orphan_reason": motivo,
+        }
+        alteracao.adicionar_log(mensagem)
+        alteracao.save(
+            update_fields=[
+                "status",
+                "erro",
+                "finalizada_em",
+                "expira_em",
+                "resultado_agent",
+                "log",
+                "atualizado_em",
+            ]
+        )
+
+    registrar_evento(
+        nivel=NivelEventoRede.ERROR.value,
+        codigo="network_change_orphaned",
+        titulo="Alteração de rede órfã reconciliada",
+        mensagem=mensagem,
         alteracao=alteracao,
         usuario=alteracao.solicitado_por,
     )

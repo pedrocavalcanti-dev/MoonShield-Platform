@@ -3103,3 +3103,48 @@ html.np-sidebar-collapsed .np-sidebar__version {
         display: none !important;
     }
 }
+
+
+/* ==========================================================================
+   FIX FINAL — SCROLL VERTICAL DA SIDEBAR
+   Em resoluções/zoom menores, a sidebar possui rolagem própria.
+========================================================================== */
+
+.np-sidebar {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+}
+
+/* Impede os blocos da sidebar de encolherem em alturas pequenas. */
+.np-sidebar__head,
+.np-sidebar__section-label,
+.np-nav,
+.np-sidebar__bottom {
+    flex-shrink: 0;
+}
+
+/*
+ * Como a sidebar agora possui overflow vertical,
+ * a alavanca fica dentro da própria borda para não ser recortada.
+ */
+.np-sidebar__collapse {
+    right: 7px;
+}
+
+/* Mantém o fechamento mobile acessível normalmente. */
+@media (max-width: 920px) {
+    .np-sidebar {
+        height: 100dvh;
+        max-height: 100dvh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .np-sidebar__collapse {
+        display: none !important;
+    }
+}

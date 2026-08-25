@@ -4,19 +4,6 @@
  *
  * Orquestrador principal do frontend da Rede.
  *
- * Responsabilidades:
- * - inicializar o painel;
- * - controlar navegação;
- * - carregar estado inicial;
- * - sincronizar status global;
- * - controlar sidebar mobile;
- * - disparar atualização global;
- * - detectar interfaces;
- * - aplicar configuração completa;
- * - integrar módulos de seção;
- * - restaurar seção pela URL;
- * - acompanhar Safe Apply pendente.
- *
  * Nenhum fetch direto deve ser adicionado aqui.
  * Comunicação HTTP pertence a nucleo/api.js.
  */
@@ -48,7 +35,6 @@ import { alteracoes } from './secoes/alteracoes.js';
 const CONFIG = {
     secaoInicial: 'visao-geral',
     intervaloStatus: 30000,
-    intervaloAlteracaoAtiva: 5000,
     hashPrefix: '#',
 };
 
@@ -70,6 +56,7 @@ const MODULOS = {
 
 let inicializado = false;
 let carregando = false;
+let aplicandoTudo = false;
 let statusTimer = null;
 
 
@@ -108,14 +95,19 @@ async function iniciarPainel() {
     ativarSecao(secaoInicial, { atualizarHash: false });
 
     await carregarEstadoInicial();
+
+    // A operação ativa precisa ser conhecida antes de liberar qualquer mutação.
+    await verificarAlteracaoAtiva();
+
     iniciarAtualizacaoPeriodica();
+    atualizarEstadoControles();
 
     document.documentElement.classList.add('network-panel-ready');
 }
 
 
 /* ==========================================================================
-   INFRAESTRUTURA
+   INFRAESTRUTURA / MÓDULOS
 ========================================================================== */
 
 function inicializarInfraestrutura() {
@@ -125,10 +117,6 @@ function inicializarInfraestrutura() {
     safeApply.inicializar();
 }
 
-
-/* ==========================================================================
-   MÓDULOS
-========================================================================== */
 
 function inicializarModulos() {
     Object.entries(MODULOS).forEach(([nome, modulo]) => {
@@ -147,7 +135,7 @@ function inicializarModulos() {
 
 
 /* ==========================================================================
-   CACHE
+   CACHE / EVENTOS
 ========================================================================== */
 
 function cachearElementos() {
@@ -165,10 +153,6 @@ function cachearElementos() {
 }
 
 
-/* ==========================================================================
-   EVENTOS
-========================================================================== */
-
 function registrarEventosGlobais() {
     elementos.refreshButton?.addEventListener('click', atualizarTudo);
     elementos.overviewRefreshButton?.addEventListener('click', atualizarTudo);
@@ -184,12 +168,17 @@ function registrarEventosGlobais() {
     });
 
     window.addEventListener('focus', () => {
-        if (!document.hidden) atualizarStatusSilencioso();
+        if (!document.hidden) atualizarStatusSilencioso({ verificarAtiva: true });
     });
 
     document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) atualizarStatusSilencioso();
+        if (!document.hidden) atualizarStatusSilencioso({ verificarAtiva: true });
     });
+
+    document.addEventListener('moonshield:network-lock-change', atualizarEstadoControles);
+    document.addEventListener('moonshield:safe-apply-finished', atualizarEstadoControles);
+    document.addEventListener('moonshield:safe-apply-confirmed', atualizarEstadoControles);
+    document.addEventListener('moonshield:safe-apply-rollback', atualizarEstadoControles);
 
     window.addEventListener('beforeunload', () => {
         pararAtualizacaoPeriodica();
@@ -327,7 +316,10 @@ async function carregarStatus({ silencioso = false } = {}) {
         atualizarStatusAgent({ online: false, erro });
 
         if (!silencioso) {
-            notificacao.erro('Agent indisponível', erro.mensagem || 'Não foi possível consultar o MoonShield Agent.');
+            notificacao.erro(
+                'Agent indisponível',
+                erro.mensagem || 'Não foi possível consultar o MoonShield Agent.'
+            );
         }
 
         throw error;
@@ -335,10 +327,16 @@ async function carregarStatus({ silencioso = false } = {}) {
 }
 
 
-async function atualizarStatusSilencioso() {
+async function atualizarStatusSilencioso({ verificarAtiva = false } = {}) {
     try {
         await carregarStatus({ silencioso: true });
-        await verificarAlteracaoAtiva();
+
+        // O Safe Apply possui polling próprio enquanto há operação conhecida.
+        // Só procuramos uma operação global quando necessário.
+        if (verificarAtiva || !safeApply.ativo?.()) {
+            await verificarAlteracaoAtiva();
+        }
+
         atualizarHorario();
     } catch {
         // Atualização silenciosa não deve gerar erro visual recorrente.
@@ -347,7 +345,7 @@ async function atualizarStatusSilencioso() {
 
 
 /* ==========================================================================
-   AGENT
+   AGENT / BADGES
 ========================================================================== */
 
 function atualizarStatusAgent(agent = {}) {
@@ -355,16 +353,18 @@ function atualizarStatusAgent(agent = {}) {
     const status = elementos.topbarAgentStatus;
 
     if (status) {
-        status.classList.remove('np-status-pill--ok', 'np-status-pill--warning', 'np-status-pill--error', 'np-status-pill--pending');
+        status.classList.remove(
+            'np-status-pill--ok',
+            'np-status-pill--warning',
+            'np-status-pill--error',
+            'np-status-pill--pending'
+        );
         status.classList.add(online ? 'np-status-pill--ok' : 'np-status-pill--error');
         status.dataset.status = online ? 'online' : 'offline';
-
-        const texto = online ? 'Agent Online' : 'Agent Offline';
-        status.innerHTML = `<span class="np-status-dot"></span>${texto}`;
+        status.innerHTML = `<span class="np-status-dot"></span>${online ? 'Agent Online' : 'Agent Offline'}`;
     }
 
     atualizarStatusSidebarAgent(agent);
-
     document.documentElement.dataset.agent = online ? 'online' : 'offline';
 }
 
@@ -390,10 +390,6 @@ function atualizarStatusSidebarAgent(agent = {}) {
 }
 
 
-/* ==========================================================================
-   BADGES
-========================================================================== */
-
 function atualizarBadgesGlobais(dados = {}) {
     const totalInterfaces = Number(dados.interfaces?.total || 0);
     const pendentes = Number(dados.alteracoes?.pendentes || 0);
@@ -406,6 +402,31 @@ function atualizarBadgesGlobais(dados = {}) {
 
     setText(changesBadge, pendentes);
     setHidden(changesBadge, pendentes <= 0);
+}
+
+
+/* ==========================================================================
+   CONTROLES / LOCK GLOBAL
+========================================================================== */
+
+function atualizarEstadoControles() {
+    const bloqueado = Boolean(safeApply.ocupado?.());
+    const agentOnline = Boolean(estado.get('agent.online'));
+
+    estado.set('ui.redeBloqueada', bloqueado);
+
+    if (elementos.applyAllButton) {
+        elementos.applyAllButton.disabled = bloqueado || aplicandoTudo || carregando || !agentOnline;
+        elementos.applyAllButton.setAttribute('aria-disabled', elementos.applyAllButton.disabled ? 'true' : 'false');
+
+        if (bloqueado) {
+            elementos.applyAllButton.title = 'Existe uma alteração de rede em andamento.';
+        } else {
+            elementos.applyAllButton.removeAttribute('title');
+        }
+    }
+
+    document.documentElement.classList.toggle('network-mutation-locked', bloqueado);
 }
 
 
@@ -430,6 +451,7 @@ async function atualizarTudo() {
         const falhas = resultados.filter(item => item.status === 'rejected');
 
         sincronizarModulos();
+        await verificarAlteracaoAtiva();
         atualizarHorario();
 
         if (falhas.length) {
@@ -442,6 +464,7 @@ async function atualizarTudo() {
     } finally {
         carregando = false;
         definirCarregamentoGlobal(false);
+        atualizarEstadoControles();
     }
 }
 
@@ -463,6 +486,12 @@ async function detectarInterfaces() {
         estado.set('interfaces.lista', Array.isArray(dados.interfaces) ? dados.interfaces : []);
         estado.set('interfaces.backend', dados.backend || null);
 
+        const ativa = dados.alteracao_ativa;
+        if (ativa) {
+            estado.set('alteracoes.ativa', ativa);
+            safeApply.sincronizar?.(ativa);
+        }
+
         interfaces.renderizar?.();
         visaoGeral.atualizarInterfaces?.();
         atualizarResumoBackend();
@@ -478,6 +507,7 @@ async function detectarInterfaces() {
         exibirErroOperacao(error, 'Não foi possível detectar as interfaces do sistema.');
     } finally {
         botoes.forEach(botao => definirBotaoCarregando(botao, false));
+        atualizarEstadoControles();
     }
 }
 
@@ -487,9 +517,17 @@ async function detectarInterfaces() {
 ========================================================================== */
 
 async function aplicarTudo() {
-    if (safeApply.ativo?.()) {
-        notificacao.aviso('Alteração pendente', 'Confirme ou reverta a alteração atual antes de aplicar outra.');
-        return;
+    if (aplicandoTudo || safeApply.ocupado?.()) {
+        const ativa = safeApply.obterAlteracaoAtiva?.();
+
+        notificacao.aviso(
+            'Alteração em andamento',
+            ativa?.titulo
+                ? `${ativa.titulo}. Confirme ou reverta antes de iniciar outra operação.`
+                : 'Confirme ou reverta a alteração atual antes de aplicar outra.'
+        );
+
+        return false;
     }
 
     const confirmado = await safeApply.confirmarOperacao?.({
@@ -499,39 +537,80 @@ async function aplicarTudo() {
         perigoso: false,
     });
 
-    if (confirmado === false) return;
+    if (confirmado === false) return false;
 
+    // Lock local ANTES do POST. Isso fecha a janela de duplo clique/request.
+    if (!safeApply.reservarOperacao?.('apply-all')) {
+        notificacao.aviso(
+            'Alteração em andamento',
+            'Outra operação de rede foi iniciada. Aguarde a conclusão.'
+        );
+        return false;
+    }
+
+    aplicandoTudo = true;
+    atualizarEstadoControles();
     definirBotaoCarregando(elementos.applyAllButton, true);
 
+    safeApply.mostrarOperacao?.({
+        titulo: 'Aplicando configuração de rede',
+        descricao: 'Validando o estado desejado, preparando snapshot e armando o rollback.',
+    });
+
     try {
-        safeApply.mostrarOperacao?.({
-            titulo: 'Aplicando configuração de rede',
-            descricao: 'O MoonShield está preparando uma alteração segura.',
-        });
-
         const resposta = await api.post(api.urls.aplicarTudo, {});
-        const alteracao = resposta?.dados?.alteracao;
+        const alteracao = resposta?.dados?.alteracao || resposta?.dados?.ativa;
 
-        safeApply.ocultarOperacao?.();
-
-        if (!alteracao) throw new Error('A API não retornou os dados da alteração.');
+        if (!alteracao) {
+            throw new Error('A API não retornou os dados da alteração.');
+        }
 
         estado.set('alteracoes.ativa', alteracao);
-
         alteracoes.atualizarAlteracao?.(alteracao);
-        safeApply.abrir?.(alteracao);
+
+        safeApply.ocultarOperacao?.();
+        safeApply.sincronizar?.(alteracao);
+
+        if (String(alteracao.status || '') === 'waiting_confirmation') {
+            safeApply.abrir?.(alteracao);
+
+            notificacao.aviso(
+                'Confirmação necessária',
+                'A configuração foi aplicada. Confirme o acesso antes do término do Safe Apply.'
+            );
+        }
 
         await atualizarDepoisDeAlteracao();
 
-        notificacao.aviso(
-            'Confirmação necessária',
-            'A configuração foi aplicada. Confirme o acesso antes do término do rollback.'
-        );
+        return true;
     } catch (error) {
         safeApply.ocultarOperacao?.();
+
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+
+            notificacao.aviso(
+                'Alteração já em andamento',
+                existente.titulo
+                    ? `${existente.titulo} precisa ser concluída antes de iniciar outra.`
+                    : 'Existe uma alteração de rede que precisa ser concluída.'
+            );
+
+            await atualizarDepoisDeAlteracao();
+            return false;
+        }
+
+        safeApply.liberarReserva?.();
         exibirErroOperacao(error, 'Não foi possível aplicar a configuração completa.');
+
+        return false;
     } finally {
+        aplicandoTudo = false;
         definirBotaoCarregando(elementos.applyAllButton, false);
+        atualizarEstadoControles();
     }
 }
 
@@ -541,21 +620,32 @@ async function aplicarTudo() {
 ========================================================================== */
 
 async function verificarAlteracaoAtiva() {
+    // Se já conhecemos uma alteração ativa, o polling do Safe Apply é a fonte
+    // primária. Evita requests duplicados no mesmo intervalo.
+    if (safeApply.ativo?.()) {
+        return safeApply.obterAlteracaoAtiva?.() || null;
+    }
+
     try {
         const alteracao = await alteracoes.buscarAlteracaoAtiva?.();
 
         if (!alteracao) {
-            estado.set('alteracoes.ativa', null);
-            safeApply.fecharSeInativo?.();
+            if (!safeApply.reservado?.()) {
+                estado.set('alteracoes.ativa', null);
+                safeApply.fecharSeInativo?.();
+            }
+
+            atualizarEstadoControles();
             return null;
         }
 
         estado.set('alteracoes.ativa', alteracao);
         safeApply.sincronizar?.(alteracao);
+        atualizarEstadoControles();
 
         return alteracao;
     } catch (error) {
-        console.warn('[MoonShield Network] Não foi possível reconciliar alteração ativa:', error);
+        console.warn('[MoonShield Network] Não foi possível verificar alteração ativa:', error);
         return null;
     }
 }
@@ -576,7 +666,13 @@ async function atualizarDepoisDeAlteracao() {
     });
 
     sincronizarModulos();
+
+    const ativa = estado.get('alteracoes.ativa');
+    if (ativa) safeApply.sincronizar?.(ativa);
+    else await verificarAlteracaoAtiva();
+
     atualizarHorario();
+    atualizarEstadoControles();
 }
 
 
@@ -594,6 +690,8 @@ function sincronizarModulos() {
 
     const ativa = estado.get('alteracoes.ativa');
     if (ativa) safeApply.sincronizar?.(ativa);
+
+    atualizarEstadoControles();
 }
 
 
@@ -612,7 +710,7 @@ function atualizarResumoBackend() {
 
 
 /* ==========================================================================
-   LOADING GLOBAL
+   LOADING
 ========================================================================== */
 
 function definirCarregamentoGlobal(ativo) {
@@ -620,12 +718,10 @@ function definirCarregamentoGlobal(ativo) {
     elementos.refreshButton?.classList.toggle('is-loading', Boolean(ativo));
 
     if (elementos.refreshButton) elementos.refreshButton.disabled = Boolean(ativo);
+
+    atualizarEstadoControles();
 }
 
-
-/* ==========================================================================
-   LOADING DE BOTÃO
-========================================================================== */
 
 function definirBotaoCarregando(botao, ativo) {
     if (!botao) return;
@@ -638,18 +734,19 @@ function definirBotaoCarregando(botao, ativo) {
         return;
     }
 
-    botao.disabled = false;
     botao.classList.remove('is-loading');
 
     if (botao.dataset.originalHtml) {
         botao.innerHTML = botao.dataset.originalHtml;
         delete botao.dataset.originalHtml;
     }
+
+    if (botao !== elementos.applyAllButton) botao.disabled = false;
 }
 
 
 /* ==========================================================================
-   HORÁRIO
+   HORÁRIO / TIMERS
 ========================================================================== */
 
 function atualizarHorario() {
@@ -659,19 +756,13 @@ function atualizarHorario() {
 }
 
 
-/* ==========================================================================
-   TIMERS
-========================================================================== */
-
 function iniciarAtualizacaoPeriodica() {
     pararAtualizacaoPeriodica();
 
     statusTimer = window.setInterval(() => {
         if (document.hidden) return;
-        atualizarStatusSilencioso();
+        atualizarStatusSilencioso({ verificarAtiva: false });
     }, CONFIG.intervaloStatus);
-
-    verificarAlteracaoAtiva();
 }
 
 
@@ -721,6 +812,7 @@ window.MoonShieldNetwork = {
     carregarStatus,
     verificarAlteracaoAtiva,
     atualizarDepoisDeAlteracao,
+    atualizarEstadoControles,
     estado,
 };
 

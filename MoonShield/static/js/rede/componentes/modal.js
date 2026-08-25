@@ -20,6 +20,7 @@ let inicializado = false;
 let modalAtual = null;
 let focoAnterior = null;
 let confirmacaoAtual = null;
+const focoAnteriorPorModal = new WeakMap();
 
 
 /* ==========================================================================
@@ -31,9 +32,18 @@ export function inicializarModal() {
     inicializado = true;
 
     $$('.np-modal').forEach(modal => {
-        modal.setAttribute('aria-hidden', modal.classList.contains('is-open') ? 'false' : 'true');
+        const aberto = modal.classList.contains('is-open');
+
+        modal.setAttribute('aria-hidden', aberto ? 'false' : 'true');
+
+        if (aberto) modal.removeAttribute('inert');
+        else modal.setAttribute('inert', '');
+
         const dialog = $('.np-modal__dialog', modal);
-        if (dialog && !dialog.hasAttribute('tabindex')) dialog.setAttribute('tabindex', '-1');
+
+        if (dialog && !dialog.hasAttribute('tabindex')) {
+            dialog.setAttribute('tabindex', '-1');
+        }
     });
 
     document.addEventListener('click', tratarCliqueGlobal);
@@ -49,6 +59,7 @@ export const inicializarModais = inicializarModal;
 
 export function abrirModal(modalOuId, opcoes = {}) {
     const modal = resolverModal(modalOuId);
+
     if (!modal) {
         console.warn('[MoonShield Network] Modal não encontrado:', modalOuId);
         return false;
@@ -58,9 +69,18 @@ export function abrirModal(modalOuId, opcoes = {}) {
         fecharModal(modalAtual, { restaurarFoco: false });
     }
 
-    focoAnterior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focoAtual =
+        document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+
+    focoAnterior = focoAtual;
+    focoAnteriorPorModal.set(modal, focoAtual);
+
     modalAtual = modal;
 
+    // Remove inert antes de expor o modal para que o foco programático seja válido.
+    modal.removeAttribute('inert');
     modal.classList.add('is-open');
     modal.setAttribute('aria-hidden', 'false');
     modal.dataset.modalOpen = 'true';
@@ -68,7 +88,12 @@ export function abrirModal(modalOuId, opcoes = {}) {
     atualizarBloqueioPagina();
 
     requestAnimationFrame(() => {
-        const foco = opcoes.foco ? resolverElemento(opcoes.foco, modal) : obterPrimeiroFocavel(modal) || $('.np-modal__dialog', modal);
+        const foco =
+            opcoes.foco
+                ? resolverElemento(opcoes.foco, modal)
+                : obterPrimeiroFocavel(modal) ||
+                  $('.np-modal__dialog', modal);
+
         foco?.focus({ preventScroll: true });
     });
 
@@ -91,9 +116,22 @@ export function fecharModal(modalOuId = modalAtual, opcoes = {}) {
 
     if (!modal || !modal.classList.contains('is-open')) return false;
 
+    const focoRetorno =
+        focoAnteriorPorModal.get(modal) ||
+        focoAnterior ||
+        null;
+
+    // IMPORTANTE:
+    // antes de aria-hidden=true, nenhum descendente do modal pode continuar focado.
+    // Isso elimina o warning "Blocked aria-hidden ... descendant retained focus".
+    removerFocoDoModal(modal, restaurarFoco ? focoRetorno : null);
+
     modal.classList.remove('is-open');
     modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('inert', '');
     delete modal.dataset.modalOpen;
+
+    focoAnteriorPorModal.delete(modal);
 
     if (modalAtual === modal) modalAtual = null;
 
@@ -104,11 +142,15 @@ export function fecharModal(modalOuId = modalAtual, opcoes = {}) {
         detail: { id: modal.id },
     }));
 
-    if (restaurarFoco && focoAnterior?.isConnected) {
-        requestAnimationFrame(() => focoAnterior?.focus({ preventScroll: true }));
+    if (restaurarFoco && focoRetorno?.isConnected) {
+        requestAnimationFrame(() => {
+            if (!elementoPodeReceberFoco(focoRetorno)) return;
+            focoRetorno.focus({ preventScroll: true });
+        });
     }
 
-    focoAnterior = null;
+    if (focoAnterior === focoRetorno) focoAnterior = null;
+
     return true;
 }
 
@@ -342,6 +384,64 @@ function obterFocaveis(modal) {
 
 function obterPrimeiroFocavel(modal) {
     return obterFocaveis(modal)[0] || null;
+}
+
+
+function removerFocoDoModal(modal, destino = null) {
+    const ativo = document.activeElement;
+
+    if (!(ativo instanceof HTMLElement) || !modal.contains(ativo)) return;
+
+    if (
+        destino instanceof HTMLElement &&
+        destino.isConnected &&
+        !modal.contains(destino) &&
+        elementoPodeReceberFoco(destino)
+    ) {
+        try {
+            destino.focus({ preventScroll: true });
+            return;
+        } catch {
+            // Fallback abaixo.
+        }
+    }
+
+    ativo.blur();
+
+    // Se o navegador manteve o foco em um descendente, usa o body como
+    // ponto neutro temporário sem deixar tabindex permanente.
+    const aindaDentro =
+        document.activeElement instanceof HTMLElement &&
+        modal.contains(document.activeElement);
+
+    if (aindaDentro) {
+        const tinhaTabindex = document.body.hasAttribute('tabindex');
+        const tabindexAnterior = document.body.getAttribute('tabindex');
+
+        document.body.setAttribute('tabindex', '-1');
+        document.body.focus({ preventScroll: true });
+
+        if (!tinhaTabindex) {
+            document.body.removeAttribute('tabindex');
+        } else if (tabindexAnterior !== null) {
+            document.body.setAttribute('tabindex', tabindexAnterior);
+        }
+    }
+}
+
+
+function elementoPodeReceberFoco(elemento) {
+    if (!(elemento instanceof HTMLElement) || !elemento.isConnected) return false;
+    if (elemento.hidden || elemento.hasAttribute('disabled')) return false;
+
+    const style = window.getComputedStyle(elemento);
+
+    return (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        !elemento.closest('[aria-hidden="true"]') &&
+        !elemento.closest('[inert]')
+    );
 }
 
 

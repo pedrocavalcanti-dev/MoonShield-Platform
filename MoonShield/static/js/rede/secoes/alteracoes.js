@@ -7,22 +7,40 @@
 
 import { api } from '../nucleo/api.js';
 import { estado } from '../nucleo/estado.js';
+import { $, $$, setText, setHidden, setStatusPill, setJson, criar } from '../nucleo/dom.js';
 import {
-    $, $$, setText, setHidden, setStatusPill, setJson, criar,
-} from '../nucleo/dom.js';
-import {
-    formatarData, formatarHorarioCurto, formatarDataHora, idCurto,
-    rotuloStatusAlteracao, rotuloTipoAlteracao, alteracaoAguardaConfirmacao,
-    normalizarErro, segundosAte, formatarContagemRegressiva,
+    formatarData,
+    formatarHorarioCurto,
+    formatarDataHora,
+    idCurto,
+    rotuloStatusAlteracao,
+    rotuloTipoAlteracao,
+    normalizarErro,
+    segundosAte,
+    formatarContagemRegressiva,
 } from '../nucleo/utilitarios.js';
 import { abrirDrawer, fecharDrawer, drawers } from '../componentes/drawer.js';
 import { notificacao } from '../componentes/notificacoes.js';
 import { safeApply } from '../componentes/safe_apply.js';
 
-const STATUS_ATIVOS = new Set(['created', 'validating', 'applying', 'waiting_confirmation', 'rollback']);
+const STATUS_ATIVOS = new Set([
+    'created',
+    'validating',
+    'applying',
+    'waiting_confirmation',
+    'rollback',
+]);
+
+const STATUS_FINAIS = new Set([
+    'confirmed',
+    'reverted',
+    'failed',
+    'cancelled',
+]);
 
 let inicializado = false;
 let carregando = false;
+let reconciliando = false;
 let alteracaoDetalhe = null;
 let detailTimer = null;
 
@@ -79,6 +97,7 @@ function inicializar() {
     document.addEventListener('moonshield:safe-apply-confirmed', tratarSafeApplyFinalizado);
     document.addEventListener('moonshield:safe-apply-rollback', tratarSafeApplyFinalizado);
     document.addEventListener('moonshield:safe-apply-finished', tratarSafeApplyFinalizado);
+    document.addEventListener('moonshield:network-lock-change', atualizarEstadoBotoes);
 }
 
 
@@ -121,10 +140,6 @@ function cachearElementos() {
 }
 
 
-/* ==========================================================================
-   EVENTOS
-========================================================================== */
-
 function registrarEventos() {
     elementos.refreshButton?.addEventListener('click', () => carregar());
     elementos.reconcileButton?.addEventListener('click', reconciliar);
@@ -133,14 +148,10 @@ function registrarEventos() {
     elementos.typeFilter?.addEventListener('change', aplicarFiltros);
 
     elementos.clearFiltersButton?.addEventListener('click', () => {
-        elementos.statusFilter.value = '';
-        elementos.typeFilter.value = '';
+        if (elementos.statusFilter) elementos.statusFilter.value = '';
+        if (elementos.typeFilter) elementos.typeFilter.value = '';
 
-        estado.set('alteracoes.filtros', {
-            status: '',
-            tipo: '',
-        });
-
+        estado.set('alteracoes.filtros', { status: '', tipo: '' });
         carregar();
     });
 
@@ -157,7 +168,6 @@ function registrarEventos() {
 
     elementos.confirmButton?.addEventListener('click', confirmarDetalhe);
     elementos.rollbackButton?.addEventListener('click', rollbackDetalhe);
-
     elementos.drawer?.addEventListener('moonshield:drawer-close', pararDetailTimer);
 }
 
@@ -174,7 +184,7 @@ async function carregar(opcoes = {}) {
 
     const filtros = {
         ...estado.get('alteracoes.filtros', {}),
-        ...opcoes.filtros,
+        ...(opcoes.filtros || {}),
     };
 
     try {
@@ -186,20 +196,33 @@ async function carregar(opcoes = {}) {
 
         const resposta = await api.get(api.urls.alteracoes, params);
         const lista = extrairLista(resposta);
+        const ativaApi = extrairAtiva(resposta);
 
         estado.set('alteracoes.lista', lista);
         estado.set('alteracoes.carregado', true);
 
         renderizar(lista);
 
-        const ativa = encontrarAtiva(lista);
+        const ativasLista = encontrarAtivas(lista);
+        const ativa = ativaApi || ativasLista[0] || null;
+
+        if (ativasLista.length > 1) {
+            console.warn(
+                '[MoonShield Network] Mais de uma alteração ativa encontrada no histórico:',
+                ativasLista.map(item => obterId(item))
+            );
+        }
+
         estado.set('alteracoes.ativa', ativa);
 
-        if (ativa) safeApply.sincronizar(ativa);
-        else safeApply.fecharSeInativo();
+        if (ativa) safeApply.sincronizar?.(ativa);
+        else safeApply.fecharSeInativo?.();
 
+        atualizarEstadoBotoes();
         return lista;
     } catch (error) {
+        estado.set('alteracoes.carregado', false);
+
         if (!opcoes.silencioso) {
             const erro = normalizarErro(error);
             notificacao.erro(erro.titulo, erro.mensagem);
@@ -221,6 +244,7 @@ function renderizar(lista = estado.get('alteracoes.lista', [])) {
     renderizarResumo(lista);
     renderizarTabela(lista);
     atualizarBadge(lista);
+    atualizarEstadoBotoes();
 }
 
 
@@ -231,10 +255,10 @@ function sincronizar() {
 
 function renderizarResumo(lista) {
     const total = lista.length;
-    const pendentes = lista.filter(item => STATUS_ATIVOS.has(item.status)).length;
-    const confirmadas = lista.filter(item => item.status === 'confirmed').length;
-    const revertidas = lista.filter(item => ['reverted', 'rollback'].includes(item.status)).length;
-    const falhas = lista.filter(item => item.status === 'failed').length;
+    const pendentes = lista.filter(item => STATUS_ATIVOS.has(statusAlteracao(item))).length;
+    const confirmadas = lista.filter(item => statusAlteracao(item) === 'confirmed').length;
+    const revertidas = lista.filter(item => statusAlteracao(item) === 'reverted').length;
+    const falhas = lista.filter(item => statusAlteracao(item) === 'failed').length;
 
     setText(elementos.total, total, '0');
     setText(elementos.pending, pendentes, '0');
@@ -264,7 +288,6 @@ function criarLinha(alteracao) {
 
     const fragmento = template.content.cloneNode(true);
     const row = fragmento.querySelector('[data-change-row]');
-
     if (!row) return null;
 
     preencherLinha(row, alteracao);
@@ -293,8 +316,10 @@ function preencherLinha(row, alteracao) {
     const id = obterId(alteracao);
     const criadoEm = alteracao.criado_em || alteracao.created_at || alteracao.created;
     const usuario = obterUsuario(alteracao);
+    const statusAtual = statusAlteracao(alteracao);
 
     row.dataset.changeId = String(id || '');
+    row.classList.toggle('is-active-change', STATUS_ATIVOS.has(statusAtual));
 
     setText($('[data-change-date]', row), formatarData(criadoEm));
     setText($('[data-change-time]', row), formatarHorarioCurto(criadoEm));
@@ -303,18 +328,15 @@ function preencherLinha(row, alteracao) {
     setText($('[data-change-id]', row), id ? idCurto(id, 12) : '—');
 
     const tipo = $('[data-change-type]', row);
-
     if (tipo) {
         tipo.dataset.type = alteracao.tipo || 'general';
         setText(tipo, rotuloTipoAlteracao(alteracao.tipo));
     }
 
     const status = $('[data-change-status]', row);
-
     if (status) {
-        status.dataset.status = alteracao.status || '';
-        setStatusPill(status, nivelStatus(alteracao.status), rotuloStatusAlteracao(alteracao.status));
-        status.dataset.status = alteracao.status || '';
+        status.dataset.status = statusAtual;
+        setStatusPill(status, nivelStatus(statusAtual), rotuloStatusAlteracao(statusAtual));
     }
 
     setText($('[data-change-user]', row), usuario);
@@ -333,10 +355,7 @@ function aplicarFiltros() {
 
     estado.set('alteracoes.filtros', filtros);
 
-    carregar({
-        filtros,
-        silencioso: true,
-    }).catch(error => {
+    carregar({ filtros, silencioso: true }).catch(error => {
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
     });
@@ -350,7 +369,9 @@ function aplicarFiltros() {
 async function abrirDetalhe(id) {
     if (!id) return;
 
-    let alteracao = estado.get('alteracoes.lista', []).find(item => String(obterId(item)) === String(id));
+    let alteracao = estado
+        .get('alteracoes.lista', [])
+        .find(item => String(obterId(item)) === String(id));
 
     try {
         const resposta = await api.get(urlAlteracao(id));
@@ -366,21 +387,18 @@ async function abrirDetalhe(id) {
     if (!alteracao) return;
 
     alteracaoDetalhe = alteracao;
+    atualizarAlteracao(alteracao);
 
     preencherDetalhe(alteracao);
     abrirDrawer(drawers.alteracao);
 
-    if (alteracaoAguardaConfirmacao(alteracao)) iniciarDetailTimer();
+    if (statusAlteracao(alteracao) === 'waiting_confirmation') iniciarDetailTimer();
 }
 
 
-/* ==========================================================================
-   PREENCHER DETALHE
-========================================================================== */
-
 function preencherDetalhe(alteracao) {
     const id = obterId(alteracao);
-    const status = alteracao.status || '';
+    const status = statusAlteracao(alteracao);
     const tipo = alteracao.tipo || 'general';
 
     setStatusPill(elementos.status, nivelStatus(status), rotuloStatusAlteracao(status));
@@ -403,19 +421,36 @@ function preencherDetalhe(alteracao) {
     setText(elementos.log, formatarLog(alteracao.log), '—');
 
     if (alteracao.erro) {
-        setText(elementos.errorMessage, typeof alteracao.erro === 'string' ? alteracao.erro : JSON.stringify(alteracao.erro, null, 2));
+        setText(
+            elementos.errorMessage,
+            typeof alteracao.erro === 'string'
+                ? alteracao.erro
+                : JSON.stringify(alteracao.erro, null, 2)
+        );
         setHidden(elementos.error, false);
     } else {
         setHidden(elementos.error, true);
     }
 
-    const aguardando = alteracaoAguardaConfirmacao(alteracao);
+    const aguardando = status === 'waiting_confirmation';
+    const podeRollback = ['applying', 'waiting_confirmation', 'rollback'].includes(status);
 
     setHidden(elementos.timerContainer, !aguardando);
     setHidden(elementos.confirmButton, !aguardando);
-    setHidden(elementos.rollbackButton, !aguardando);
+    setHidden(elementos.rollbackButton, !podeRollback);
+
+    if (elementos.confirmButton) {
+        elementos.confirmButton.disabled =
+            !aguardando ||
+            segundosRestantes(alteracao) <= 0;
+    }
+
+    if (elementos.rollbackButton) {
+        elementos.rollbackButton.disabled = !podeRollback;
+    }
 
     if (aguardando) atualizarDetailTimer();
+    else pararDetailTimer();
 }
 
 
@@ -439,68 +474,75 @@ function pararDetailTimer() {
 }
 
 
-function atualizarDetailTimer() {
-    if (!alteracaoDetalhe || !alteracaoAguardaConfirmacao(alteracaoDetalhe)) {
+async function atualizarDetailTimer() {
+    if (!alteracaoDetalhe || statusAlteracao(alteracaoDetalhe) !== 'waiting_confirmation') {
         pararDetailTimer();
         return;
     }
 
     const segundos = segundosRestantes(alteracaoDetalhe);
-
     setText(elementos.timer, formatarContagemRegressiva(segundos));
 
-    if (segundos <= 0) {
-        elementos.confirmButton && (elementos.confirmButton.disabled = true);
-        pararDetailTimer();
+    if (segundos > 0) return;
+
+    if (elementos.confirmButton) elementos.confirmButton.disabled = true;
+    pararDetailTimer();
+
+    // O Agent é a autoridade do timeout. O detalhe apenas solicita reconciliação.
+    try {
+        await reconciliar({ silencioso: true });
+        const id = obterId(alteracaoDetalhe);
+        const resposta = await api.get(urlAlteracao(id));
+        const atualizada = extrairAlteracao(resposta);
+
+        if (atualizada) {
+            alteracaoDetalhe = atualizada;
+            atualizarAlteracao(atualizada);
+            preencherDetalhe(atualizada);
+        }
+    } catch {
+        // O polling global continuará tentando.
     }
 }
 
 
 /* ==========================================================================
-   CONFIRMAR DETALHE
+   CONFIRMAR / ROLLBACK
 ========================================================================== */
 
 async function confirmarDetalhe() {
-    if (!alteracaoDetalhe || !alteracaoAguardaConfirmacao(alteracaoDetalhe)) return;
+    if (!alteracaoDetalhe || statusAlteracao(alteracaoDetalhe) !== 'waiting_confirmation') return;
 
-    const id = obterId(alteracaoDetalhe);
-    if (!id) return;
+    estado.set('alteracoes.ativa', alteracaoDetalhe);
+    safeApply.sincronizar?.(alteracaoDetalhe);
 
-    definirBotoesDetalhe(true);
+    const sucesso = await safeApply.confirmarAlteracao?.();
 
-    try {
-        const resposta = await api.post(urlAlteracao(id, 'confirmar'), {});
-        const atualizada = extrairAlteracao(resposta) || { ...alteracaoDetalhe, status: 'confirmed' };
-
-        atualizarAlteracao(atualizada);
-        estado.set('alteracoes.ativa', null);
-
-        safeApply.fecharSeInativo();
-        preencherDetalhe(atualizada);
-
-        notificacao.sucesso('Configuração confirmada', 'A alteração foi confirmada com sucesso.');
-
+    if (sucesso) {
         await carregar({ silencioso: true });
-    } catch (error) {
-        const erro = normalizarErro(error);
-        notificacao.erro(erro.titulo, erro.mensagem);
-    } finally {
-        definirBotoesDetalhe(false);
+
+        const id = obterId(alteracaoDetalhe);
+        const atualizada = estado
+            .get('alteracoes.lista', [])
+            .find(item => String(obterId(item)) === String(id));
+
+        if (atualizada) {
+            alteracaoDetalhe = atualizada;
+            preencherDetalhe(atualizada);
+        }
     }
 }
 
 
-/* ==========================================================================
-   ROLLBACK DETALHE
-========================================================================== */
-
 async function rollbackDetalhe() {
-    if (!alteracaoDetalhe || !alteracaoAguardaConfirmacao(alteracaoDetalhe)) return;
+    if (!alteracaoDetalhe || !STATUS_ATIVOS.has(statusAlteracao(alteracaoDetalhe))) return;
 
     estado.set('alteracoes.ativa', alteracaoDetalhe);
-    safeApply.sincronizar(alteracaoDetalhe);
+    safeApply.sincronizar?.(alteracaoDetalhe);
 
-    const sucesso = await safeApply.executarRollback('Rollback solicitado pelo painel de Alterações.');
+    const sucesso = await safeApply.executarRollback?.(
+        'Rollback solicitado pelo painel de Alterações.'
+    );
 
     if (sucesso) {
         fecharDrawer(drawers.alteracao);
@@ -513,28 +555,57 @@ async function rollbackDetalhe() {
    RECONCILIAR
 ========================================================================== */
 
-async function reconciliar() {
-    if (!api.urls.reconciliar) return;
+async function reconciliar(opcoes = {}) {
+    if (reconciliando) return false;
 
-    elementos.reconcileButton.disabled = true;
-    elementos.reconcileButton.classList.add('is-loading');
+    const url =
+        api.urls.reconciliarAlteracoes ||
+        api.urls.reconciliar ||
+        `${api.urls.alteracoes.endsWith('/') ? api.urls.alteracoes : `${api.urls.alteracoes}/`}reconciliar/`;
+
+    if (!url) return false;
+
+    reconciliando = true;
+    atualizarEstadoBotoes();
+
+    if (elementos.reconcileButton) {
+        elementos.reconcileButton.classList.add('is-loading');
+    }
 
     try {
-        const resposta = await api.post(api.urls.reconciliar, {});
+        const resposta = await api.post(url, {});
         const dados = resposta?.dados ?? resposta ?? {};
+        const ativa = dados.ativa || null;
 
-        notificacao.sucesso(
-            'Alterações reconciliadas',
-            dados.mensagem || 'O estado das alterações pendentes foi reconciliado.'
-        );
+        if (ativa) {
+            estado.set('alteracoes.ativa', ativa);
+            safeApply.sincronizar?.(ativa);
+        }
+
+        if (!opcoes.silencioso) {
+            notificacao.sucesso(
+                'Alterações reconciliadas',
+                dados.mensagem || 'O estado das alterações foi reconciliado.'
+            );
+        }
 
         await carregar({ silencioso: true });
+        return true;
     } catch (error) {
-        const erro = normalizarErro(error);
-        notificacao.erro(erro.titulo, erro.mensagem);
+        if (!opcoes.silencioso) {
+            const erro = normalizarErro(error);
+            notificacao.erro(erro.titulo, erro.mensagem);
+        }
+
+        return false;
     } finally {
-        elementos.reconcileButton.disabled = false;
-        elementos.reconcileButton.classList.remove('is-loading');
+        reconciliando = false;
+
+        if (elementos.reconcileButton) {
+            elementos.reconcileButton.classList.remove('is-loading');
+        }
+
+        atualizarEstadoBotoes();
     }
 }
 
@@ -546,12 +617,12 @@ async function reconciliar() {
 async function buscarAlteracaoAtiva() {
     const atual = estado.get('alteracoes.ativa');
 
-    if (atual && alteracaoAguardaConfirmacao(atual)) {
+    if (atual && STATUS_ATIVOS.has(statusAlteracao(atual))) {
         try {
             const resposta = await api.get(urlAlteracao(obterId(atual)));
             const atualizada = extrairAlteracao(resposta);
 
-            if (atualizada && alteracaoAguardaConfirmacao(atualizada)) {
+            if (atualizada && STATUS_ATIVOS.has(statusAlteracao(atualizada))) {
                 estado.set('alteracoes.ativa', atualizada);
                 atualizarAlteracao(atualizada);
                 return atualizada;
@@ -564,24 +635,29 @@ async function buscarAlteracaoAtiva() {
         }
     }
 
-    const listaAtual = estado.get('alteracoes.lista', []);
-    const encontrada = encontrarAtiva(listaAtual);
-
-    if (encontrada) {
-        estado.set('alteracoes.ativa', encontrada);
-        return encontrada;
-    }
-
     try {
-        const resposta = await api.get(api.urls.alteracoes, {
-            status: 'waiting_confirmation',
-            limite: 10,
-        });
+        const resposta = await api.get(api.urls.alteracoes, { limite: 100 });
+        const ativaApi = extrairAtiva(resposta);
+
+        if (ativaApi) {
+            estado.set('alteracoes.ativa', ativaApi);
+            atualizarAlteracao(ativaApi);
+            return ativaApi;
+        }
 
         const lista = extrairLista(resposta);
-        const ativa = encontrarAtiva(lista);
+        const ativas = encontrarAtivas(lista);
 
+        if (ativas.length > 1) {
+            console.warn(
+                '[MoonShield Network] Estado inconsistente: múltiplas alterações ativas.',
+                ativas.map(item => obterId(item))
+            );
+        }
+
+        const ativa = ativas[0] || null;
         estado.set('alteracoes.ativa', ativa);
+
         return ativa;
     } catch {
         return null;
@@ -590,7 +666,7 @@ async function buscarAlteracaoAtiva() {
 
 
 /* ==========================================================================
-   ATUALIZAR ALTERAÇÃO
+   ATUALIZAR ALTERAÇÃO / BADGE / CONTROLES
 ========================================================================== */
 
 function atualizarAlteracao(alteracao) {
@@ -608,33 +684,36 @@ function atualizarAlteracao(alteracao) {
         return novaLista;
     });
 
-    if (alteracaoAguardaConfirmacao(alteracao)) estado.set('alteracoes.ativa', alteracao);
+    if (STATUS_ATIVOS.has(statusAlteracao(alteracao))) {
+        estado.set('alteracoes.ativa', alteracao);
+    } else {
+        const ativa = estado.get('alteracoes.ativa');
+
+        if (ativa && String(obterId(ativa)) === String(id)) {
+            estado.set('alteracoes.ativa', null);
+        }
+    }
 
     renderizar();
 
-    if (alteracaoDetalhe && String(obterId(alteracaoDetalhe)) === String(id)) {
+    if (
+        alteracaoDetalhe &&
+        String(obterId(alteracaoDetalhe)) === String(id)
+    ) {
         alteracaoDetalhe = alteracao;
         preencherDetalhe(alteracao);
     }
 }
 
 
-/* ==========================================================================
-   BADGE
-========================================================================== */
-
 function atualizarBadge(lista = estado.get('alteracoes.lista', [])) {
-    const pendentes = lista.filter(item => STATUS_ATIVOS.has(item.status)).length;
+    const pendentes = lista.filter(item => STATUS_ATIVOS.has(statusAlteracao(item))).length;
     const badge = $('#sidebarChangesBadge');
 
     setText(badge, pendentes, '0');
     setHidden(badge, pendentes <= 0);
 }
 
-
-/* ==========================================================================
-   LOADING
-========================================================================== */
 
 function definirCarregando(ativo) {
     if (elementos.refreshButton) {
@@ -644,9 +723,12 @@ function definirCarregando(ativo) {
 }
 
 
-function definirBotoesDetalhe(ativo) {
-    if (elementos.confirmButton) elementos.confirmButton.disabled = Boolean(ativo);
-    if (elementos.rollbackButton) elementos.rollbackButton.disabled = Boolean(ativo);
+function atualizarEstadoBotoes() {
+    if (elementos.reconcileButton) {
+        elementos.reconcileButton.disabled = reconciliando;
+    }
+
+    if (alteracaoDetalhe) preencherDetalhe(alteracaoDetalhe);
 }
 
 
@@ -663,8 +745,19 @@ function tratarSafeApplyFinalizado() {
    HELPERS
 ========================================================================== */
 
-function encontrarAtiva(lista) {
-    return lista.find(item => item.status === 'waiting_confirmation') || null;
+function encontrarAtivas(lista) {
+    return (lista || [])
+        .filter(item => STATUS_ATIVOS.has(statusAlteracao(item)))
+        .sort((a, b) => {
+            const da = new Date(a.iniciada_em || a.criado_em || 0).getTime();
+            const db = new Date(b.iniciada_em || b.criado_em || 0).getTime();
+            return db - da;
+        });
+}
+
+
+function statusAlteracao(alteracao) {
+    return String(alteracao?.status || '').trim().toLowerCase();
 }
 
 
@@ -674,7 +767,10 @@ function obterId(alteracao) {
 
 
 function obterUsuario(alteracao) {
-    const usuario = alteracao?.solicitado_por || alteracao?.usuario || alteracao?.requested_by;
+    const usuario =
+        alteracao?.solicitado_por ||
+        alteracao?.usuario ||
+        alteracao?.requested_by;
 
     if (!usuario) return 'Sistema';
     if (typeof usuario === 'string') return usuario;
@@ -685,20 +781,21 @@ function obterUsuario(alteracao) {
 
 function nivelStatus(status) {
     if (status === 'confirmed') return 'ok';
-    if (['waiting_confirmation', 'rollback', 'reverted'].includes(status)) return 'warning';
+    if (status === 'reverted') return 'warning';
     if (status === 'failed') return 'error';
-    if (status === 'applying') return 'ok';
+    if (['applying', 'validating'].includes(status)) return 'pending';
+    if (['waiting_confirmation', 'rollback'].includes(status)) return 'warning';
 
     return 'pending';
 }
 
 
 function segundosRestantes(alteracao) {
-    if (alteracao.segundos_restantes !== undefined && alteracao.segundos_restantes !== null) {
+    if (alteracao?.segundos_restantes !== undefined && alteracao?.segundos_restantes !== null) {
         return Math.max(0, Math.ceil(Number(alteracao.segundos_restantes) || 0));
     }
 
-    if (alteracao.expira_em) return segundosAte(alteracao.expira_em);
+    if (alteracao?.expira_em) return segundosAte(alteracao.expira_em);
 
     return 0;
 }
@@ -727,10 +824,6 @@ function formatarLog(log) {
 }
 
 
-/* ==========================================================================
-   URL
-========================================================================== */
-
 function urlAlteracao(id, acao = '') {
     const base = api.urls.alteracoes;
     if (!base) throw new Error('URL de alterações não configurada.');
@@ -741,10 +834,6 @@ function urlAlteracao(id, acao = '') {
     return acao ? `${recurso}${acao}/` : recurso;
 }
 
-
-/* ==========================================================================
-   EXTRAÇÃO
-========================================================================== */
 
 function extrairLista(resposta) {
     const dados = resposta?.dados ?? resposta ?? {};
@@ -758,16 +847,29 @@ function extrairLista(resposta) {
 }
 
 
+function extrairAtiva(resposta) {
+    const dados = resposta?.dados ?? resposta ?? {};
+    const ativa = dados.ativa || dados.alteracao_ativa || null;
+
+    return ativa && typeof ativa === 'object' ? ativa : null;
+}
+
+
 function extrairAlteracao(resposta) {
-    return resposta?.dados?.alteracao ||
-        resposta?.dados?.resultado?.alteracao ||
+    const dados = resposta?.dados ?? resposta ?? {};
+
+    return (
+        dados.alteracao ||
+        dados.resultado?.alteracao ||
+        (dados.id ? dados : null) ||
         resposta?.alteracao ||
-        null;
+        null
+    );
 }
 
 
 /* ==========================================================================
-   ATIVAÇÃO
+   ATIVAÇÃO / EXPORT
 ========================================================================== */
 
 async function aoAtivar() {
@@ -782,10 +884,6 @@ async function aoAtivar() {
     }
 }
 
-
-/* ==========================================================================
-   EXPORT
-========================================================================== */
 
 export const alteracoes = Object.freeze({
     inicializar,

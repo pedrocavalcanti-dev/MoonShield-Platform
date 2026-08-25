@@ -20,6 +20,12 @@ import { safeApply } from '../componentes/safe_apply.js';
 
 let inicializado = false;
 let carregando = false;
+let salvandoRoteamento = false;
+let salvandoRota = false;
+let salvandoNat = false;
+let removendoRota = false;
+let removendoNat = false;
+let aplicandoConfiguracao = false;
 let rotaEditandoId = null;
 let natEditandoId = null;
 
@@ -72,6 +78,7 @@ function inicializar() {
 
     cachearElementos();
     registrarEventos();
+    atualizarEstadoControles();
 }
 
 
@@ -128,6 +135,9 @@ function registrarEventos() {
 
     elementos.routesBody?.addEventListener('click', tratarCliqueRota);
     elementos.natContainer?.addEventListener('click', tratarCliqueNat);
+
+    document.addEventListener('moonshield:network-lock-change', atualizarEstadoControles);
+    document.addEventListener('moonshield:safe-apply-finished', atualizarEstadoControles);
 }
 
 
@@ -239,6 +249,7 @@ function renderizar() {
     renderizarRotas();
     renderizarNat();
     atualizarOpcoesInterfaces();
+    atualizarEstadoControles();
 }
 
 
@@ -283,6 +294,12 @@ function renderizarRoteamento() {
 
 async function salvarRoteamento(event) {
     event.preventDefault();
+    if (salvandoRoteamento) return;
+
+    if (safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return;
+    }
 
     const payload = {
         ipv4_forward: marcado(elementos.ipv4Forward),
@@ -292,7 +309,9 @@ async function salvarRoteamento(event) {
         ativo: true,
     };
 
+    salvandoRoteamento = true;
     definirRoteamentoSalvando(true);
+    atualizarEstadoControles();
 
     try {
         const resposta = await api.post(api.urls.configurarRoteamento, payload);
@@ -300,7 +319,6 @@ async function salvarRoteamento(event) {
 
         estado.set('roteamento.configuracao', config);
         estado.set('roteamento.sujo', true);
-
         renderizarRoteamento();
 
         notificacao.sucesso(
@@ -308,10 +326,21 @@ async function salvarRoteamento(event) {
             'A configuração desejada foi salva. Clique em Aplicar configuração para sincronizar o sistema.'
         );
     } catch (error) {
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+            notificarBloqueio(existente);
+            return;
+        }
+
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
     } finally {
+        salvandoRoteamento = false;
         definirRoteamentoSalvando(false);
+        atualizarEstadoControles();
     }
 }
 
@@ -335,8 +364,8 @@ function definirRoteamentoSalvando(ativo) {
     const botao = $('#routingSaveButton');
     if (!botao) return;
 
-    botao.disabled = Boolean(ativo);
     botao.classList.toggle('is-loading', Boolean(ativo));
+    botao.disabled = Boolean(ativo) || Boolean(safeApply.ocupado?.());
 }
 
 
@@ -412,6 +441,15 @@ function criarLinhaRota(rota) {
         attrs: { type: 'button', 'data-route-delete': '' },
     });
 
+    const bloqueado = Boolean(safeApply.ocupado?.());
+    editar.disabled = bloqueado || salvandoRota || removendoRota;
+    remover.disabled = bloqueado || salvandoRota || removendoRota;
+
+    if (bloqueado) {
+        editar.title = 'Existe uma alteração de rede em andamento.';
+        remover.title = 'Existe uma alteração de rede em andamento.';
+    }
+
     actions.append(editar, remover);
     actionsTd.appendChild(actions);
 
@@ -429,12 +467,24 @@ function tratarCliqueRota(event) {
 
     const id = Number(row.dataset.routeId);
 
-    if (alvo.closest('[data-route-edit]')) abrirRota(id);
-    if (alvo.closest('[data-route-delete]')) removerRota(id);
+    if (alvo.closest('[data-route-edit]')) {
+        if (safeApply.ocupado?.()) return notificarBloqueio();
+        abrirRota(id);
+    }
+
+    if (alvo.closest('[data-route-delete]')) {
+        if (safeApply.ocupado?.()) return notificarBloqueio();
+        removerRota(id);
+    }
 }
 
 
 function abrirRota(id = null) {
+    if (safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return false;
+    }
+
     rotaEditandoId = id ? Number(id) : null;
     atualizarOpcoesInterfaces();
 
@@ -449,13 +499,20 @@ function abrirRota(id = null) {
     setMarcado(elementos.routeEnabled, rota ? paraBooleano(rota.ativa, true) : true);
 
     setText($('#routeDrawerTitle'), rota ? 'Editar rota' : 'Nova rota');
-
     abrirDrawer(drawers.rota, { foco: elementos.routeName });
+
+    return true;
 }
 
 
 async function salvarRota(event) {
     event.preventDefault();
+    if (salvandoRota) return;
+
+    if (safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return;
+    }
 
     const payload = {
         nome: valorTrim(elementos.routeName),
@@ -465,6 +522,9 @@ async function salvarRota(event) {
         metrica: valorNumero(elementos.routeMetric, 100),
         ativa: marcado(elementos.routeEnabled),
     };
+
+    salvandoRota = true;
+    atualizarEstadoControles();
 
     try {
         const url = rotaEditandoId ? urlRota(rotaEditandoId) : api.urls.rotas;
@@ -482,15 +542,32 @@ async function salvarRota(event) {
 
         notificacao.sucesso('Rota salva', 'A rota foi salva no estado desejado da rede.');
     } catch (error) {
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+            notificarBloqueio(existente);
+            return;
+        }
+
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
+    } finally {
+        salvandoRota = false;
+        atualizarEstadoControles();
     }
 }
 
 
 async function removerRota(id) {
+    if (removendoRota || safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return false;
+    }
+
     const rota = obterRota(id);
-    if (!rota) return;
+    if (!rota) return false;
 
     const confirmado = await safeApply.confirmarOperacao({
         titulo: 'Remover rota estática?',
@@ -500,21 +577,46 @@ async function removerRota(id) {
         perigoso: true,
     });
 
-    if (!confirmado) return;
+    if (!confirmado) return false;
+    if (safeApply.ocupado?.()) return notificarBloqueio();
+
+    removendoRota = true;
+    atualizarEstadoControles();
 
     try {
         await api.delete(urlRota(id));
 
-        estado.update('roteamento.rotas', lista => (lista || []).filter(item => Number(item.id) !== Number(id)));
+        estado.update(
+            'roteamento.rotas',
+            lista => (lista || []).filter(item => Number(item.id) !== Number(id))
+        );
         estado.set('roteamento.sujo', true);
 
         renderizarRotas();
         renderizarRoteamento();
 
-        notificacao.aviso('Rota removida', 'A rota foi removida do estado desejado. Aplique a configuração para sincronizar.');
+        notificacao.aviso(
+            'Rota removida',
+            'A rota foi removida do estado desejado. Aplique a configuração para sincronizar.'
+        );
+
+        return true;
     } catch (error) {
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+            notificarBloqueio(existente);
+            return false;
+        }
+
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
+        return false;
+    } finally {
+        removendoRota = false;
+        atualizarEstadoControles();
     }
 }
 
@@ -584,8 +686,22 @@ function criarCardNat(regra) {
 
     setText(
         $('[data-nat-sync]', card),
-        erro ? 'Erro de sincronização' : pendente ? 'Alteração pendente' : 'Sincronizada'
+        erro ? 'Erro de sincronização' : pendente ? 'Configuração não aplicada' : 'Sincronizada'
     );
+
+    const bloqueado = Boolean(safeApply.ocupado?.());
+    const editar = $('[data-nat-edit]', card);
+    const remover = $('[data-nat-delete]', card);
+
+    if (editar) {
+        editar.disabled = bloqueado || salvandoNat || removendoNat;
+        if (bloqueado) editar.title = 'Existe uma alteração de rede em andamento.';
+    }
+
+    if (remover) {
+        remover.disabled = bloqueado || salvandoNat || removendoNat;
+        if (bloqueado) remover.title = 'Existe uma alteração de rede em andamento.';
+    }
 
     return card;
 }
@@ -600,12 +716,24 @@ function tratarCliqueNat(event) {
 
     const id = Number(card.dataset.natId);
 
-    if (alvo.closest('[data-nat-edit]')) abrirNat(id);
-    if (alvo.closest('[data-nat-delete]')) removerNat(id);
+    if (alvo.closest('[data-nat-edit]')) {
+        if (safeApply.ocupado?.()) return notificarBloqueio();
+        abrirNat(id);
+    }
+
+    if (alvo.closest('[data-nat-delete]')) {
+        if (safeApply.ocupado?.()) return notificarBloqueio();
+        removerNat(id);
+    }
 }
 
 
 function abrirNat(id = null) {
+    if (safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return false;
+    }
+
     natEditandoId = id ? Number(id) : null;
     atualizarOpcoesInterfaces();
 
@@ -620,13 +748,20 @@ function abrirNat(id = null) {
     setMarcado(elementos.natEnabled, regra ? paraBooleano(regra.ativa, true) : true);
 
     setText($('#natDrawerTitle'), regra ? 'Editar regra NAT' : 'Nova regra NAT');
-
     abrirDrawer(drawers.nat, { foco: elementos.natName });
+
+    return true;
 }
 
 
 async function salvarNat(event) {
     event.preventDefault();
+    if (salvandoNat) return;
+
+    if (safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return;
+    }
 
     const payload = {
         nome: valorTrim(elementos.natName),
@@ -638,30 +773,54 @@ async function salvarNat(event) {
         ativa: marcado(elementos.natEnabled),
     };
 
+    salvandoNat = true;
+    atualizarEstadoControles();
+
     try {
         const url = natEditandoId ? urlNat(natEditandoId) : api.urls.nat;
         const resposta = await api.post(url, payload);
-        const regra = resposta?.dados?.regra || resposta?.dados?.nat || resposta?.regra || resposta?.nat || null;
+        const regra =
+            resposta?.dados?.regra ||
+            resposta?.dados?.nat ||
+            resposta?.regra ||
+            resposta?.nat ||
+            null;
 
         if (regra) substituirNat(regra);
         else await carregar({ silencioso: true });
 
         estado.set('nat.sujo', true);
         fecharDrawer(drawers.nat);
-
         renderizarNat();
 
         notificacao.sucesso('Regra NAT salva', 'A regra foi salva no estado desejado da rede.');
     } catch (error) {
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+            notificarBloqueio(existente);
+            return;
+        }
+
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
+    } finally {
+        salvandoNat = false;
+        atualizarEstadoControles();
     }
 }
 
 
 async function removerNat(id) {
+    if (removendoNat || safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return false;
+    }
+
     const regra = obterNat(id);
-    if (!regra) return;
+    if (!regra) return false;
 
     const confirmado = await safeApply.confirmarOperacao({
         titulo: 'Remover regra NAT?',
@@ -671,20 +830,45 @@ async function removerNat(id) {
         perigoso: true,
     });
 
-    if (!confirmado) return;
+    if (!confirmado) return false;
+    if (safeApply.ocupado?.()) return notificarBloqueio();
+
+    removendoNat = true;
+    atualizarEstadoControles();
 
     try {
         await api.delete(urlNat(id));
 
-        estado.update('nat.regras', lista => (lista || []).filter(item => Number(item.id) !== Number(id)));
+        estado.update(
+            'nat.regras',
+            lista => (lista || []).filter(item => Number(item.id) !== Number(id))
+        );
         estado.set('nat.sujo', true);
 
         renderizarNat();
 
-        notificacao.aviso('Regra NAT removida', 'A regra foi removida do estado desejado. Aplique a configuração para sincronizar.');
+        notificacao.aviso(
+            'Regra NAT removida',
+            'A regra foi removida do estado desejado. Aplique a configuração para sincronizar.'
+        );
+
+        return true;
     } catch (error) {
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+            notificarBloqueio(existente);
+            return false;
+        }
+
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
+        return false;
+    } finally {
+        removendoNat = false;
+        atualizarEstadoControles();
     }
 }
 
@@ -712,39 +896,46 @@ function substituirNat(regra) {
 ========================================================================== */
 
 async function aplicarConfiguracao() {
-    if (safeApply.ativo()) {
-        notificacao.aviso('Alteração em andamento', 'Confirme ou reverta a alteração atual antes de aplicar outra.');
-        return;
+    if (aplicandoConfiguracao || safeApply.ocupado?.()) {
+        notificarBloqueio();
+        return false;
     }
 
     const roteamentoSujo = Boolean(estado.get('roteamento.sujo'));
     const natSujo = Boolean(estado.get('nat.sujo'));
 
     if (!roteamentoSujo && !natSujo) {
-        notificacao.info('Nenhuma alteração', 'Roteamento e NAT não possuem alterações pendentes.');
-        return;
+        notificacao.info(
+            'Nenhuma alteração',
+            'Roteamento e NAT não possuem alterações pendentes.'
+        );
+        return false;
     }
 
     let endpoint;
     let titulo;
     let mensagem;
     let detalhes;
+    let origemReserva;
 
     if (roteamentoSujo && natSujo) {
         endpoint = api.urls.aplicarTudo;
         titulo = 'Aplicar roteamento e NAT?';
         mensagem = 'Existem alterações pendentes em roteamento e NAT.';
-        detalhes = 'Para aplicar os dois conjuntos em uma única alteração segura, o MoonShield aplicará o estado desejado completo da Rede, incluindo interfaces já salvas.';
+        detalhes = 'Os dois conjuntos serão aplicados em uma única alteração segura. O estado completo da Rede será enviado ao Agent.';
+        origemReserva = 'routing-nat:apply-all';
     } else if (roteamentoSujo) {
         endpoint = api.urls.aplicarRoteamento;
         titulo = 'Aplicar roteamento?';
         mensagem = 'O estado desejado de roteamento será enviado ao MoonShield Agent.';
         detalhes = 'O Agent criará um snapshot, armará o rollback e aguardará confirmação.';
+        origemReserva = 'routing:apply';
     } else {
         endpoint = api.urls.aplicarNat;
         titulo = 'Aplicar NAT?';
         mensagem = 'As regras NAT desejadas serão enviadas ao MoonShield Agent.';
         detalhes = 'O Agent aplicará somente a configuração NAT prevista pelo backend.';
+        origemReserva = 'nat:apply';
     }
 
     const confirmado = await safeApply.confirmarOperacao({
@@ -755,40 +946,181 @@ async function aplicarConfiguracao() {
         perigoso: false,
     });
 
-    if (!confirmado) return;
+    if (!confirmado) return false;
+
+    if (!safeApply.reservarOperacao?.(origemReserva)) {
+        notificarBloqueio();
+        return false;
+    }
+
+    aplicandoConfiguracao = true;
+    atualizarEstadoControles();
 
     safeApply.mostrarOperacao({
         titulo: 'Aplicando configuração',
-        descricao: 'Validando o estado desejado e preparando a alteração segura.',
+        descricao: 'Validando o estado desejado, preparando snapshot e armando o rollback.',
     });
-
-    elementos.routingApplyButton.disabled = true;
 
     try {
         const resposta = await api.post(endpoint, {});
         const alteracao = extrairAlteracao(resposta);
 
-        safeApply.ocultarOperacao();
-
-        if (!alteracao) throw new Error('A API não retornou a alteração de rede criada.');
+        if (!alteracao) {
+            throw new Error('A API não retornou a alteração de rede criada.');
+        }
 
         estado.set('alteracoes.ativa', alteracao);
-        safeApply.abrir(alteracao);
+
+        safeApply.ocultarOperacao();
+        safeApply.sincronizar?.(alteracao);
+
+        if (String(alteracao.status || '') === 'waiting_confirmation') {
+            safeApply.abrir?.(alteracao);
+
+            notificacao.aviso(
+                'Confirmação necessária',
+                'A configuração foi aplicada. Confirme a conectividade antes do término do Safe Apply.'
+            );
+        }
 
         await carregar({ silencioso: true });
-
-        notificacao.aviso(
-            'Confirmação necessária',
-            'A configuração foi aplicada. Confirme a conectividade antes do término do Safe Apply.'
-        );
+        return true;
     } catch (error) {
         safeApply.ocultarOperacao();
 
+        const existente = safeApply.extrairAlteracaoDeErro?.(error);
+
+        if (existente) {
+            estado.set('alteracoes.ativa', existente);
+            safeApply.sincronizar?.(existente);
+            notificarBloqueio(existente);
+            return false;
+        }
+
+        safeApply.liberarReserva?.();
+
         const erro = normalizarErro(error);
         notificacao.erro(erro.titulo, erro.mensagem);
+
+        return false;
     } finally {
-        elementos.routingApplyButton.disabled = false;
+        aplicandoConfiguracao = false;
+        atualizarEstadoControles();
     }
+}
+
+
+/* ==========================================================================
+   CONTROLES / LOCK GLOBAL
+========================================================================== */
+
+function atualizarEstadoControles() {
+    const bloqueado = Boolean(safeApply.ocupado?.());
+
+    const routingSaveButton = $('#routingSaveButton');
+
+    if (routingSaveButton) {
+        routingSaveButton.disabled = bloqueado || salvandoRoteamento;
+        routingSaveButton.setAttribute(
+            'aria-disabled',
+            routingSaveButton.disabled ? 'true' : 'false'
+        );
+    }
+
+    if (elementos.routingApplyButton) {
+        const semPendencia =
+            !Boolean(estado.get('roteamento.sujo')) &&
+            !Boolean(estado.get('nat.sujo'));
+
+        elementos.routingApplyButton.disabled =
+            bloqueado ||
+            aplicandoConfiguracao ||
+            semPendencia;
+
+        elementos.routingApplyButton.setAttribute(
+            'aria-disabled',
+            elementos.routingApplyButton.disabled ? 'true' : 'false'
+        );
+
+        if (bloqueado) {
+            elementos.routingApplyButton.title = 'Existe uma alteração de rede em andamento.';
+        } else if (semPendencia) {
+            elementos.routingApplyButton.title = 'Não há alterações de roteamento ou NAT para aplicar.';
+        } else {
+            elementos.routingApplyButton.removeAttribute('title');
+        }
+    }
+
+    if (elementos.newRouteButton) {
+        elementos.newRouteButton.disabled = bloqueado || salvandoRota || removendoRota;
+    }
+
+    if (elementos.newNatButton) {
+        elementos.newNatButton.disabled = bloqueado || salvandoNat || removendoNat;
+    }
+
+    [
+        elementos.ipv4Forward,
+        elementos.defaultRouteManagement,
+        elementos.autoRollback,
+        elementos.confirmationTimeout,
+    ].forEach(campo => {
+        if (campo) campo.disabled = bloqueado || salvandoRoteamento;
+    });
+
+    [
+        elementos.routeName,
+        elementos.routeDestination,
+        elementos.routeGateway,
+        elementos.routeInterface,
+        elementos.routeMetric,
+        elementos.routeEnabled,
+    ].forEach(campo => {
+        if (campo) campo.disabled = bloqueado || salvandoRota;
+    });
+
+    [
+        elementos.natName,
+        elementos.natSourceInterface,
+        elementos.natOutputInterface,
+        elementos.natSourceCidr,
+        elementos.natPriority,
+        elementos.natEnabled,
+    ].forEach(campo => {
+        if (campo) campo.disabled = bloqueado || salvandoNat;
+    });
+
+    if (elementos.routesBody) {
+        $$('[data-route-row]', elementos.routesBody).forEach(row => {
+            const editar = $('[data-route-edit]', row);
+            const remover = $('[data-route-delete]', row);
+
+            if (editar) editar.disabled = bloqueado || salvandoRota || removendoRota;
+            if (remover) remover.disabled = bloqueado || salvandoRota || removendoRota;
+        });
+    }
+
+    if (elementos.natContainer) {
+        $$('[data-nat-card]', elementos.natContainer).forEach(card => {
+            const editar = $('[data-nat-edit]', card);
+            const remover = $('[data-nat-delete]', card);
+
+            if (editar) editar.disabled = bloqueado || salvandoNat || removendoNat;
+            if (remover) remover.disabled = bloqueado || salvandoNat || removendoNat;
+        });
+    }
+}
+
+
+function notificarBloqueio(alteracao = safeApply.obterAlteracaoAtiva?.()) {
+    notificacao.aviso(
+        'Alteração em andamento',
+        alteracao?.titulo
+            ? `${alteracao.titulo}. Confirme ou reverta antes de alterar Roteamento ou NAT.`
+            : 'Confirme ou reverta a alteração atual antes de alterar Roteamento ou NAT.'
+    );
+
+    return false;
 }
 
 

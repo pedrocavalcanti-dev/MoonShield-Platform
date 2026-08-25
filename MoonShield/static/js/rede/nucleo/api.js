@@ -9,7 +9,16 @@
 
 const painelConfig = window.MS_NETWORK_PANEL || {};
 const DEFAULT_TIMEOUT = 20000;
+const DEFAULT_MUTATION_TIMEOUT = 45000;
+const NETWORK_OPERATION_TIMEOUT = 90000;
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE']);
+const LONG_OPERATION_PATTERNS = [
+    /\/aplicar\/?(?:\?|$)/i,
+    /\/aplicar-tudo\/?(?:\?|$)/i,
+    /\/confirmar\/?(?:\?|$)/i,
+    /\/rollback\/?(?:\?|$)/i,
+    /\/reconciliar\/?(?:\?|$)/i,
+];
 
 export class ApiError extends Error {
     constructor(message, options = {}) {
@@ -110,6 +119,18 @@ function preencherUrl(template, parametros = {}) {
 }
 
 
+function obterTimeout(metodo, endpoint, timeoutExplicito) {
+    if (timeoutExplicito !== undefined && timeoutExplicito !== null) {
+        const valor = Number(timeoutExplicito);
+        return Number.isFinite(valor) ? Math.max(0, valor) : DEFAULT_TIMEOUT;
+    }
+
+    if (SAFE_METHODS.has(metodo)) return DEFAULT_TIMEOUT;
+    if (LONG_OPERATION_PATTERNS.some(pattern => pattern.test(endpoint))) return NETWORK_OPERATION_TIMEOUT;
+    return DEFAULT_MUTATION_TIMEOUT;
+}
+
+
 /* ==========================================================================
    BODY
 ========================================================================== */
@@ -205,7 +226,7 @@ async function request(url, options = {}) {
     const metodo = String(options.method || 'GET').toUpperCase();
     const endpoint = construirUrl(url, options.params);
     const headers = new Headers(options.headers || {});
-    const timeout = Number(options.timeout ?? DEFAULT_TIMEOUT);
+    const timeout = obterTimeout(metodo, endpoint, options.timeout);
     const controller = new AbortController();
 
     if (!headers.has('Accept')) headers.set('Accept', 'application/json');
@@ -343,6 +364,12 @@ export const api = Object.freeze({
     preencherUrl,
     construirUrl,
     obterCsrfToken,
+    obterTimeout,
+    timeouts: Object.freeze({
+        leitura: DEFAULT_TIMEOUT,
+        mutacao: DEFAULT_MUTATION_TIMEOUT,
+        operacaoRede: NETWORK_OPERATION_TIMEOUT,
+    }),
 });
 
 export default api;

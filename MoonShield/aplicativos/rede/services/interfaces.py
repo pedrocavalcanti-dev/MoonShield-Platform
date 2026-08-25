@@ -223,14 +223,19 @@ def serializar_interface(
 
 
 def listar_interfaces() -> list[dict]:
+    """
+    Lista interfaces recalculando a flag de sincronização com o último estado
+    real conhecido. Isso impede que `pendente=True` antigo sobreviva quando
+    desired state e estado observado já são equivalentes.
+    """
     queryset = InterfaceRede.objects.all()
 
-    return [
-        serializar_interface(
-            interface
-        )
-        for interface in queryset
-    ]
+    resultado = []
+    for interface in queryset:
+        _atualizar_flags_sincronizacao(interface, salvar=True)
+        resultado.append(serializar_interface(interface))
+
+    return resultado
 
 
 def obter_interface_por_id(
@@ -471,32 +476,10 @@ def sincronizar_inventario(
         # SINCRONIZAÇÃO
         # ---------------------------------------------------------------------
 
-        interface.sincronizada = (
-            _estado_corresponde_desejado(
-                interface
-            )
+        _atualizar_flags_sincronizacao(
+            interface,
+            salvar=False,
         )
-
-        # Interface ainda não configurada pelo MoonShield
-        # não deve aparecer como "erro pendente".
-        if (
-            interface.papel
-            == PapelInterface.NAO_ATRIBUIDA.value
-        ):
-            interface.pendente = False
-
-        else:
-            interface.pendente = (
-                not interface.sincronizada
-            )
-
-        # Não apagamos erro operacional automaticamente
-        # apenas porque detectamos novamente.
-        #
-        # Mas se voltou a estar sincronizada,
-        # podemos limpar o erro anterior.
-        if interface.sincronizada:
-            interface.ultimo_erro = ""
 
         interface.save()
 
@@ -658,6 +641,50 @@ def _estado_corresponde_desejado(
         return True
 
     return False
+
+
+def _atualizar_flags_sincronizacao(
+    interface: InterfaceRede,
+    *,
+    salvar: bool = False,
+) -> bool:
+    """
+    Recalcula sincronizada/pendente usando somente estado desejado x último
+    estado real conhecido.
+
+    Papel/descrição/acesso de gerenciamento são metadados do control plane e
+    não criam drift Linux por si só. A comparação técnica permanece centralizada
+    em `_estado_corresponde_desejado`.
+    """
+    sincronizada = _estado_corresponde_desejado(interface)
+    pendente = (
+        False
+        if interface.papel == PapelInterface.NAO_ATRIBUIDA.value
+        else not sincronizada
+    )
+
+    alterou = (
+        interface.sincronizada != sincronizada
+        or interface.pendente != pendente
+    )
+
+    interface.sincronizada = sincronizada
+    interface.pendente = pendente
+
+    if sincronizada:
+        interface.ultimo_erro = ""
+
+    if salvar and (alterou or sincronizada):
+        interface.save(
+            update_fields=[
+                "sincronizada",
+                "pendente",
+                "ultimo_erro",
+                "atualizado_em",
+            ]
+        )
+
+    return sincronizada
 
 
 # =============================================================================
@@ -855,11 +882,16 @@ def salvar_configuracao_interface(
         ).strip()
 
     # -------------------------------------------------------------------------
-    # ALTERAÇÃO AINDA NÃO APLICADA
+    # SINCRONIZAÇÃO / DRIFT
     # -------------------------------------------------------------------------
-
-    interface.sincronizada = False
-    interface.pendente = True
+    # Salvar o mesmo desired state que já existe no Linux não deve criar uma
+    # pendência artificial nem habilitar "Aplicar" sem necessidade.
+    interface.sincronizada = _estado_corresponde_desejado(interface)
+    interface.pendente = (
+        False
+        if interface.papel == PapelInterface.NAO_ATRIBUIDA.value
+        else not interface.sincronizada
+    )
     interface.ultimo_erro = ""
 
     interface.full_clean()

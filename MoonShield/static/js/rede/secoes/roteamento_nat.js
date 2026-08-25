@@ -1130,24 +1130,35 @@ function notificarBloqueio(alteracao = safeApply.obterAlteracaoAtiva?.()) {
 
 function atualizarOpcoesInterfaces() {
     const interfaces = estado.get('interfaces.lista', []);
+    const disponiveis = interfaces.filter(interfaceDisponivelParaSelecao);
 
     preencherSelectInterface(
         elementos.routeInterface,
-        interfaces.filter(item => item.habilitada !== false),
-        'Selecionar'
+        disponiveis,
+        'Selecionar interface'
     );
 
     preencherSelectInterface(
         elementos.natSourceInterface,
-        interfaces.filter(item => ['lan', 'dmz', 'custom'].includes(item.papel) && item.habilitada !== false),
-        'Selecionar'
+        disponiveis,
+        'Selecionar interface de origem'
     );
 
     preencherSelectInterface(
         elementos.natOutputInterface,
-        interfaces.filter(item => item.papel === 'wan' && item.habilitada !== false),
-        'Selecionar WAN'
+        disponiveis,
+        'Selecionar interface de saída'
     );
+}
+
+
+function interfaceDisponivelParaSelecao(item) {
+    if (!item || item.habilitada === false) return false;
+
+    const nome = String(item.nome || '').trim();
+    if (!nome || nome === 'lo') return false;
+
+    return true;
 }
 
 

@@ -200,6 +200,43 @@
        REDE
        ══════════════════════════════════════════════════════ -->
   <div class="cfg-panel" id="panelRede">
+
+    <!-- Gerenciamento central de Rede -->
+    <div class="cfg-section">
+      <div class="cfg-section__header">
+        <div>
+          <p class="cfg-section__title"><i class="bi bi-diagram-3-fill"></i> Gerenciamento de Rede</p>
+          <p class="cfg-section__sub">Configuração avançada de interfaces, WAN/LAN/MGMT, roteamento, NAT, diagnóstico e Safe Apply</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:16px;border:1px solid var(--border-soft);border-radius:var(--r-md);background:var(--bg-mid);">
+        <div style="min-width:0">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <span style="width:38px;height:38px;display:grid;place-items:center;border-radius:10px;background:rgba(106,105,244,.10);color:#6a69f4;font-size:17px">
+              <i class="bi bi-hdd-network-fill"></i>
+            </span>
+            <div>
+              <p style="margin:0;color:var(--text-primary);font-size:12px;font-weight:700">MoonShield Network</p>
+              <p style="margin:3px 0 0;color:var(--text-dim);font-size:10px">Control Plane de rede do appliance</p>
+            </div>
+          </div>
+
+          <p style="margin:0;color:var(--text-muted);font-size:10px;line-height:1.6">
+            Use o módulo de Rede para detectar interfaces, atribuir papéis, configurar IPv4,
+            aplicar alterações com Safe Apply, administrar roteamento/NAT e executar diagnósticos.
+            O endereço é resolvido automaticamente pelo Django, sem necessidade de digitar URL ou IP.
+          </p>
+        </div>
+
+        <a href="{% url 'rede:painel' %}"
+           class="cfg-save-all-btn"
+           style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap">
+          <i class="bi bi-sliders2"></i>
+          Configurar Rede
+        </a>
+      </div>
+    </div>
     
     <!-- Interfaces de Rede -->
     <div class="cfg-section">

@@ -1,3 +1,12 @@
-from firewall.nucleo.analisador import parsear_linha
-from firewall.nucleo.conversor  import gerar_script_nft, regra_para_nft_inline, preview_regra, validar_iface_map
-from firewall.nucleo.instalador import instalar_regras, remover_regras, listar_regras, obter_status
+"""
+MoonShield Agent — Firewall / Núcleo
+====================================
+
+Pacote principal do núcleo privilegiado do Firewall MoonShield.
+
+Os módulos são carregados diretamente pelo servidor IPC quando necessários.
+Este arquivo não deve importar módulos opcionais/legados para evitar que uma
+falha isolada impeça o carregamento de todo o Firewall.
+"""
+
+__all__ = []

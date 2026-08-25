@@ -139,9 +139,30 @@ def _obter_estado_adguard(cfg):
         cfg.adguard_url
     )
 
+    # No appliance MoonShield em Modo Real, o AdGuard Home local
+    # deve permanecer habilitado automaticamente quando estiver configurado.
     ativo = bool(
-        cfg.dns_enabled
+        configurado
+        and (
+            cfg.dns_enabled
+            or str(cfg.adguard_url or "").strip().startswith(
+                (
+                    "http://127.0.0.1",
+                    "http://localhost",
+                    "https://127.0.0.1",
+                    "https://localhost",
+                )
+            )
+        )
     )
+
+    # Auto-repara instalações antigas em que dns_enabled ficou False,
+    # embora o AdGuard local já esteja configurado.
+    if ativo and not cfg.dns_enabled:
+        cfg.dns_enabled = True
+        if cfg.adguard_mode == "mock":
+            cfg.adguard_mode = "real"
+        cfg.save(update_fields=["dns_enabled", "adguard_mode", "updated_at"])
 
     operacional = bool(
         configurado
@@ -959,11 +980,31 @@ def api_salvar_config(request):
         cfg.fw_mode = "mock"
     else:
         # DNS / AdGuard
-        cfg.dns_enabled = bool(dns.get("active", cfg.dns_enabled))
-        cfg.adguard_mode = dns.get(
-            "mode", cfg.adguard_mode if cfg.adguard_mode != "mock" else "real"
+        # No Modo Real, o appliance usa o AdGuard Home local por padrão.
+        # Isso evita que uma instalação nova/ISO fique com o DNS desativado
+        # apenas porque o toggle legado veio como False.
+        cfg.adguard_url = (
+            dns.get("url")
+            or cfg.adguard_url
+            or "http://127.0.0.1"
         )
-        cfg.adguard_url = dns.get("url", cfg.adguard_url)
+
+        adguard_local = str(cfg.adguard_url).strip().startswith(
+            (
+                "http://127.0.0.1",
+                "http://localhost",
+                "https://127.0.0.1",
+                "https://localhost",
+            )
+        )
+
+        cfg.dns_enabled = (
+            True
+            if adguard_local
+            else bool(dns.get("active", cfg.dns_enabled))
+        )
+
+        cfg.adguard_mode = "real"
         cfg.adguard_user = dns.get("user", cfg.adguard_user)
         cfg.adguard_https = bool(dns.get("https", cfg.adguard_https))
         cfg.adguard_interval = int(dns.get("interval", cfg.adguard_interval))

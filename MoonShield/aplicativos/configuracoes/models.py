@@ -185,8 +185,8 @@ class ConfigSistema(models.Model):
     # ──────────────────────────────────────────────────────────────────────
 
     dns_enabled = models.BooleanField(
-        default=False,
-        help_text="Indica se o provider DNS está habilitado.",
+        default=True,
+        help_text="Indica se o provider DNS/AdGuard Home está habilitado.",
     )
 
     ids_enabled = models.BooleanField(
@@ -206,7 +206,7 @@ class ConfigSistema(models.Model):
     adguard_url = models.CharField(
         max_length=255,
         blank=True,
-        default="",
+        default="http://127.0.0.1",
     )
 
     adguard_user = models.CharField(
@@ -231,8 +231,8 @@ class ConfigSistema(models.Model):
 
     adguard_mode = models.CharField(
         max_length=16,
-        default="mock",
-        help_text="mock no modo demonstração; real no modo operacional.",
+        default="real",
+        help_text="real no modo operacional; o modo global decide quando simular.",
     )
 
     # ──────────────────────────────────────────────────────────────────────

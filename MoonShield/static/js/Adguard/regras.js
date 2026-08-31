@@ -1,330 +1,1154 @@
-/* ============================================================
-   MOONSHIELD — feed.css v2
-   Live Feed DNS — tela completa
-   Compatível com feed.html v2 + feed.js v2
-   ============================================================ */
+/**
+ * MOONSHIELD — regras.js v2
+ * Gestão de regras customizadas do AdGuard Home.
+ *
+ * Mantém compatibilidade com:
+ * GET  /dns/api/regras/
+ * POST /dns/api/regras/salvar/
+ * POST /dns/api/block/
+ * POST /dns/api/allow/
+ */
 
-/* ============================================================
-   VARIÁVEIS LOCAIS
-   ============================================================ */
-.feed - shell {
-    --feed - blue: #3b82f6; --feed - red: #ef4444; --feed - yellow: #eab308;
-    --feed - green: #22c55e; --feed - purple: #a855f7; --feed - orange: #f97316;
-    --feed - cyan: #06b6d4; --feed - pink: #ec4899;
-    --feed - blue - bg: rgba(59, 130, 246, .09); --feed - blue - bd: rgba(59, 130, 246, .22);
-    --feed - red - bg: rgba(239, 68, 68, .09); --feed - red - bd: rgba(239, 68, 68, .22);
-    --feed - yellow - bg: rgba(234, 179, 8, .09); --feed - yellow - bd: rgba(234, 179, 8, .22);
-    --feed - green - bg: rgba(34, 197, 94, .09); --feed - green - bd: rgba(34, 197, 94, .22);
-    --feed - purple - bg: rgba(168, 85, 247, .09); --feed - purple - bd: rgba(168, 85, 247, .22);
-    --feed - cyan - bg: rgba(6, 182, 212, .09); --feed - cyan - bd: rgba(6, 182, 212, .22);
-    --feed - card - bg: var(--bg - card, #11141c); --feed - mid - bg: var(--bg - mid, #151923);
-    --feed - hover - bg: var(--bg - hover, rgba(255, 255, 255, .035));
-    --feed - border: var(--border, rgba(255, 255, 255, .08));
-    --feed - border - soft: var(--border - soft, rgba(255, 255, 255, .05));
-    --feed - border - strong: rgba(255, 255, 255, .14);
-    --feed - text: var(--text - primary, #e5e7eb);
-    --feed - muted: var(--text - muted, #94a3b8);
-    --feed - dim: var(--text - dim, #64748b);
-    width: 100 %; min - width: 0; display: flex; flex - direction: column; color: var(--feed - text);
-}
+document.addEventListener('DOMContentLoaded', () => {
+  'use strict';
 
-/* ============================================================
-   BREADCRUMB & TOPBAR
-   ============================================================ */
-.feed - breadcrumb - link { color: var(--feed - dim); text - decoration: none; transition: color .15s ease; }
-.feed - breadcrumb - link:hover { color: var(--feed - text); }
+  const $ = (id) => document.getElementById(id);
 
-.feed - topbar { display: flex; align - items: center; justify - content: space - between; gap: 12px; padding: 10px 12px; margin - bottom: 10px; border: 1px solid var(--feed - border); border - radius: var(--r - lg, 10px); background: var(--feed - card - bg); box - shadow: 0 1px 0 rgba(255, 255, 255, .015); animation: feedFadeUp .25s ease both; }
-.feed - topbar__left, .feed - topbar__right { display: flex; align - items: center; gap: 8px; flex - wrap: wrap; min - width: 0; }
-.feed - topbar__left { flex: 1; }
-.feed - topbar__right { justify - content: flex - end; flex - shrink: 0; }
+  const state = {
+    allRules: [],
+    filtered: [],
+    selected: new Set(),
+    currentFilter: 'all',
+    searchTerm: '',
+    page: 1,
+    pageSize: 25,
+    activeTab: 'block',
+    isDemo: false,
+    loading: false,
+  };
 
-/* ============================================================
-   LIVE
-   ============================================================ */
-.feed - live { display: inline - flex; align - items: center; gap: 6px; height: 32px; padding: 0 9px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: rgba(255, 255, 255, .018); flex - shrink: 0; }
-.feed - live__dot { width: 7px; height: 7px; border - radius: 50 %; background: var(--feed - dim); flex - shrink: 0; }
-.feed - live__dot.is - ok { background: var(--feed - green); box - shadow: 0 0 7px rgba(34, 197, 94, .55); animation: feedPulseGreen 1.6s ease -in -out infinite; }
-.feed - live__dot.is - paused { background: var(--feed - yellow); box - shadow: 0 0 6px rgba(234, 179, 8, .45); animation: none; }
-.feed - live__dot.is - error { background: var(--feed - red); box - shadow: 0 0 7px rgba(239, 68, 68, .55); animation: feedPulseRed 1.3s ease -in -out infinite; }
-.feed - live__label { font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 10px; font - weight: 800; letter - spacing: .09em; color: var(--feed - text); }
-.feed - live__time { font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 10px; color: var(--feed - dim); }
+  let toastTimer = null;
 
-/* ============================================================
-   MODE BADGE & FILTER CHIPS
-   ============================================================ */
-.feed - mode - badge { display: inline - flex; align - items: center; justify - content: center; min - height: 24px; padding: 2px 7px; border - radius: 5px; font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 9px; font - weight: 800; letter - spacing: .07em; }
-.feed - type - chips { display: inline - flex; align - items: center; gap: 3px; padding: 3px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 8px); background: rgba(255, 255, 255, .012); }
-.feed - chip { display: inline - flex; align - items: center; justify - content: center; gap: 5px; height: 26px; padding: 0 9px; border: 1px solid transparent; border - radius: 6px; background: transparent; color: var(--feed - dim); font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 9.5px; font - weight: 650; cursor: pointer; transition: color .15s ease, background .15s ease, border - color .15s ease; }
-.feed - chip:hover { color: var(--feed - text); background: rgba(255, 255, 255, .035); }
-.feed - chip--active { color: var(--feed - text); background: rgba(255, 255, 255, .065); border - color: rgba(255, 255, 255, .05); }
-.feed - chip--block.feed - chip--active { color: #fca5a5; background: var(--feed - red - bg); border - color: var(--feed - red - bd); }
-.feed - chip--allow.feed - chip--active { color: #86efac; background: var(--feed - green - bg); border - color: var(--feed - green - bd); }
+  function escHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
 
-/* ============================================================
-   SEARCH & SELECT FILTERS
-   ============================================================ */
-.feed - search - wrap { position: relative; display: flex; align - items: center; min - width: 220px; max - width: 380px; flex: 1 1 250px; }
-.feed - search__icon { position: absolute; left: 10px; z - index: 2; color: var(--feed - dim); pointer - events: none; }
-.feed - search { width: 100 %; height: 32px; padding: 0 30px 0 31px; outline: none; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: var(--bg - input, rgba(255, 255, 255, .02)); color: var(--feed - text); font - size: 10.5px; transition: border - color .15s ease, box - shadow .15s ease, background .15s ease; }
-.feed - search::placeholder { color: var(--feed - dim); }
-.feed - search:hover { border - color: rgba(255, 255, 255, .12); }
-.feed - search:focus { border - color: rgba(59, 130, 246, .48); box - shadow: 0 0 0 3px rgba(59, 130, 246, .07); background: rgba(59, 130, 246, .02); }
-.feed - search__clear { position: absolute; right: 8px; top: 50 %; transform: translateY(-50 %); display: none; align - items: center; justify - content: center; width: 20px; height: 20px; padding: 0; border: 0; background: transparent; color: var(--feed - dim); font - size: 9px; cursor: pointer; }
-.feed - search__clear.visible { display: inline - flex; }
-.feed - search__clear:hover { color: var(--feed - text); }
+  function getCsrf() {
+    return document.cookie
+      .split(';')
+      .map((c) => c.trim())
+      .find((c) => c.startsWith('csrftoken='))
+      ?.split('=')[1] || '';
+  }
 
-.feed - select { height: 32px; min - width: 112px; padding: 0 28px 0 9px; outline: none; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: var(--bg - input, rgba(255, 255, 255, .02)); color: var(--feed - muted); font - family: var(--font - mono, monospace); font - size: 9.5px; cursor: pointer; transition: border - color .15s ease, background .15s ease; }
-.feed - select:hover { border - color: rgba(255, 255, 255, .13); }
-.feed - select:focus { border - color: rgba(59, 130, 246, .42); }
-.feed - select option { background: #11151d; color: #e5e7eb; }
+  function normalizeRule(rule) {
+    return String(rule || '').trim();
+  }
 
-/* ============================================================
-   CONTROL BUTTONS
-   ============================================================ */
-.feed - ctrl - btn { display: inline - flex; align - items: center; justify - content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: var(--feed - card - bg); color: var(--feed - muted); font - size: 10px; font - weight: 600; white - space: nowrap; text - decoration: none; cursor: pointer; transition: color .15s ease, border - color .15s ease, background .15s ease, transform .1s ease; }
-.feed - ctrl - btn:hover { color: var(--feed - text); border - color: var(--feed - border - strong); background: var(--feed - hover - bg); }
-.feed - ctrl - btn:active { transform: translateY(1px); }
-.feed - ctrl - btn--primary { color: #bfdbfe; background: var(--feed - blue - bg); border - color: var(--feed - blue - bd); }
-.feed - ctrl - btn--primary:hover { color: #dbeafe; background: rgba(59, 130, 246, .15); border - color: rgba(59, 130, 246, .32); }
+  function classifyRule(rule) {
+    const r = normalizeRule(rule);
 
-/* ============================================================
-   WARNING / OFFLINE
-   ============================================================ */
-.feed - warning { display: flex; align - items: center; justify - content: space - between; gap: 12px; min - height: 38px; padding: 8px 11px; margin - bottom: 10px; border: 1px solid var(--feed - red - bd); border - radius: var(--r - md, 8px); background: rgba(239, 68, 68, .055); color: #fca5a5; font - size: 10.5px; animation: feedFadeUp .2s ease both; }
-.feed - warning[hidden] { display: none; }
-.feed - warning__content { display: flex; align - items: center; gap: 8px; }
-.feed - warning button { min - height: 26px; padding: 0 8px; border: 1px solid var(--feed - red - bd); border - radius: 5px; background: rgba(239, 68, 68, .07); color: #fecaca; font - size: 9.5px; cursor: pointer; }
-.feed - warning button:hover { background: rgba(239, 68, 68, .13); }
+    if (r.startsWith('@@')) return 'allow';
+    if (r.startsWith('||')) return 'block';
+    if (/^(0\.0\.0\.0|127\.\d+\.\d+\.\d+)\s+/.test(r)) return 'block';
+    if (r.startsWith('!') || r.startsWith('#')) return 'comment';
+    if (r.startsWith('/')) return 'regex';
 
-/* ============================================================
-   KPI BAR
-   ============================================================ */
-.feed - kpi - bar { display: grid; grid - template - columns: repeat(6, minmax(90px, auto)) minmax(150px, 1fr); align - items: center; min - height: 66px; margin - bottom: 10px; border: 1px solid var(--feed - border); border - radius: var(--r - lg, 10px); background: var(--feed - card - bg); overflow: hidden; animation: feedFadeUp .28s ease both; }
-.feed - kpi { display: flex; flex - direction: column; justify - content: center; min - width: 0; height: 100 %; padding: 10px 13px; }
-.feed - kpi__val { color: var(--feed - text); font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 18px; font - weight: 750; letter - spacing: -.025em; line - height: 1.1; }
-.feed - kpi__val--red { color: #f87171; }
-.feed - kpi__val--green { color: #4ade80; }
-.feed - kpi__val--yellow { color: #facc15; }
-.feed - kpi__val--purple { color: #c084fc; }
-.feed - kpi__val--blue { color: #60a5fa; }
-.feed - kpi__lbl { margin - top: 4px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8.5px; letter - spacing: .035em; white - space: nowrap; }
-.feed - kpi - divider { width: 1px; height: 31px; background: var(--feed - border); justify - self: center; }
-.feed - mini - chart - wrap { height: 44px; min - width: 140px; padding: 5px 13px; }
-.feed - mini - chart - wrap canvas { display: block; width: 100 %; height: 100 %; }
+    return 'other';
+  }
 
-/* ============================================================
-   TABLE WRAP & GRID
-   ============================================================ */
-.feed - table - wrap { display: flex; flex - direction: column; min - height: 0; border: 1px solid var(--feed - border); border - radius: var(--r - lg, 10px); background: var(--feed - card - bg); overflow: hidden; animation: feedFadeUp .32s ease both; }
-.feed - table - header, .feed - row { display: grid; grid - template - columns: 68px 86px 116px minmax(220px, 1.7fr) 70px 82px 82px minmax(150px, 1fr) 112px; align - items: center; gap: 0; }
+  function extractDomain(rule) {
+    const r = normalizeRule(rule);
 
-.feed - table - header { min - height: 38px; padding: 0 8px; border - bottom: 1px solid var(--feed - border); background: var(--feed - mid - bg); flex - shrink: 0; }
-.feed - col { min - width: 0; padding: 0 7px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8.5px; font - weight: 700; letter - spacing: .05em; text - transform: uppercase; }
+    let match = r.match(/^@@\|\|([^/^*]+)\^?/);
+    if (match) return match[1];
 
-.feed - table - body { min - height: 340px; max - height: calc(100vh - 300px); overflow - y: auto; overflow - x: hidden; scrollbar - width: thin; scrollbar - color: rgba(148, 163, 184, .20) transparent; }
-.feed - table - body:: -webkit - scrollbar { width: 6px; }
-.feed - table - body:: -webkit - scrollbar - track { background: transparent; }
-.feed - table - body:: -webkit - scrollbar - thumb { border - radius: 999px; background: rgba(148, 163, 184, .16); }
-.feed - table - body:: -webkit - scrollbar - thumb:hover { background: rgba(148, 163, 184, .26); }
+    match = r.match(/^\|\|([^/^*]+)\^?/);
+    if (match) return match[1];
 
-/* ============================================================
-   ROW & CELLS
-   ============================================================ */
-.feed - row { min - height: 38px; padding: 0 8px; border - bottom: 1px solid rgba(255, 255, 255, .038); border - left: 2px solid transparent; color: #cbd5e1; font - family: var(--font - mono, monospace); font - size: 10px; transition: background .12s ease; animation: feedRowIn .16s ease both; }
-.feed - row:hover { background: var(--feed - hover - bg); }
-.feed - row--block { border - left - color: rgba(239, 68, 68, .75); background: linear - gradient(90deg, rgba(239, 68, 68, .035), transparent 22 %); }
-.feed - row--block:hover { background: linear - gradient(90deg, rgba(239, 68, 68, .065), rgba(255, 255, 255, .025) 42 %); }
-.feed - row--allow { border - left - color: rgba(34, 197, 94, .42); }
+    match = r.match(/^(?:0\.0\.0\.0|127\.\d+\.\d+\.\d+)\s+(.+)/);
+    if (match) return match[1].trim();
 
-.feed - cell { display: flex; align - items: center; min - width: 0; padding: 0 7px; overflow: hidden; text - overflow: ellipsis; white - space: nowrap; }
-.feed - cell--time { color: var(--feed - dim); font - size: 9.5px; }
-.feed - cell--ip { color: var(--feed - muted); font - size: 9.7px; }
-.feed - cell--domain { color: var(--feed - text); font - family: var(--font - sans, Inter, sans - serif); font - size: 10.5px; font - weight: 520; }
-.feed - cell--domain.is - blocked { color: #fca5a5; }
-.feed - cell--filter { color: var(--feed - dim); font - size: 9px; }
-.feed - cell--filter.has - filter { color: #f59e0b; }
-.feed - cell--actions { gap: 4px; justify - content: flex - start; }
+    return '';
+  }
 
-/* ============================================================
-   STATUS
-   ============================================================ */
-.feed - status - pill { display: inline - flex; align - items: center; justify - content: center; gap: 4px; width: max - content; min - height: 20px; padding: 2px 6px; border: 1px solid; border - radius: 5px; font - family: var(--font - mono, monospace); font - size: 8px; font - weight: 800; letter - spacing: .04em; }
-.feed - status - pill--block { color: #fca5a5; background: var(--feed - red - bg); border - color: var(--feed - red - bd); }
-.feed - status - pill--allow { color: #86efac; background: var(--feed - green - bg); border - color: var(--feed - green - bd); }
-.feed - status - dot { width: 4px; height: 4px; border - radius: 50 %; background: currentColor; flex - shrink: 0; }
+  function formatBadge(type) {
+    const map = {
+      block: ['BLOCK', 'rg-type-badge--block'],
+      allow: ['ALLOW', 'rg-type-badge--allow'],
+      comment: ['COMMENT', 'rg-type-badge--other'],
+      regex: ['REGEX', 'rg-type-badge--other'],
+      other: ['OUTRO', 'rg-type-badge--other'],
+    };
 
-/* ============================================================
-   DNS TYPE TAGS
-   ============================================================ */
-.feed - type - tag { display: inline - flex; align - items: center; justify - content: center; min - width: 28px; min - height: 18px; padding: 1px 5px; border: 1px solid rgba(148, 163, 184, .14); border - radius: 4px; background: rgba(148, 163, 184, .045); color: var(--feed - muted); font - family: var(--font - mono, monospace); font - size: 8px; font - weight: 700; letter - spacing: .025em; }
-.feed - type - tag--a { color: #93c5fd; border - color: rgba(59, 130, 246, .20); background: rgba(59, 130, 246, .06); }
-.feed - type - tag--aaaa { color: #c4b5fd; border - color: rgba(168, 85, 247, .20); background: rgba(168, 85, 247, .06); }
-.feed - type - tag--https { color: #67e8f9; border - color: rgba(6, 182, 212, .20); background: rgba(6, 182, 212, .06); }
-.feed - type - tag--cname { color: #fcd34d; border - color: rgba(234, 179, 8, .20); background: rgba(234, 179, 8, .06); }
-.feed - type - tag--srv { color: #86efac; border - color: rgba(34, 197, 94, .20); background: rgba(34, 197, 94, .06); }
-.feed - type - tag--ptr { color: #f9a8d4; border - color: rgba(236, 72, 153, .20); background: rgba(236, 72, 153, .06); }
-.feed - type - tag--txt { color: #fdba74; border - color: rgba(249, 115, 22, .20); background: rgba(249, 115, 22, .06); }
-.feed - type - tag--mx, .feed - type - tag--ns, .feed - type - tag--other { color: #cbd5e1; }
+    const [label, cls] = map[type] || map.other;
+    return `<span class="rg-type-badge ${cls}">${label}</span>`;
+  }
 
-/* ============================================================
-   LATENCY & SOURCE
-   ============================================================ */
-.feed - lat { font - family: var(--font - mono, monospace); font - size: 8.8px; }
-.feed - lat--fast { color: #4ade80; }
-.feed - lat--medium { color: #facc15; }
-.feed - lat--slow { color: #fb7185; }
-.feed - lat--none { color: #475569; }
+  function formatBadgeLabel(rule) {
+    const r = normalizeRule(rule);
 
-.feed - source { display: inline - flex; align - items: center; justify - content: center; min - height: 18px; padding: 1px 5px; border - radius: 4px; font - family: var(--font - mono, monospace); font - size: 7.8px; font - weight: 700; text - transform: uppercase; letter - spacing: .025em; }
-.feed - source--cache { color: #c4b5fd; background: rgba(168, 85, 247, .07); }
-.feed - source--upstream { color: #93c5fd; background: rgba(59, 130, 246, .065); }
-.feed - source--blocked { color: #fca5a5; background: rgba(239, 68, 68, .065); }
+    if (r.startsWith('@@||')) return '@@||x^';
+    if (r.startsWith('||')) return '||x^';
+    if (r.startsWith('0.0.0.0') || r.startsWith('127.')) return 'hosts';
+    if (r.startsWith('/')) return '/regex/';
+    if (r.startsWith('!') || r.startsWith('#')) return 'comment';
 
-/* ============================================================
-   ROW ACTIONS & EMPTY STATE
-   ============================================================ */
-.feed - row - btn { display: inline - flex; align - items: center; justify - content: center; height: 23px; padding: 0 6px; border: 1px solid var(--feed - blue - bd); border - radius: 5px; background: rgba(59, 130, 246, .055); color: #93c5fd; font - family: var(--font - mono, monospace); font - size: 7.8px; cursor: pointer; transition: background .12s ease, border - color .12s ease, color .12s ease; }
-.feed - row - btn:hover { color: #bfdbfe; background: rgba(59, 130, 246, .12); border - color: rgba(59, 130, 246, .30); }
-.feed - row - btn--ghost { color: var(--feed - dim); border - color: var(--feed - border); background: transparent; }
-.feed - row - btn--ghost:hover { color: var(--feed - text); background: var(--feed - hover - bg); }
+    return 'custom';
+  }
 
-.feed - empty - state { display: flex; flex - direction: column; align - items: center; justify - content: center; gap: 8px; min - height: 330px; padding: 30px; text - align: center; color: var(--feed - dim); }
-.feed - empty - state svg { color: #334155; }
-.feed - empty - state p { margin: 0; color: var(--feed - muted); font - size: 11px; }
-.feed - empty - state span { color: var(--feed - dim); font - size: 9px; }
+  function showToast(message) {
+    const toast = $('rgToast');
+    if (!toast) return;
 
-/* ============================================================
-   FOOTER & AUTO SCROLL TOGGLE
-   ============================================================ */
-.feed - footer { display: flex; align - items: center; justify - content: space - between; gap: 12px; padding: 8px 4px 0; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 9px; }
-.feed - footer__right { display: flex; align - items: center; gap: 14px; }
-.feed - footer__status { color: #475569; }
-.feed - footer__hint { opacity: .7; }
+    toast.textContent = message;
+    toast.classList.add('show');
 
-.feed - autoscroll - toggle { display: inline - flex; align - items: center; gap: 7px; color: var(--feed - muted); cursor: pointer; user - select: none; }
-.feed - autoscroll - toggle input { display: none; }
-.feed - toggle - track { position: relative; width: 28px; height: 15px; border: 1px solid var(--feed - border); border - radius: 999px; background: rgba(148, 163, 184, .12); transition: background .18s ease, border - color .18s ease; }
-.feed - toggle - thumb { position: absolute; top: 1px; left: 1px; width: 11px; height: 11px; border - radius: 50 %; background: #64748b; transition: transform .18s ease, background .18s ease; }
-.feed - autoscroll - toggle input: checked + .feed - toggle - track { border - color: rgba(59, 130, 246, .30); background: rgba(59, 130, 246, .24); }
-.feed - autoscroll - toggle input: checked + .feed - toggle - track.feed - toggle - thumb { transform: translateX(13px); background: #60a5fa; }
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 2800);
+  }
 
-/* ============================================================
-   DETAIL OVERLAY & DRAWER
-   ============================================================ */
-.feed - detail - overlay { position: fixed; inset: 0; z - index: 1200; background: rgba(2, 6, 23, .48); opacity: 0; visibility: hidden; backdrop - filter: blur(1px); transition: opacity .18s ease, visibility .18s ease; }
-.feed - detail - overlay.is - open { opacity: 1; visibility: visible; }
+  function hideAllStates() {
+    ['rgStateLoading', 'rgStateDemo', 'rgStateEmpty', 'rgStateNoResults'].forEach((id) => {
+      const el = $(id);
+      if (el) el.style.display = 'none';
+    });
+  }
 
-.feed - detail { position: fixed; top: 0; right: 0; z - index: 1201; width: min(430px, 92vw); height: 100vh; display: flex; flex - direction: column; border - left: 1px solid rgba(255, 255, 255, .09); background: var(--bg, #0c1017); box - shadow: -18px 0 50px rgba(0, 0, 0, .28); transform: translateX(100 %); transition: transform .22s ease; }
-.feed - detail.is - open { transform: translateX(0); }
+  function showState(name) {
+    hideAllStates();
 
-.feed - detail__header { display: flex; align - items: flex - start; justify - content: space - between; gap: 16px; padding: 18px 19px; border - bottom: 1px solid var(--feed - border); flex - shrink: 0; }
-.feed - detail__eyebrow { display: block; margin - bottom: 5px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8.5px; font - weight: 700; letter - spacing: .08em; text - transform: uppercase; }
-.feed - detail h3 { margin: 0; max - width: 330px; color: var(--feed - text); font - size: 14px; font - weight: 650; line - height: 1.35; overflow - wrap: anywhere; }
-.feed - detail__close { display: inline - flex; align - items: center; justify - content: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--feed - border); border - radius: 7px; background: var(--feed - card - bg); color: var(--feed - muted); cursor: pointer; flex - shrink: 0; transition: background .15s ease, color .15s ease; }
-.feed - detail__close:hover { color: var(--feed - text); background: var(--feed - hover - bg); }
+    if ($('rgTable')) $('rgTable').style.display = 'none';
+    if ($('rgPagination')) $('rgPagination').style.display = 'none';
 
-.feed - detail__body { flex: 1; min - height: 0; padding: 17px 19px; overflow - y: auto; }
-.feed - detail__status - row { display: flex; align - items: center; gap: 8px; margin - bottom: 16px; }
+    const map = {
+      loading: 'rgStateLoading',
+      demo: 'rgStateDemo',
+      empty: 'rgStateEmpty',
+      noResults: 'rgStateNoResults',
+    };
 
-/* ============================================================
-   DETAIL GRID & ACTIONS
-   ============================================================ */
-.feed - detail__grid { display: grid; grid - template - columns: 1fr 1fr; gap: 9px; margin: 0; }
-.feed - detail__grid > div { min - width: 0; padding: 10px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 8px); background: var(--feed - card - bg); }
-.feed - detail__grid dt { margin: 0 0 5px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8px; font - weight: 700; letter - spacing: .05em; text - transform: uppercase; }
-.feed - detail__grid dd { margin: 0; color: var(--feed - muted); font - size: 10px; line - height: 1.45; overflow - wrap: anywhere; }
-.feed - detail__wide { grid - column: 1 / -1; }
+    if (map[name] && $(map[name])) {
+      $(map[name]).style.display = '';
+    }
+  }
 
-.feed - detail__actions { display: grid; grid - template - columns: 1fr 1fr; gap: 8px; margin - top: 15px; }
-.feed - detail - btn { min - height: 34px; padding: 0 10px; border: 1px solid var(--feed - border); border - radius: 7px; background: var(--feed - card - bg); color: var(--feed - muted); font - size: 9.5px; font - weight: 600; cursor: pointer; transition: background .15s ease, border - color .15s ease, color .15s ease; }
-.feed - detail - btn:hover { color: var(--feed - text); border - color: var(--feed - border - strong); background: var(--feed - hover - bg); }
-.feed - detail - btn: first - child { grid - column: 1 / -1; }
-.feed - detail - btn--danger { color: #fca5a5; background: var(--feed - red - bg); border - color: var(--feed - red - bd); }
-.feed - detail - btn--danger:hover { background: rgba(239, 68, 68, .14); border - color: rgba(239, 68, 68, .32); }
-.feed - detail - btn--success { color: #86efac; background: var(--feed - green - bg); border - color: var(--feed - green - bd); }
-.feed - detail - btn--success:hover { background: rgba(34, 197, 94, .13); border - color: rgba(34, 197, 94, .30); }
+  function updateStats(rules) {
+    const block = rules.filter((rule) => classifyRule(rule) === 'block').length;
+    const allow = rules.filter((rule) => classifyRule(rule) === 'allow').length;
+    const other = rules.length - block - allow;
 
-/* ============================================================
-   TOAST
-   ============================================================ */
-.feed - toast { position: fixed; right: 20px; bottom: 20px; z - index: 1400; max - width: min(360px, 82vw); padding: 9px 12px; border: 1px solid var(--feed - green - bd); border - radius: var(--r - md, 8px); background: #111820; color: #bbf7d0; font - family: var(--font - mono, monospace); font - size: 9.5px; box - shadow: 0 14px 38px rgba(0, 0, 0, .30); opacity: 0; transform: translateY(8px); pointer - events: none; transition: opacity .18s ease, transform .18s ease; }
-.feed - toast[data - type="error"] { color: #fca5a5; border - color: var(--feed - red - bd); }
-.feed - toast.show { opacity: 1; transform: translateY(0); }
+    if ($('statTotal')) $('statTotal').textContent = rules.length;
+    if ($('statBlock')) $('statBlock').textContent = block;
+    if ($('statAllow')) $('statAllow').textContent = allow;
+    if ($('statOther')) $('statOther').textContent = other;
+  }
 
-/* ============================================================
-   ACCESSIBILITY & MONO
-   ============================================================ */
-.feed - chip: focus - visible, .feed - search: focus - visible, .feed - select: focus - visible, .feed - ctrl - btn: focus - visible, .feed - row - btn: focus - visible, .feed - detail - btn: focus - visible, .feed - detail__close: focus - visible, .feed - warning button: focus - visible { outline: 2px solid rgba(59, 130, 246, .48); outline - offset: 2px; }
-.mono { font - family: var(--font - mono, "JetBrains Mono", monospace); }
+  function updateSelectedUI() {
+    const count = state.selected.size;
+    const button = $('rgRemoveSelectedBtn');
+    const wrap = $('statSelectedWrap');
 
-/* ============================================================
-   ANIMATIONS
-   ============================================================ */
-@keyframes feedFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes feedRowIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
-@keyframes feedPulseGreen { 0 %, 100 % { opacity: 1; } 50 % { opacity: .35; } }
-@keyframes feedPulseRed { 0 %, 100 % { opacity: 1; } 50 % { opacity: .28; } }
+    if (button) button.disabled = count === 0;
 
-/* ============================================================
-   RESPONSIVO
-   ============================================================ */
-@media(max - width: 1450px) {
-    .feed - table - header, .feed - row { grid - template - columns: 64px 82px 110px minmax(200px, 1.5fr) 64px 76px 76px minmax(130px, .9fr) 106px; }
-    .feed - kpi - bar { grid - template - columns: repeat(6, minmax(80px, auto)); }
-    .feed - mini - chart - wrap { grid - column: 1 / -1; border - top: 1px solid var(--feed - border); height: 38px; }
-}
+    if (wrap) {
+      wrap.style.display = count > 0 ? '' : 'none';
+    }
 
-@media(max - width: 1200px) {
-    .feed - topbar { align - items: flex - start; flex - direction: column; }
-    .feed - topbar__left, .feed - topbar__right { width: 100 %; }
-    .feed - topbar__right { justify - content: flex - start; }
-    .feed - search - wrap { max - width: none; }
-    .feed - table - wrap { overflow - x: auto; }
-    .feed - table - header, .feed - row { min - width: 1070px; }
-    .feed - table - body { max - height: calc(100vh - 355px); }
-}
+    if ($('statSelected')) {
+      $('statSelected').textContent = count;
+    }
+  }
 
-@media(max - width: 950px) {
-    .feed - kpi - bar { grid - template - columns: repeat(3, 1fr); }
-    .feed - kpi - divider { display: none; }
-    .feed - kpi { border - bottom: 1px solid rgba(255, 255, 255, .04); }
-    .feed - mini - chart - wrap { grid - column: 1 / -1; }
-    .feed - search - wrap { flex - basis: 100 %; min - width: 100 %; }
-    .feed - select { flex: 1; }
-}
+  function currentPageRules() {
+    const start = (state.page - 1) * state.pageSize;
+    return state.filtered.slice(start, start + state.pageSize);
+  }
 
-@media(max - width: 700px) {
-    .feed - topbar { padding: 9px; }
-    .feed - topbar__left, .feed - topbar__right { align - items: stretch; }
-    .feed - type - chips { width: 100 %; }
-    .feed - chip { flex: 1; }
-    .feed - search - wrap { width: 100 %; flex: 1 1 100 %; }
-    .feed - select { width: calc(50 % - 4px); }
-    .feed - ctrl - btn { flex: 1; }
-    .feed - kpi - bar { grid - template - columns: repeat(2, 1fr); }
-    .feed - kpi { min - height: 60px; }
-    .feed - footer { align - items: flex - start; flex - direction: column; }
-    .feed - footer__right { flex - wrap: wrap; gap: 10px; }
-    .feed - detail__grid { grid - template - columns: 1fr; }
-    .feed - detail__wide { grid - column: auto; }
-    .feed - detail__actions { grid - template - columns: 1fr; }
-    .feed - detail - btn: first - child { grid - column: auto; }
-}
+  function syncSelectAll() {
+    const checkbox = $('rgSelectAll');
+    if (!checkbox) return;
 
-@media(max - width: 480px) {
-    .feed - live { flex: 1; }
-    .feed - mode - badge { align - self: center; }
-    .feed - select { width: 100 %; }
-    .feed - kpi__val { font - size: 16px; }
-    .feed - kpi__lbl { white - space: normal; }
-    .feed - detail { width: 100vw; }
-    .feed - toast { right: 12px; left: 12px; bottom: 12px; max - width: none; }
-}
+    const pageRules = currentPageRules();
 
-/* ============================================================
-   REDUCED MOTION
-   ============================================================ */
-@media(prefers - reduced - motion: reduce) {
-    .feed - shell *, .feed - shell *:: before, .feed - shell *::after { animation - duration: .01ms!important; animation - iteration - count: 1!important; transition - duration: .01ms!important; }
-}
+    checkbox.checked =
+      pageRules.length > 0 &&
+      pageRules.every((rule) => state.selected.has(rule));
+
+    checkbox.indeterminate =
+      !checkbox.checked &&
+      pageRules.some((rule) => state.selected.has(rule));
+  }
+
+  function applyFilters() {
+    let result = [...state.allRules];
+
+    if (state.currentFilter !== 'all') {
+      if (state.currentFilter === 'other') {
+        result = result.filter((rule) => {
+          const type = classifyRule(rule);
+          return type !== 'block' && type !== 'allow';
+        });
+      } else {
+        result = result.filter(
+          (rule) => classifyRule(rule) === state.currentFilter
+        );
+      }
+    }
+
+    if (state.searchTerm) {
+      const query = state.searchTerm.toLowerCase();
+
+      result = result.filter((rule) => {
+        const domain = extractDomain(rule);
+
+        return (
+          rule.toLowerCase().includes(query) ||
+          domain.toLowerCase().includes(query)
+        );
+      });
+    }
+
+    state.filtered = result;
+    state.page = 1;
+
+    renderTable();
+    renderPagination();
+    syncSelectAll();
+  }
+
+  function renderTable() {
+    const tbody = $('rgTableBody');
+    if (!tbody) return;
+
+    const rows = currentPageRules();
+
+    if (state.filtered.length === 0) {
+      if ($('rgTable')) $('rgTable').style.display = 'none';
+      if ($('rgPagination')) $('rgPagination').style.display = 'none';
+
+      if (state.searchTerm || state.currentFilter !== 'all') {
+        showState('noResults');
+
+        if ($('rgNoResultsHint')) {
+          $('rgNoResultsHint').textContent = state.searchTerm
+            ? `Nenhuma regra contendo "${state.searchTerm}".`
+            : 'Nenhuma regra nesta categoria.';
+        }
+      } else {
+        showState('empty');
+      }
+
+      return;
+    }
+
+    hideAllStates();
+
+    if ($('rgTable')) $('rgTable').style.display = '';
+    if ($('rgPagination')) $('rgPagination').style.display = '';
+
+    tbody.innerHTML = rows.map((rule) => {
+      const type = classifyRule(rule);
+      const domain = extractDomain(rule);
+      const checked = state.selected.has(rule);
+
+      return `
+        <tr
+          data-rule="${escHtml(rule)}"
+          class="${checked ? 'rg-row--selected' : ''}"
+        >
+          <td>
+            <label class="rg-checkbox">
+              <input
+                type="checkbox"
+                class="rg-row-check"
+                data-rule="${escHtml(rule)}"
+                ${checked ? 'checked' : ''}
+              />
+              <span class="rg-checkbox__box"></span>
+            </label>
+          </td>
+
+          <td>${formatBadge(type)}</td>
+
+          <td>
+            <div class="rg-rule-text">${escHtml(rule)}</div>
+            ${domain ? `<div class="rg-rule-domain">${escHtml(domain)}</div>` : ''}
+          </td>
+
+          <td>
+            <span class="rg-fmt-badge">${formatBadgeLabel(rule)}</span>
+          </td>
+
+          <td>
+            <div class="rg-row-actions">
+              ${type === 'block' ? `
+                <button
+                  class="rg-row-btn rg-row-btn--toggle"
+                  type="button"
+                  data-act="toggle"
+                  data-rule="${escHtml(rule)}"
+                  title="Mudar para Permitir"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </button>
+              ` : ''}
+
+              ${type === 'allow' ? `
+                <button
+                  class="rg-row-btn rg-row-btn--danger"
+                  type="button"
+                  data-act="toggle"
+                  data-rule="${escHtml(rule)}"
+                  title="Mudar para Bloquear"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  </svg>
+                </button>
+              ` : ''}
+
+              <button
+                class="rg-row-btn"
+                type="button"
+                data-act="copy"
+                data-rule="${escHtml(rule)}"
+                title="Copiar regra"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+
+              <button
+                class="rg-row-btn rg-row-btn--danger"
+                type="button"
+                data-act="remove"
+                data-rule="${escHtml(rule)}"
+                title="Remover"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14H6L5 6"/>
+                </svg>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    tbody.querySelectorAll('.rg-row-check').forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        const rule = checkbox.dataset.rule;
+
+        if (checkbox.checked) state.selected.add(rule);
+        else state.selected.delete(rule);
+
+        checkbox
+          .closest('tr')
+          ?.classList.toggle('rg-row--selected', checkbox.checked);
+
+        updateSelectedUI();
+        syncSelectAll();
+      });
+    });
+
+    tbody.querySelectorAll('[data-act]').forEach((button) => {
+      button.addEventListener('click', async (event) => {
+        event.stopPropagation();
+
+        const rule = button.dataset.rule;
+        const action = button.dataset.act;
+
+        if (action === 'remove') {
+          await confirmRemove([rule]);
+        }
+
+        if (action === 'toggle') {
+          await toggleRule(rule);
+        }
+
+        if (action === 'copy') {
+          await copyRule(rule);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('tr[data-rule]').forEach((row) => {
+      row.addEventListener('click', (event) => {
+        if (
+          event.target.closest('[data-act]') ||
+          event.target.closest('.rg-checkbox')
+        ) {
+          return;
+        }
+
+        const checkbox = row.querySelector('.rg-row-check');
+        if (!checkbox) return;
+
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change'));
+      });
+    });
+
+    syncSelectAll();
+  }
+
+  function renderPagination() {
+    const total = state.filtered.length;
+    const pages = Math.max(1, Math.ceil(total / state.pageSize));
+
+    if (state.page > pages) {
+      state.page = pages;
+    }
+
+    const start =
+      total === 0
+        ? 0
+        : (state.page - 1) * state.pageSize + 1;
+
+    const end = Math.min(
+      state.page * state.pageSize,
+      total
+    );
+
+    if ($('rgPagInfo')) {
+      $('rgPagInfo').textContent =
+        `${start}–${end} de ${total} regra${total !== 1 ? 's' : ''}`;
+    }
+
+    if ($('rgPagPrev')) {
+      $('rgPagPrev').disabled = state.page <= 1;
+    }
+
+    if ($('rgPagNext')) {
+      $('rgPagNext').disabled = state.page >= pages;
+    }
+
+    const nums = $('rgPagNums');
+    if (!nums) return;
+
+    let pageNumbers;
+
+    if (pages <= 7) {
+      pageNumbers = Array.from({ length: pages }, (_, index) => index + 1);
+    } else {
+      const set = new Set([
+        1,
+        pages,
+        state.page - 1,
+        state.page,
+        state.page + 1,
+      ]);
+
+      pageNumbers = [...set]
+        .filter((value) => value >= 1 && value <= pages)
+        .sort((a, b) => a - b);
+
+      const expanded = [];
+
+      pageNumbers.forEach((value, index) => {
+        if (
+          index > 0 &&
+          value - pageNumbers[index - 1] > 1
+        ) {
+          expanded.push('…');
+        }
+
+        expanded.push(value);
+      });
+
+      pageNumbers = expanded;
+    }
+
+    nums.innerHTML = pageNumbers.map((value) => {
+      if (value === '…') {
+        return '<span style="padding:0 4px;color:var(--text-muted);font-size:11px">…</span>';
+      }
+
+      return `
+        <button
+          class="rg-pag-num${value === state.page ? ' rg-pag-num--active' : ''}"
+          type="button"
+          data-p="${value}"
+        >
+          ${value}
+        </button>
+      `;
+    }).join('');
+
+    nums.querySelectorAll('.rg-pag-num').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.page = Number(button.dataset.p);
+
+        renderTable();
+        renderPagination();
+        syncSelectAll();
+      });
+    });
+  }
+
+  async function loadRules() {
+    if (state.loading) return;
+
+    state.loading = true;
+    showState('loading');
+
+    state.selected.clear();
+    updateSelectedUI();
+
+    const refreshButton = $('rgRefreshBtn');
+    if (refreshButton) refreshButton.disabled = true;
+
+    try {
+      const response = await fetch('/dns/api/regras/', {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      state.isDemo =
+        data.mode === 'demo' ||
+        data.mode === 'mock';
+
+      if (state.isDemo) {
+        state.allRules = [];
+        state.filtered = [];
+
+        updateStats([]);
+        showState('demo');
+        return;
+      }
+
+      const cleanRules = Array.isArray(data.rules)
+        ? data.rules
+          .map(normalizeRule)
+          .filter(Boolean)
+        : [];
+
+      state.allRules = [...new Set(cleanRules)];
+
+      updateStats(state.allRules);
+      applyFilters();
+
+    } catch (error) {
+      state.allRules = [];
+      state.filtered = [];
+
+      updateStats([]);
+      showState('empty');
+
+      showToast(`Erro ao carregar regras: ${error.message}`);
+
+    } finally {
+      state.loading = false;
+
+      if (refreshButton) {
+        refreshButton.disabled = false;
+      }
+    }
+  }
+
+  async function saveFullRuleSet(rules) {
+    try {
+      const response = await fetch('/dns/api/regras/salvar/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRFToken': getCsrf(),
+        },
+        body: JSON.stringify({
+          rules,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      return true;
+
+    } catch (error) {
+      showToast(`Erro ao salvar regras: ${error.message}`);
+      return false;
+    }
+  }
+
+  async function confirmRemove(rules) {
+    const targets = [...new Set(rules)].filter((rule) =>
+      state.allRules.includes(rule)
+    );
+
+    if (!targets.length) return;
+
+    const message =
+      targets.length === 1
+        ? `Remover esta regra?\n\n${targets[0]}`
+        : `Remover ${targets.length} regras selecionadas?`;
+
+    if (!window.confirm(message)) return;
+
+    const removeSet = new Set(targets);
+
+    const newRules = state.allRules.filter(
+      (rule) => !removeSet.has(rule)
+    );
+
+    const ok = await saveFullRuleSet(newRules);
+    if (!ok) return;
+
+    state.allRules = newRules;
+
+    targets.forEach((rule) =>
+      state.selected.delete(rule)
+    );
+
+    updateSelectedUI();
+    updateStats(state.allRules);
+    applyFilters();
+
+    showToast(
+      `${targets.length} regra${targets.length !== 1 ? 's' : ''} removida${targets.length !== 1 ? 's' : ''}`
+    );
+  }
+
+  async function toggleRule(rule) {
+    const type = classifyRule(rule);
+    let newRule = '';
+
+    if (type === 'block') {
+      if (rule.startsWith('||')) {
+        newRule = `@@${rule}`;
+      } else {
+        const domain = extractDomain(rule);
+
+        if (!domain) {
+          showToast('Não foi possível converter esta regra para ALLOW');
+          return;
+        }
+
+        newRule = `@@||${domain}^`;
+      }
+    } else if (type === 'allow') {
+      newRule = rule.replace(/^@@/, '');
+    } else {
+      showToast('Esse tipo de regra não pode ser alternado');
+      return;
+    }
+
+    const newRules = state.allRules.map(
+      (current) =>
+        current === rule
+          ? newRule
+          : current
+    );
+
+    const deduped = [...new Set(newRules)];
+
+    const ok = await saveFullRuleSet(deduped);
+    if (!ok) return;
+
+    state.allRules = deduped;
+
+    state.selected.delete(rule);
+
+    updateSelectedUI();
+    updateStats(state.allRules);
+    applyFilters();
+
+    showToast(
+      `Regra alterada para ${type === 'block' ? 'ALLOW' : 'BLOCK'}`
+    );
+  }
+
+  async function copyRule(rule) {
+    try {
+      await navigator.clipboard.writeText(rule);
+      showToast('Regra copiada');
+
+    } catch {
+      const textarea = document.createElement('textarea');
+
+      textarea.value = rule;
+      document.body.appendChild(textarea);
+
+      textarea.select();
+      document.execCommand('copy');
+
+      textarea.remove();
+
+      showToast('Regra copiada');
+    }
+  }
+
+  function formatPreviewRules(raw, mode) {
+    const lines = String(raw || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const result = [];
+
+    for (const line of lines) {
+      if (mode === 'advanced') {
+        result.push(line);
+        continue;
+      }
+
+      if (
+        line.startsWith('||') ||
+        line.startsWith('@@') ||
+        line.startsWith('!') ||
+        line.startsWith('#') ||
+        line.startsWith('/') ||
+        line.startsWith('0.0.0.0') ||
+        line.startsWith('127.')
+      ) {
+        result.push(line);
+        continue;
+      }
+
+      result.push(
+        mode === 'allow'
+          ? `@@||${line}^`
+          : `||${line}^`
+      );
+    }
+
+    return [...new Set(result)];
+  }
+
+  function updatePreview() {
+    const raw = $('rgModalInput')?.value || '';
+    const rules = formatPreviewRules(raw, state.activeTab);
+
+    const preview = $('rgModalPreview');
+    const list = $('rgModalPreviewList');
+
+    if (!preview || !list) return;
+
+    if (!rules.length) {
+      preview.style.display = 'none';
+      list.innerHTML = '';
+      return;
+    }
+
+    preview.style.display = '';
+
+    list.innerHTML = rules
+      .map((rule) => `<div>${escHtml(rule)}</div>`)
+      .join('');
+  }
+
+  function setTab(tab) {
+    state.activeTab = tab;
+
+    document
+      .querySelectorAll('.rg-tab')
+      .forEach((button) =>
+        button.classList.remove('rg-tab--active')
+      );
+
+    document
+      .querySelector(`.rg-tab[data-tab="${tab}"]`)
+      ?.classList.add('rg-tab--active');
+
+    const descriptions = {
+      block:
+        'Digite um domínio por linha. O backend aplicará o formato <code>||dominio^</code> e fará a validação.',
+      allow:
+        'Digite um domínio por linha. O backend criará a exceção <code>@@||dominio^</code>.',
+      advanced:
+        'Use a sintaxe completa do AdGuard. Uma regra por linha. Ex.: <code>||ads.example.com^</code>',
+    };
+
+    if ($('rgModalDesc')) {
+      $('rgModalDesc').innerHTML =
+        descriptions[tab] || '';
+    }
+
+    const confirmButton = $('rgModalConfirm');
+
+    if (confirmButton) {
+      confirmButton.textContent =
+        tab === 'block'
+          ? 'Bloquear'
+          : tab === 'allow'
+            ? 'Permitir'
+            : 'Salvar Regras';
+
+      confirmButton.style.background =
+        tab === 'block'
+          ? '#ef4444'
+          : tab === 'allow'
+            ? '#22c55e'
+            : 'var(--text-primary)';
+
+      confirmButton.style.color =
+        tab === 'advanced'
+          ? 'var(--bg)'
+          : '#fff';
+    }
+
+    updatePreview();
+  }
+
+  function openModal() {
+    if ($('rgModalInput')) {
+      $('rgModalInput').value = '';
+    }
+
+    if ($('rgModalPreview')) {
+      $('rgModalPreview').style.display = 'none';
+    }
+
+    if ($('rgModalPreviewList')) {
+      $('rgModalPreviewList').innerHTML = '';
+    }
+
+    $('rgModalOverlay')?.classList.add('open');
+
+    setTab('block');
+
+    setTimeout(() => {
+      $('rgModalInput')?.focus();
+    }, 60);
+  }
+
+  function closeModal() {
+    $('rgModalOverlay')?.classList.remove('open');
+  }
+
+  async function submitModal() {
+    const raw = $('rgModalInput')?.value.trim() || '';
+
+    if (!raw) {
+      showToast('Digite ao menos um domínio ou regra');
+      return;
+    }
+
+    const confirmButton = $('rgModalConfirm');
+    const originalText =
+      confirmButton?.textContent || 'Confirmar';
+
+    if (confirmButton) {
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Processando...';
+    }
+
+    try {
+      if (state.activeTab === 'advanced') {
+        const newRules = formatPreviewRules(
+          raw,
+          'advanced'
+        );
+
+        const current = new Set(state.allRules);
+
+        const toAdd = newRules.filter(
+          (rule) => !current.has(rule)
+        );
+
+        if (!toAdd.length) {
+          showToast('Todas as regras já existem');
+          return;
+        }
+
+        const merged = [
+          ...state.allRules,
+          ...toAdd,
+        ];
+
+        const ok = await saveFullRuleSet(merged);
+        if (!ok) return;
+
+        state.allRules = merged;
+
+        updateStats(state.allRules);
+        applyFilters();
+
+        closeModal();
+
+        showToast(
+          `${toAdd.length} regra${toAdd.length !== 1 ? 's' : ''} avançada${toAdd.length !== 1 ? 's' : ''} adicionada${toAdd.length !== 1 ? 's' : ''}`
+        );
+
+        return;
+      }
+
+      const url =
+        state.activeTab === 'block'
+          ? '/dns/api/block/'
+          : '/dns/api/allow/';
+
+      /*
+       * Envia o texto original para o backend.
+       * A normalização final fica concentrada em services/regras.py.
+       */
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRFToken': getCsrf(),
+        },
+        body: JSON.stringify({
+          domains: raw,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.error || `HTTP ${response.status}`
+        );
+      }
+
+      const added =
+        Array.isArray(data.added)
+          ? data.added.length
+          : 0;
+
+      const skipped =
+        Array.isArray(data.skipped)
+          ? data.skipped.length
+          : 0;
+
+      closeModal();
+
+      showToast(
+        `${added} regra${added !== 1 ? 's' : ''} adicionada${added !== 1 ? 's' : ''}` +
+        `${skipped ? ` · ${skipped} ignorada${skipped !== 1 ? 's' : ''}` : ''}`
+      );
+
+      await loadRules();
+
+    } catch (error) {
+      showToast(
+        `Erro ao salvar: ${error.message}`
+      );
+
+    } finally {
+      if (confirmButton) {
+        confirmButton.disabled = false;
+
+        confirmButton.textContent =
+          state.activeTab === 'block'
+            ? 'Bloquear'
+            : state.activeTab === 'allow'
+              ? 'Permitir'
+              : originalText;
+      }
+    }
+  }
+
+  function bindEvents() {
+    $('rgRefreshBtn')?.addEventListener(
+      'click',
+      loadRules
+    );
+
+    $('rgAddBtn')?.addEventListener(
+      'click',
+      openModal
+    );
+
+    $('rgAddFirstBtn')?.addEventListener(
+      'click',
+      openModal
+    );
+
+    $('rgRemoveSelectedBtn')?.addEventListener(
+      'click',
+      () => confirmRemove([...state.selected])
+    );
+
+    $('rgSelectAll')?.addEventListener(
+      'change',
+      (event) => {
+        const rules = currentPageRules();
+
+        if (event.target.checked) {
+          rules.forEach((rule) =>
+            state.selected.add(rule)
+          );
+        } else {
+          rules.forEach((rule) =>
+            state.selected.delete(rule)
+          );
+        }
+
+        renderTable();
+        updateSelectedUI();
+      }
+    );
+
+    document
+      .querySelectorAll('.rg-filter-btn')
+      .forEach((button) => {
+        button.addEventListener('click', () => {
+          document
+            .querySelectorAll('.rg-filter-btn')
+            .forEach((current) =>
+              current.classList.remove('rg-filter-btn--active')
+            );
+
+          button.classList.add(
+            'rg-filter-btn--active'
+          );
+
+          state.currentFilter =
+            button.dataset.filter || 'all';
+
+          applyFilters();
+        });
+      });
+
+    $('rgSearch')?.addEventListener(
+      'input',
+      (event) => {
+        state.searchTerm =
+          event.target.value.trim();
+
+        if ($('rgSearchClear')) {
+          $('rgSearchClear').style.display =
+            state.searchTerm ? '' : 'none';
+        }
+
+        applyFilters();
+      }
+    );
+
+    $('rgSearchClear')?.addEventListener(
+      'click',
+      () => {
+        if ($('rgSearch')) {
+          $('rgSearch').value = '';
+        }
+
+        state.searchTerm = '';
+
+        if ($('rgSearchClear')) {
+          $('rgSearchClear').style.display =
+            'none';
+        }
+
+        applyFilters();
+      }
+    );
+
+    $('rgPagPrev')?.addEventListener(
+      'click',
+      () => {
+        if (state.page <= 1) return;
+
+        state.page -= 1;
+
+        renderTable();
+        renderPagination();
+        syncSelectAll();
+      }
+    );
+
+    $('rgPagNext')?.addEventListener(
+      'click',
+      () => {
+        const pages = Math.max(
+          1,
+          Math.ceil(
+            state.filtered.length /
+            state.pageSize
+          )
+        );
+
+        if (state.page >= pages) return;
+
+        state.page += 1;
+
+        renderTable();
+        renderPagination();
+        syncSelectAll();
+      }
+    );
+
+    $('rgModalClose')?.addEventListener(
+      'click',
+      closeModal
+    );
+
+    $('rgModalCancel')?.addEventListener(
+      'click',
+      closeModal
+    );
+
+    $('rgModalOverlay')?.addEventListener(
+      'click',
+      (event) => {
+        if (event.target === $('rgModalOverlay')) {
+          closeModal();
+        }
+      }
+    );
+
+    $('rgModalConfirm')?.addEventListener(
+      'click',
+      submitModal
+    );
+
+    $('rgModalInput')?.addEventListener(
+      'input',
+      updatePreview
+    );
+
+    document
+      .querySelectorAll('.rg-tab')
+      .forEach((button) => {
+        button.addEventListener(
+          'click',
+          () => setTab(button.dataset.tab)
+        );
+      });
+
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        if (event.key === 'Escape') {
+          closeModal();
+        }
+
+        if (
+          event.key === 'Enter' &&
+          event.ctrlKey &&
+          $('rgModalOverlay')?.classList.contains('open')
+        ) {
+          submitModal();
+        }
+      }
+    );
+  }
+
+  bindEvents();
+  loadRules();
+});

@@ -1,110 +1,175 @@
 /**
- * MOONSHIELD — feed.js
+ * MOONSHIELD — feed.js v2
  * Live Feed DNS — tela completa
- * ─────────────────────────────────────────────────────────────────────────
- * Consome /dns/api/querylog/ a cada 3s via polling delta (since=).
- * Renderiza todas as queries em tabela com filtro tipo/search, KPIs ao vivo,
- * minigráfico de atividade, auto-scroll, exportação CSV.
+ *
+ * Melhorias:
+ * - sem dependência do Chart.js/CDN;
+ * - polling protegido contra chamadas concorrentes;
+ * - deduplicação de eventos;
+ * - filtros por status, tipo DNS, cache/upstream e busca;
+ * - drawer com detalhes completos;
+ * - ações rápidas BLOCK/ALLOW;
+ * - tratamento visual de PROD offline;
+ * - exportação CSV com campos adicionais;
+ * - minigráfico em canvas nativo.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+    'use strict';
 
-    /* ═══════════════════════════════════════════════════════
-       UTILITÁRIOS
-    ═══════════════════════════════════════════════════════ */
-    const $ = id => document.getElementById(id);
+    const $ = (id) => document.getElementById(id);
+
+    const MAX_BUFFER = 500;
+    const MAX_DOM_ROWS = 300;
+    const POLL_MS = 3000;
+    const RPM_WINDOW = 60_000;
+    const MINI_BUCKETS = 24;
+    const MINI_INTERVAL = 5000;
+
+    const state = {
+        all: [],
+        typeFilter: 'all',
+        qtypeFilter: 'all',
+        cacheFilter: 'all',
+        search: '',
+        lastTime: null,
+        paused: false,
+        autoScroll: true,
+        mode: '—',
+        polling: false,
+        seen: new Set(),
+        selected: null,
+        rpmBucket: [],
+        lastPollOk: false,
+    };
+
+    const miniBuckets = Array(MINI_BUCKETS).fill(0);
+    let lastBucketTime = Date.now();
+    let toastTimer = null;
 
     function fmtNum(n) {
-        return n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M'
-            : n >= 1_000 ? (n / 1_000).toFixed(1) + 'k'
-                : String(n || 0);
+        const value = Number(n || 0);
+        if (value >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M';
+        if (value >= 1_000) return (value / 1_000).toFixed(1) + 'k';
+        return String(value);
+    }
+
+    function pad(n) {
+        return String(n).padStart(2, '0');
     }
 
     function nowStr() {
         const d = new Date();
         return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     }
-    function pad(n) { return String(n).padStart(2, '0'); }
 
-    /* ═══════════════════════════════════════════════════════
-       STATE
-    ═══════════════════════════════════════════════════════ */
-    const state = {
-        /* Buffer de todas as entradas recebidas nesta sessão */
-        all: [],          // todas (máx 500)
-        displayed: [],    // após filtros aplicados
-
-        /* Filtros */
-        typeFilter: 'all',  // 'all' | 'block' | 'allow'
-        search: '',
-
-        /* Polling */
-        lastTime: null,   // ISO do cursor
-        paused: false,
-        autoScroll: true,
-
-        /* KPIs de sessão */
-        totalSessao: 0,
-        blockedSessao: 0,
-        allowedSessao: 0,
-        uniqueIps: new Set(),
-
-        /* Para req/min */
-        rpmBucket: [],     // timestamps das últimas queries (sliding window 60s)
-
-        /* Modo backend */
-        mode: '—',
-    };
-
-    /* Minigráfico: conta queries por intervalo de 10s nos últimos 2 min */
-    const MINI_BUCKETS = 24;  // 24 × 5s = 2 min de janela
-    const MINI_INTERVAL = 5000;
-    let miniChart = null;
-    const miniBuckets = Array(MINI_BUCKETS).fill(0); // queries/bucket
-    let lastBucketTime = Date.now();
-
-    /* ═══════════════════════════════════════════════════════
-       CHART.JS MINI
-    ═══════════════════════════════════════════════════════ */
-    Chart.defaults.color = 'rgba(255,255,255,0.20)';
-    Chart.defaults.font.family = "'JetBrains Mono', monospace";
-    Chart.defaults.plugins.legend.display = false;
-
-    function initMiniChart() {
-        const ctx = $('feedMiniChart');
-        if (!ctx) return;
-        const grad = ctx.getContext('2d').createLinearGradient(0, 0, 0, 40);
-        grad.addColorStop(0, 'rgba(239,68,68,0.55)');
-        grad.addColorStop(1, 'rgba(239,68,68,0.00)');
-        miniChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: Array(MINI_BUCKETS).fill(''),
-                datasets: [{
-                    data: [...miniBuckets],
-                    borderColor: '#ef4444',
-                    borderWidth: 1.5,
-                    fill: true,
-                    backgroundColor: grad,
-                    tension: 0.45,
-                    pointRadius: 0,
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                plugins: { tooltip: { enabled: false } },
-                scales: { x: { display: false }, y: { display: false, min: 0 } },
-            }
-        });
+    function esc(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
-    function updateMiniChart(newCount) {
+    function truncate(value, max = 30) {
+        const s = String(value || '');
+        return s.length > max ? s.slice(0, max) + '…' : s;
+    }
+
+    function getCsrf() {
+        return document.cookie
+            .split(';')
+            .map((c) => c.trim())
+            .find((c) => c.startsWith('csrftoken='))
+            ?.split('=')[1] || '';
+    }
+
+    function eventKey(e) {
+        return [
+            e.time || '',
+            e.ip || '',
+            e.domain || '',
+            e.type || '',
+            e.blocked ? '1' : '0',
+            e.filter || '',
+        ].join('|');
+    }
+
+    function safeDomain(e) {
+        return String(e?.domain || '—').replace(/\.$/, '');
+    }
+
+    function normalizedEntry(e) {
+        return {
+            time: String(e?.time || ''),
+            time_fmt: String(e?.time_fmt || ''),
+            ip: String(e?.ip || '—'),
+            domain: safeDomain(e),
+            type: String(e?.type || 'A').toUpperCase(),
+            blocked: Boolean(e?.blocked),
+            status: String(e?.status || (e?.blocked ? 'Bloqueado' : 'Processado')),
+            elapsed_ms: e?.elapsed_ms === null || e?.elapsed_ms === undefined
+                ? null
+                : Number(e.elapsed_ms),
+            filter: String(e?.filter || ''),
+            reason: String(e?.reason || ''),
+            upstream: String(e?.upstream || ''),
+            cached: Boolean(e?.cached),
+        };
+    }
+
+    function setLiveState(kind, message = '') {
+        const dot = $('feedLiveDot');
+        const root = $('feedLiveState');
+        if (dot) {
+            dot.classList.remove('is-ok', 'is-paused', 'is-error');
+            dot.classList.add(kind === 'error' ? 'is-error' : kind === 'paused' ? 'is-paused' : 'is-ok');
+        }
+        if (root) root.title = message || (kind === 'error' ? 'Falha na coleta' : 'Coleta ativa');
+    }
+
+    function showWarning(message) {
+        const box = $('feedWarning');
+        const txt = $('feedWarningText');
+        if (txt) txt.textContent = message || 'AdGuard indisponível.';
+        if (box) box.hidden = false;
+        setLiveState('error', message);
+    }
+
+    function hideWarning() {
+        const box = $('feedWarning');
+        if (box) box.hidden = true;
+        if (!state.paused) setLiveState('ok');
+    }
+
+    function renderModeBadge(mode) {
+        const badge = $('feedModeBadge');
+        if (!badge) return;
+
+        const cfg = {
+            demo:         { label: 'DEMO', color: '#eab308', bg: 'rgba(234,179,8,.10)', border: 'rgba(234,179,8,.30)' },
+            prod:         { label: 'PROD', color: '#22c55e', bg: 'rgba(34,197,94,.10)', border: 'rgba(34,197,94,.30)' },
+            prod_offline: { label: 'PROD', color: '#ef4444', bg: 'rgba(239,68,68,.10)', border: 'rgba(239,68,68,.30)' },
+        }[mode] || {
+            label: String(mode || '?').toUpperCase(),
+            color: '#94a3b8',
+            bg: 'rgba(148,163,184,.08)',
+            border: 'rgba(148,163,184,.20)',
+        };
+
+        badge.style.display = 'inline-block';
+        badge.textContent = cfg.label;
+        badge.style.color = cfg.color;
+        badge.style.background = cfg.bg;
+        badge.style.border = `1px solid ${cfg.border}`;
+    }
+
+    function advanceMiniBuckets(newCount) {
         const now = Date.now();
-        /* Avança buckets se passaram intervalos desde o último */
         const elapsed = now - lastBucketTime;
         const steps = Math.floor(elapsed / MINI_INTERVAL);
+
         if (steps > 0) {
             for (let i = 0; i < Math.min(steps, MINI_BUCKETS); i++) {
                 miniBuckets.shift();
@@ -112,398 +177,589 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             lastBucketTime += steps * MINI_INTERVAL;
         }
-        /* Acumula no bucket atual */
-        miniBuckets[miniBuckets.length - 1] += newCount;
-        if (miniChart) {
-            miniChart.data.datasets[0].data = [...miniBuckets];
-            miniChart.update('none');
-        }
+
+        miniBuckets[miniBuckets.length - 1] += Number(newCount || 0);
+        drawMiniChart();
     }
 
-    /* ═══════════════════════════════════════════════════════
-       POLLING
-    ═══════════════════════════════════════════════════════ */
-    async function poll() {
-        try {
-            const url = state.lastTime
-                ? `/dns/api/querylog/?since=${encodeURIComponent(state.lastTime)}&limit=50`
-                : `/dns/api/querylog/?limit=80`;
+    function drawMiniChart() {
+        const canvas = $('feedMiniChart');
+        if (!canvas) return;
 
-            const res = await fetch(url);
-            if (!res.ok) return;
-            const data = await res.json();
-            if (!data.ok || !data.entries || data.entries.length === 0) return;
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const width = Math.max(120, Math.floor(rect.width || canvas.width));
+        const height = Math.max(32, Math.floor(rect.height || canvas.height));
 
-            /* Atualiza modo */
-            if (data.mode) {
-                state.mode = data.mode;
-                renderModeBadge(data.mode);
-            }
-
-            const incoming = data.entries;
-            const newEntries = state.lastTime
-                ? incoming.filter(e => e.time > state.lastTime)
-                : incoming;
-
-            if (newEntries.length === 0) return;
-
-            /* Atualiza cursor */
-            state.lastTime = incoming[0].time;
-
-            /* Acumula no buffer */
-            state.all = [...newEntries, ...state.all].slice(0, 500);
-
-            /* Atualiza KPIs de sessão */
-            newEntries.forEach(e => {
-                state.totalSessao++;
-                if (e.blocked) state.blockedSessao++;
-                else state.allowedSessao++;
-                state.uniqueIps.add(e.ip);
-                state.rpmBucket.push(Date.now());
-            });
-
-            /* Limpa rpmBucket (janela 60s) */
-            const cutoff = Date.now() - 60_000;
-            state.rpmBucket = state.rpmBucket.filter(t => t > cutoff);
-
-            /* Minigráfico */
-            updateMiniChart(newEntries.length);
-
-            /* Renderiza KPIs */
-            renderKPIs();
-
-            /* Renderiza linhas novas se não pausado */
-            if (!state.paused) {
-                addRows(newEntries);
-            }
-
-            /* Timestamp atualização */
-            const lu = $('feedLastUpdate');
-            if (lu) lu.textContent = nowStr();
-
-        } catch { /* silencioso */ }
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       RENDERIZAÇÃO DAS LINHAS
-    ═══════════════════════════════════════════════════════ */
-    function addRows(entries) {
-        const tbody = $('feedTableBody');
-        const emptyState = $('feedEmptyState');
-        if (!tbody) return;
-
-        /* Remove estado vazio na primeira entrada */
-        if (emptyState && tbody.contains(emptyState)) {
-            tbody.removeChild(emptyState);
+        if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+            canvas.width = Math.floor(width * dpr);
+            canvas.height = Math.floor(height * dpr);
         }
 
-        /* Aplica filtros para decidir quais realmente renderizar */
-        const toRender = entries.filter(matchesFilter);
-        if (toRender.length === 0) return;
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, width, height);
 
-        const frag = document.createDocumentFragment();
-        toRender.forEach(e => {
-            const row = buildRow(e);
-            frag.appendChild(row);
+        const max = Math.max(1, ...miniBuckets);
+        const step = width / Math.max(1, miniBuckets.length - 1);
+
+        const pts = miniBuckets.map((v, i) => ({
+            x: i * step,
+            y: height - 5 - ((v / max) * (height - 10)),
+        }));
+
+        const gradient = ctx.createLinearGradient(0, 0, 0, height);
+        gradient.addColorStop(0, 'rgba(239,68,68,.36)');
+        gradient.addColorStop(1, 'rgba(239,68,68,0)');
+
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, height);
+        pts.forEach((p) => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(pts[pts.length - 1].x, height);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        ctx.beginPath();
+        pts.forEach((p, i) => {
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
         });
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+    }
 
-        /* Insere no topo */
-        tbody.insertBefore(frag, tbody.firstChild);
+    function pruneRpm() {
+        const cutoff = Date.now() - RPM_WINDOW;
+        state.rpmBucket = state.rpmBucket.filter((t) => t > cutoff);
+    }
 
-        /* Limita DOM a 300 nós visíveis */
-        while (tbody.children.length > 300) {
-            tbody.removeChild(tbody.lastChild);
+    function renderKPIs() {
+        pruneRpm();
+
+        const total = state.all.length;
+        const blocked = state.all.filter((e) => e.blocked).length;
+        const allowed = total - blocked;
+        const pct = total ? Math.round((blocked / total) * 100) : 0;
+        const ips = new Set(state.all.map((e) => e.ip).filter(Boolean));
+
+        if ($('fkTotal')) $('fkTotal').textContent = fmtNum(total);
+        if ($('fkBlocked')) $('fkBlocked').textContent = fmtNum(blocked);
+        if ($('fkAllowed')) $('fkAllowed').textContent = fmtNum(allowed);
+        if ($('fkPct')) $('fkPct').textContent = `${pct}%`;
+        if ($('fkRps')) $('fkRps').textContent = fmtNum(state.rpmBucket.length);
+        if ($('fkIps')) $('fkIps').textContent = fmtNum(ips.size);
+        if ($('feedBufferInfo')) $('feedBufferInfo').textContent = `buffer ${total}/${MAX_BUFFER}`;
+    }
+
+    function matchesFilter(e) {
+        if (state.typeFilter === 'block' && !e.blocked) return false;
+        if (state.typeFilter === 'allow' && e.blocked) return false;
+
+        if (state.qtypeFilter !== 'all' && String(e.type).toUpperCase() !== state.qtypeFilter) {
+            return false;
         }
 
-        /* Auto-scroll se ativado (scroll para o topo pois inserimos no início) */
-        if (state.autoScroll) {
-            tbody.scrollTop = 0;
+        if (state.cacheFilter === 'cache' && !e.cached) return false;
+        if (state.cacheFilter === 'upstream' && e.cached) return false;
+
+        if (state.search) {
+            const q = state.search.toLowerCase();
+            const haystack = [
+                e.ip,
+                e.domain,
+                e.type,
+                e.filter,
+                e.reason,
+                e.upstream,
+                e.cached ? 'cache' : 'upstream',
+            ].join(' ').toLowerCase();
+            if (!haystack.includes(q)) return false;
         }
 
-        /* Atualiza contador de linhas */
-        updateRowCount();
+        return true;
+    }
+
+    function buildTypeTag(type = 'A') {
+        const t = String(type || 'A').toUpperCase();
+        const known = ['A', 'AAAA', 'HTTPS', 'CNAME', 'SRV', 'PTR', 'TXT', 'MX', 'NS'];
+        const cls = known.includes(t) ? t.toLowerCase() : 'other';
+        return `<span class="feed-type-tag feed-type-tag--${esc(cls)}">${esc(t)}</span>`;
+    }
+
+    function buildLatency(e) {
+        if (e.blocked || e.elapsed_ms === null || Number.isNaN(e.elapsed_ms)) {
+            return '<span class="feed-lat feed-lat--none">—</span>';
+        }
+
+        const ms = Number(e.elapsed_ms);
+        const cls = ms < 5 ? 'fast' : ms < 25 ? 'medium' : 'slow';
+        return `<span class="feed-lat feed-lat--${cls}">${esc(ms.toFixed(ms < 10 ? 2 : 1))} ms</span>`;
+    }
+
+    function buildSource(e) {
+        if (e.blocked) return '<span class="feed-source feed-source--blocked">policy</span>';
+        if (e.cached) return '<span class="feed-source feed-source--cache">cache</span>';
+        return '<span class="feed-source feed-source--upstream">upstream</span>';
     }
 
     function buildRow(e) {
         const cls = e.blocked ? 'block' : 'allow';
-        const domainCls = e.blocked ? 'is-blocked' : '';
-        const latencyHtml = buildLatency(e);
-        const filterHtml = e.filter
-            ? `<span class="feed-cell feed-cell--filter has-filter" title="${e.filter}">${truncate(e.filter, 22)}</span>`
-            : `<span class="feed-cell feed-cell--filter">—</span>`;
-
         const row = document.createElement('div');
         row.className = `feed-row feed-row--${cls}`;
-        row.dataset.time = e.time;
-        row.dataset.ip = e.ip;
-        row.dataset.domain = e.domain;
-        row.dataset.blocked = e.blocked ? '1' : '0';
+        row.dataset.key = eventKey(e);
+
+        const filterTitle = e.filter || e.reason || '';
+        const filterText = e.filter ? truncate(e.filter, 28) : e.reason ? truncate(e.reason, 28) : '—';
+
         row.innerHTML = `
-      <span class="feed-cell feed-cell--time">${e.time_fmt || '—'}</span>
-      <span class="feed-cell">
-        <span class="feed-status-pill feed-status-pill--${cls}">
-          <span class="feed-status-dot"></span>
-          ${e.blocked ? 'BLOCK' : 'ALLOW'}
-        </span>
-      </span>
-      <span class="feed-cell feed-cell--ip" title="${e.ip}">${e.ip}</span>
-      <span class="feed-cell feed-cell--domain ${domainCls}" title="${e.domain}">${e.domain}</span>
-      <span class="feed-cell">${buildTypeTag(e.type)}</span>
-      ${latencyHtml}
-      ${filterHtml}
-    `;
+            <span class="feed-cell feed-cell--time mono">${esc(e.time_fmt || '—')}</span>
+
+            <span class="feed-cell feed-cell--status">
+                <span class="feed-status-pill feed-status-pill--${cls}">
+                    <span class="feed-status-dot"></span>
+                    ${e.blocked ? 'BLOCK' : 'ALLOW'}
+                </span>
+            </span>
+
+            <span class="feed-cell feed-cell--ip mono" title="${esc(e.ip)}">${esc(e.ip)}</span>
+
+            <span class="feed-cell feed-cell--domain ${e.blocked ? 'is-blocked' : ''}" title="${esc(e.domain)}">
+                ${esc(e.domain)}
+            </span>
+
+            <span class="feed-cell feed-cell--type">${buildTypeTag(e.type)}</span>
+
+            <span class="feed-cell feed-cell--latency">${buildLatency(e)}</span>
+
+            <span class="feed-cell feed-cell--source">${buildSource(e)}</span>
+
+            <span class="feed-cell feed-cell--filter ${filterTitle ? 'has-filter' : ''}" title="${esc(filterTitle)}">
+                ${esc(filterText)}
+            </span>
+
+            <span class="feed-cell feed-cell--actions">
+                <button type="button" class="feed-row-btn" data-action="detail" title="Detalhes">Detalhes</button>
+                <button type="button" class="feed-row-btn feed-row-btn--ghost" data-action="copy" title="Copiar domínio">Copiar</button>
+            </span>
+        `;
+
+        row.querySelector('[data-action="detail"]')?.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            openDetail(e);
+        });
+
+        row.querySelector('[data-action="copy"]')?.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            await copyText(e.domain);
+        });
+
+        row.addEventListener('dblclick', () => openDetail(e));
         return row;
     }
 
-    function buildTypeTag(type = 'A') {
-        const t = type.toUpperCase();
-        const cls = t === 'AAAA' ? 'aaaa' : t === 'CNAME' ? 'cname' : '';
-        return `<span class="feed-cell feed-cell--type"><span class="feed-type-tag${cls ? ' feed-type-tag--' + cls : ''}">${t}</span></span>`;
-    }
+    function renderAll() {
+        const body = $('feedTableBody');
+        if (!body) return;
 
-    function buildLatency(e) {
-        if (e.blocked || e.elapsed_ms === null || e.elapsed_ms === undefined) {
-            return `<span class="feed-cell feed-cell--latency"><span class="feed-lat--blocked">—</span></span>`;
-        }
-        const ms = e.elapsed_ms;
-        const cls = ms < 5 ? 'fast' : ms < 20 ? 'medium' : 'slow';
-        return `<span class="feed-cell feed-cell--latency"><span class="feed-lat--${cls}">${ms}ms</span></span>`;
-    }
+        const filtered = state.all.filter(matchesFilter).slice(0, MAX_DOM_ROWS);
+        body.innerHTML = '';
 
-    function truncate(str, max) {
-        return str.length > max ? str.slice(0, max) + '…' : str;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       FILTROS
-    ═══════════════════════════════════════════════════════ */
-    function matchesFilter(e) {
-        if (state.typeFilter === 'block' && !e.blocked) return false;
-        if (state.typeFilter === 'allow' && e.blocked) return false;
-        if (state.search) {
-            const q = state.search.toLowerCase();
-            return e.ip.includes(q) || e.domain.toLowerCase().includes(q);
-        }
-        return true;
-    }
-
-    /* Reaplica filtros ao buffer completo — limpa tabela e rerenderiza */
-    function reapplyFilters() {
-        const tbody = $('feedTableBody'); if (!tbody) return;
-        tbody.innerHTML = '';
-
-        const filtered = state.all.filter(matchesFilter).slice(0, 300);
-        if (filtered.length === 0) {
+        if (!filtered.length) {
             const empty = document.createElement('div');
             empty.className = 'feed-empty-state';
             empty.id = 'feedEmptyState';
             empty.innerHTML = `
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="color:var(--text-dim)">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        <p>Nenhum resultado para os filtros atuais.</p>`;
-            tbody.appendChild(empty);
-            updateRowCount();
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <p>Nenhum resultado para os filtros atuais.</p>
+                <span>Altere a busca ou os filtros para exibir consultas.</span>
+            `;
+            body.appendChild(empty);
+        } else {
+            const frag = document.createDocumentFragment();
+            filtered.forEach((entry) => frag.appendChild(buildRow(entry)));
+            body.appendChild(frag);
+        }
+
+        if (state.autoScroll) body.scrollTop = 0;
+        updateRowCount(filtered.length);
+    }
+
+    function updateRowCount(count = null) {
+        const visible = count ?? document.querySelectorAll('#feedTableBody .feed-row').length;
+        const rc = $('feedRowCount');
+        if (rc) {
+            rc.textContent = `${visible} ${visible === 1 ? 'entrada exibida' : 'entradas exibidas'}`;
+        }
+    }
+
+    function ingest(entries) {
+        const fresh = [];
+
+        for (const raw of entries || []) {
+            const e = normalizedEntry(raw);
+            const key = eventKey(e);
+            if (state.seen.has(key)) continue;
+
+            state.seen.add(key);
+            fresh.push(e);
+
+            const ts = e.time ? Date.parse(e.time) : NaN;
+            state.rpmBucket.push(Number.isNaN(ts) ? Date.now() : ts);
+        }
+
+        if (!fresh.length) return 0;
+
+        fresh.sort((a, b) => String(b.time).localeCompare(String(a.time)));
+        state.all = [...fresh, ...state.all]
+            .sort((a, b) => String(b.time).localeCompare(String(a.time)))
+            .slice(0, MAX_BUFFER);
+
+        if (state.seen.size > 2000) {
+            state.seen = new Set(state.all.map(eventKey));
+        }
+
+        advanceMiniBuckets(fresh.length);
+        renderKPIs();
+
+        if (!state.paused) renderAll();
+        return fresh.length;
+    }
+
+    async function poll() {
+        if (state.polling) return;
+        state.polling = true;
+
+        try {
+            const url = state.lastTime
+                ? `/dns/api/querylog/?since=${encodeURIComponent(state.lastTime)}&limit=80`
+                : '/dns/api/querylog/?limit=120';
+
+            const res = await fetch(url, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store',
+            });
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+
+            const data = await res.json();
+            state.mode = data.mode || state.mode;
+            renderModeBadge(state.mode);
+
+            if (state.mode === 'prod_offline') {
+                showWarning(data.warning || 'AdGuard indisponível ou não configurado.');
+                return;
+            }
+
+            hideWarning();
+
+            const incoming = Array.isArray(data.entries) ? data.entries : [];
+            if (incoming.length) {
+                const newest = incoming
+                    .map((e) => e?.time)
+                    .filter(Boolean)
+                    .sort()
+                    .at(-1);
+
+                if (newest && (!state.lastTime || newest > state.lastTime)) {
+                    state.lastTime = newest;
+                }
+
+                ingest(incoming);
+            } else {
+                renderKPIs();
+            }
+
+            state.lastPollOk = true;
+            if ($('feedLastUpdate')) $('feedLastUpdate').textContent = nowStr();
+            if (!state.paused) setLiveState('ok');
+
+        } catch (err) {
+            state.lastPollOk = false;
+            showWarning(`Falha ao consultar o feed DNS: ${err.message}`);
+        } finally {
+            state.polling = false;
+        }
+    }
+
+    function openDetail(entry) {
+        state.selected = entry;
+
+        const blocked = entry.blocked;
+        const status = $('fdStatus');
+        if (status) {
+            status.className = `feed-status-pill feed-status-pill--${blocked ? 'block' : 'allow'}`;
+            status.innerHTML = `<span class="feed-status-dot"></span>${blocked ? 'BLOCK' : 'ALLOW'}`;
+        }
+
+        if ($('fdDomain')) $('fdDomain').textContent = entry.domain || '—';
+        if ($('fdType')) {
+            $('fdType').className = `feed-type-tag feed-type-tag--${String(entry.type || 'A').toLowerCase()}`;
+            $('fdType').textContent = entry.type || 'A';
+        }
+        if ($('fdTime')) $('fdTime').textContent = entry.time_fmt || entry.time || '—';
+        if ($('fdIp')) $('fdIp').textContent = entry.ip || '—';
+        if ($('fdLatency')) $('fdLatency').textContent =
+            entry.blocked || entry.elapsed_ms === null ? '—' : `${entry.elapsed_ms} ms`;
+        if ($('fdSource')) $('fdSource').textContent =
+            entry.blocked ? 'Política / filtro' : entry.cached ? 'Cache local' : 'Upstream';
+        if ($('fdUpstream')) $('fdUpstream').textContent = entry.upstream || '—';
+        if ($('fdReason')) $('fdReason').textContent = entry.reason || '—';
+        if ($('fdFilter')) $('fdFilter').textContent = entry.filter || '—';
+
+        $('feedDetail')?.classList.add('is-open');
+        $('feedDetailOverlay')?.classList.add('is-open');
+        $('feedDetail')?.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDetail() {
+        $('feedDetail')?.classList.remove('is-open');
+        $('feedDetailOverlay')?.classList.remove('is-open');
+        $('feedDetail')?.setAttribute('aria-hidden', 'true');
+        state.selected = null;
+    }
+
+    async function postDomain(url, domain) {
+        if (!domain || domain === '—') return;
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrf(),
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({ domains: domain }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        return data;
+    }
+
+    async function blockSelected() {
+        if (!state.selected) return;
+        try {
+            const result = await postDomain('/dns/api/block/', state.selected.domain);
+            showToast(result?.added?.length ? 'Domínio bloqueado' : 'Regra já existente');
+            closeDetail();
+        } catch (err) {
+            showToast(`Falha ao bloquear: ${err.message}`, 'error');
+        }
+    }
+
+    async function allowSelected() {
+        if (!state.selected) return;
+        try {
+            const result = await postDomain('/dns/api/allow/', state.selected.domain);
+            showToast(result?.added?.length ? 'Whitelist adicionada' : 'Regra já existente');
+            closeDetail();
+        } catch (err) {
+            showToast(`Falha na whitelist: ${err.message}`, 'error');
+        }
+    }
+
+    async function copyText(text) {
+        try {
+            await navigator.clipboard.writeText(String(text || ''));
+            showToast('Domínio copiado');
+        } catch {
+            const ta = document.createElement('textarea');
+            ta.value = String(text || '');
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            showToast('Domínio copiado');
+        }
+    }
+
+    function showToast(message, type = 'ok') {
+        const t = $('feedToast');
+        if (!t) return;
+        t.textContent = message;
+        t.dataset.type = type;
+        t.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    function clearLocalFeed() {
+        state.all = [];
+        state.seen.clear();
+        state.rpmBucket = [];
+        miniBuckets.fill(0);
+        drawMiniChart();
+        renderKPIs();
+        renderAll();
+        showToast('Feed local limpo');
+    }
+
+    function exportCsv() {
+        const entries = state.all.filter(matchesFilter);
+        if (!entries.length) {
+            showToast('Nenhuma entrada para exportar');
             return;
         }
 
-        const frag = document.createDocumentFragment();
-        filtered.forEach(e => {
-            const row = buildRow(e);
-            /* Desativa animação na rerenderização em massa */
-            row.style.animation = 'none';
-            frag.appendChild(row);
-        });
-        tbody.appendChild(frag);
-        updateRowCount();
-    }
+        const headers = [
+            'Data/Hora',
+            'IP',
+            'Dominio',
+            'Tipo',
+            'Status',
+            'Latencia_ms',
+            'Origem',
+            'Upstream',
+            'Motivo',
+            'Filtro',
+        ];
 
-    /* ═══════════════════════════════════════════════════════
-       KPIs
-    ═══════════════════════════════════════════════════════ */
-    function renderKPIs() {
-        const pct = state.totalSessao > 0
-            ? Math.round((state.blockedSessao / state.totalSessao) * 100)
-            : 0;
-        const rpm = state.rpmBucket.length; // entradas nos últimos 60s
-
-        if ($('fkTotal')) $('fkTotal').textContent = fmtNum(state.totalSessao);
-        if ($('fkBlocked')) $('fkBlocked').textContent = fmtNum(state.blockedSessao);
-        if ($('fkAllowed')) $('fkAllowed').textContent = fmtNum(state.allowedSessao);
-        if ($('fkPct')) $('fkPct').textContent = pct + '%';
-        if ($('fkRps')) $('fkRps').textContent = rpm;
-        if ($('fkIps')) $('fkIps').textContent = state.uniqueIps.size;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       MODE BADGE
-    ═══════════════════════════════════════════════════════ */
-    function renderModeBadge(mode) {
-        const badge = $('feedModeBadge'); if (!badge) return;
-        badge.style.display = 'inline-block';
-        const cfg = {
-            demo: { label: 'DEMO', color: '#eab308', bg: 'rgba(234,179,8,.1)', border: 'rgba(234,179,8,.3)' },
-            prod: { label: 'PROD', color: '#22c55e', bg: 'rgba(34,197,94,.1)', border: 'rgba(34,197,94,.3)' },
-            mock: { label: 'MOCK', color: '#eab308', bg: 'rgba(234,179,8,.1)', border: 'rgba(234,179,8,.3)' },
-            fallback: { label: 'FALLBACK', color: '#f97316', bg: 'rgba(249,115,22,.1)', border: 'rgba(249,115,22,.3)' },
-        }[mode] || { label: mode.toUpperCase(), color: '#888', bg: 'rgba(255,255,255,.05)', border: 'rgba(255,255,255,.1)' };
-        badge.textContent = cfg.label;
-        badge.style.color = cfg.color;
-        badge.style.background = cfg.bg;
-        badge.style.border = `1px solid ${cfg.border}`;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       CONTADOR DE LINHAS
-    ═══════════════════════════════════════════════════════ */
-    function updateRowCount() {
-        const tbody = $('feedTableBody');
-        const count = tbody ? tbody.querySelectorAll('.feed-row').length : 0;
-        const rc = $('feedRowCount');
-        if (rc) rc.textContent = `${count} ${count === 1 ? 'entrada' : 'entradas'} exibidas`;
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       CONTROLES & EVENTOS
-    ═══════════════════════════════════════════════════════ */
-    
-    /* Search elements */
-    const searchEl = $('feedSearch');
-    const searchClearEl = $('feedSearchClear');
-
-    /* LÊ A URL E APLICA O IP AUTOMATICAMENTE */
-    const urlParams = new URLSearchParams(window.location.search);
-    const ipFiltrado = urlParams.get('ip');
-
-    if (ipFiltrado) {
-        state.search = ipFiltrado.trim();
-        if (searchEl) searchEl.value = state.search;
-        if (searchClearEl) searchClearEl.classList.add('visible');
-        // Não precisamos chamar reapplyFilters() aqui porque a tabela ainda está vazia
-        // O primeiro poll() já vai baixar os dados e aplicar esse state.search!
-    }
-
-    searchEl?.addEventListener('input', () => {
-        state.search = searchEl.value.trim();
-        searchClearEl?.classList.toggle('visible', state.search.length > 0);
-        reapplyFilters();
-    });
-
-    searchClearEl?.addEventListener('click', () => {
-        if (searchEl) searchEl.value = '';
-        state.search = '';
-        searchClearEl?.classList.remove('visible');
-        
-        // Se houver "ip" na URL, vamos removê-lo da barra de endereços para não confundir o usuário ao recarregar
-        if (urlParams.has('ip')) {
-            window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        
-        reapplyFilters();
-    });
-
-    /* Pausar / Retomar */
-    $('feedPauseBtn')?.addEventListener('click', () => {
-        state.paused = !state.paused;
-
-        const dot = document.querySelector('.feed-live__dot');
-        const lbl = $('feedPauseLbl');
-        const icon = $('feedPauseIcon');
-
-        if (dot) dot.classList.toggle('paused', state.paused);
-        if (lbl) lbl.textContent = state.paused ? 'Retomar' : 'Pausar';
-        if (icon) icon.innerHTML = state.paused
-            ? '<polygon points="5 3 19 12 5 21 5 3"/>'
-            : '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
-
-        if (!state.paused) {
-            /* Retomou: renderiza tudo que ficou acumulado */
-            reapplyFilters();
-        }
-    });
-
-    /* Limpar log */
-    $('feedClearBtn')?.addEventListener('click', () => {
-        state.all = [];
-        state.totalSessao = 0;
-        state.blockedSessao = 0;
-        state.allowedSessao = 0;
-        state.uniqueIps = new Set();
-        state.rpmBucket = [];
-        miniBuckets.fill(0);
-        if (miniChart) { miniChart.data.datasets[0].data = [...miniBuckets]; miniChart.update('none'); }
-        renderKPIs();
-
-        const tbody = $('feedTableBody'); if (!tbody) return;
-        tbody.innerHTML = '';
-        const empty = document.createElement('div');
-        empty.className = 'feed-empty-state';
-        empty.id = 'feedEmptyState';
-        empty.innerHTML = `
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="color:var(--text-dim)">
-        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-      </svg>
-      <p>Log limpo. Aguardando novas consultas…</p>`;
-        tbody.appendChild(empty);
-        updateRowCount();
-        showToast('Log limpo');
-    });
-
-    /* Exportar CSV */
-    $('feedExportBtn')?.addEventListener('click', () => {
-        const entries = state.all.filter(matchesFilter);
-        if (!entries.length) { showToast('Nenhuma entrada para exportar'); return; }
-        const headers = ['Hora', 'IP', 'Domínio', 'Tipo', 'Status', 'Latência(ms)', 'Filtro'];
-        const rows = entries.map(e => [
-            e.time_fmt || e.time,
+        const rows = entries.map((e) => [
+            e.time || e.time_fmt,
             e.ip,
             e.domain,
             e.type,
             e.blocked ? 'BLOCK' : 'ALLOW',
             e.elapsed_ms ?? '',
+            e.blocked ? 'policy' : e.cached ? 'cache' : 'upstream',
+            e.upstream || '',
+            e.reason || '',
             e.filter || '',
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-        const blob = new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const a = Object.assign(document.createElement('a'), {
-            href: URL.createObjectURL(blob),
-            download: `feed-dns-${new Date().toISOString().slice(0, 10)}.csv`,
-        });
-        a.click(); URL.revokeObjectURL(a.href);
+        ].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+
+        const blob = new Blob(
+            ['\uFEFF' + [headers.join(','), ...rows].join('\n')],
+            { type: 'text/csv;charset=utf-8;' }
+        );
+
+        const a = document.createElement('a');
+        const href = URL.createObjectURL(blob);
+        a.href = href;
+        a.download = `moonshield-dns-feed-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(href);
+
         showToast(`${entries.length} entradas exportadas`);
-    });
-
-    /* Filtro por tipo (chips) */
-    document.querySelectorAll('.feed-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            document.querySelectorAll('.feed-chip').forEach(c => c.classList.remove('feed-chip--active'));
-            chip.classList.add('feed-chip--active');
-            state.typeFilter = chip.dataset.type;
-            reapplyFilters();
-        });
-    });
-
-    /* Auto-scroll toggle */
-    $('feedAutoScroll')?.addEventListener('change', e => {
-        state.autoScroll = e.target.checked;
-    });
-
-    /* ═══════════════════════════════════════════════════════
-       TOAST
-    ═══════════════════════════════════════════════════════ */
-    let toastTimer;
-    function showToast(msg) {
-        const t = $('feedToast'); if (!t) return;
-        t.textContent = msg; t.classList.add('show');
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
     }
 
-    /* ═══════════════════════════════════════════════════════
-       INIT
-    ═══════════════════════════════════════════════════════ */
-    initMiniChart();
-    poll();                              /* primeiro poll imediato */
-    setInterval(poll, 3_000);           /* polling a cada 3s */
-    setInterval(renderKPIs, 5_000);     /* atualiza req/min a cada 5s */
+    function applyUrlFilter() {
+        const params = new URLSearchParams(window.location.search);
+        const ip = params.get('ip');
+        if (!ip) return;
 
+        state.search = ip.trim();
+        const input = $('feedSearch');
+        if (input) input.value = state.search;
+        $('feedSearchClear')?.classList.add('visible');
+    }
+
+    function bindEvents() {
+        applyUrlFilter();
+
+        $('feedSearch')?.addEventListener('input', (ev) => {
+            state.search = ev.target.value.trim();
+            $('feedSearchClear')?.classList.toggle('visible', Boolean(state.search));
+            renderAll();
+        });
+
+        $('feedSearchClear')?.addEventListener('click', () => {
+            const input = $('feedSearch');
+            if (input) input.value = '';
+            state.search = '';
+            $('feedSearchClear')?.classList.remove('visible');
+
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('ip')) {
+                params.delete('ip');
+                const suffix = params.toString() ? `?${params}` : '';
+                window.history.replaceState({}, document.title, `${window.location.pathname}${suffix}`);
+            }
+            renderAll();
+        });
+
+        document.querySelectorAll('.feed-chip').forEach((chip) => {
+            chip.addEventListener('click', () => {
+                document.querySelectorAll('.feed-chip').forEach((c) => c.classList.remove('feed-chip--active'));
+                chip.classList.add('feed-chip--active');
+                state.typeFilter = chip.dataset.type || 'all';
+                renderAll();
+            });
+        });
+
+        $('feedQtypeFilter')?.addEventListener('change', (ev) => {
+            state.qtypeFilter = ev.target.value;
+            renderAll();
+        });
+
+        $('feedCacheFilter')?.addEventListener('change', (ev) => {
+            state.cacheFilter = ev.target.value;
+            renderAll();
+        });
+
+        $('feedPauseBtn')?.addEventListener('click', () => {
+            state.paused = !state.paused;
+
+            if ($('feedPauseLbl')) $('feedPauseLbl').textContent = state.paused ? 'Retomar' : 'Pausar';
+            if ($('feedPauseIcon')) {
+                $('feedPauseIcon').innerHTML = state.paused
+                    ? '<polygon points="5 3 19 12 5 21 5 3"/>'
+                    : '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+            }
+
+            setLiveState(state.paused ? 'paused' : state.lastPollOk ? 'ok' : 'error');
+
+            if (!state.paused) renderAll();
+        });
+
+        $('feedClearBtn')?.addEventListener('click', clearLocalFeed);
+        $('feedExportBtn')?.addEventListener('click', exportCsv);
+
+        $('feedAutoScroll')?.addEventListener('change', (ev) => {
+            state.autoScroll = Boolean(ev.target.checked);
+        });
+
+        $('feedRetryBtn')?.addEventListener('click', poll);
+
+        $('feedDetailClose')?.addEventListener('click', closeDetail);
+        $('feedDetailOverlay')?.addEventListener('click', closeDetail);
+
+        $('fdCopyDomain')?.addEventListener('click', () => {
+            if (state.selected) copyText(state.selected.domain);
+        });
+        $('fdBlockDomain')?.addEventListener('click', blockSelected);
+        $('fdAllowDomain')?.addEventListener('click', allowSelected);
+
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') closeDetail();
+        });
+
+        window.addEventListener('resize', drawMiniChart);
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) poll();
+        });
+    }
+
+    bindEvents();
+    renderKPIs();
+    drawMiniChart();
+    poll();
+
+    setInterval(poll, POLL_MS);
+    setInterval(() => {
+        renderKPIs();
+        advanceMiniBuckets(0);
+    }, MINI_INTERVAL);
 });

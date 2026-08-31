@@ -39,6 +39,24 @@ document.addEventListener('DOMContentLoaded', () => {
       ?.split('=')[1] || '';
   }
 
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function setHealthValue(key, value, cls = 'ok') {
+    const row = document.querySelector(`[data-health="${key}"]`);
+    if (!row) return;
+    const val = row.querySelector('.noc-health-row__val');
+    if (!val) return;
+    val.textContent = value;
+    val.className = `noc-health-row__val noc-health-row__val--${cls}`;
+  }
+
   /* ─────────────────────────────────────────────────────
      ÍCONES SVG POR TIPO DE DISPOSITIVO
   ───────────────────────────────────────────────────── */
@@ -102,9 +120,10 @@ document.addEventListener('DOMContentLoaded', () => {
   ═══════════════════════════════════════════════════════ */
   let state = {
     mode: 'demo', period: '24h',
-    metrics: {}, charts: {},
+    metrics: {}, charts: {}, health: {},
     top_consultados: [], top_bloqueados: [],
     filter_count: 0, warning: null,
+    generatedAt: null,
   };
 
   let clientState = {
@@ -120,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     feedCount: 0,
     paused: false,
     drawerIp: null,
+    seenKeys: new Set(),
   };
 
   /* ═══════════════════════════════════════════════════════
@@ -282,10 +302,12 @@ document.addEventListener('DOMContentLoaded', () => {
       state.mode            = data.mode || 'demo';
       state.metrics         = data.metrics || {};
       state.charts          = data.charts  || {};
+      state.health          = data.health  || {};
       state.top_consultados = data.top_consultados || [];
       state.top_bloqueados  = data.top_bloqueados  || [];
       state.filter_count    = data.filter_count ?? state.filter_count;
       state.warning         = data.warning || null;
+      state.generatedAt     = data.generated_at || null;
       clientState.data      = data.clientes || [];
 
       applyClientFilters();
@@ -304,31 +326,71 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ═══════════════════════════════════════════════════════
      API: QUERYLOG — LIVE FEED
   ═══════════════════════════════════════════════════════ */
+  function _feedKey(entry) {
+    return [
+      entry.time || '',
+      entry.ip || '',
+      entry.domain || '',
+      entry.type || '',
+      entry.blocked ? '1' : '0',
+      entry.filter || '',
+    ].join('|');
+  }
+
   async function pollQuerylog() {
     try {
       const url = feedState.lastTime
-        ? `/dns/api/querylog/?since=${encodeURIComponent(feedState.lastTime)}&limit=30`
-        : `/dns/api/querylog/?limit=40`;
+        ? `/dns/api/querylog/?since=${encodeURIComponent(feedState.lastTime)}&limit=80`
+        : `/dns/api/querylog/?limit=80`;
+
       const res = await fetch(url);
       if (!res.ok) return;
+
       const data = await res.json();
+      if (!data.ok || !Array.isArray(data.entries) || data.entries.length === 0) return;
 
-      // Em PROD offline o backend retorna entries:[] — não simula nada
-      if (!data.ok || !data.entries || data.entries.length === 0) return;
+      const incoming = [...data.entries].sort((a, b) =>
+        String(a.time || '').localeCompare(String(b.time || ''))
+      );
 
-      const incoming  = data.entries;
-      const newEntries = feedState.lastTime
-        ? incoming.filter(e => e.time > feedState.lastTime)
-        : incoming;
-      if (newEntries.length === 0) return;
+      const newEntries = [];
+      for (const entry of incoming) {
+        const key = _feedKey(entry);
+        if (feedState.seenKeys.has(key)) continue;
+        feedState.seenKeys.add(key);
+        newEntries.push(entry);
+      }
 
-      feedState.lastTime = incoming[0].time;
-      feedState.entries  = [...newEntries, ...feedState.entries].slice(0, 300);
+      // Limita o Set para não crescer indefinidamente.
+      if (feedState.seenKeys.size > 1500) {
+        const keep = [...feedState.seenKeys].slice(-800);
+        feedState.seenKeys = new Set(keep);
+      }
 
-      if (!feedState.paused) newEntries.forEach(e => _addFeedRow(e));
-      newEntries.filter(e => e.blocked).forEach(e => _addBlockRow(e));
+      if (newEntries.length === 0) {
+        const newest = incoming.at(-1)?.time;
+        if (newest && (!feedState.lastTime || newest > feedState.lastTime)) {
+          feedState.lastTime = newest;
+        }
+        return;
+      }
+
+      const newest = newEntries.at(-1)?.time;
+      if (newest && (!feedState.lastTime || newest > feedState.lastTime)) {
+        feedState.lastTime = newest;
+      }
+
+      // Estado interno fica newest-first; render do feed mantém essa ordem visual.
+      const newestFirst = [...newEntries].reverse();
+      feedState.entries = [...newestFirst, ...feedState.entries].slice(0, 500);
+
+      if (!feedState.paused) newestFirst.forEach(entry => _addFeedRow(entry));
+      newestFirst.filter(entry => entry.blocked).forEach(entry => _addBlockRow(entry));
+
       if (feedState.drawerIp) _renderDrawerFeed(feedState.drawerIp);
-    } catch { /* silencioso */ }
+    } catch (e) {
+      console.debug('[NOC] pollQuerylog:', e);
+    }
   }
 
   function _addFeedRow(entry) {
@@ -342,14 +404,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const el = document.createElement('div');
     el.className = `noc-feed-item noc-feed-item--${cls}`;
+    const filterTitle = entry.filter ? `Regra: ${entry.filter}` : (entry.cached ? 'Resposta em cache' : '');
+    el.title = filterTitle;
     el.innerHTML = `
-      <span class="noc-feed-time">${t}</span>
+      <span class="noc-feed-time">${escapeHtml(t)}</span>
       <span class="noc-feed-type noc-feed-type--${cls}">${type}</span>
-      <span class="noc-feed-ip mono">${entry.ip}</span>
+      <span class="noc-feed-ip mono">${escapeHtml(entry.ip)}</span>
       <span class="noc-feed-sep">·</span>
-      <span class="noc-feed-msg">${entry.domain}</span>
-      <span class="noc-feed-qtype">${entry.type || ''}</span>
-      ${entry.elapsed_ms ? `<span class="noc-feed-ms">${entry.elapsed_ms}ms</span>` : ''}
+      <span class="noc-feed-msg">${escapeHtml(entry.domain || '—')}</span>
+      <span class="noc-feed-qtype">${escapeHtml(entry.type || '—')}</span>
+      ${entry.elapsed_ms != null ? `<span class="noc-feed-ms">${escapeHtml(entry.elapsed_ms)}ms</span>` : ''}
     `;
     const list = $('feedList'); if (!list) return;
     list.insertBefore(el, list.firstChild);
@@ -360,10 +424,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = $('listUltimosBloqueios'); if (!el) return;
     const row = document.createElement('div');
     row.className = 'noc-block-row noc-block-row--block';
+    row.title = entry.filter ? `Regra: ${entry.filter}` : '';
     row.innerHTML = `
-      <span class="noc-block-time">${entry.time_fmt || nowStr()}</span>
-      <span class="noc-block-ip mono">${entry.ip}</span>
-      <span class="noc-block-domain">${entry.domain}</span>
+      <span class="noc-block-time">${escapeHtml(entry.time_fmt || nowStr())}</span>
+      <span class="noc-block-ip mono">${escapeHtml(entry.ip)}</span>
+      <span class="noc-block-domain">${escapeHtml(entry.domain || '—')}</span>
     `;
     el.insertBefore(row, el.firstChild);
     if (el.children.length > 15) el.removeChild(el.lastChild);
@@ -385,11 +450,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const cls = e.blocked ? 'block' : 'allow';
       return `
         <div class="dFeed-row dFeed-row--${cls}">
-          <span class="dFeed-time">${e.time_fmt || '—'}</span>
+          <span class="dFeed-time">${escapeHtml(e.time_fmt || '—')}</span>
           <span class="dFeed-badge dFeed-badge--${cls}">${e.blocked ? 'BLOCK' : 'OK'}</span>
-          <span class="dFeed-domain">${e.domain}</span>
-          <span class="dFeed-type">${e.type || ''}</span>
-          ${e.elapsed_ms ? `<span class="dFeed-ms">${e.elapsed_ms}ms</span>` : ''}
+          <span class="dFeed-domain" title="${escapeHtml(e.filter || '')}">${escapeHtml(e.domain || '—')}</span>
+          <span class="dFeed-type">${escapeHtml(e.type || '—')}</span>
+          ${e.elapsed_ms != null ? `<span class="dFeed-ms">${escapeHtml(e.elapsed_ms)}ms</span>` : ''}
         </div>`;
     }).join('');
   }
@@ -398,26 +463,67 @@ document.addEventListener('DOMContentLoaded', () => {
      CARD DE SAÚDE  (v6: prod_offline = OFFLINE vermelho)
   ═══════════════════════════════════════════════════════ */
   function updateHealthCard(data) {
-    const fc = $('filterCount'); if (fc) fc.textContent = data.filter_count ?? '—';
-    const ls = $('lastSync');    if (ls) ls.textContent = nowStr();
+    const h = data.health || state.health || {};
+
+    const fc = $('filterCount');
+    if (fc) fc.textContent = data.filter_count ?? h.filters_enabled ?? '—';
+
+    const ls = $('lastSync');
+    if (ls) ls.textContent = nowStr();
+
+    const versionEl = document.querySelector('[data-health="adguard-version"]');
+    if (versionEl) versionEl.textContent = h.version || '—';
+
+    if (state.mode === 'prod') {
+      setHealthValue('dns-resolver', h.running === false ? 'Parado' : 'Online', h.running === false ? 'error' : 'ok');
+      setHealthValue('adguard-api', h.api === 'offline' ? 'Offline' : 'OK', h.api === 'offline' ? 'error' : 'ok');
+      setHealthValue('last-sync', 'agora', 'ok');
+      if (h.safe_browsing === true) {
+        setHealthValue('safe-browsing', 'Ativo', 'ok');
+      } else if (h.safe_browsing === false) {
+        setHealthValue('safe-browsing', 'Inativo', 'warn');
+      } else {
+        setHealthValue('safe-browsing', '—', 'warn');
+      }
+    } else if (state.mode === 'prod_offline') {
+      setHealthValue('dns-resolver', 'Offline', 'error');
+      setHealthValue('adguard-api', 'Offline', 'error');
+      setHealthValue('last-sync', 'Falhou', 'error');
+      setHealthValue('safe-browsing', '—', 'warn');
+    } else {
+      setHealthValue('dns-resolver', 'Demo', 'warn');
+      setHealthValue('adguard-api', 'Demo', 'warn');
+      setHealthValue('last-sync', 'agora', 'ok');
+      setHealthValue('safe-browsing', 'Demo', 'warn');
+    }
+
     const ov = $('healthOverall');
     if (ov) {
-      if (state.mode === 'prod' || state.mode === 'demo') {
-        ov.textContent      = 'ONLINE';
-        ov.style.color      = '#22c55e';
+      if (state.mode === 'prod' && h.running !== false) {
+        ov.textContent = 'ONLINE';
+        ov.style.color = '#22c55e';
         ov.style.background = 'rgba(34,197,94,.1)';
-        ov.style.borderColor= 'rgba(34,197,94,.25)';
-      } else if (state.mode === 'prod_offline') {
-        ov.textContent      = 'OFFLINE';
-        ov.style.color      = '#ef4444';
+        ov.style.borderColor = 'rgba(34,197,94,.25)';
+      } else if (state.mode === 'prod_offline' || h.running === false) {
+        ov.textContent = 'OFFLINE';
+        ov.style.color = '#ef4444';
         ov.style.background = 'rgba(239,68,68,.1)';
-        ov.style.borderColor= 'rgba(239,68,68,.25)';
+        ov.style.borderColor = 'rgba(239,68,68,.25)';
       } else {
-        ov.textContent      = 'DEGRADADO';
-        ov.style.color      = '#f97316';
+        ov.textContent = state.mode === 'demo' ? 'DEMO' : 'DEGRADADO';
+        ov.style.color = '#f97316';
         ov.style.background = 'rgba(249,115,22,.1)';
-        ov.style.borderColor= 'rgba(249,115,22,.25)';
+        ov.style.borderColor = 'rgba(249,115,22,.25)';
       }
+    }
+
+    // CPU/RAM antigos eram randômicos. Em PROD, não exibimos dado fake.
+    // Quando houver endpoint real de recursos, estes mesmos elementos podem ser alimentados.
+    if (state.mode === 'prod') {
+      if ($('resCpu')) $('resCpu').textContent = '—';
+      if ($('resRam')) $('resRam').textContent = '—';
+      if ($('resCpuBar')) $('resCpuBar').style.width = '0%';
+      if ($('resRamBar')) $('resRamBar').style.width = '0%';
     }
   }
 
@@ -434,6 +540,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if ($('kpiClientes'))  $('kpiClientes').textContent  = m.clientes  || 0;
     if ($('kpiLatencia'))  $('kpiLatencia').textContent  = (m.latencia || 0) + ' ms';
     if ($('kpiUptime'))    $('kpiUptime').textContent    = m.uptime    || '—';
+
+    const qTrend = $('kpiQueriesTrend');
+    const bTrend = $('kpiBloqueiosTrend');
+    if (state.mode === 'prod') {
+      if (qTrend) {
+        qTrend.textContent = 'dados reais do período';
+        qTrend.className = 'noc-kpi__trend';
+        qTrend.style.color = 'var(--text-dim)';
+      }
+      if (bTrend) {
+        bTrend.textContent = 'dados reais do período';
+        bTrend.className = 'noc-kpi__trend';
+        bTrend.style.color = 'var(--text-dim)';
+      }
+    }
 
     makeSparkline('sparkQueries',   state.charts.queries  || [], '#3b82f6');
     makeSparkline('sparkBloqueios', state.charts.bloqueios|| [], '#ef4444');
@@ -607,21 +728,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /* ═══════════════════════════════════════════════════════
-     RECURSOS — CPU / RAM (simulado para exibição)
+     RECURSOS — somente DEMO
+     Em PROD não mostramos valores randômicos como se fossem reais.
   ═══════════════════════════════════════════════════════ */
-  let cpu = 12, ram = 41;
-  function updateResources() {
-    cpu = Math.max(5,  Math.min(85, cpu + (Math.floor(Math.random() * 9) - 4)));
-    ram = Math.max(30, Math.min(75, ram + (Math.floor(Math.random() * 6) - 2)));
-    if ($('resCpu'))    $('resCpu').textContent    = cpu + '%';
-    if ($('resRam'))    $('resRam').textContent    = ram + '%';
-    if ($('resCpuBar')) $('resCpuBar').style.width = cpu + '%';
-    if ($('resRamBar')) $('resRamBar').style.width = ram + '%';
-    if ($('resCpuBar')) $('resCpuBar').style.background = cpu > 70
-      ? 'linear-gradient(90deg,#ef4444,#f97316)'
-      : 'linear-gradient(90deg,#3b82f6,#a855f7)';
+  let demoCpu = 12, demoRam = 41;
+  function updateDemoResources() {
+    if (state.mode !== 'demo') return;
+    demoCpu = Math.max(5, Math.min(85, demoCpu + (Math.floor(Math.random() * 9) - 4)));
+    demoRam = Math.max(30, Math.min(75, demoRam + (Math.floor(Math.random() * 6) - 2)));
+    if ($('resCpu')) $('resCpu').textContent = demoCpu + '%';
+    if ($('resRam')) $('resRam').textContent = demoRam + '%';
+    if ($('resCpuBar')) $('resCpuBar').style.width = demoCpu + '%';
+    if ($('resRamBar')) $('resRamBar').style.width = demoRam + '%';
   }
-  setInterval(updateResources, 4000);
+  setInterval(updateDemoResources, 4000);
 
   /* ═══════════════════════════════════════════════════════
      TABELA CLIENTES
@@ -671,12 +791,12 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="client-name-cell">
             <div class="client-avatar">${deviceSvg}</div>
             <div>
-              <p class="client-name">${c.name}</p>
-              <p class="client-mac">${c.mac}</p>
+              <p class="client-name">${escapeHtml(c.name)}</p>
+              <p class="client-mac">${escapeHtml(c.mac || "—")}</p>
             </div>
           </div>
         </td>
-        <td><span class="client-ip mono">${c.ip}</span></td>
+        <td><span class="client-ip mono">${escapeHtml(c.ip)}</span></td>
         <td>${STATUS_PILL[c.status] || ''}</td>
         <td><span class="mono" style="color:var(--text-primary);font-weight:600">${(c.queries   || 0).toLocaleString('pt-BR')}</span></td>
         <td><span class="mono" style="color:#ef4444">${(c.bloqueios || 0).toLocaleString('pt-BR')}</span></td>
@@ -688,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="client-pct-label">${c.pct || 0}%</span>
           </div>
         </td>
-        <td><span class="mono" style="font-size:11px;color:var(--text-dim)">${c.lastSeen || '—'}</span></td>
+        <td><span class="mono" style="font-size:11px;color:var(--text-dim)">${escapeHtml(c.lastSeen || '—')}</span></td>
         <td>
           <div class="client-actions">
             <button class="client-action-btn" data-cid="${c.id}" data-act="view" title="Ver detalhes">
@@ -805,30 +925,51 @@ document.addEventListener('DOMContentLoaded', () => {
     if (drawerChart) { drawerChart.destroy(); drawerChart = null; }
     const dCtx = $('drawerChart');
     if (dCtx) {
-      const total = c.queries || 24;
-      const data24 = Array.from({ length: 24 }, () => Math.floor(total / 24 * (Math.random() * 1.4 + 0.4)));
-      const ctx  = dCtx.getContext('2d');
+      const data24 = Array.isArray(c.activity) && c.activity.length === 24
+        ? c.activity
+        : Array(24).fill(0);
+      const ctx = dCtx.getContext('2d');
       const grad = ctx.createLinearGradient(0, 0, 0, 80);
-      grad.addColorStop(0, 'rgba(59,130,246,0.55)'); grad.addColorStop(1, 'rgba(59,130,246,0.00)');
+      grad.addColorStop(0, 'rgba(59,130,246,0.55)');
+      grad.addColorStop(1, 'rgba(59,130,246,0.00)');
       drawerChart = new Chart(dCtx, {
         type: 'line',
-        data: { labels: state.charts.hours || Array(24).fill(''), datasets: [{ data: data24, borderColor: '#3b82f6', borderWidth: 2, fill: true, backgroundColor: grad, tension: 0.45, pointRadius: 0 }] },
-        options: { responsive: true, maintainAspectRatio: false, animation: { duration: 600 }, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } }
+        data: {
+          labels: state.charts.hours || Array(24).fill(''),
+          datasets: [{
+            data: data24,
+            borderColor: '#3b82f6',
+            borderWidth: 2,
+            fill: true,
+            backgroundColor: grad,
+            tension: 0.45,
+            pointRadius: 0,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400 },
+          plugins: { legend: { display: false } },
+          scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+        },
       });
     }
 
-    const qRatio = state.metrics.queries   ? c.queries   / state.metrics.queries   : 0.05;
-    const bRatio = state.metrics.bloqueios ? c.bloqueios / state.metrics.bloqueios : 0.05;
     const renderDList = (elId, data) => {
       const el = $(elId); if (!el) return;
-      el.innerHTML = (data || []).map(d => `
+      if (!Array.isArray(data) || data.length === 0) {
+        el.innerHTML = `<div style="font-size:11px;color:var(--text-dim);padding:6px 0">Sem dados neste recorte</div>`;
+        return;
+      }
+      el.innerHTML = data.map(d => `
         <div class="noc-drawer__domain-row">
-          <span class="noc-drawer__domain-name">${d.domain}</span>
-          <span class="noc-drawer__domain-count">${fmtNum(d.n)}</span>
+          <span class="noc-drawer__domain-name">${escapeHtml(d.domain || '—')}</span>
+          <span class="noc-drawer__domain-count">${fmtNum(d.n || 0)}</span>
         </div>`).join('');
     };
-    renderDList('dTopConsultados', state.top_consultados.slice(0, 5).map(d => ({ domain: d.domain, n: Math.max(1, Math.floor(d.n * qRatio)) })));
-    renderDList('dTopBloqueados',  state.top_bloqueados .slice(0, 5).map(d => ({ domain: d.domain, n: Math.max(1, Math.floor(d.n * bRatio)) })));
+    renderDList('dTopConsultados', c.topConsultados || []);
+    renderDList('dTopBloqueados', c.topBloqueados || []);
 
     feedState.drawerIp = c.ip;
     _renderDrawerFeed(c.ip);
@@ -935,16 +1076,36 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function _formatPreview(raw, mode) {
-    return raw.split('\n').map(l => l.trim()).filter(Boolean).flatMap(l => {
-      if (l.startsWith('||') || l.startsWith('@@') || l.startsWith('!') ||
-          l.startsWith('#') || l.startsWith('/') || l.startsWith('0.0.0.0') || l.startsWith('127.')) {
-        return [l];
+    const out = [];
+    const seen = new Set();
+
+    const push = rule => {
+      if (!rule || seen.has(rule)) return;
+      seen.add(rule);
+      out.push(rule);
+    };
+
+    raw.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+      if (line.startsWith('||') || line.startsWith('@@') || line.startsWith('!') ||
+          line.startsWith('#') || line.startsWith('/') || line.startsWith('0.0.0.0') || line.startsWith('127.')) {
+        push(line);
+        return;
       }
-      const domains = [l];
-      if (l.endsWith('.br')) domains.push(l.slice(0, -3));
-      else                   domains.push(l + '.br');
-      return domains.map(d => mode === 'allow' ? `@@||${d}^` : `||${d}^`);
+
+      let domain = line.toLowerCase().trim();
+      try {
+        if (domain.includes('://')) domain = new URL(domain).hostname;
+      } catch {}
+      domain = domain.replace(/^www\./, '').replace(/\.$/, '');
+
+      const domains = [domain];
+      if (domain.endsWith('.com.br')) domains.push(domain.slice(0, -3));
+      else if (domain.endsWith('.com')) domains.push(domain + '.br');
+
+      domains.forEach(d => push(mode === 'allow' ? `@@||${d}^` : `||${d}^`));
     });
+
+    return out;
   }
 
   function _updatePreview() {
@@ -973,8 +1134,14 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await res.json();
       if (data.ok) {
-        const added = data.added?.length ?? 0, skip = data.skipped?.length ?? 0;
-        showToast(`✓ ${added} regra(s) adicionada(s)${skip ? ` · ${skip} já existia(m)` : ''}`);
+        const added = data.added?.length ?? 0;
+        const skip = data.skipped?.length ?? 0;
+        const conflicts = data.removed_conflicts?.length ?? 0;
+        showToast(
+          `✓ ${added} regra(s) adicionada(s)` +
+          (conflicts ? ` · ${conflicts} conflito(s) removido(s)` : '') +
+          (skip ? ` · ${skip} já existia(m)` : '')
+        );
         _closeModal();
       } else {
         showToast(`Erro: ${data.error || 'Falha desconhecida'}`);
@@ -1058,7 +1225,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const blob    = new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
     const a = Object.assign(document.createElement('a'), {
       href: URL.createObjectURL(blob),
-      download: `jarvis-dns-${new Date().toISOString().slice(0, 10)}.csv`
+      download: `moonshield-dns-${new Date().toISOString().slice(0, 10)}.csv`
     });
     a.click(); URL.revokeObjectURL(a.href);
     showToast('CSV exportado');

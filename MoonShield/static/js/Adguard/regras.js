@@ -1,582 +1,330 @@
-/**
- * MOONSHIELD — regras.js
- * Página de Regras de Filtragem DNS
- */
-
-document.addEventListener('DOMContentLoaded', () => {
-
-    /* ── ESTADO ── */
-    let allRules = [];   // todas as regras vindas do backend
-    let filtered = [];   // após filtro/busca
-    let selected = new Set();
-    let currentFilter = 'all';
-    let searchTerm = '';
-    let page = 1;
-    const PAGE_SIZE = 25;
-    let activeTab = 'block';
-    let isDemo = false;
-
-    /* ── $ helper ── */
-    const $ = id => document.getElementById(id);
-
-    /* ═══════════════════════════════════════════════════════
-       CLASSIFICAÇÃO DE REGRAS
-    ═══════════════════════════════════════════════════════ */
-    function classifyRule(rule) {
-        const r = rule.trim();
-        if (r.startsWith('@@')) return 'allow';
-        if (r.startsWith('||') || r.startsWith('0.0.0.0') || r.startsWith('127.')) return 'block';
-        if (r.startsWith('!') || r.startsWith('#')) return 'comment';
-        if (r.startsWith('/')) return 'regex';
-        return 'other';
-    }
-
-    function extractDomain(rule) {
-        const r = rule.trim();
-        let m = r.match(/^@@\|\|([^/^*]+)\^?/);
-        if (m) return m[1];
-        m = r.match(/^\|\|([^/^*]+)\^?/);
-        if (m) return m[1];
-        m = r.match(/^(?:0\.0\.0\.0|127\.\d+\.\d+\.\d+)\s+(.+)/);
-        if (m) return m[1];
-        return null;
-    }
-
-    function formatBadge(type) {
-        const map = {
-            block: { label: 'BLOCK', cls: 'rg-type-badge--block' },
-            allow: { label: 'ALLOW', cls: 'rg-type-badge--allow' },
-            comment: { label: 'COMMENT', cls: 'rg-type-badge--other' },
-            regex: { label: 'REGEX', cls: 'rg-type-badge--other' },
-            other: { label: 'OUTRO', cls: 'rg-type-badge--other' },
-        };
-        const c = map[type] || map.other;
-        return `<span class="rg-type-badge ${c.cls}">${c.label}</span>`;
-    }
-
-    function formatBadgeLabel(rule) {
-        const r = rule.trim();
-        if (r.startsWith('@@||')) return '@@||x^';
-        if (r.startsWith('||')) return '||x^';
-        if (r.startsWith('0.0.0.0')) return 'hosts';
-        if (r.startsWith('/')) return '/regex/';
-        if (r.startsWith('!') || r.startsWith('#')) return 'comment';
-        return 'custom';
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       CARREGAR REGRAS
-    ═══════════════════════════════════════════════════════ */
-    async function loadRules() {
-        showState('loading');
-        selected.clear();
-        updateSelectedUI();
-
-        try {
-            const res = await fetch('/dns/api/regras/');
-            const data = await res.json();
-
-            if (!data.ok) throw new Error(data.error || 'Erro desconhecido');
-
-            isDemo = data.mode === 'demo' || data.mode === 'mock';
-            if (isDemo) { showState('demo'); updateStats([]); return; }
-
-            allRules = (data.rules || []).filter(r => r.trim());
-            applyFilters();
-            updateStats(allRules);
-
-        } catch (e) {
-            showToast(`Erro ao carregar: ${e.message}`);
-            showState('empty');
-        }
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       FILTROS E BUSCA
-    ═══════════════════════════════════════════════════════ */
-    function applyFilters() {
-        let result = [...allRules];
-
-        if (currentFilter !== 'all') {
-            if (currentFilter === 'other') {
-                result = result.filter(r => !['block', 'allow'].includes(classifyRule(r)));
-            } else {
-                result = result.filter(r => classifyRule(r) === currentFilter);
-            }
-        }
-
-        if (searchTerm) {
-            const q = searchTerm.toLowerCase();
-            result = result.filter(r => r.toLowerCase().includes(q));
-        }
-
-        filtered = result;
-        page = 1;
-        renderTable();
-        renderPagination();
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       STATS
-    ═══════════════════════════════════════════════════════ */
-    function updateStats(rules) {
-        const block = rules.filter(r => classifyRule(r) === 'block').length;
-        const allow = rules.filter(r => classifyRule(r) === 'allow').length;
-        const other = rules.filter(r => !['block', 'allow'].includes(classifyRule(r))).length;
-        $('statTotal').textContent = rules.length;
-        $('statBlock').textContent = block;
-        $('statAllow').textContent = allow;
-        $('statOther').textContent = other;
-    }
-
-    function updateSelectedUI() {
-        const n = selected.size;
-        const btn = $('rgRemoveSelectedBtn');
-        const wrap = $('statSelectedWrap');
-        btn.disabled = n === 0;
-        if (n > 0) {
-            wrap.style.display = '';
-            $('statSelected').textContent = n;
-        } else {
-            wrap.style.display = 'none';
-        }
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       RENDER TABELA
-    ═══════════════════════════════════════════════════════ */
-    function renderTable() {
-        const tbody = $('rgTableBody');
-        const start = (page - 1) * PAGE_SIZE;
-        const rows = filtered.slice(start, start + PAGE_SIZE);
-
-        if (filtered.length === 0) {
-            $('rgTable').style.display = 'none';
-            if (searchTerm || currentFilter !== 'all') {
-                $('rgStateNoResults').style.display = '';
-                $('rgNoResultsHint').textContent = searchTerm
-                    ? `Nenhuma regra contendo "${searchTerm}".`
-                    : 'Nenhuma regra nesta categoria.';
-            } else {
-                showState('empty');
-            }
-            return;
-        }
-
-        hideAllStates();
-        $('rgTable').style.display = '';
-        $('rgPagination').style.display = '';
-
-        tbody.innerHTML = rows.map((rule, i) => {
-            const type = classifyRule(rule);
-            const domain = extractDomain(rule);
-            const isChecked = selected.has(rule) ? 'checked' : '';
-
-            return `
-      <tr data-rule="${escHtml(rule)}" class="${selected.has(rule) ? 'rg-row--selected' : ''}">
-        <td>
-          <label class="rg-checkbox">
-            <input type="checkbox" class="rg-row-check" data-rule="${escHtml(rule)}" ${isChecked}/>
-            <span class="rg-checkbox__box"></span>
-          </label>
-        </td>
-        <td>${formatBadge(type)}</td>
-        <td>
-          <div class="rg-rule-text">${escHtml(rule)}</div>
-          ${domain ? `<div class="rg-rule-domain">${escHtml(domain)}</div>` : ''}
-        </td>
-        <td><span class="rg-fmt-badge">${formatBadgeLabel(rule)}</span></td>
-        <td>
-          <div class="rg-row-actions">
-            ${type === 'block' ? `
-            <button class="rg-row-btn rg-row-btn--toggle" data-act="toggle" data-rule="${escHtml(rule)}" title="Mudar para Permitir">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-            </button>` : type === 'allow' ? `
-            <button class="rg-row-btn rg-row-btn--danger" data-act="toggle" data-rule="${escHtml(rule)}" title="Mudar para Bloquear">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-              </svg>
-            </button>` : ''}
-            <button class="rg-row-btn rg-row-btn--danger" data-act="remove" data-rule="${escHtml(rule)}" title="Remover">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14H6L5 6"/>
-              </svg>
-            </button>
-          </div>
-        </td>
-      </tr>`;
-        }).join('');
-
-        tbody.querySelectorAll('.rg-row-check').forEach(cb => {
-            cb.addEventListener('change', () => {
-                const rule = cb.dataset.rule;
-                if (cb.checked) selected.add(rule); else selected.delete(rule);
-                const row = cb.closest('tr');
-                row.classList.toggle('rg-row--selected', cb.checked);
-                updateSelectedUI();
-                syncSelectAll();
-            });
-        });
-
-        tbody.querySelectorAll('[data-act]').forEach(btn => {
-            btn.addEventListener('click', e => {
-                e.stopPropagation();
-                const rule = btn.dataset.rule;
-                const act = btn.dataset.act;
-                if (act === 'remove') confirmRemove([rule]);
-                if (act === 'toggle') toggleRule(rule);
-            });
-        });
-
-        tbody.querySelectorAll('tr[data-rule]').forEach(tr => {
-            tr.addEventListener('click', e => {
-                if (e.target.closest('[data-act]') || e.target.closest('.rg-checkbox')) return;
-                const cb = tr.querySelector('.rg-row-check');
-                if (cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
-            });
-        });
-    }
-
-    function syncSelectAll() {
-        const cb = $('rgSelectAll');
-        if (!cb) return;
-        const pageRules = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-        cb.checked = pageRules.length > 0 && pageRules.every(r => selected.has(r));
-        cb.indeterminate = !cb.checked && pageRules.some(r => selected.has(r));
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       PAGINAÇÃO
-    ═══════════════════════════════════════════════════════ */
-    function renderPagination() {
-        const total = filtered.length;
-        const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-        const start = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-        const end = Math.min(page * PAGE_SIZE, total);
-
-        $('rgPagInfo').textContent = `${start}–${end} de ${total} regra${total !== 1 ? 's' : ''}`;
-        $('rgPagPrev').disabled = page <= 1;
-        $('rgPagNext').disabled = page >= pages;
-
-        const nums = $('rgPagNums');
-        const ns = pages <= 7
-            ? Array.from({ length: pages }, (_, i) => i + 1)
-            : [1, '…', page - 1, page, page + 1, '…', pages].filter((v, i, a) =>
-                v === '…' ? (a[i - 1] !== '…') : (v >= 1 && v <= pages)
-            );
-
-        nums.innerHTML = ns.map(n =>
-            n === '…'
-                ? `<span style="padding:0 4px;color:var(--text-muted);font-size:11px">…</span>`
-                : `<button class="rg-pag-num${n === page ? ' rg-pag-num--active' : ''}" data-p="${n}">${n}</button>`
-        ).join('');
-
-        nums.querySelectorAll('.rg-pag-num').forEach(btn =>
-            btn.addEventListener('click', () => { page = +btn.dataset.p; renderTable(); renderPagination(); syncSelectAll(); })
-        );
-    }
-
-    $('rgPagPrev').addEventListener('click', () => { if (page > 1) { page--; renderTable(); renderPagination(); syncSelectAll(); } });
-    $('rgPagNext').addEventListener('click', () => {
-        const pages = Math.ceil(filtered.length / PAGE_SIZE);
-        if (page < pages) { page++; renderTable(); renderPagination(); syncSelectAll(); }
-    });
-
-    /* ═══════════════════════════════════════════════════════
-       ESTADOS DA TELA
-    ═══════════════════════════════════════════════════════ */
-    function hideAllStates() {
-        ['rgStateLoading', 'rgStateDemo', 'rgStateEmpty', 'rgStateNoResults'].forEach(id => {
-            const el = $(id); if (el) el.style.display = 'none';
-        });
-    }
-    function showState(s) {
-        hideAllStates();
-        $('rgTable').style.display = 'none';
-        $('rgPagination').style.display = 'none';
-        const map = { loading: 'rgStateLoading', demo: 'rgStateDemo', empty: 'rgStateEmpty' };
-        if (map[s]) $(map[s]).style.display = '';
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       AÇÕES DE REGRA (Remover/Toggle pela API Antiga de Save Completo)
-    ═══════════════════════════════════════════════════════ */
-    async function confirmRemove(rules) {
-        if (!rules.length) return;
-        const label = rules.length === 1
-            ? `Remover: ${rules[0]}?`
-            : `Remover ${rules.length} regras selecionadas?`;
-        if (!confirm(label)) return;
-
-        const set = new Set(rules);
-        const newRules = allRules.filter(r => !set.has(r));
-
-        // Remove rules uses the 'replace all' endpoint
-        const ok = await saveFullRuleSet(newRules);
-        if (ok) {
-            allRules = newRules;
-            selected.clear();
-            updateSelectedUI();
-            applyFilters();
-            updateStats(allRules);
-            showToast(`${rules.length} regra(s) removida(s)`);
-        }
-    }
-
-    async function toggleRule(rule) {
-        let newRule;
-        const type = classifyRule(rule);
-        if (type === 'block') {
-            newRule = '@@' + rule.replace(/^\|\|/, '||');
-        } else if (type === 'allow') {
-            newRule = rule.replace(/^@@/, '');
-        } else {
-            showToast('Não é possível alternar este tipo de regra');
-            return;
-        }
-
-        const newRules = allRules.map(r => r === rule ? newRule : r);
-        const ok = await saveFullRuleSet(newRules);
-
-        if (ok) {
-            allRules = newRules;
-            applyFilters();
-            updateStats(allRules);
-            showToast(`Regra alterada para ${type === 'block' ? 'ALLOW' : 'BLOCK'}`);
-        }
-    }
-
-    async function saveFullRuleSet(rulesArray) {
-        try {
-            const res = await fetch('/dns/api/regras/salvar/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-                body: JSON.stringify({ rules: rulesArray }),
-            });
-            const data = await res.json();
-            if (!data.ok) { showToast(`Erro: ${data.error}`); return false; }
-            return true;
-        } catch (e) {
-            showToast(`Erro de conexão: ${e.message}`);
-            return false;
-        }
-    }
-
-    /* ═══════════════════════════════════════════════════════
-       MODAL — ADICIONAR REGRA (Chama API de Append Segura)
-    ═══════════════════════════════════════════════════════ */
-    function openModal() {
-        $('rgModalInput').value = '';
-        $('rgModalPreview').style.display = 'none';
-        $('rgModalPreviewList').innerHTML = '';
-        $('rgModalOverlay').classList.add('open');
-        setTimeout(() => $('rgModalInput').focus(), 60);
-        setTab('block');
-    }
-
-    function closeModal() {
-        $('rgModalOverlay').classList.remove('open');
-    }
-
-    function setTab(tab) {
-        activeTab = tab;
-        document.querySelectorAll('.rg-tab').forEach(t => t.classList.remove('rg-tab--active'));
-        document.querySelector(`.rg-tab[data-tab="${tab}"]`).classList.add('rg-tab--active');
-
-        const descs = {
-            block: 'Digite um domínio por linha. Será convertido para <code>||dominio^</code> automaticamente.',
-            allow: 'Digite um domínio por linha. Será convertido para <code>@@||dominio^</code> (whitelist).',
-            advanced: 'Use a sintaxe completa do AdGuard — uma regra por linha. Ex: <code>||ads.example.com^</code>',
-        };
-        $('rgModalDesc').innerHTML = descs[tab] || '';
-
-        const confirmBtn = $('rgModalConfirm');
-        confirmBtn.style.background = tab === 'block' ? '#ef4444' : tab === 'allow' ? '#22c55e' : 'var(--text-primary)';
-        confirmBtn.style.color = tab === 'allow' ? '#fff' : tab === 'block' ? '#fff' : 'var(--bg)';
-        confirmBtn.textContent = tab === 'block' ? 'Bloquear' : tab === 'allow' ? 'Permitir' : 'Salvar Regras';
-
-        updatePreview();
-    }
-
-    function formatPreviewRules(raw, mode) {
-        return raw.split('\n')
-            .map(l => l.trim()).filter(Boolean)
-            .flatMap(l => {
-                if (mode === 'advanced') return [l];
-                if (l.startsWith('||') || l.startsWith('@@') || l.startsWith('!') ||
-                    l.startsWith('#') || l.startsWith('/') || l.startsWith('0.0.0.0') || l.startsWith('127.')) {
-                    return [l];
-                }
-
-                const domains = [l];
-                if (l.endsWith('.br')) {
-                    domains.push(l.slice(0, -3));
-                } else {
-                    domains.push(l + '.br');
-                }
-
-                return domains.map(d => mode === 'allow' ? `@@||${d}^` : `||${d}^`);
-            });
-    }
-
-    function updatePreview() {
-        const raw = $('rgModalInput').value;
-        const rules = formatPreviewRules(raw, activeTab);
-        const wrap = $('rgModalPreview');
-        const list = $('rgModalPreviewList');
-
-        if (!rules.length) { wrap.style.display = 'none'; return; }
-        wrap.style.display = '';
-
-        const color = activeTab === 'allow' ? '#22c55e' : activeTab === 'block' ? '#ef4444' : 'var(--text-primary)';
-        list.style.color = color;
-        list.innerHTML = rules.map(r => `<div>${escHtml(r)}</div>`).join('');
-    }
-
-    async function submitModal() {
-        const raw = $('rgModalInput').value.trim();
-        if (!raw) { showToast('Digite ao menos um domínio'); return; }
-
-        const confirmBtn = $('rgModalConfirm');
-        const origText = confirmBtn.textContent;
-        confirmBtn.textContent = "Processando...";
-        confirmBtn.disabled = true;
-
-        try {
-            if (activeTab === 'advanced') {
-                // Modo avançado usa Replace Total
-                const newRules = formatPreviewRules(raw, activeTab);
-                const current = new Set(allRules);
-                const toAdd = newRules.filter(r => !current.has(r));
-
-                if (!toAdd.length) {
-                    showToast('Todas as regras já existem');
-                    return;
-                }
-
-                const merged = [...allRules, ...toAdd];
-                const ok = await saveFullRuleSet(merged);
-                if (ok) {
-                    allRules = merged;
-                    applyFilters();
-                    updateStats(allRules);
-                    closeModal();
-                    showToast(`✓ ${toAdd.length} regra(s) avançada(s) adicionada(s)`);
-                }
-            } else {
-                // Block e Allow usam a nova API de serviço que faz o append seguro pelo backend
-                const url = activeTab === 'block' ? '/dns/api/block/' : '/dns/api/allow/';
-                const rulesToSend = formatPreviewRules(raw, activeTab).join('\n'); // Backend vai garantir não duplicar
-
-                const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
-                    body: JSON.stringify({ domains: rulesToSend }),
-                });
-                const data = await res.json();
-
-                if (data.ok) {
-                    const added = data.added?.length ?? 0;
-                    const skip = data.skipped?.length ?? 0;
-                    showToast(`✓ ${added} regra(s) adicionada(s)${skip ? ` · ${skip} já existia(m)` : ''}`);
-                    closeModal();
-                    loadRules(); // Recarrega a lista oficial do AdGuard para a tabela refletir
-                } else {
-                    showToast(`Erro: ${data.error}`);
-                }
-            }
-        } catch (e) {
-            showToast(`Erro de conexão: ${e.message}`);
-        } finally {
-            confirmBtn.textContent = origText;
-            confirmBtn.disabled = false;
-        }
-    }
-
-    // Bind modal
-    $('rgAddBtn').addEventListener('click', openModal);
-    $('rgModalClose').addEventListener('click', closeModal);
-    $('rgModalCancel').addEventListener('click', closeModal);
-    $('rgModalOverlay').addEventListener('click', e => { if (e.target === $('rgModalOverlay')) closeModal(); });
-    $('rgModalConfirm').addEventListener('click', submitModal);
-    $('rgModalInput').addEventListener('input', updatePreview);
-    document.querySelectorAll('.rg-tab').forEach(t =>
-        t.addEventListener('click', () => setTab(t.dataset.tab))
-    );
-    document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeModal();
-    });
-
-    /* ═══════════════════════════════════════════════════════
-       CONTROLES GERAIS
-    ═══════════════════════════════════════════════════════ */
-    $('rgRefreshBtn').addEventListener('click', loadRules);
-
-    $('rgRemoveSelectedBtn').addEventListener('click', () => {
-        confirmRemove([...selected]);
-    });
-
-    // Select all
-    $('rgSelectAll').addEventListener('change', e => {
-        const pageRules = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-        if (e.target.checked) pageRules.forEach(r => selected.add(r));
-        else pageRules.forEach(r => selected.delete(r));
-        renderTable();
-        updateSelectedUI();
-    });
-
-    // Filtros
-    document.querySelectorAll('.rg-filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.rg-filter-btn').forEach(b => b.classList.remove('rg-filter-btn--active'));
-            btn.classList.add('rg-filter-btn--active');
-            currentFilter = btn.dataset.filter;
-            applyFilters();
-        });
-    });
-
-    // Busca
-    const searchInput = $('rgSearch');
-    const searchClear = $('rgSearchClear');
-    searchInput.addEventListener('input', () => {
-        searchTerm = searchInput.value.trim();
-        searchClear.style.display = searchTerm ? '' : 'none';
-        applyFilters();
-    });
-    searchClear.addEventListener('click', () => {
-        searchInput.value = '';
-        searchTerm = '';
-        searchClear.style.display = 'none';
-        applyFilters();
-    });
-
-    /* ═══════════════════════════════════════════════════════
-       UTILS
-    ═══════════════════════════════════════════════════════ */
-    function escHtml(str) {
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    function getCsrf() {
-        return document.cookie.split(';')
-            .find(c => c.trim().startsWith('csrftoken='))
-            ?.split('=')[1] || '';
-    }
-
-    let _toastTimer;
-    function showToast(msg) {
-        const t = $('rgToast');
-        t.textContent = msg;
-        t.classList.add('show');
-        clearTimeout(_toastTimer);
-        _toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
-    }
-
-    /* ── INIT ── */
-    loadRules();
-
-});
+/* ============================================================
+   MOONSHIELD — feed.css v2
+   Live Feed DNS — tela completa
+   Compatível com feed.html v2 + feed.js v2
+   ============================================================ */
+
+/* ============================================================
+   VARIÁVEIS LOCAIS
+   ============================================================ */
+.feed - shell {
+    --feed - blue: #3b82f6; --feed - red: #ef4444; --feed - yellow: #eab308;
+    --feed - green: #22c55e; --feed - purple: #a855f7; --feed - orange: #f97316;
+    --feed - cyan: #06b6d4; --feed - pink: #ec4899;
+    --feed - blue - bg: rgba(59, 130, 246, .09); --feed - blue - bd: rgba(59, 130, 246, .22);
+    --feed - red - bg: rgba(239, 68, 68, .09); --feed - red - bd: rgba(239, 68, 68, .22);
+    --feed - yellow - bg: rgba(234, 179, 8, .09); --feed - yellow - bd: rgba(234, 179, 8, .22);
+    --feed - green - bg: rgba(34, 197, 94, .09); --feed - green - bd: rgba(34, 197, 94, .22);
+    --feed - purple - bg: rgba(168, 85, 247, .09); --feed - purple - bd: rgba(168, 85, 247, .22);
+    --feed - cyan - bg: rgba(6, 182, 212, .09); --feed - cyan - bd: rgba(6, 182, 212, .22);
+    --feed - card - bg: var(--bg - card, #11141c); --feed - mid - bg: var(--bg - mid, #151923);
+    --feed - hover - bg: var(--bg - hover, rgba(255, 255, 255, .035));
+    --feed - border: var(--border, rgba(255, 255, 255, .08));
+    --feed - border - soft: var(--border - soft, rgba(255, 255, 255, .05));
+    --feed - border - strong: rgba(255, 255, 255, .14);
+    --feed - text: var(--text - primary, #e5e7eb);
+    --feed - muted: var(--text - muted, #94a3b8);
+    --feed - dim: var(--text - dim, #64748b);
+    width: 100 %; min - width: 0; display: flex; flex - direction: column; color: var(--feed - text);
+}
+
+/* ============================================================
+   BREADCRUMB & TOPBAR
+   ============================================================ */
+.feed - breadcrumb - link { color: var(--feed - dim); text - decoration: none; transition: color .15s ease; }
+.feed - breadcrumb - link:hover { color: var(--feed - text); }
+
+.feed - topbar { display: flex; align - items: center; justify - content: space - between; gap: 12px; padding: 10px 12px; margin - bottom: 10px; border: 1px solid var(--feed - border); border - radius: var(--r - lg, 10px); background: var(--feed - card - bg); box - shadow: 0 1px 0 rgba(255, 255, 255, .015); animation: feedFadeUp .25s ease both; }
+.feed - topbar__left, .feed - topbar__right { display: flex; align - items: center; gap: 8px; flex - wrap: wrap; min - width: 0; }
+.feed - topbar__left { flex: 1; }
+.feed - topbar__right { justify - content: flex - end; flex - shrink: 0; }
+
+/* ============================================================
+   LIVE
+   ============================================================ */
+.feed - live { display: inline - flex; align - items: center; gap: 6px; height: 32px; padding: 0 9px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: rgba(255, 255, 255, .018); flex - shrink: 0; }
+.feed - live__dot { width: 7px; height: 7px; border - radius: 50 %; background: var(--feed - dim); flex - shrink: 0; }
+.feed - live__dot.is - ok { background: var(--feed - green); box - shadow: 0 0 7px rgba(34, 197, 94, .55); animation: feedPulseGreen 1.6s ease -in -out infinite; }
+.feed - live__dot.is - paused { background: var(--feed - yellow); box - shadow: 0 0 6px rgba(234, 179, 8, .45); animation: none; }
+.feed - live__dot.is - error { background: var(--feed - red); box - shadow: 0 0 7px rgba(239, 68, 68, .55); animation: feedPulseRed 1.3s ease -in -out infinite; }
+.feed - live__label { font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 10px; font - weight: 800; letter - spacing: .09em; color: var(--feed - text); }
+.feed - live__time { font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 10px; color: var(--feed - dim); }
+
+/* ============================================================
+   MODE BADGE & FILTER CHIPS
+   ============================================================ */
+.feed - mode - badge { display: inline - flex; align - items: center; justify - content: center; min - height: 24px; padding: 2px 7px; border - radius: 5px; font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 9px; font - weight: 800; letter - spacing: .07em; }
+.feed - type - chips { display: inline - flex; align - items: center; gap: 3px; padding: 3px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 8px); background: rgba(255, 255, 255, .012); }
+.feed - chip { display: inline - flex; align - items: center; justify - content: center; gap: 5px; height: 26px; padding: 0 9px; border: 1px solid transparent; border - radius: 6px; background: transparent; color: var(--feed - dim); font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 9.5px; font - weight: 650; cursor: pointer; transition: color .15s ease, background .15s ease, border - color .15s ease; }
+.feed - chip:hover { color: var(--feed - text); background: rgba(255, 255, 255, .035); }
+.feed - chip--active { color: var(--feed - text); background: rgba(255, 255, 255, .065); border - color: rgba(255, 255, 255, .05); }
+.feed - chip--block.feed - chip--active { color: #fca5a5; background: var(--feed - red - bg); border - color: var(--feed - red - bd); }
+.feed - chip--allow.feed - chip--active { color: #86efac; background: var(--feed - green - bg); border - color: var(--feed - green - bd); }
+
+/* ============================================================
+   SEARCH & SELECT FILTERS
+   ============================================================ */
+.feed - search - wrap { position: relative; display: flex; align - items: center; min - width: 220px; max - width: 380px; flex: 1 1 250px; }
+.feed - search__icon { position: absolute; left: 10px; z - index: 2; color: var(--feed - dim); pointer - events: none; }
+.feed - search { width: 100 %; height: 32px; padding: 0 30px 0 31px; outline: none; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: var(--bg - input, rgba(255, 255, 255, .02)); color: var(--feed - text); font - size: 10.5px; transition: border - color .15s ease, box - shadow .15s ease, background .15s ease; }
+.feed - search::placeholder { color: var(--feed - dim); }
+.feed - search:hover { border - color: rgba(255, 255, 255, .12); }
+.feed - search:focus { border - color: rgba(59, 130, 246, .48); box - shadow: 0 0 0 3px rgba(59, 130, 246, .07); background: rgba(59, 130, 246, .02); }
+.feed - search__clear { position: absolute; right: 8px; top: 50 %; transform: translateY(-50 %); display: none; align - items: center; justify - content: center; width: 20px; height: 20px; padding: 0; border: 0; background: transparent; color: var(--feed - dim); font - size: 9px; cursor: pointer; }
+.feed - search__clear.visible { display: inline - flex; }
+.feed - search__clear:hover { color: var(--feed - text); }
+
+.feed - select { height: 32px; min - width: 112px; padding: 0 28px 0 9px; outline: none; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: var(--bg - input, rgba(255, 255, 255, .02)); color: var(--feed - muted); font - family: var(--font - mono, monospace); font - size: 9.5px; cursor: pointer; transition: border - color .15s ease, background .15s ease; }
+.feed - select:hover { border - color: rgba(255, 255, 255, .13); }
+.feed - select:focus { border - color: rgba(59, 130, 246, .42); }
+.feed - select option { background: #11151d; color: #e5e7eb; }
+
+/* ============================================================
+   CONTROL BUTTONS
+   ============================================================ */
+.feed - ctrl - btn { display: inline - flex; align - items: center; justify - content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 7px); background: var(--feed - card - bg); color: var(--feed - muted); font - size: 10px; font - weight: 600; white - space: nowrap; text - decoration: none; cursor: pointer; transition: color .15s ease, border - color .15s ease, background .15s ease, transform .1s ease; }
+.feed - ctrl - btn:hover { color: var(--feed - text); border - color: var(--feed - border - strong); background: var(--feed - hover - bg); }
+.feed - ctrl - btn:active { transform: translateY(1px); }
+.feed - ctrl - btn--primary { color: #bfdbfe; background: var(--feed - blue - bg); border - color: var(--feed - blue - bd); }
+.feed - ctrl - btn--primary:hover { color: #dbeafe; background: rgba(59, 130, 246, .15); border - color: rgba(59, 130, 246, .32); }
+
+/* ============================================================
+   WARNING / OFFLINE
+   ============================================================ */
+.feed - warning { display: flex; align - items: center; justify - content: space - between; gap: 12px; min - height: 38px; padding: 8px 11px; margin - bottom: 10px; border: 1px solid var(--feed - red - bd); border - radius: var(--r - md, 8px); background: rgba(239, 68, 68, .055); color: #fca5a5; font - size: 10.5px; animation: feedFadeUp .2s ease both; }
+.feed - warning[hidden] { display: none; }
+.feed - warning__content { display: flex; align - items: center; gap: 8px; }
+.feed - warning button { min - height: 26px; padding: 0 8px; border: 1px solid var(--feed - red - bd); border - radius: 5px; background: rgba(239, 68, 68, .07); color: #fecaca; font - size: 9.5px; cursor: pointer; }
+.feed - warning button:hover { background: rgba(239, 68, 68, .13); }
+
+/* ============================================================
+   KPI BAR
+   ============================================================ */
+.feed - kpi - bar { display: grid; grid - template - columns: repeat(6, minmax(90px, auto)) minmax(150px, 1fr); align - items: center; min - height: 66px; margin - bottom: 10px; border: 1px solid var(--feed - border); border - radius: var(--r - lg, 10px); background: var(--feed - card - bg); overflow: hidden; animation: feedFadeUp .28s ease both; }
+.feed - kpi { display: flex; flex - direction: column; justify - content: center; min - width: 0; height: 100 %; padding: 10px 13px; }
+.feed - kpi__val { color: var(--feed - text); font - family: var(--font - mono, "JetBrains Mono", monospace); font - size: 18px; font - weight: 750; letter - spacing: -.025em; line - height: 1.1; }
+.feed - kpi__val--red { color: #f87171; }
+.feed - kpi__val--green { color: #4ade80; }
+.feed - kpi__val--yellow { color: #facc15; }
+.feed - kpi__val--purple { color: #c084fc; }
+.feed - kpi__val--blue { color: #60a5fa; }
+.feed - kpi__lbl { margin - top: 4px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8.5px; letter - spacing: .035em; white - space: nowrap; }
+.feed - kpi - divider { width: 1px; height: 31px; background: var(--feed - border); justify - self: center; }
+.feed - mini - chart - wrap { height: 44px; min - width: 140px; padding: 5px 13px; }
+.feed - mini - chart - wrap canvas { display: block; width: 100 %; height: 100 %; }
+
+/* ============================================================
+   TABLE WRAP & GRID
+   ============================================================ */
+.feed - table - wrap { display: flex; flex - direction: column; min - height: 0; border: 1px solid var(--feed - border); border - radius: var(--r - lg, 10px); background: var(--feed - card - bg); overflow: hidden; animation: feedFadeUp .32s ease both; }
+.feed - table - header, .feed - row { display: grid; grid - template - columns: 68px 86px 116px minmax(220px, 1.7fr) 70px 82px 82px minmax(150px, 1fr) 112px; align - items: center; gap: 0; }
+
+.feed - table - header { min - height: 38px; padding: 0 8px; border - bottom: 1px solid var(--feed - border); background: var(--feed - mid - bg); flex - shrink: 0; }
+.feed - col { min - width: 0; padding: 0 7px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8.5px; font - weight: 700; letter - spacing: .05em; text - transform: uppercase; }
+
+.feed - table - body { min - height: 340px; max - height: calc(100vh - 300px); overflow - y: auto; overflow - x: hidden; scrollbar - width: thin; scrollbar - color: rgba(148, 163, 184, .20) transparent; }
+.feed - table - body:: -webkit - scrollbar { width: 6px; }
+.feed - table - body:: -webkit - scrollbar - track { background: transparent; }
+.feed - table - body:: -webkit - scrollbar - thumb { border - radius: 999px; background: rgba(148, 163, 184, .16); }
+.feed - table - body:: -webkit - scrollbar - thumb:hover { background: rgba(148, 163, 184, .26); }
+
+/* ============================================================
+   ROW & CELLS
+   ============================================================ */
+.feed - row { min - height: 38px; padding: 0 8px; border - bottom: 1px solid rgba(255, 255, 255, .038); border - left: 2px solid transparent; color: #cbd5e1; font - family: var(--font - mono, monospace); font - size: 10px; transition: background .12s ease; animation: feedRowIn .16s ease both; }
+.feed - row:hover { background: var(--feed - hover - bg); }
+.feed - row--block { border - left - color: rgba(239, 68, 68, .75); background: linear - gradient(90deg, rgba(239, 68, 68, .035), transparent 22 %); }
+.feed - row--block:hover { background: linear - gradient(90deg, rgba(239, 68, 68, .065), rgba(255, 255, 255, .025) 42 %); }
+.feed - row--allow { border - left - color: rgba(34, 197, 94, .42); }
+
+.feed - cell { display: flex; align - items: center; min - width: 0; padding: 0 7px; overflow: hidden; text - overflow: ellipsis; white - space: nowrap; }
+.feed - cell--time { color: var(--feed - dim); font - size: 9.5px; }
+.feed - cell--ip { color: var(--feed - muted); font - size: 9.7px; }
+.feed - cell--domain { color: var(--feed - text); font - family: var(--font - sans, Inter, sans - serif); font - size: 10.5px; font - weight: 520; }
+.feed - cell--domain.is - blocked { color: #fca5a5; }
+.feed - cell--filter { color: var(--feed - dim); font - size: 9px; }
+.feed - cell--filter.has - filter { color: #f59e0b; }
+.feed - cell--actions { gap: 4px; justify - content: flex - start; }
+
+/* ============================================================
+   STATUS
+   ============================================================ */
+.feed - status - pill { display: inline - flex; align - items: center; justify - content: center; gap: 4px; width: max - content; min - height: 20px; padding: 2px 6px; border: 1px solid; border - radius: 5px; font - family: var(--font - mono, monospace); font - size: 8px; font - weight: 800; letter - spacing: .04em; }
+.feed - status - pill--block { color: #fca5a5; background: var(--feed - red - bg); border - color: var(--feed - red - bd); }
+.feed - status - pill--allow { color: #86efac; background: var(--feed - green - bg); border - color: var(--feed - green - bd); }
+.feed - status - dot { width: 4px; height: 4px; border - radius: 50 %; background: currentColor; flex - shrink: 0; }
+
+/* ============================================================
+   DNS TYPE TAGS
+   ============================================================ */
+.feed - type - tag { display: inline - flex; align - items: center; justify - content: center; min - width: 28px; min - height: 18px; padding: 1px 5px; border: 1px solid rgba(148, 163, 184, .14); border - radius: 4px; background: rgba(148, 163, 184, .045); color: var(--feed - muted); font - family: var(--font - mono, monospace); font - size: 8px; font - weight: 700; letter - spacing: .025em; }
+.feed - type - tag--a { color: #93c5fd; border - color: rgba(59, 130, 246, .20); background: rgba(59, 130, 246, .06); }
+.feed - type - tag--aaaa { color: #c4b5fd; border - color: rgba(168, 85, 247, .20); background: rgba(168, 85, 247, .06); }
+.feed - type - tag--https { color: #67e8f9; border - color: rgba(6, 182, 212, .20); background: rgba(6, 182, 212, .06); }
+.feed - type - tag--cname { color: #fcd34d; border - color: rgba(234, 179, 8, .20); background: rgba(234, 179, 8, .06); }
+.feed - type - tag--srv { color: #86efac; border - color: rgba(34, 197, 94, .20); background: rgba(34, 197, 94, .06); }
+.feed - type - tag--ptr { color: #f9a8d4; border - color: rgba(236, 72, 153, .20); background: rgba(236, 72, 153, .06); }
+.feed - type - tag--txt { color: #fdba74; border - color: rgba(249, 115, 22, .20); background: rgba(249, 115, 22, .06); }
+.feed - type - tag--mx, .feed - type - tag--ns, .feed - type - tag--other { color: #cbd5e1; }
+
+/* ============================================================
+   LATENCY & SOURCE
+   ============================================================ */
+.feed - lat { font - family: var(--font - mono, monospace); font - size: 8.8px; }
+.feed - lat--fast { color: #4ade80; }
+.feed - lat--medium { color: #facc15; }
+.feed - lat--slow { color: #fb7185; }
+.feed - lat--none { color: #475569; }
+
+.feed - source { display: inline - flex; align - items: center; justify - content: center; min - height: 18px; padding: 1px 5px; border - radius: 4px; font - family: var(--font - mono, monospace); font - size: 7.8px; font - weight: 700; text - transform: uppercase; letter - spacing: .025em; }
+.feed - source--cache { color: #c4b5fd; background: rgba(168, 85, 247, .07); }
+.feed - source--upstream { color: #93c5fd; background: rgba(59, 130, 246, .065); }
+.feed - source--blocked { color: #fca5a5; background: rgba(239, 68, 68, .065); }
+
+/* ============================================================
+   ROW ACTIONS & EMPTY STATE
+   ============================================================ */
+.feed - row - btn { display: inline - flex; align - items: center; justify - content: center; height: 23px; padding: 0 6px; border: 1px solid var(--feed - blue - bd); border - radius: 5px; background: rgba(59, 130, 246, .055); color: #93c5fd; font - family: var(--font - mono, monospace); font - size: 7.8px; cursor: pointer; transition: background .12s ease, border - color .12s ease, color .12s ease; }
+.feed - row - btn:hover { color: #bfdbfe; background: rgba(59, 130, 246, .12); border - color: rgba(59, 130, 246, .30); }
+.feed - row - btn--ghost { color: var(--feed - dim); border - color: var(--feed - border); background: transparent; }
+.feed - row - btn--ghost:hover { color: var(--feed - text); background: var(--feed - hover - bg); }
+
+.feed - empty - state { display: flex; flex - direction: column; align - items: center; justify - content: center; gap: 8px; min - height: 330px; padding: 30px; text - align: center; color: var(--feed - dim); }
+.feed - empty - state svg { color: #334155; }
+.feed - empty - state p { margin: 0; color: var(--feed - muted); font - size: 11px; }
+.feed - empty - state span { color: var(--feed - dim); font - size: 9px; }
+
+/* ============================================================
+   FOOTER & AUTO SCROLL TOGGLE
+   ============================================================ */
+.feed - footer { display: flex; align - items: center; justify - content: space - between; gap: 12px; padding: 8px 4px 0; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 9px; }
+.feed - footer__right { display: flex; align - items: center; gap: 14px; }
+.feed - footer__status { color: #475569; }
+.feed - footer__hint { opacity: .7; }
+
+.feed - autoscroll - toggle { display: inline - flex; align - items: center; gap: 7px; color: var(--feed - muted); cursor: pointer; user - select: none; }
+.feed - autoscroll - toggle input { display: none; }
+.feed - toggle - track { position: relative; width: 28px; height: 15px; border: 1px solid var(--feed - border); border - radius: 999px; background: rgba(148, 163, 184, .12); transition: background .18s ease, border - color .18s ease; }
+.feed - toggle - thumb { position: absolute; top: 1px; left: 1px; width: 11px; height: 11px; border - radius: 50 %; background: #64748b; transition: transform .18s ease, background .18s ease; }
+.feed - autoscroll - toggle input: checked + .feed - toggle - track { border - color: rgba(59, 130, 246, .30); background: rgba(59, 130, 246, .24); }
+.feed - autoscroll - toggle input: checked + .feed - toggle - track.feed - toggle - thumb { transform: translateX(13px); background: #60a5fa; }
+
+/* ============================================================
+   DETAIL OVERLAY & DRAWER
+   ============================================================ */
+.feed - detail - overlay { position: fixed; inset: 0; z - index: 1200; background: rgba(2, 6, 23, .48); opacity: 0; visibility: hidden; backdrop - filter: blur(1px); transition: opacity .18s ease, visibility .18s ease; }
+.feed - detail - overlay.is - open { opacity: 1; visibility: visible; }
+
+.feed - detail { position: fixed; top: 0; right: 0; z - index: 1201; width: min(430px, 92vw); height: 100vh; display: flex; flex - direction: column; border - left: 1px solid rgba(255, 255, 255, .09); background: var(--bg, #0c1017); box - shadow: -18px 0 50px rgba(0, 0, 0, .28); transform: translateX(100 %); transition: transform .22s ease; }
+.feed - detail.is - open { transform: translateX(0); }
+
+.feed - detail__header { display: flex; align - items: flex - start; justify - content: space - between; gap: 16px; padding: 18px 19px; border - bottom: 1px solid var(--feed - border); flex - shrink: 0; }
+.feed - detail__eyebrow { display: block; margin - bottom: 5px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8.5px; font - weight: 700; letter - spacing: .08em; text - transform: uppercase; }
+.feed - detail h3 { margin: 0; max - width: 330px; color: var(--feed - text); font - size: 14px; font - weight: 650; line - height: 1.35; overflow - wrap: anywhere; }
+.feed - detail__close { display: inline - flex; align - items: center; justify - content: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--feed - border); border - radius: 7px; background: var(--feed - card - bg); color: var(--feed - muted); cursor: pointer; flex - shrink: 0; transition: background .15s ease, color .15s ease; }
+.feed - detail__close:hover { color: var(--feed - text); background: var(--feed - hover - bg); }
+
+.feed - detail__body { flex: 1; min - height: 0; padding: 17px 19px; overflow - y: auto; }
+.feed - detail__status - row { display: flex; align - items: center; gap: 8px; margin - bottom: 16px; }
+
+/* ============================================================
+   DETAIL GRID & ACTIONS
+   ============================================================ */
+.feed - detail__grid { display: grid; grid - template - columns: 1fr 1fr; gap: 9px; margin: 0; }
+.feed - detail__grid > div { min - width: 0; padding: 10px; border: 1px solid var(--feed - border); border - radius: var(--r - md, 8px); background: var(--feed - card - bg); }
+.feed - detail__grid dt { margin: 0 0 5px; color: var(--feed - dim); font - family: var(--font - mono, monospace); font - size: 8px; font - weight: 700; letter - spacing: .05em; text - transform: uppercase; }
+.feed - detail__grid dd { margin: 0; color: var(--feed - muted); font - size: 10px; line - height: 1.45; overflow - wrap: anywhere; }
+.feed - detail__wide { grid - column: 1 / -1; }
+
+.feed - detail__actions { display: grid; grid - template - columns: 1fr 1fr; gap: 8px; margin - top: 15px; }
+.feed - detail - btn { min - height: 34px; padding: 0 10px; border: 1px solid var(--feed - border); border - radius: 7px; background: var(--feed - card - bg); color: var(--feed - muted); font - size: 9.5px; font - weight: 600; cursor: pointer; transition: background .15s ease, border - color .15s ease, color .15s ease; }
+.feed - detail - btn:hover { color: var(--feed - text); border - color: var(--feed - border - strong); background: var(--feed - hover - bg); }
+.feed - detail - btn: first - child { grid - column: 1 / -1; }
+.feed - detail - btn--danger { color: #fca5a5; background: var(--feed - red - bg); border - color: var(--feed - red - bd); }
+.feed - detail - btn--danger:hover { background: rgba(239, 68, 68, .14); border - color: rgba(239, 68, 68, .32); }
+.feed - detail - btn--success { color: #86efac; background: var(--feed - green - bg); border - color: var(--feed - green - bd); }
+.feed - detail - btn--success:hover { background: rgba(34, 197, 94, .13); border - color: rgba(34, 197, 94, .30); }
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+.feed - toast { position: fixed; right: 20px; bottom: 20px; z - index: 1400; max - width: min(360px, 82vw); padding: 9px 12px; border: 1px solid var(--feed - green - bd); border - radius: var(--r - md, 8px); background: #111820; color: #bbf7d0; font - family: var(--font - mono, monospace); font - size: 9.5px; box - shadow: 0 14px 38px rgba(0, 0, 0, .30); opacity: 0; transform: translateY(8px); pointer - events: none; transition: opacity .18s ease, transform .18s ease; }
+.feed - toast[data - type="error"] { color: #fca5a5; border - color: var(--feed - red - bd); }
+.feed - toast.show { opacity: 1; transform: translateY(0); }
+
+/* ============================================================
+   ACCESSIBILITY & MONO
+   ============================================================ */
+.feed - chip: focus - visible, .feed - search: focus - visible, .feed - select: focus - visible, .feed - ctrl - btn: focus - visible, .feed - row - btn: focus - visible, .feed - detail - btn: focus - visible, .feed - detail__close: focus - visible, .feed - warning button: focus - visible { outline: 2px solid rgba(59, 130, 246, .48); outline - offset: 2px; }
+.mono { font - family: var(--font - mono, "JetBrains Mono", monospace); }
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes feedFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes feedRowIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@keyframes feedPulseGreen { 0 %, 100 % { opacity: 1; } 50 % { opacity: .35; } }
+@keyframes feedPulseRed { 0 %, 100 % { opacity: 1; } 50 % { opacity: .28; } }
+
+/* ============================================================
+   RESPONSIVO
+   ============================================================ */
+@media(max - width: 1450px) {
+    .feed - table - header, .feed - row { grid - template - columns: 64px 82px 110px minmax(200px, 1.5fr) 64px 76px 76px minmax(130px, .9fr) 106px; }
+    .feed - kpi - bar { grid - template - columns: repeat(6, minmax(80px, auto)); }
+    .feed - mini - chart - wrap { grid - column: 1 / -1; border - top: 1px solid var(--feed - border); height: 38px; }
+}
+
+@media(max - width: 1200px) {
+    .feed - topbar { align - items: flex - start; flex - direction: column; }
+    .feed - topbar__left, .feed - topbar__right { width: 100 %; }
+    .feed - topbar__right { justify - content: flex - start; }
+    .feed - search - wrap { max - width: none; }
+    .feed - table - wrap { overflow - x: auto; }
+    .feed - table - header, .feed - row { min - width: 1070px; }
+    .feed - table - body { max - height: calc(100vh - 355px); }
+}
+
+@media(max - width: 950px) {
+    .feed - kpi - bar { grid - template - columns: repeat(3, 1fr); }
+    .feed - kpi - divider { display: none; }
+    .feed - kpi { border - bottom: 1px solid rgba(255, 255, 255, .04); }
+    .feed - mini - chart - wrap { grid - column: 1 / -1; }
+    .feed - search - wrap { flex - basis: 100 %; min - width: 100 %; }
+    .feed - select { flex: 1; }
+}
+
+@media(max - width: 700px) {
+    .feed - topbar { padding: 9px; }
+    .feed - topbar__left, .feed - topbar__right { align - items: stretch; }
+    .feed - type - chips { width: 100 %; }
+    .feed - chip { flex: 1; }
+    .feed - search - wrap { width: 100 %; flex: 1 1 100 %; }
+    .feed - select { width: calc(50 % - 4px); }
+    .feed - ctrl - btn { flex: 1; }
+    .feed - kpi - bar { grid - template - columns: repeat(2, 1fr); }
+    .feed - kpi { min - height: 60px; }
+    .feed - footer { align - items: flex - start; flex - direction: column; }
+    .feed - footer__right { flex - wrap: wrap; gap: 10px; }
+    .feed - detail__grid { grid - template - columns: 1fr; }
+    .feed - detail__wide { grid - column: auto; }
+    .feed - detail__actions { grid - template - columns: 1fr; }
+    .feed - detail - btn: first - child { grid - column: auto; }
+}
+
+@media(max - width: 480px) {
+    .feed - live { flex: 1; }
+    .feed - mode - badge { align - self: center; }
+    .feed - select { width: 100 %; }
+    .feed - kpi__val { font - size: 16px; }
+    .feed - kpi__lbl { white - space: normal; }
+    .feed - detail { width: 100vw; }
+    .feed - toast { right: 12px; left: 12px; bottom: 12px; max - width: none; }
+}
+
+/* ============================================================
+   REDUCED MOTION
+   ============================================================ */
+@media(prefers - reduced - motion: reduce) {
+    .feed - shell *, .feed - shell *:: before, .feed - shell *::after { animation - duration: .01ms!important; animation - iteration - count: 1!important; transition - duration: .01ms!important; }
+}

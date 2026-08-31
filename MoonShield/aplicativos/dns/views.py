@@ -1,5 +1,5 @@
 """
-dns/views.py — MoonShield  v2
+dns/views.py — MoonShield  v3
 ─────────────────────────────────────────────────────────────────────────────
 Modo DEMO        → dados simulados sempre
 Modo PROD + real → busca dados reais do AdGuard via adguard_client.py
@@ -55,27 +55,45 @@ def _get_modo_sistema() -> str:
 def _prod_empty_response(error: str = None) -> dict:
     """Resposta para PROD quando AdGuard está offline ou não configurado."""
     resp = {
-        "ok":    True,
-        "mode":  "prod_offline",
+        "ok": True,
+        "mode": "prod_offline",
         "metrics": {
-            "queries":   0,
+            "queries": 0,
             "bloqueios": 0,
-            "pctBloq":   0,
-            "clientes":  0,
-            "latencia":  0,
-            "uptime":    "—",
+            "pctBloq": 0,
+            "clientes": 0,
+            "latencia": 0,
+            "uptime": "—",
+            "uptime_seconds": 0,
+            "trends": {
+                "queries": None,
+                "bloqueios": None,
+            },
+        },
+        "health": {
+            "api": "offline",
+            "running": False,
+            "protection_enabled": False,
+            "safe_browsing": False,
+            "version": "—",
+            "uptime": "—",
+            "uptime_seconds": 0,
+            "dns_port": 53,
+            "dns_addresses": [],
+            "filters_enabled": 0,
         },
         "charts": {
-            "hours":        [f"{h:02d}h" for h in range(24)],
-            "queries":      [0] * 24,
-            "bloqueios":    [0] * 24,
-            "latency":      [0] * 24,
+            "hours": [f"{h:02d}h" for h in range(24)],
+            "queries": [0] * 24,
+            "bloqueios": [0] * 24,
+            "latency": [0] * 24,
             "latency_peak": [0] * 24,
         },
         "top_consultados": [],
-        "top_bloqueados":  [],
-        "clientes":        [],
-        "filter_count":    0,
+        "top_bloqueados": [],
+        "clientes": [],
+        "filter_count": 0,
+        "generated_at": datetime.now().astimezone().isoformat(),
     }
     if error:
         resp["warning"] = error
@@ -269,23 +287,31 @@ def _gen_querylog_demo(limit: int = 50, since: str = None) -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _adguard_client: "AdGuardClient | None" = None
-_adguard_last_url: str = ""
+_adguard_last_signature: tuple = ()
 
 
 def _get_adguard_client(cfg) -> "AdGuardClient":
-    global _adguard_client, _adguard_last_url
+    """
+    Mantém uma instância reutilizável, mas recria a sessão sempre que
+    URL/usuário/senha/HTTPS mudarem. Isso evita autenticação antiga presa
+    após salvar novas credenciais no painel.
+    """
+    global _adguard_client, _adguard_last_signature
 
-    url   = cfg.adguard_url  or ""
-    user  = cfg.adguard_user or ""
-    pwd   = cfg.adguard_pass or ""
-    https = cfg.adguard_https or False
+    url = (getattr(cfg, "adguard_url", "") or "").strip()
+    user = getattr(cfg, "adguard_user", "") or ""
+    pwd = getattr(cfg, "adguard_pass", "") or ""
+    https = bool(getattr(cfg, "adguard_https", False))
 
-    if _adguard_client is None or _adguard_last_url != url:
-        _adguard_client   = AdGuardClient(url=url, user=user, password=pwd, https=https)
-        _adguard_last_url = url
-    else:
-        _adguard_client.user     = user
-        _adguard_client.password = pwd
+    signature = (url, user, pwd, https)
+    if _adguard_client is None or signature != _adguard_last_signature:
+        _adguard_client = AdGuardClient(
+            url=url,
+            user=user,
+            password=pwd,
+            https=https,
+        )
+        _adguard_last_signature = signature
 
     return _adguard_client
 
@@ -311,7 +337,9 @@ def _check_prod_mode(cfg):
 @require_GET
 @login_required(login_url='autenticacao:login')
 def api_dns_data(request):
-    period = request.GET.get('period', '24h')
+    period = request.GET.get("period", "24h")
+    if period not in {"1h", "24h", "7d", "30d"}:
+        period = "24h"
 
     # ── Modo DEMO: sempre dados simulados ────────────────────────────────────
     if _get_modo_sistema() == 'demo':
@@ -340,14 +368,20 @@ def api_dns_data(request):
         data   = client.fetch_all()
 
         return JsonResponse({
-            "ok":              True,
-            "mode":            "prod",
-            "metrics":         data["metrics"],
-            "charts":          data["charts"],
+            "ok": True,
+            "mode": "prod",
+            "metrics": data["metrics"],
+            "health": data.get("health", {}),
+            "charts": data["charts"],
             "top_consultados": data["top_consultados"],
-            "top_bloqueados":  data["top_bloqueados"],
-            "clientes":        data["clientes"],
-            "filter_count":    data.get("filter_count", 0),
+            "top_bloqueados": data["top_bloqueados"],
+            "clientes": data["clientes"],
+            "filter_count": data.get("filter_count", 0),
+            "period_requested": period,
+            # O /control/stats do AdGuard trabalha com o intervalo configurado
+            # nele. Não fingimos que 7d/30d existem se a API não os fornecer.
+            "period_effective": "adguard_stats",
+            "generated_at": datetime.now().astimezone().isoformat(),
         })
 
     except AdGuardError as exc:
@@ -369,8 +403,12 @@ def api_dns_data(request):
 @require_GET
 @login_required(login_url='autenticacao:login')
 def api_querylog(request):
-    since = request.GET.get('since', None)
-    limit = min(int(request.GET.get('limit', 50)), 200)
+    since = request.GET.get("since") or None
+    try:
+        limit = int(request.GET.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 500))
 
     # ── Modo DEMO: dados simulados ────────────────────────────────────────────
     if _get_modo_sistema() == 'demo':
@@ -390,7 +428,12 @@ def api_querylog(request):
     try:
         client  = _get_adguard_client(cfg)
         entries = client.get_querylog_formatted(limit=limit, since=since)
-        return JsonResponse({"ok": True, "mode": "prod", "entries": entries})
+        return JsonResponse({
+            "ok": True,
+            "mode": "prod",
+            "entries": entries,
+            "generated_at": datetime.now().astimezone().isoformat(),
+        })
 
     except AdGuardError as exc:
         logger.error("AdGuard querylog falhou: %s", exc)
@@ -514,7 +557,7 @@ def api_regras_list(request):
         return JsonResponse({"ok": True, "mode": "demo", "rules": []})
 
     cfg = ConfigSistema.get_solo() if ConfigSistema else None
-    if not ADGUARD_AVAILABLE or not getattr(cfg, 'adguard_url', ''):
+    if not ADGUARD_AVAILABLE or not cfg or not getattr(cfg, "adguard_url", ""):
         return JsonResponse({"ok": True, "mode": "prod_offline", "rules": []})
 
     try:
@@ -544,9 +587,26 @@ def api_regras_salvar(request):
     if check: return check
 
     try:
+        # Remove vazias/duplicadas preservando a ordem. O endpoint é usado
+        # pela tela de regras para substituir a lista inteira.
+        clean_rules = []
+        seen = set()
+        for rule in rules:
+            if not isinstance(rule, str):
+                continue
+            rule = rule.strip()
+            if not rule or rule in seen:
+                continue
+            seen.add(rule)
+            clean_rules.append(rule)
+
         client = _get_adguard_client(cfg)
-        client.set_custom_rules(rules)
-        return JsonResponse({"ok": True, "total": len(rules)})
+        client.set_custom_rules(clean_rules)
+        return JsonResponse({
+            "ok": True,
+            "total": len(clean_rules),
+            "removed_duplicates": max(0, len(rules) - len(clean_rules)),
+        })
     except AdGuardError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=502)
     except Exception as exc:

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Live Feed DNS — NOC{% endblock %}
+{% block title %}Live Feed DNS — MoonShield{% endblock %}
 
 {% block breadcrumb %}
 <span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
@@ -22,201 +22,233 @@
 
 {% block conteudo %}
 
-<!-- ═══════════════════════════════════════════════════════
-     TOPBAR DO FEED
-════════════════════════════════════════════════════════ -->
-<div class="feed-topbar">
-    <div class="feed-topbar__left">
+<div class="feed-shell">
 
-        <!-- Indicador live -->
-        <div class="feed-live">
-            <span class="feed-live__dot" id="feedLiveDot"></span>
-            <span class="feed-live__label">LIVE</span>
-            <span class="feed-live__time" id="feedLastUpdate">—</span>
+    <!-- Cabeçalho operacional -->
+    <div class="feed-topbar">
+        <div class="feed-topbar__left">
+            <div class="feed-live" id="feedLiveState" title="Estado da coleta">
+                <span class="feed-live__dot" id="feedLiveDot"></span>
+                <span class="feed-live__label">LIVE</span>
+                <span class="feed-live__time" id="feedLastUpdate">—</span>
+            </div>
+
+            <span class="feed-mode-badge" id="feedModeBadge" style="display:none"></span>
+
+            <div class="feed-type-chips" role="group" aria-label="Filtrar por status">
+                <button class="feed-chip feed-chip--active" data-type="all">Todos</button>
+                <button class="feed-chip feed-chip--block" data-type="block">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                    </svg>
+                    Bloqueios
+                </button>
+                <button class="feed-chip feed-chip--allow" data-type="allow">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    Permitidos
+                </button>
+            </div>
+
+            <div class="feed-search-wrap">
+                <svg class="feed-search__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.35-4.35" />
+                </svg>
+                <input class="feed-search" id="feedSearch" type="search" autocomplete="off"
+                       placeholder="IP, domínio, filtro, upstream…" />
+                <button class="feed-search__clear" id="feedSearchClear" type="button" aria-label="Limpar busca">✕</button>
+            </div>
+
+            <select class="feed-select" id="feedQtypeFilter" aria-label="Filtrar tipo DNS">
+                <option value="all">Todos os tipos</option>
+                <option value="A">A</option>
+                <option value="AAAA">AAAA</option>
+                <option value="HTTPS">HTTPS</option>
+                <option value="CNAME">CNAME</option>
+                <option value="SRV">SRV</option>
+                <option value="PTR">PTR</option>
+                <option value="TXT">TXT</option>
+                <option value="MX">MX</option>
+                <option value="NS">NS</option>
+            </select>
+
+            <select class="feed-select" id="feedCacheFilter" aria-label="Filtrar origem da resposta">
+                <option value="all">Cache + Upstream</option>
+                <option value="cache">Somente cache</option>
+                <option value="upstream">Somente upstream</option>
+            </select>
         </div>
 
-        <!-- Badge modo -->
-        <span class="feed-mode-badge" id="feedModeBadge" style="display:none"></span>
+        <div class="feed-topbar__right">
+            <button class="feed-ctrl-btn" id="feedPauseBtn" type="button">
+                <svg id="feedPauseIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <rect x="6" y="4" width="4" height="16" />
+                    <rect x="14" y="4" width="4" height="16" />
+                </svg>
+                <span id="feedPauseLbl">Pausar</span>
+            </button>
 
-        <!-- Filtro tipo -->
-        <div class="feed-type-chips">
-            <button class="feed-chip feed-chip--active" data-type="all">Todos</button>
-            <button class="feed-chip feed-chip--block" data-type="block">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <button class="feed-ctrl-btn" id="feedClearBtn" type="button">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                </svg>
+                Limpar
+            </button>
+
+            <button class="feed-ctrl-btn feed-ctrl-btn--primary" id="feedExportBtn" type="button">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Exportar CSV
+            </button>
+
+            <a href="{% url 'dns:painel' %}" class="feed-ctrl-btn">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="9 21 3 21 3 15" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="3" y1="21" x2="10" y2="14" />
+                    <line x1="21" y1="3" x2="14" y2="10" />
+                </svg>
+                Recolher
+            </a>
+        </div>
+    </div>
+
+    <!-- Aviso de conectividade -->
+    <div class="feed-warning" id="feedWarning" hidden>
+        <div class="feed-warning__content">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span id="feedWarningText">AdGuard indisponível.</span>
+        </div>
+        <button type="button" id="feedRetryBtn">Tentar novamente</button>
+    </div>
+
+    <!-- KPIs da sessão -->
+    <div class="feed-kpi-bar">
+        <div class="feed-kpi">
+            <span class="feed-kpi__val" id="fkTotal">0</span>
+            <span class="feed-kpi__lbl">Queries na sessão</span>
+        </div>
+        <div class="feed-kpi-divider"></div>
+        <div class="feed-kpi">
+            <span class="feed-kpi__val feed-kpi__val--red" id="fkBlocked">0</span>
+            <span class="feed-kpi__lbl">Bloqueadas</span>
+        </div>
+        <div class="feed-kpi-divider"></div>
+        <div class="feed-kpi">
+            <span class="feed-kpi__val feed-kpi__val--green" id="fkAllowed">0</span>
+            <span class="feed-kpi__lbl">Permitidas</span>
+        </div>
+        <div class="feed-kpi-divider"></div>
+        <div class="feed-kpi">
+            <span class="feed-kpi__val feed-kpi__val--yellow" id="fkPct">0%</span>
+            <span class="feed-kpi__lbl">% bloqueio</span>
+        </div>
+        <div class="feed-kpi-divider"></div>
+        <div class="feed-kpi">
+            <span class="feed-kpi__val feed-kpi__val--purple" id="fkRps">0</span>
+            <span class="feed-kpi__lbl">req / min</span>
+        </div>
+        <div class="feed-kpi-divider"></div>
+        <div class="feed-kpi">
+            <span class="feed-kpi__val feed-kpi__val--blue" id="fkIps">0</span>
+            <span class="feed-kpi__lbl">IPs únicos</span>
+        </div>
+
+        <div class="feed-mini-chart-wrap">
+            <canvas id="feedMiniChart" width="220" height="46"></canvas>
+        </div>
+    </div>
+
+    <!-- Tabela -->
+    <div class="feed-table-wrap">
+        <div class="feed-table-header">
+            <div class="feed-col feed-col--time">Hora</div>
+            <div class="feed-col feed-col--status">Status</div>
+            <div class="feed-col feed-col--ip">IP / Cliente</div>
+            <div class="feed-col feed-col--domain">Domínio</div>
+            <div class="feed-col feed-col--type">Tipo</div>
+            <div class="feed-col feed-col--latency">Latência</div>
+            <div class="feed-col feed-col--source">Origem</div>
+            <div class="feed-col feed-col--filter">Filtro / Regra</div>
+            <div class="feed-col feed-col--actions">Ações</div>
+        </div>
+
+        <div class="feed-table-body" id="feedTableBody">
+            <div class="feed-empty-state" id="feedEmptyState">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
                     <circle cx="12" cy="12" r="10" />
-                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                    <polyline points="12 6 12 12 16 14" />
                 </svg>
-                Bloqueios
-            </button>
-            <button class="feed-chip feed-chip--allow" data-type="allow">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                </svg>
-                Permitidos
-            </button>
-        </div>
-
-        <!-- Search -->
-        <div class="feed-search-wrap">
-            <svg class="feed-search__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-            </svg>
-            <input class="feed-search" id="feedSearch" type="text" placeholder="IP ou domínio…" />
-            <button class="feed-search__clear" id="feedSearchClear">✕</button>
-        </div>
-
-    </div>
-    <div class="feed-topbar__right">
-
-        <!-- Pausar / retomar -->
-        <button class="feed-ctrl-btn" id="feedPauseBtn">
-            <svg id="feedPauseIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2.5">
-                <rect x="6" y="4" width="4" height="16" />
-                <rect x="14" y="4" width="4" height="16" />
-            </svg>
-            <span id="feedPauseLbl">Pausar</span>
-        </button>
-
-        <!-- Limpar log -->
-        <button class="feed-ctrl-btn" id="feedClearBtn">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6l-1 14H6L5 6" />
-            </svg>
-            Limpar
-        </button>
-
-        <!-- Exportar CSV -->
-        <button class="feed-ctrl-btn feed-ctrl-btn--primary" id="feedExportBtn">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Exportar CSV
-        </button>
-
-        <!-- Voltar ao NOC -->
-        <a href="{% url 'dns:painel' %}" class="feed-ctrl-btn">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="9 21 3 21 3 15" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-            </svg>
-            Recolher
-        </a>
-
-    </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     KPI BAR — métricas da sessão
-════════════════════════════════════════════════════════ -->
-<div class="feed-kpi-bar">
-
-    <div class="feed-kpi">
-        <span class="feed-kpi__val" id="fkTotal">0</span>
-        <span class="feed-kpi__lbl">Queries totais</span>
-    </div>
-
-    <div class="feed-kpi-divider"></div>
-
-    <div class="feed-kpi">
-        <span class="feed-kpi__val feed-kpi__val--red" id="fkBlocked">0</span>
-        <span class="feed-kpi__lbl">Bloqueados</span>
-    </div>
-
-    <div class="feed-kpi-divider"></div>
-
-    <div class="feed-kpi">
-        <span class="feed-kpi__val feed-kpi__val--green" id="fkAllowed">0</span>
-        <span class="feed-kpi__lbl">Permitidos</span>
-    </div>
-
-    <div class="feed-kpi-divider"></div>
-
-    <div class="feed-kpi">
-        <span class="feed-kpi__val feed-kpi__val--yellow" id="fkPct">0%</span>
-        <span class="feed-kpi__lbl">% Bloqueio</span>
-    </div>
-
-    <div class="feed-kpi-divider"></div>
-
-    <div class="feed-kpi">
-        <span class="feed-kpi__val feed-kpi__val--purple" id="fkRps">0</span>
-        <span class="feed-kpi__lbl">req / min</span>
-    </div>
-
-    <div class="feed-kpi-divider"></div>
-
-    <div class="feed-kpi">
-        <span class="feed-kpi__val feed-kpi__val--blue" id="fkIps">0</span>
-        <span class="feed-kpi__lbl">IPs únicos</span>
-    </div>
-
-    <!-- Minigráfico de atividade -->
-    <div class="feed-mini-chart-wrap">
-        <canvas id="feedMiniChart"></canvas>
-    </div>
-
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     TABELA PRINCIPAL DO FEED
-════════════════════════════════════════════════════════ -->
-<div class="feed-table-wrap">
-
-    <!-- Cabeçalho fixo -->
-    <div class="feed-table-header">
-        <div class="feed-col feed-col--time">Hora</div>
-        <div class="feed-col feed-col--status">Status</div>
-        <div class="feed-col feed-col--ip">IP / Cliente</div>
-        <div class="feed-col feed-col--domain">Domínio</div>
-        <div class="feed-col feed-col--type">Tipo</div>
-        <div class="feed-col feed-col--latency">Latência</div>
-        <div class="feed-col feed-col--filter">Filtro</div>
-    </div>
-
-    <!-- Corpo com scroll -->
-    <div class="feed-table-body" id="feedTableBody">
-        <!-- Linhas injetadas pelo JS -->
-        <div class="feed-empty-state" id="feedEmptyState">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"
-                style="color:var(--text-dim)">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-            </svg>
-            <p>Aguardando consultas DNS…</p>
+                <p>Aguardando consultas DNS…</p>
+                <span>O feed será atualizado automaticamente.</span>
+            </div>
         </div>
     </div>
 
-</div>
-
-<!-- Rodapé com contagem e auto-scroll -->
-<div class="feed-footer">
-    <span class="feed-footer__count" id="feedRowCount">0 entradas</span>
-    <div class="feed-footer__right">
-        <label class="feed-autoscroll-toggle">
-            <input type="checkbox" id="feedAutoScroll" checked />
-            <span class="feed-toggle-track">
-                <span class="feed-toggle-thumb"></span>
-            </span>
-            Auto-scroll
-        </label>
-        <span class="feed-footer__hint">máx. 500 entradas em memória</span>
+    <div class="feed-footer">
+        <span class="feed-footer__count" id="feedRowCount">0 entradas exibidas</span>
+        <div class="feed-footer__right">
+            <span class="feed-footer__status" id="feedBufferInfo">buffer 0/500</span>
+            <label class="feed-autoscroll-toggle">
+                <input type="checkbox" id="feedAutoScroll" checked />
+                <span class="feed-toggle-track"><span class="feed-toggle-thumb"></span></span>
+                Auto-scroll
+            </label>
+            <span class="feed-footer__hint">máx. 500 entradas em memória</span>
+        </div>
     </div>
 </div>
 
-<!-- Toast -->
+<!-- Drawer de detalhe -->
+<div class="feed-detail-overlay" id="feedDetailOverlay"></div>
+<aside class="feed-detail" id="feedDetail" aria-hidden="true">
+    <div class="feed-detail__header">
+        <div>
+            <span class="feed-detail__eyebrow">Consulta DNS</span>
+            <h3 id="fdDomain">—</h3>
+        </div>
+        <button class="feed-detail__close" id="feedDetailClose" type="button" aria-label="Fechar">✕</button>
+    </div>
+
+    <div class="feed-detail__body">
+        <div class="feed-detail__status-row">
+            <span class="feed-status-pill" id="fdStatus">—</span>
+            <span class="feed-type-tag" id="fdType">—</span>
+        </div>
+
+        <dl class="feed-detail__grid">
+            <div><dt>Horário</dt><dd id="fdTime">—</dd></div>
+            <div><dt>Cliente</dt><dd id="fdIp">—</dd></div>
+            <div><dt>Latência</dt><dd id="fdLatency">—</dd></div>
+            <div><dt>Origem</dt><dd id="fdSource">—</dd></div>
+            <div class="feed-detail__wide"><dt>Upstream</dt><dd id="fdUpstream">—</dd></div>
+            <div class="feed-detail__wide"><dt>Motivo</dt><dd id="fdReason">—</dd></div>
+            <div class="feed-detail__wide"><dt>Filtro / Regra</dt><dd id="fdFilter">—</dd></div>
+        </dl>
+
+        <div class="feed-detail__actions">
+            <button type="button" class="feed-detail-btn" id="fdCopyDomain">Copiar domínio</button>
+            <button type="button" class="feed-detail-btn feed-detail-btn--danger" id="fdBlockDomain">Bloquear domínio</button>
+            <button type="button" class="feed-detail-btn feed-detail-btn--success" id="fdAllowDomain">Whitelist</button>
+        </div>
+    </div>
+</aside>
+
 <div class="feed-toast" id="feedToast"></div>
 
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="{% static 'js/Adguard/feed.js' %}"></script>
 {% endblock %}

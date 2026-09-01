@@ -37,17 +37,17 @@
       style="display:none; font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; margin-right:12px;"></span>
 
     <div class="noc-period" id="nocPeriod">
-      <button class="noc-period__btn" data-p="1h">1h</button>
-      <button class="noc-period__btn noc-period__btn--active" data-p="24h">24h</button>
-      <button class="noc-period__btn" data-p="7d">7d</button>
-      <button class="noc-period__btn" data-p="30d">30d</button>
+      <button type="button" class="noc-period__btn" data-p="1h">1h</button>
+      <button type="button" class="noc-period__btn noc-period__btn--active" data-p="24h">24h</button>
+      <button type="button" class="noc-period__btn" data-p="7d">7d</button>
+      <button type="button" class="noc-period__btn" data-p="30d">30d</button>
     </div>
 
     <div class="noc-mode-chips" id="nocModeChips">
-      <button class="noc-chip noc-chip--active" data-mode="dns">DNS</button>
-      <button class="noc-chip" data-mode="clientes">Clientes</button>
-      <button class="noc-chip" data-mode="bloqueios">Bloqueios</button>
-      <button class="noc-chip" data-mode="saude">Saúde</button>
+      <button type="button" class="noc-chip noc-chip--active" data-mode="dns">DNS</button>
+      <button type="button" class="noc-chip" data-mode="clientes">Clientes</button>
+      <button type="button" class="noc-chip" data-mode="bloqueios">Bloqueios</button>
+      <button type="button" class="noc-chip" data-mode="saude">Saúde</button>
     </div>
 
   </div>
@@ -59,11 +59,11 @@
         <circle cx="11" cy="11" r="8" />
         <path d="m21 21-4.35-4.35" />
       </svg>
-      <input class="noc-search" id="nocSearch" type="text" placeholder="IP, cliente, domínio…" />
-      <button class="noc-search__clear" id="nocSearchClear">✕</button>
+      <input class="noc-search" id="nocSearch" type="search" autocomplete="off" placeholder="IP, cliente, domínio…" />
+      <button type="button" class="noc-search__clear" id="nocSearchClear">✕</button>
     </div>
 
-    <button class="noc-action-btn noc-action-btn--ghost" id="nocRefreshBtn">
+    <button type="button" class="noc-action-btn noc-action-btn--ghost" id="nocRefreshBtn">
       <svg id="nocRefreshIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="23 4 23 10 17 10" />
@@ -71,14 +71,14 @@
       </svg>
       Atualizar
     </button>
-    <button class="noc-action-btn noc-action-btn--ghost" id="nocClearFiltersBtn">
+    <button type="button" class="noc-action-btn noc-action-btn--ghost" id="nocClearFiltersBtn">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="3 6 5 6 21 6" />
         <path d="M19 6l-1 14H6L5 6" />
       </svg>
       Limpar
     </button>
-    <button class="noc-action-btn noc-action-btn--primary" id="nocExportBtn">
+    <button type="button" class="noc-action-btn noc-action-btn--primary" id="nocExportBtn">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -107,7 +107,7 @@
     <div class="noc-kpi__body">
       <p class="noc-kpi__val mono" id="kpiQueries">—</p>
       <p class="noc-kpi__lbl">DNS Queries</p>
-      <p class="noc-kpi__trend noc-kpi__trend--up" id="kpiQueriesTrend">+12% vs ontem</p>
+      <p class="noc-kpi__trend noc-kpi__trend--up" id="kpiQueriesTrend">Aguardando histórico</p>
     </div>
     <canvas class="noc-kpi__spark" id="sparkQueries"></canvas>
     <div class="noc-kpi__bar" style="background:rgba(59,130,246,.2)"></div>
@@ -123,7 +123,7 @@
     <div class="noc-kpi__body">
       <p class="noc-kpi__val mono" id="kpiBloqueios">—</p>
       <p class="noc-kpi__lbl">Bloqueios</p>
-      <p class="noc-kpi__trend noc-kpi__trend--down" id="kpiBloqueiosTrend">−5% vs ontem</p>
+      <p class="noc-kpi__trend noc-kpi__trend--down" id="kpiBloqueiosTrend">Aguardando histórico</p>
     </div>
     <canvas class="noc-kpi__spark" id="sparkBloqueios"></canvas>
     <div class="noc-kpi__bar" style="background:rgba(239,68,68,.2)"></div>
@@ -175,7 +175,7 @@
     <div class="noc-kpi__body">
       <p class="noc-kpi__val mono" id="kpiLatencia">—</p>
       <p class="noc-kpi__lbl">Latência DNS</p>
-      <p class="noc-kpi__trend noc-kpi__trend--ok" id="kpiLatenciaTrend">tempo médio ok</p>
+      <p class="noc-kpi__trend noc-kpi__trend--ok" id="kpiLatenciaTrend">Métrica em tempo real</p>
     </div>
     <canvas class="noc-kpi__spark" id="sparkLatencia"></canvas>
     <div class="noc-kpi__bar" style="background:rgba(168,85,247,.2)"></div>
@@ -190,7 +190,7 @@
     <div class="noc-kpi__body">
       <p class="noc-kpi__val mono" id="kpiUptime">—</p>
       <p class="noc-kpi__lbl">Uptime AdGuard</p>
-      <p class="noc-kpi__trend noc-kpi__trend--ok">sistema estável</p>
+      <p class="noc-kpi__trend noc-kpi__trend--ok">Serviço monitorado</p>
     </div>
     <div class="noc-kpi__bar" style="background:rgba(34,197,94,.2)"></div>
   </div>
@@ -326,10 +326,10 @@
         </div>
         <div class="noc-clients-header__right">
           <div class="noc-client-filters" id="clientFilters">
-            <button class="noc-cf-btn noc-cf-btn--active" data-cf="all">Todos</button>
-            <button class="noc-cf-btn noc-cf-btn--online" data-cf="online">Online</button>
-            <button class="noc-cf-btn noc-cf-btn--offline" data-cf="offline">Offline</button>
-            <button class="noc-cf-btn noc-cf-btn--suspect" data-cf="suspeito">Suspeitos</button>
+            <button type="button" class="noc-cf-btn noc-cf-btn--active" data-cf="all">Todos</button>
+            <button type="button" class="noc-cf-btn noc-cf-btn--online" data-cf="online">Online</button>
+            <button type="button" class="noc-cf-btn noc-cf-btn--offline" data-cf="offline">Offline</button>
+            <button type="button" class="noc-cf-btn noc-cf-btn--suspect" data-cf="suspeito">Suspeitos</button>
           </div>
         </div>
       </div>
@@ -365,13 +365,13 @@
       <div class="noc-clients-pagination">
         <span class="noc-clients-pag-info" id="clientsPagInfo">—</span>
         <div class="noc-clients-pag-controls">
-          <button class="noc-pag-btn" id="clientsPagPrev" disabled>
+          <button type="button" class="noc-pag-btn" id="clientsPagPrev" disabled>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
           <div id="clientsPagNums" class="noc-pag-nums"></div>
-          <button class="noc-pag-btn" id="clientsPagNext">
+          <button type="button" class="noc-pag-btn" id="clientsPagNext">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="9 18 15 12 9 6" />
             </svg>
@@ -405,19 +405,19 @@
         <div class="noc-resource">
           <div class="noc-resource__top">
             <span class="noc-resource__lbl">CPU</span>
-            <span class="noc-resource__val" id="resCpu">12%</span>
+            <span class="noc-resource__val" id="resCpu">—</span>
           </div>
           <div class="noc-resource__track">
-            <div class="noc-resource__fill noc-resource__fill--cpu" id="resCpuBar" style="width:12%"></div>
+            <div class="noc-resource__fill noc-resource__fill--cpu" id="resCpuBar" style="width:0%"></div>
           </div>
         </div>
         <div class="noc-resource">
           <div class="noc-resource__top">
             <span class="noc-resource__lbl">RAM</span>
-            <span class="noc-resource__val" id="resRam">41%</span>
+            <span class="noc-resource__val" id="resRam">—</span>
           </div>
           <div class="noc-resource__track">
-            <div class="noc-resource__fill noc-resource__fill--ram" id="resRamBar" style="width:41%"></div>
+            <div class="noc-resource__fill noc-resource__fill--ram" id="resRamBar" style="width:0%"></div>
           </div>
         </div>
       </div>
@@ -462,27 +462,27 @@
           </svg>
           Ver Regras
         </a>
-        <button class="noc-quick-btn" id="qaBtnBlock">
+        <button type="button" class="noc-quick-btn" id="qaBtnBlock">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10" />
             <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
           </svg>
           Bloquear Domínio
         </button>
-        <button class="noc-quick-btn" id="qaBtnAllow">
+        <button type="button" class="noc-quick-btn" id="qaBtnAllow">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="20 6 9 17 4 12" />
           </svg>
           Whitelist
         </button>
-        <button class="noc-quick-btn" id="qaBtnFlush">
+        <button type="button" class="noc-quick-btn" id="qaBtnFlush">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
           Flush Cache
         </button>
-        <button class="noc-quick-btn" id="qaBtnUpdate">
+        <button type="button" class="noc-quick-btn" id="qaBtnUpdate">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
@@ -490,13 +490,13 @@
           </svg>
           Update Listas
         </button>
-        <button class="noc-quick-btn" id="qaBtnSoc">
+        <button type="button" class="noc-quick-btn" id="qaBtnSoc">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
           Abrir no SOC
         </button>
-        <button class="noc-quick-btn" id="qaBtnReport">
+        <button type="button" class="noc-quick-btn" id="qaBtnReport">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
@@ -516,7 +516,7 @@
           <span class="noc-feed-count" id="feedCount">0</span>
         </div>
         <div class="noc-feed-header-right">
-          <button class="noc-feed-pause-btn" id="feedPauseBtn">
+          <button type="button" class="noc-feed-pause-btn" id="feedPauseBtn">
             <svg id="feedPauseIcon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               stroke-width="2.5">
               <rect x="6" y="4" width="4" height="16" />
@@ -525,7 +525,7 @@
             <span id="feedPauseLbl">Pausar</span>
           </button>
           <!-- Botão expandir → abre tela completa do feed -->
-          <a href="/dns/feed/" class="noc-feed-expand-btn" id="feedFullBtn" target="_blank"
+          <a href="/dns/feed/" class="noc-feed-expand-btn" id="feedFullBtn"
             title="Ver feed em tela cheia">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <polyline points="15 3 21 3 21 9" />
@@ -566,7 +566,7 @@
     </div>
     <div class="noc-drawer__header-right">
       <span class="noc-drawer__status-badge" id="drawerStatusBadge">—</span>
-      <button class="noc-drawer__close" id="nocDrawerClose">
+      <button type="button" class="noc-drawer__close" id="nocDrawerClose">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <line x1="18" y1="6" x2="6" y2="18" />
           <line x1="6" y1="6" x2="18" y2="18" />
@@ -644,19 +644,19 @@
   </div><!-- /drawer__body -->
 
   <div class="noc-drawer__footer">
-    <button class="noc-drawer__action" id="dBtnTrust" style="color:#22c55e;border-color:rgba(34,197,94,.3)">
+    <button type="button" class="noc-drawer__action" id="dBtnTrust" style="color:#22c55e;border-color:rgba(34,197,94,.3)">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="20 6 9 17 4 12" />
       </svg>
       Confiável
     </button>
-    <button class="noc-drawer__action" id="dBtnSuspect" style="color:#f97316;border-color:rgba(249,115,22,.3)">
+    <button type="button" class="noc-drawer__action" id="dBtnSuspect" style="color:#f97316;border-color:rgba(249,115,22,.3)">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
       </svg>
       Suspeito
     </button>
-    <button class="noc-drawer__action" id="dBtnExport">
+    <button type="button" class="noc-drawer__action" id="dBtnExport">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
         <polyline points="7 10 12 15 17 10" />
@@ -664,7 +664,7 @@
       </svg>
       Exportar
     </button>
-    <button class="noc-drawer__action" id="dBtnSoc">
+    <button type="button" class="noc-drawer__action" id="dBtnSoc">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
       </svg>

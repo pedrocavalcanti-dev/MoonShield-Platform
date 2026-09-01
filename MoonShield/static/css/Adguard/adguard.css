@@ -403,8 +403,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-md);
-    height: 100%; /* Acompanha a altura total definida pela coluna esquerda */
-    min-height: 0; /* Mágica 1: Impede que o conteúdo interno force o crescimento */
+    height: 100%;
+    /* Acompanha a altura total definida pela coluna esquerda */
+    min-height: 0;
+    /* Mágica 1: Impede que o conteúdo interno force o crescimento */
 }
 
 /* ─── Charts ─── */
@@ -1289,8 +1291,10 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    flex: 1; /* Mágica 2: Puxa todo o espaço vazio restante da direita */
-    min-height: 0; /* Mágica 3: Força o feed a criar a barra de rolagem */
+    flex: 1;
+    /* Mágica 2: Puxa todo o espaço vazio restante da direita */
+    min-height: 0;
+    /* Mágica 3: Força o feed a criar a barra de rolagem */
 }
 
 .noc-feed-card__header {
@@ -1824,13 +1828,15 @@
         display: grid;
         grid-template-columns: 1fr 1fr;
         align-self: auto;
-        height: auto; /* Volta ao comportamento normal em telas menores */
+        height: auto;
+        /* Volta ao comportamento normal em telas menores */
     }
 
     .noc-feed-card {
         grid-column: 1 / -1;
         flex: none;
-        height: 500px; /* Altura fixa confortável no mobile/tablet */
+        height: 500px;
+        /* Altura fixa confortável no mobile/tablet */
         max-height: none;
     }
 }
@@ -1873,5 +1879,185 @@
 
     .noc-drawer__stats {
         grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* ============================================================
+   MOONSHIELD — DNS Dashboard final polish
+   Ajustes finais sem alterar a estrutura do módulo.
+   ============================================================ */
+
+#nocModeBadge {
+    font-family: var(--font-mono);
+    letter-spacing: .06em;
+}
+
+.noc-kpi__trend {
+    min-height: 12px;
+}
+
+.noc-kpi__trend:empty::after {
+    content: "—";
+    color: var(--text-dim);
+}
+
+.noc-health-status[data-state="offline"] {
+    color: var(--c-red);
+    background: var(--c-red-bg);
+    border-color: var(--c-red-bd);
+}
+
+.noc-resource__fill {
+    width: 0;
+    transition: width .35s ease;
+}
+
+.noc-resource__val:empty::after {
+    content: "—";
+}
+
+.noc-search[type="search"]::-webkit-search-cancel-button {
+    display: none;
+}
+
+.noc-search:focus-visible,
+.noc-action-btn:focus-visible,
+.noc-period__btn:focus-visible,
+.noc-chip:focus-visible,
+.noc-cf-btn:focus-visible,
+.client-action-btn:focus-visible,
+.noc-pag-btn:focus-visible,
+.noc-quick-btn:focus-visible,
+.noc-drawer__close:focus-visible {
+    outline: 2px solid rgba(59, 130, 246, .45);
+    outline-offset: 2px;
+}
+
+.noc-chart-card,
+.noc-list-card,
+.noc-clients-section,
+.noc-health-card,
+.noc-quick-card,
+.noc-feed-card {
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .012);
+}
+
+.noc-chart-card:hover,
+.noc-list-card:hover,
+.noc-health-card:hover,
+.noc-quick-card:hover,
+.noc-feed-card:hover {
+    border-color: rgba(255, 255, 255, .11);
+}
+
+.noc-domain-name,
+.noc-block-domain,
+.client-name,
+.client-ip,
+.noc-drawer__ip {
+    overflow-wrap: anywhere;
+}
+
+.noc-clients-table-wrap,
+.noc-domain-list,
+.noc-block-log,
+.noc-feed-list,
+.noc-drawer__body {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, .18) transparent;
+}
+
+.noc-clients-table-wrap::-webkit-scrollbar,
+.noc-domain-list::-webkit-scrollbar,
+.noc-block-log::-webkit-scrollbar,
+.noc-feed-list::-webkit-scrollbar,
+.noc-drawer__body::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.noc-clients-table-wrap::-webkit-scrollbar-thumb,
+.noc-domain-list::-webkit-scrollbar-thumb,
+.noc-block-log::-webkit-scrollbar-thumb,
+.noc-feed-list::-webkit-scrollbar-thumb,
+.noc-drawer__body::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, .16);
+    border-radius: 999px;
+}
+
+@media (max-width: 1280px) {
+    .noc-kpis {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .noc-main {
+        grid-template-columns: minmax(0, 1fr) 280px;
+    }
+}
+
+@media (max-width: 980px) {
+    .noc-main {
+        grid-template-columns: 1fr;
+    }
+
+    .noc-right {
+        height: auto;
+    }
+
+    .noc-kpis {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .noc-search {
+        width: min(100%, 260px);
+    }
+}
+
+@media (max-width: 700px) {
+
+    .noc-topbar__left,
+    .noc-topbar__right {
+        width: 100%;
+    }
+
+    .noc-search-wrap {
+        flex: 1;
+        min-width: 180px;
+    }
+
+    .noc-search {
+        width: 100%;
+    }
+
+    .noc-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .noc-lists-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .noc-clients-header {
+        align-items: flex-start;
+    }
+
+    .noc-client-filters {
+        flex-wrap: wrap;
+    }
+
+    .noc-drawer {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .noc-live__dot,
+    .noc-dot--pulse,
+    .noc-kpis,
+    .noc-main,
+    .noc-block-row {
+        animation: none !important;
     }
 }

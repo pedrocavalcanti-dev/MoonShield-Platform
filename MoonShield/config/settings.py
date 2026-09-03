@@ -223,25 +223,14 @@ TEMPLATES = [
     },
 ]
 
-
 # =============================================================================
-# BANCO DE DADOS — POSTGRESQL
+# BANCO DE DADOS
 # =============================================================================
-
-# MoonShield utiliza PostgreSQL.
-#
-# Exemplo no .env:
-#
-# DATABASE_URL=postgresql://usuario:senha@127.0.0.1:5432/moonshield
-#
-# Não existe fallback automático para SQLite.
-
 
 DATABASE_URL = env(
     "DATABASE_URL",
     default=None,
 )
-
 
 if not DATABASE_URL:
     raise RuntimeError(
@@ -249,49 +238,58 @@ if not DATABASE_URL:
         f"Configure a variável no arquivo: {ENV_FILE}"
     )
 
-
 DATABASES = {
     "default": env.db_url(
         "DATABASE_URL",
     ),
 }
 
+DATABASE_ENGINE = DATABASES["default"].get(
+    "ENGINE",
+    "",
+)
+
+IS_POSTGRESQL = (
+    "postgresql" in DATABASE_ENGINE
+    or "postgres" in DATABASE_ENGINE
+)
+
+IS_SQLITE = (
+    "sqlite" in DATABASE_ENGINE
+)
+
 
 # =============================================================================
-# POSTGRESQL — CONEXÕES
+# CONFIGURAÇÃO DE CONEXÃO
 # =============================================================================
 
-DATABASES["default"]["CONN_MAX_AGE"] = env.int(
-    "DATABASE_CONN_MAX_AGE",
-    default=60,
-)
+if IS_POSTGRESQL:
+    DATABASES["default"]["CONN_MAX_AGE"] = env.int(
+        "DATABASE_CONN_MAX_AGE",
+        default=60,
+    )
+
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+
+    database_options = DATABASES["default"].get(
+        "OPTIONS",
+        {},
+    )
+
+    database_options.update(
+        {
+            "connect_timeout": env.int(
+                "DATABASE_CONNECT_TIMEOUT",
+                default=10,
+            ),
+        }
+    )
+
+    DATABASES["default"]["OPTIONS"] = database_options
 
 
-DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
-
-
-_database_options = DATABASES[
-    "default"
-].get(
-    "OPTIONS",
-    {},
-)
-
-
-_database_options.update(
-    {
-        "connect_timeout": env.int(
-            "DATABASE_CONNECT_TIMEOUT",
-            default=10,
-        ),
-    }
-)
-
-
-DATABASES["default"]["OPTIONS"] = (
-    _database_options
-)
-
+elif IS_SQLITE:
+    DATABASES["default"]["CONN_MAX_AGE"] = 0
 
 # =============================================================================
 # VALIDAÇÃO DE SENHAS

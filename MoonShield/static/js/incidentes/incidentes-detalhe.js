@@ -1,18 +1,19 @@
 'use strict';
-/* =================================================================
-   MOONSHIELD — INCIDENTES-DETALHE.JS  v2.4
-   Alterações v2.4:
-   - botão "Detalhe" no drawer → abre /incidentes/<id>/ em nova aba
-   - só visível para incidentes reais (oculto em modo demo)
-================================================================= */
+/* ============================================================
+   MOONSHIELD — incidentes-detalhe.js v3
+   Drawer e contexto operacional do módulo de Incidentes.
+   O alias window.JGIncidentes é mantido por compatibilidade.
+   ============================================================ */
 
-window.JGIncidentes = window.JGIncidentes || {};
+window.MoonShieldIncidentes = window.MoonShieldIncidentes || window.JGIncidentes || {};
+window.JGIncidentes = window.MoonShieldIncidentes;
+const MSIncidentes = window.MoonShieldIncidentes;
 
 const _$ = id => document.getElementById(id);
 const _qs = sel => document.querySelector(sel);
 const _qa = sel => document.querySelectorAll(sel);
 
-function _u() { return window.JGIncidentes.utils || {}; }
+function _u() { return MSIncidentes.utils || {}; }
 
 const _drawer = {
   currentId: null,
@@ -23,14 +24,13 @@ const _drawer = {
   tlLoaded: false,
 };
 
-window.JGIncidentes.drawer = { openDrawer, closeDrawer, syncStatus };
+MSIncidentes.drawer = { openDrawer, closeDrawer, syncStatus };
 
 document.addEventListener('DOMContentLoaded', () => {
   initDrawer();
   initDrawerTabs();
 });
 
-// ─── Fetch seguro ─────────────────────────────────────────────────────────────
 async function _fetchJsonDrawer(url, options = {}) {
   const res = await fetch(url, options);
   const ct = res.headers.get('content-type') || '';
@@ -49,13 +49,11 @@ async function _fetchJsonDrawer(url, options = {}) {
   return data;
 }
 
-// ─── Erro amigável num painel ─────────────────────────────────────────────────
 function _showPanelError(loadingId, msg) {
   const el = _$(loadingId);
   if (el) el.innerHTML = `<span style="color:var(--c-crit)"><i class="bi bi-exclamation-circle"></i> ${msg}</span>`;
 }
 
-// ─── Inicialização ────────────────────────────────────────────────────────────
 function initDrawer() {
   _$('drawerOverlay')?.addEventListener('click', closeDrawer);
   _$('drawerClose')?.addEventListener('click', closeDrawer);
@@ -97,7 +95,6 @@ function initDrawerTabs() {
   }));
 }
 
-// ─── Abrir Drawer ─────────────────────────────────────────────────────────────
 function openDrawer(ev) {
   if (!ev) return;
 
@@ -326,21 +323,18 @@ function openDrawer(ev) {
   _$('drawer')?.classList.add('open');
 }
 
-// ─── Fechar Drawer ────────────────────────────────────────────────────────────
 function closeDrawer() {
   _$('drawerOverlay')?.classList.remove('open');
   _$('drawer')?.classList.remove('open');
   _qa('.jg-table tr').forEach(r => r.classList.remove('row-selected'));
 }
 
-// ─── Sync status ──────────────────────────────────────────────────────────────
 function syncStatus(id, status) {
   if (_drawer.currentEv && String(_drawer.currentEv.id) === String(id)) {
     _drawer.currentEv.status = status;
   }
 }
 
-// ─── Correlação ───────────────────────────────────────────────────────────────
 async function loadCorrelacao(id) {
   const u       = _u();
   const isDemo  = u.isDemo  || (id => !id);
@@ -400,7 +394,6 @@ function _renderCorrList(el, items, tplFn) {
     : '<p style="color:var(--text-dim);font-size:11px;padding:4px 0">Sem eventos nesta janela</p>';
 }
 
-// ─── Contexto IP ──────────────────────────────────────────────────────────────
 async function loadContextoIp(ip) {
   if (!ip) return;
   const u         = _u();
@@ -415,7 +408,7 @@ async function loadContextoIp(ip) {
     if (cont) cont.style.display = 'flex';
 
     if (!data.ok) {
-      if (cont) cont.innerHTML = `<p style="color:var(--c-crit)">Erro: ${esc(data.erro || 'Brasil')}</p>`;
+      if (cont) cont.innerHTML = `<p style="color:var(--c-crit)">Erro: ${esc(data.erro || 'Erro desconhecido')}</p>`;
       return;
     }
 
@@ -484,7 +477,6 @@ async function loadContextoIp(ip) {
   }
 }
 
-// ─── Timeline ─────────────────────────────────────────────────────────────────
 async function loadTimeline(ip) {
   if (!ip) return;
   const u       = _u();
@@ -526,7 +518,6 @@ async function loadTimeline(ip) {
   }
 }
 
-// ─── Atualizar status via drawer ──────────────────────────────────────────────
 async function updateDrawerStatus(status) {
   const u       = _u();
   const isDemo  = u.isDemo   || (id => !id);
@@ -535,8 +526,8 @@ async function updateDrawerStatus(status) {
   const id      = _drawer.currentId;
 
   if (isDemo(id)) {
-    window.JGIncidentes.aplicarStatusLocal?.(id, status);
-    window.JGIncidentes.renderTable?.();
+    MSIncidentes.aplicarStatusLocal?.(id, status);
+    MSIncidentes.renderTable?.();
     toast(`Status → ${status} (demo)`);
     return;
   }
@@ -548,8 +539,8 @@ async function updateDrawerStatus(status) {
       body:    JSON.stringify({ status }),
     });
     if (data.ok) {
-      window.JGIncidentes.aplicarStatusLocal?.(id, status);
-      window.JGIncidentes.renderTable?.();
+      MSIncidentes.aplicarStatusLocal?.(id, status);
+      MSIncidentes.renderTable?.();
       toast(`Status → ${status}`);
     }
   } catch (e) {

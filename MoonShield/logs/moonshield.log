@@ -1,0 +1,7 @@
+2026-09-03 18:34:02,743 | INFO | django.utils.autoreload | Watching for file changes with StatReloader
+2026-09-03 18:42:46,691 | ERROR | django.request | Service Unavailable: /rede/api/nat/real/
+2026-09-03 18:42:46,700 | ERROR | django.request | Service Unavailable: /rede/api/roteamento/real/
+2026-09-03 18:42:54,932 | ERROR | django.request | Service Unavailable: /rede/api/roteamento/real/
+2026-09-03 18:42:54,932 | ERROR | django.request | Service Unavailable: /rede/api/nat/real/
+2026-09-03 18:42:59,132 | ERROR | django.request | Service Unavailable: /rede/api/interfaces/detectar/
+2026-09-03 19:06:49,362 | WARNING | django.request | Not Found: /.well-known/appspecific/com.chrome.devtools.json

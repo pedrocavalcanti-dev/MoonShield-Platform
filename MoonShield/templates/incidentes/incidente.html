@@ -1,7 +1,17 @@
+
 {% extends 'base.html' %}
 {% load static %}
 
 {% block title %}Incidentes — MoonShield{% endblock %}
+
+{% block breadcrumb %}
+<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
+  <i class="bi bi-shield-exclamation"></i>
+  SOC
+</span>
+<span class="topbar__breadcrumb-sep">/</span>
+<span class="topbar__breadcrumb-item">Incidentes</span>
+{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -10,26 +20,31 @@
 {% endblock %}
 
 {% block conteudo %}
+<div class="ms-incidents">
 
-<!-- ═══════════════════════════════════ TOPBAR ════════════════════════════════ -->
-<div class="jg-topbar">
+<div class="ms-incidents__topbar jg-topbar">
   <div class="jg-topbar__left">
+    <div class="ms-incidents__module">
+      <span class="ms-incidents__module-icon"><i class="bi bi-shield-exclamation"></i></span>
+      <div class="ms-incidents__module-copy">
+        <strong>Incidentes</strong>
+        <span>Security Operations</span>
+      </div>
+    </div>
 
-    <!-- LIVE indicator -->
+
     <div class="jg-live">
       <span class="jg-live__dot"></span>
       <span class="jg-live__label">LIVE</span>
       <span class="jg-live__time" id="liveTime">--:--:--</span>
     </div>
 
-    <!-- DEMO badge — oculto por padrão, JS adiciona .jg-demo-banner--visible -->
     <div class="jg-demo-banner" id="demoBanner">
       <span class="jg-demo-banner__dot"></span>
       <span class="jg-badge jg-badge--high" style="font-size:10px;letter-spacing:.06em">DEMO</span>
       <span style="font-family:var(--font-mono);font-size:10px;color:var(--c-high);opacity:.7">sem dados reais</span>
     </div>
 
-    <!-- PROD banner — oculto por padrão, JS adiciona .jg-prod-banner--visible -->
     <div id="prodLiveBanner" class="jg-prod-banner">
       <i class="bi bi-broadcast-pin jg-prod-banner__icon"></i>
       <div class="jg-prod-banner__body">
@@ -41,46 +56,43 @@
       </a>
     </div>
 
-    <!-- Period -->
     <div class="jg-period">
-      <button class="jg-period__btn" data-h="1">1h</button>
-      <button class="jg-period__btn" data-h="6">6h</button>
-      <button class="jg-period__btn jg-period__btn--active" data-h="24">24h</button>
-      <button class="jg-period__btn" data-h="168">7d</button>
+      <button type="button" class="jg-period__btn" data-h="1">1h</button>
+      <button type="button" class="jg-period__btn" data-h="6">6h</button>
+      <button type="button" class="jg-period__btn jg-period__btn--active" data-h="24">24h</button>
+      <button type="button" class="jg-period__btn" data-h="168">7d</button>
     </div>
 
-    <!-- Severity chips -->
     <div class="jg-sev-chips">
-      <button class="jg-sev-chip jg-sev-chip--active" data-sev="all">Todos</button>
-      <button class="jg-sev-chip jg-sev-chip--crit" data-sev="critico">Crítico</button>
-      <button class="jg-sev-chip jg-sev-chip--high" data-sev="alto">Alto</button>
-      <button class="jg-sev-chip jg-sev-chip--med" data-sev="medio">Médio</button>
-      <button class="jg-sev-chip jg-sev-chip--low" data-sev="baixo">Baixo</button>
+      <button type="button" class="jg-sev-chip jg-sev-chip--active" data-sev="all">Todos</button>
+      <button type="button" class="jg-sev-chip jg-sev-chip--crit" data-sev="critico">Crítico</button>
+      <button type="button" class="jg-sev-chip jg-sev-chip--high" data-sev="alto">Alto</button>
+      <button type="button" class="jg-sev-chip jg-sev-chip--med" data-sev="medio">Médio</button>
+      <button type="button" class="jg-sev-chip jg-sev-chip--low" data-sev="baixo">Baixo</button>
     </div>
 
-    <!-- Preset -->
     <div class="jg-preset-wrap">
-      <button class="jg-preset-btn" id="presetBtn">
+      <button type="button" class="jg-preset-btn" id="presetBtn">
         <i class="bi bi-house-fill"></i>
         <span id="presetLabel">Casa</span>
         <i class="bi bi-chevron-down" style="font-size:9px;opacity:.5"></i>
       </button>
       <div class="jg-preset-dropdown" id="presetDropdown">
-        <button class="jg-preset-opt" data-preset="casa">
+        <button type="button" class="jg-preset-opt" data-preset="casa">
           <i class="bi bi-house-fill"></i>
           <div>
             <div class="jg-preset-opt__name">Casa</div>
             <div class="jg-preset-opt__desc">Só o que precisa de ação</div>
           </div>
         </button>
-        <button class="jg-preset-opt" data-preset="empresa">
+        <button type="button" class="jg-preset-opt" data-preset="empresa">
           <i class="bi bi-building-fill"></i>
           <div>
             <div class="jg-preset-opt__name">Empresa</div>
             <div class="jg-preset-opt__desc">Incidentes + suspeitos</div>
           </div>
         </button>
-        <button class="jg-preset-opt" data-preset="lab">
+        <button type="button" class="jg-preset-opt" data-preset="lab">
           <i class="bi bi-cpu-fill"></i>
           <div>
             <div class="jg-preset-opt__name">Laboratório</div>
@@ -90,39 +102,36 @@
       </div>
     </div>
 
-  </div><!-- /.jg-topbar__left -->
+  </div>
 
   <div class="jg-topbar__right">
     <div class="jg-search-wrap">
       <i class="bi bi-search jg-search__icon"></i>
-      <input id="searchInput" class="jg-search" type="text" placeholder="IP, título, SID, domínio…" autocomplete="off">
-      <button class="jg-search__clear" id="searchClear" title="Limpar">
+      <input id="searchInput" class="jg-search" type="search" placeholder="IP, título, SID, domínio…" autocomplete="off">
+      <button type="button" class="jg-search__clear" id="searchClear" title="Limpar">
         <i class="bi bi-x-lg"></i>
       </button>
     </div>
 
-    <button class="jg-btn jg-btn--ghost" id="btnRefresh" title="Atualizar agora">
+    <button type="button" class="jg-btn jg-btn--ghost" id="btnRefresh" title="Atualizar agora">
       <i class="bi bi-arrow-clockwise" id="refreshIcon"></i>
       Atualizar
     </button>
   </div>
-</div><!-- /.jg-topbar -->
+</div>
 
-<!-- ═══════════════════════════════════ KPIs ══════════════════════════════════ -->
-<div class="jg-kpis">
+<div class="ms-incidents__kpis jg-kpis">
 
-  <!-- 1. Críticos Abertos -->
   <div class="jg-kpi jg-kpi--crit">
     <span class="jg-kpi__accent"></span>
     <div class="jg-kpi__icon"><i class="bi bi-shield-exclamation"></i></div>
     <div class="jg-kpi__body">
       <div class="jg-kpi__val jg-kpi__val--crit" id="kpiCrit">—</div>
       <div class="jg-kpi__lbl">Críticos Abertos</div>
-      <div class="jg-kpi__sub" id="kpiCritDelta">— variação</div>
+      <div class="jg-kpi__sub" id="kpiCritDelta">Aguardando histórico</div>
     </div>
   </div>
 
-  <!-- 2. Total no Período -->
   <div class="jg-kpi jg-kpi--blue">
     <span class="jg-kpi__accent"></span>
     <div class="jg-kpi__icon"><i class="bi bi-chat-square-dots-fill"></i></div>
@@ -135,7 +144,6 @@
     </div>
   </div>
 
-  <!-- 3. Top IP Origem -->
   <div class="jg-kpi jg-kpi--orange">
     <span class="jg-kpi__accent"></span>
     <div class="jg-kpi__icon"><i class="bi bi-geo-alt-fill"></i></div>
@@ -146,7 +154,6 @@
     </div>
   </div>
 
-  <!-- 4. Taxa de Eventos -->
   <div class="jg-kpi jg-kpi--purple">
     <span class="jg-kpi__accent"></span>
     <div class="jg-kpi__icon"><i class="bi bi-activity"></i></div>
@@ -157,37 +164,34 @@
     </div>
   </div>
 
-  <!-- 5. Resolvidos Hoje -->
   <div class="jg-kpi jg-kpi--ok">
     <span class="jg-kpi__accent"></span>
     <div class="jg-kpi__icon"><i class="bi bi-check-circle-fill"></i></div>
     <div class="jg-kpi__body">
       <div class="jg-kpi__val jg-kpi__val--ok" id="kpiResolvidos">—</div>
       <div class="jg-kpi__lbl">Resolvidos Hoje</div>
-      <div class="jg-kpi__sub">— variação</div>
+      <div class="jg-kpi__sub">Período atual</div>
     </div>
   </div>
 
-</div><!-- /.jg-kpis -->
+</div>
 
-<!-- ═══════════════════════════════════ MAIN ═════════════════════════════════ -->
-<div class="jg-main">
+<div class="ms-incidents__main jg-main">
 
-  <!-- FEED -->
-  <div class="jg-feed-container">
+  <div class="ms-incidents__feed jg-feed-container">
 
     <div class="jg-feed-tabs">
-      <button class="jg-tab jg-tab--active" data-tab="incidente">
+      <button type="button" class="jg-tab jg-tab--active" data-tab="incidente">
         <i class="bi bi-fire"></i>
         Incidentes
         <span class="jg-tab__badge jg-tab__badge--crit" id="badgeIncidente">0</span>
       </button>
-      <button class="jg-tab" data-tab="evento">
+      <button type="button" class="jg-tab" data-tab="evento">
         <i class="bi bi-eye-fill"></i>
         Eventos
         <span class="jg-tab__badge jg-tab__badge--med" id="badgeEvento">0</span>
       </button>
-      <button class="jg-tab" data-tab="telemetria">
+      <button type="button" class="jg-tab" data-tab="telemetria">
         <i class="bi bi-reception-4"></i>
         Telemetria
         <span class="jg-tab__badge jg-tab__badge--dim" id="badgeTelemetria">0</span>
@@ -196,10 +200,10 @@
       <div class="jg-feed-tabs__right">
         <span class="jg-feed-count" id="tableCount">0 eventos</span>
         <div class="jg-src-filters">
-          <button class="jg-src-btn jg-src-btn--active" data-src="ALL">Todos</button>
-          <button class="jg-src-btn jg-src-btn--ids" data-src="IDS">IDS</button>
-          <button class="jg-src-btn jg-src-btn--fw" data-src="FW">FW</button>
-          <button class="jg-src-btn jg-src-btn--dns" data-src="DNS">DNS</button>
+          <button type="button" class="jg-src-btn jg-src-btn--active" data-src="ALL">Todos</button>
+          <button type="button" class="jg-src-btn jg-src-btn--ids" data-src="IDS">IDS</button>
+          <button type="button" class="jg-src-btn jg-src-btn--fw" data-src="FW">FW</button>
+          <button type="button" class="jg-src-btn jg-src-btn--dns" data-src="DNS">DNS</button>
         </div>
         <label class="jg-toggle" title="Agrupar eventos repetidos">
           <input type="checkbox" id="toggleGroup" checked>
@@ -207,7 +211,7 @@
           <span class="jg-toggle__label">Agrupar</span>
         </label>
       </div>
-    </div><!-- /.jg-feed-tabs -->
+    </div>
 
     <div class="jg-table-wrap">
       <table class="jg-table">
@@ -233,7 +237,7 @@
           </tr>
         </tbody>
       </table>
-    </div><!-- /.jg-table-wrap -->
+    </div>
 
     <div class="jg-pagination">
       <div class="jg-pagination__info">
@@ -247,18 +251,17 @@
           <option value="50" selected>50/pág</option>
           <option value="100">100/pág</option>
         </select>
-        <button class="jg-pag-btn" id="pagFirst" title="Primeira"><i class="bi bi-skip-backward-fill"></i></button>
-        <button class="jg-pag-btn" id="pagPrev" title="Anterior"><i class="bi bi-chevron-left"></i></button>
+        <button type="button" class="jg-pag-btn" id="pagFirst" title="Primeira"><i class="bi bi-skip-backward-fill"></i></button>
+        <button type="button" class="jg-pag-btn" id="pagPrev" title="Anterior"><i class="bi bi-chevron-left"></i></button>
         <div class="jg-pag-pages" id="pagPages"></div>
-        <button class="jg-pag-btn" id="pagNext" title="Próxima"><i class="bi bi-chevron-right"></i></button>
-        <button class="jg-pag-btn" id="pagLast" title="Última"><i class="bi bi-skip-forward-fill"></i></button>
+        <button type="button" class="jg-pag-btn" id="pagNext" title="Próxima"><i class="bi bi-chevron-right"></i></button>
+        <button type="button" class="jg-pag-btn" id="pagLast" title="Última"><i class="bi bi-skip-forward-fill"></i></button>
       </div>
     </div>
 
-  </div><!-- /.jg-feed-container -->
+  </div>
 
-  <!-- INSIGHTS -->
-  <div class="jg-insights">
+  <div class="ms-incidents__insights jg-insights">
 
     <div class="jg-insight-card">
       <div class="jg-insight-card__title">
@@ -288,14 +291,13 @@
       <div id="insightPorts"></div>
     </div>
 
-  </div><!-- /.jg-insights -->
+  </div>
 
-</div><!-- /.jg-main -->
+</div>
 
-<!-- ═══════════════════════════════════ DRAWER ════════════════════════════════ -->
 <div class="jg-overlay" id="drawerOverlay"></div>
 
-<div class="jg-drawer" id="drawer">
+<div class="ms-incidents__drawer jg-drawer" id="drawer">
 
   <div class="jg-drawer__header">
     <div class="jg-drawer__header-left">
@@ -303,29 +305,28 @@
       <span id="drawerCatBadge" class="jg-badge jg-badge--cat">—</span>
       <span class="jg-drawer__time" id="drawerTime">—</span>
     </div>
-    <button class="jg-drawer__close" id="drawerClose" title="Fechar (Esc)">
+    <button type="button" class="jg-drawer__close" id="drawerClose" title="Fechar (Esc)">
       <i class="bi bi-x-lg"></i>
     </button>
   </div>
 
   <div class="jg-drawer__tabs">
-    <button class="jg-drawer__tab jg-drawer__tab--active" data-tab="alerta">
+    <button type="button" class="jg-drawer__tab jg-drawer__tab--active" data-tab="alerta">
       <i class="bi bi-exclamation-triangle-fill"></i> Alerta
     </button>
-    <button class="jg-drawer__tab" data-tab="correlacao">
+    <button type="button" class="jg-drawer__tab" data-tab="correlacao">
       <i class="bi bi-link-45deg"></i> Correlação
     </button>
-    <button class="jg-drawer__tab" data-tab="contexto">
+    <button type="button" class="jg-drawer__tab" data-tab="contexto">
       <i class="bi bi-person-lines-fill"></i> Contexto IP
     </button>
-    <button class="jg-drawer__tab" data-tab="timeline">
+    <button type="button" class="jg-drawer__tab" data-tab="timeline">
       <i class="bi bi-clock-history"></i> Timeline
     </button>
   </div>
 
   <div class="jg-drawer__body">
 
-    <!-- ═══ PAINEL ALERTA ═══ -->
     <div class="jg-drawer__panel" id="panelAlerta">
 
       <div class="jg-alert-hero">
@@ -347,7 +348,6 @@
         <div class="jg-recom-list" id="drawerRecomendacoes"></div>
       </div>
 
-      <!-- Fluxo src → dst -->
       <div class="jg-flow">
         <div class="jg-flow__block">
           <div class="jg-flow__lbl">ORIGEM</div>
@@ -366,17 +366,15 @@
         </div>
       </div>
 
-      <!-- GeoIP -->
       <div class="jg-section">
         <div class="jg-section__title"><i class="bi bi-geo-alt-fill"></i> GeoIP &amp; Rede</div>
         <div class="jg-grid-2" id="drawerGeoGrid"></div>
       </div>
 
-      <!-- Técnico colapsável -->
       <div class="jg-section">
         <div class="jg-section__title-row">
           <span class="jg-section__title"><i class="bi bi-cpu"></i> Técnico (Suricata)</span>
-          <button class="jg-btn-link" id="tecToggle">Expandir</button>
+          <button type="button" class="jg-btn-link" id="tecToggle">Expandir</button>
         </div>
         <div class="jg-tec-wrap" id="tecWrap">
           <div class="jg-grid-2">
@@ -404,7 +402,7 @@
           <div class="jg-section" style="margin-top:8px">
             <div class="jg-section__title-row">
               <span class="jg-section__title"><i class="bi bi-braces"></i> Raw JSON</span>
-              <button class="jg-btn-link" id="rawToggle">Expandir</button>
+              <button type="button" class="jg-btn-link" id="rawToggle">Expandir</button>
             </div>
             <div class="jg-raw-wrap" id="rawWrap">
               <pre class="jg-raw" id="drawerRaw">—</pre>
@@ -413,9 +411,8 @@
         </div>
       </div>
 
-    </div><!-- /#panelAlerta -->
+    </div>
 
-    <!-- ═══ CORRELAÇÃO ═══ -->
     <div class="jg-drawer__panel jg-drawer__panel--hidden" id="panelCorrelacao">
       <div class="jg-loading" id="corrLoading">
         <div class="jg-spinner"></div> Carregando correlações…
@@ -436,7 +433,6 @@
       </div>
     </div>
 
-    <!-- ═══ CONTEXTO IP ═══ -->
     <div class="jg-drawer__panel jg-drawer__panel--hidden" id="panelContexto">
       <div class="jg-loading" id="ctxLoading">
         <div class="jg-spinner"></div> Carregando contexto…
@@ -470,7 +466,6 @@
       </div>
     </div>
 
-    <!-- ═══ TIMELINE ═══ -->
     <div class="jg-drawer__panel jg-drawer__panel--hidden" id="panelTimeline">
       <div class="jg-loading" id="tlLoading">
         <div class="jg-spinner"></div> Carregando timeline…
@@ -478,17 +473,16 @@
       <div id="tlContent" style="display:none"></div>
     </div>
 
-  </div><!-- /.jg-drawer__body -->
+  </div>
 
-  <!-- Footer: 5 colunas — adicionado botão Detalhe -->
   <div class="jg-drawer__footer" style="grid-template-columns: repeat(5, 1fr)">
-    <button class="jg-drawer__action jg-drawer__action--inv" id="drawerInv">
+    <button type="button" class="jg-drawer__action jg-drawer__action--inv" id="drawerInv">
       <i class="bi bi-search"></i> Investigando
     </button>
-    <button class="jg-drawer__action jg-drawer__action--ok" id="drawerOk">
+    <button type="button" class="jg-drawer__action jg-drawer__action--ok" id="drawerOk">
       <i class="bi bi-check-lg"></i> Resolvido
     </button>
-    <button class="jg-drawer__action" id="drawerFp">
+    <button type="button" class="jg-drawer__action" id="drawerFp">
       <i class="bi bi-slash-circle"></i> Falso Pos.
     </button>
     <a class="jg-drawer__action" id="drawerDetalhe" href="#" target="_blank" style="display:none">
@@ -499,10 +493,11 @@
     </a>
   </div>
 
-</div><!-- /.jg-drawer -->
+</div>
 
 <div class="jg-toast" id="toast"></div>
 
+</div>
 {% endblock %}
 
 {% block extra_js %}

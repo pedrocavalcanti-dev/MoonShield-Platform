@@ -24,6 +24,7 @@
 
     function init() {
         cacheDom();
+        applyFriendlyNetworkCopy();
         initTheme();
         bindEvents();
         setOperator();
@@ -105,6 +106,52 @@
         els.installPageIntro = $("#installPageIntro");
 
         els.toastContainer = $("#toastContainer");
+    }
+
+    function applyFriendlyNetworkCopy() {
+        // Mantém os nomes técnicos enviados ao backend, mas usa textos
+        // mais simples para quem está configurando o appliance pela primeira vez.
+        if (els.selectMgmt) {
+            els.selectMgmt.setAttribute("aria-label", "Interface de gerenciamento opcional");
+        }
+
+        if (els.inputHomeNet) {
+            els.inputHomeNet.setAttribute("aria-label", "Rede interna");
+            els.inputHomeNet.placeholder = "Ex.: 10.10.0.0/24";
+        }
+
+        const replaceNearbyText = (field, replacements) => {
+            if (!field) return;
+
+            let scope = field.parentElement;
+            let depth = 0;
+
+            while (scope && depth < 4) {
+                const candidates = scope.querySelectorAll("label, span, strong, small, p");
+
+                candidates.forEach((element) => {
+                    const text = (element.textContent || "").trim();
+                    const replacement = replacements[text];
+
+                    if (replacement) {
+                        element.textContent = replacement;
+                    }
+                });
+
+                scope = scope.parentElement;
+                depth += 1;
+            }
+        };
+
+        replaceNearbyText(els.selectMgmt, {
+            "MGMT": "MGMT (opcional)",
+            "Selecione a interface de gerenciamento": "Selecione uma interface de gerenciamento (opcional)",
+        });
+
+        replaceNearbyText(els.inputHomeNet, {
+            "HOME_NET": "Rede interna",
+            "Informe a rede interna em CIDR.": "Informe a faixa de IP usada pela sua rede interna. Ex.: 10.10.0.0/24",
+        });
     }
 
     function bindEvents() {
@@ -713,7 +760,11 @@
         };
 
         selects.forEach((select) => {
-            const firstLabel = select.options[0]?.textContent || "Selecione";
+            const isMgmt = select === els.selectMgmt;
+            const firstLabel = isMgmt
+                ? "Não usar interface de gerenciamento dedicada"
+                : (select.options[0]?.textContent || "Selecione");
+
             select.innerHTML = "";
 
             const placeholder = document.createElement("option");
@@ -744,6 +795,19 @@
         setSelectValue(els.selectWan, current.WAN || state.mapping.WAN);
         setSelectValue(els.selectMgmt, current.MGMT || state.mapping.MGMT);
         setSelectValue(els.selectLan, current.LAN || state.mapping.LAN);
+
+        // Em topologias com apenas 2 NICs, MGMT é opcional.
+        // Se um mapeamento antigo tentar reutilizar WAN/LAN como MGMT,
+        // limpamos o campo para permitir gerenciamento pela própria LAN.
+        if (state.interfaces.length <= 2 && els.selectMgmt) {
+            const wan = els.selectWan?.value || "";
+            const lan = els.selectLan?.value || "";
+            const mgmt = els.selectMgmt.value || "";
+
+            if (mgmt && (mgmt === wan || mgmt === lan)) {
+                els.selectMgmt.value = "";
+            }
+        }
 
         updateReview();
     }
@@ -860,33 +924,43 @@
         const lan = els.selectLan?.value || "";
         const homeNet = (els.inputHomeNet?.value || "").trim();
 
-        if (!wan || !mgmt || !lan) {
+        // WAN e LAN são sempre obrigatórias.
+        // MGMT é opcional: em appliances com 2 NICs, o gerenciamento
+        // ocorre pela LAN e nenhuma interface dedicada é necessária.
+        if (!wan || !lan) {
             return {
                 ok: false,
-                message: "Selecione as interfaces WAN, MGMT e LAN.",
+                message: "Selecione as interfaces WAN e LAN.",
             };
         }
 
-        const unique = new Set([wan, mgmt, lan]);
-
-        if (unique.size !== 3) {
+        if (wan === lan) {
             return {
                 ok: false,
-                message: "WAN, MGMT e LAN precisam usar interfaces diferentes.",
+                message: "WAN e LAN precisam usar interfaces diferentes.",
+            };
+        }
+
+        // Se o operador optar por uma MGMT dedicada, ela precisa ser
+        // diferente das interfaces de tráfego WAN e LAN.
+        if (mgmt && (mgmt === wan || mgmt === lan)) {
+            return {
+                ok: false,
+                message: "A interface MGMT precisa ser diferente da WAN e da LAN.",
             };
         }
 
         if (!homeNet) {
             return {
                 ok: false,
-                message: "Informe o HOME_NET em formato CIDR.",
+                message: "Informe a rede interna. Ex.: 10.10.0.0/24.",
             };
         }
 
         if (!isValidCidr(homeNet)) {
             return {
                 ok: false,
-                message: "HOME_NET inválido. Use um CIDR IPv4, por exemplo 10.10.0.0/24.",
+                message: "Rede interna inválida. Use o formato de rede, por exemplo 10.10.0.0/24.",
             };
         }
 
@@ -924,7 +998,7 @@
 
     function updateReview() {
         const wan = els.selectWan?.value || "—";
-        const mgmt = els.selectMgmt?.value || "—";
+        const mgmt = els.selectMgmt?.value || "Não utilizada · acesso administrativo pela LAN";
         const lan = els.selectLan?.value || "—";
         const home = (els.inputHomeNet?.value || "").trim() || "—";
 
@@ -964,7 +1038,10 @@
 
         showRunningState();
         addInstallLog("INFO", "Payload validado pelo frontend.");
-        addInstallLog("INFO", `WAN=${payload.interface_wan} | MGMT=${payload.interface_mgmt} | LAN=${payload.interface_lan}`);
+        addInstallLog(
+            "INFO",
+            `WAN=${payload.interface_wan} | MGMT=${payload.interface_mgmt || "não dedicada (via LAN)"} | LAN=${payload.interface_lan}`
+        );
         addInstallLog("INFO", `HOME_NET=${payload.home_net}`);
         addInstallLog("INFO", "Enviando solicitação para o backend Django...");
 

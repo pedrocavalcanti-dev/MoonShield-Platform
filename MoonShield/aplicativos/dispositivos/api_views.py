@@ -72,6 +72,49 @@ def _get_all_ipv4():
     })
 
 
+def _get_scan_targets():
+    """
+    Retorna todas as redes IPv4 diretamente conectadas às interfaces ativas.
+
+    - ignora loopback/link-local (já filtrados em _get_ipv4_interfaces);
+    - remove redes CIDR duplicadas;
+    - mantém quais interfaces/IPs pertencem a cada rede.
+    """
+    grouped = {}
+
+    for item in _get_ipv4_interfaces():
+        cidr = item["cidr"]
+
+        target = grouped.setdefault(
+            cidr,
+            {
+                "cidr": cidr,
+                "network": item["network"],
+                "interfaces": [],
+                "ips": [],
+                "netmasks": [],
+                "private": item["private"],
+            },
+        )
+
+        if item["name"] not in target["interfaces"]:
+            target["interfaces"].append(item["name"])
+
+        if item["ip"] not in target["ips"]:
+            target["ips"].append(item["ip"])
+
+        if item["netmask"] not in target["netmasks"]:
+            target["netmasks"].append(item["netmask"])
+
+    return sorted(
+        grouped.values(),
+        key=lambda target: (
+            int(target["network"].network_address),
+            target["network"].prefixlen,
+        ),
+    )
+
+
 def _default_route_interface():
     """
     Linux: descobre a interface usada pela rota default.
@@ -368,6 +411,7 @@ def _get_vendor(mac: str):
 def system_info(request):
     my_ips = _get_all_ipv4()
     scan_if = _choose_scan_network()
+    targets = _get_scan_targets()
 
     return JsonResponse({
         "hostname": platform.node(),
@@ -380,6 +424,14 @@ def system_info(request):
         ),
         "scan_interface": scan_if.get("name"),
         "scan_cidr": scan_if.get("cidr"),
+        "scan_networks": [
+            {
+                "cidr": target["cidr"],
+                "interfaces": target["interfaces"],
+                "ips": target["ips"],
+            }
+            for target in targets
+        ],
         "timezone": "America/Sao_Paulo",
     })
 
@@ -389,6 +441,7 @@ def me(request):
     """Retorna identidade desta máquina para o front destacar 'EU'."""
     ips = _get_all_ipv4()
     scan_if = _choose_scan_network()
+    targets = _get_scan_targets()
 
     return JsonResponse({
         "hostname": platform.node(),
@@ -396,6 +449,14 @@ def me(request):
         "default_cidr": scan_if["cidr"],
         "scan_interface": scan_if.get("name"),
         "scan_ip": scan_if.get("ip"),
+        "scan_networks": [
+            {
+                "cidr": target["cidr"],
+                "interfaces": target["interfaces"],
+                "ips": target["ips"],
+            }
+            for target in targets
+        ],
     })
 
 
@@ -439,186 +500,464 @@ def network_interfaces(request):
 @require_POST
 def network_scan(request):
     """
-    Scan da rede com cache persistente.
+    Varre TODAS as redes IPv4 diretamente conectadas às interfaces ativas.
+
+    Comportamento padrão:
+      - WAN, LAN, MGMT, DMZ e demais interfaces IPv4 ativas;
+      - redes duplicadas são varridas apenas uma vez;
+      - cada rede mantém cache próprio em ScanRun;
+      - resultados são agregados e deduplicados por IP.
+
     Body JSON (opcional):
-      cidr          – ex: "192.168.1.0/24"
-      ttl_seconds   – segundos antes de refazer o scan (padrão 120)
-      force         – true para ignorar cache
+      cidr          – se informado, varre apenas esse CIDR;
+      ttl_seconds   – cache por rede, padrão 120s;
+      force         – ignora cache;
     """
     try:
-        body = json.loads(request.body.decode("utf-8") or "{}")
+        body = json.loads(
+            request.body.decode("utf-8") or "{}"
+        )
     except Exception:
         body = {}
 
-    ttl    = int(body.get("ttl_seconds", 120))
-    force  = bool(body.get("force", False))
-
-    my_ips = _get_all_ipv4()
-    my_ips_set = set(my_ips)
-    scan_if = _choose_scan_network()
-    default_cidr = scan_if["cidr"]
-    cidr = body.get("cidr") or default_cidr
-
-    # ── Cache: se scan recente existe e não é force, devolve do banco ──
-    last = ScanRun.objects.filter(cidr=cidr).order_by("-started_at").first()
-    if last and last.finished_at and not force:
-        age = (timezone.now() - last.finished_at).total_seconds()
-        if age < ttl and last.payload:
-            print(f"⚡ [CACHE] Retornando scan de {int(age)}s atrás para {cidr}")
-            return JsonResponse(last.payload)
-
-    # ── Novo scan ──
-    print(f"\n🚀 [SCAN] Iniciando varredura em {cidr}...")
-    scan_run = ScanRun.objects.create(cidr=cidr)
-
     try:
-        net = ipaddress.ip_network(
-            cidr,
-            strict=False,
+        ttl = max(
+            0,
+            int(body.get("ttl_seconds", 120)),
         )
+    except (TypeError, ValueError):
+        ttl = 120
 
-        if net.version != 4:
-            raise ValueError
+    force = bool(body.get("force", False))
+    requested_cidr = (
+        str(body.get("cidr") or "").strip()
+        or None
+    )
 
-        # Evita scans acidentais de /16, /8 etc.
-        if net.num_addresses > 1024:
-            scan_run.delete()
+    interfaces = _get_ipv4_interfaces()
+    my_ips = sorted({
+        item["ip"]
+        for item in interfaces
+    })
+    my_ips_set = set(my_ips)
+
+    if requested_cidr:
+        try:
+            requested_network = ipaddress.ip_network(
+                requested_cidr,
+                strict=False,
+            )
+
+            if requested_network.version != 4:
+                raise ValueError
+
+        except ValueError:
             return JsonResponse(
-                {
-                    "erro": (
-                        "Rede muito grande para varredura direta. "
-                        "Use uma sub-rede de até 1024 endereços."
-                    )
-                },
+                {"erro": "CIDR IPv4 inválido."},
                 status=400,
             )
+
+        matching_interfaces = [
+            item
+            for item in interfaces
+            if ipaddress.ip_address(item["ip"])
+            in requested_network
+        ]
+
+        targets = [{
+            "cidr": str(requested_network),
+            "network": requested_network,
+            "interfaces": [
+                item["name"]
+                for item in matching_interfaces
+            ],
+            "ips": [
+                item["ip"]
+                for item in matching_interfaces
+            ],
+            "netmasks": [
+                item["netmask"]
+                for item in matching_interfaces
+            ],
+            "private": requested_network.is_private,
+        }]
+
+    else:
+        targets = _get_scan_targets()
+
+    if not targets:
+        return JsonResponse(
+            {
+                "erro": (
+                    "Nenhuma interface IPv4 ativa foi encontrada "
+                    "para realizar a varredura."
+                )
+            },
+            status=400,
+        )
+
+    arp = _arp_table()
+    now = timezone.now()
+
+    all_devices = {}
+    network_results = []
+    skipped_networks = []
+
+    def scan_one_target(target):
+        cidr = target["cidr"]
+        net = target["network"]
+
+        # Limite evita /16 ou /8 acidental na WAN.
+        if net.num_addresses > 1024:
+            return {
+                "cidr": cidr,
+                "interfaces": target["interfaces"],
+                "ips": target["ips"],
+                "found": 0,
+                "devices": [],
+                "cached": False,
+                "skipped": True,
+                "reason": (
+                    "Rede maior que 1024 endereços; "
+                    "varredura automática ignorada."
+                ),
+            }
+
+        # Cache individual por CIDR.
+        last = (
+            ScanRun.objects
+            .filter(cidr=cidr)
+            .order_by("-started_at")
+            .first()
+        )
+
+        if (
+            last
+            and last.finished_at
+            and not force
+            and last.payload
+        ):
+            age = (
+                timezone.now() - last.finished_at
+            ).total_seconds()
+
+            if age < ttl:
+                cached_payload = dict(last.payload)
+                cached_payload["cached"] = True
+                cached_payload["interfaces"] = (
+                    target["interfaces"]
+                )
+                cached_payload["interface_ips"] = (
+                    target["ips"]
+                )
+                cached_payload["skipped"] = False
+
+                print(
+                    f"⚡ [CACHE] {cidr} "
+                    f"({', '.join(target['interfaces']) or 'sem interface'}) "
+                    f"— {int(age)}s"
+                )
+
+                return cached_payload
+
+        print(
+            f"\n🚀 [SCAN] Iniciando {cidr} "
+            f"via {', '.join(target['interfaces']) or 'CIDR manual'}..."
+        )
+
+        scan_run = ScanRun.objects.create(
+            cidr=cidr
+        )
 
         hosts = [
             str(ip)
             for ip in net.hosts()
         ]
 
-    except ValueError:
-        scan_run.delete()
-        return JsonResponse(
-            {"erro": "CIDR IPv4 inválido."},
-            status=400,
-        )
+        alive = set()
 
-    # 1) ICMP paralelo.
-    alive = set()
+        # ICMP paralelo.
+        with ThreadPoolExecutor(
+            max_workers=min(
+                96,
+                max(1, len(hosts)),
+            )
+        ) as executor:
+            futures = {
+                executor.submit(
+                    _ping,
+                    ip,
+                    700,
+                ): ip
+                for ip in hosts
+            }
 
-    with ThreadPoolExecutor(
-        max_workers=min(96, max(1, len(hosts)))
-    ) as executor:
-        futures = {
-            executor.submit(
-                _ping,
-                ip,
-                700,
-            ): ip
-            for ip in hosts
-        }
+            for future in as_completed(futures):
+                try:
+                    if future.result():
+                        alive.add(
+                            futures[future]
+                        )
+                except Exception:
+                    pass
 
-        for future in as_completed(futures):
+        # Complementa com vizinhos já conhecidos pelo kernel.
+        for ip in arp:
             try:
-                if future.result():
-                    alive.add(
-                        futures[future]
-                    )
-            except Exception:
+                if ipaddress.ip_address(ip) in net:
+                    alive.add(ip)
+            except ValueError:
                 pass
 
-    # 2) Complementa com a tabela de vizinhos.
-    # Alguns dispositivos não respondem ICMP, mas aparecem em `ip neigh`.
-    arp = _arp_table()
+        devices_payload = []
 
-    for ip in arp:
-        try:
-            if ipaddress.ip_address(ip) in net:
-                alive.add(ip)
-        except ValueError:
-            pass
-    now = timezone.now()
-    devices_payload = []
+        for ip in sorted(
+            alive,
+            key=lambda value: tuple(
+                int(part)
+                for part in value.split(".")
+            ),
+        ):
+            mac = arp.get(ip)
+            is_me = ip in my_ips_set
 
-    for ip in sorted(alive, key=lambda x: tuple(int(p) for p in x.split("."))):
-        mac      = arp.get(ip)
-        is_me    = ip in my_ips_set
+            obj, _ = Dispositivo.objects.get_or_create(
+                ip=ip
+            )
 
-        # Busca ou cria registro no banco
-        obj, created = Dispositivo.objects.get_or_create(ip=ip)
+            if obj.custom_name:
+                hostname = obj.custom_name
+            elif obj.hostname:
+                hostname = obj.hostname
+            elif is_me:
+                hostname = platform.node()
+            else:
+                hostname = (
+                    f"Host-{ip.split('.')[-1]}"
+                )
 
-        # Hostname: respeita custom_name → hostname salvo → plataforma (se for eu) → fallback
-        if obj.custom_name:
-            hostname = obj.custom_name
-        elif obj.hostname:
-            hostname = obj.hostname
-        elif is_me:
-            hostname = platform.node()
-        else:
-            hostname = f"Host-{ip.split('.')[-1]}"
+            open_ports = _scan_common_ports(ip)
+            os_name, dev_type, icon = (
+                _guess_device_info(
+                    hostname,
+                    open_ports,
+                )
+            )
+            vendor = _get_vendor(mac)
 
-        open_ports           = _scan_common_ports(ip)
-        os_name, dev_type, icon = _guess_device_info(hostname, open_ports)
-        vendor               = _get_vendor(mac)
+            risk = 10
 
-        risk = 10
-        if any(p["risk"] == "high"   for p in open_ports): risk += 40
-        if any(p["risk"] == "medium" for p in open_ports): risk += 20
+            if any(
+                port["risk"] == "high"
+                for port in open_ports
+            ):
+                risk += 40
 
-        # Atualiza banco
-        obj.mac       = mac or obj.mac
-        obj.hostname  = hostname
-        obj.vendor    = vendor
-        obj.os        = os_name
-        obj.tipo      = dev_type
-        obj.icon      = icon
-        obj.status    = "online"
-        obj.risk_score = min(100, risk)
-        obj.last_seen  = now
-        obj.last_scan  = now
-        obj.save()
+            if any(
+                port["risk"] == "medium"
+                for port in open_ports
+            ):
+                risk += 20
 
-        devices_payload.append({
-            "ip":         ip,
-            "hostname":   obj.display_name(),
-            "mac":        mac or "Desconhecido",
-            "vendor":     vendor,
-            "os":         os_name,
-            "type":       dev_type,
-            "icon":       icon,
-            "status":     "online",
-            "open_ports": open_ports,
-            "risk_score": min(100, risk),
-            "first_seen": obj.first_seen.isoformat(),
-            "last_seen":  now.isoformat(),
-            "is_me":      is_me,
+            risk = min(
+                100,
+                risk,
+            )
+
+            obj.mac = mac or obj.mac
+            obj.hostname = hostname
+            obj.vendor = vendor
+            obj.os = os_name
+            obj.tipo = dev_type
+            obj.icon = icon
+            obj.status = "online"
+            obj.risk_score = risk
+            obj.last_seen = now
+            obj.last_scan = now
+            obj.save()
+
+            devices_payload.append({
+                "ip": ip,
+                "hostname": obj.display_name(),
+                "mac": mac or "Desconhecido",
+                "vendor": vendor,
+                "os": os_name,
+                "type": dev_type,
+                "icon": icon,
+                "status": "online",
+                "open_ports": open_ports,
+                "risk_score": risk,
+                "first_seen": obj.first_seen.isoformat(),
+                "last_seen": now.isoformat(),
+                "is_me": is_me,
+                "network": cidr,
+                "interfaces": target["interfaces"],
+            })
+
+        payload = {
+            "cidr": cidr,
+            "interfaces": target["interfaces"],
+            "interface_ips": target["ips"],
+            "found": len(devices_payload),
+            "devices": devices_payload,
+            "scanned_at": now.isoformat(),
+            "cached": False,
+            "skipped": False,
+        }
+
+        scan_run.found = len(
+            devices_payload
+        )
+        scan_run.finished_at = now
+        scan_run.payload = payload
+        scan_run.save()
+
+        print(
+            f"🎉 [SCAN] {cidr}: "
+            f"{len(devices_payload)} dispositivo(s)."
+        )
+
+        return payload
+
+    # Varre cada rede diretamente conectada.
+    # Redes são processadas uma por vez para evitar criar centenas
+    # de subprocessos simultâneos quando existem várias NICs.
+    for target in targets:
+        result = scan_one_target(target)
+
+        if result.get("skipped"):
+            skipped_networks.append({
+                "cidr": result["cidr"],
+                "interfaces": result.get(
+                    "interfaces",
+                    [],
+                ),
+                "reason": result.get(
+                    "reason",
+                    "",
+                ),
+            })
+
+        network_results.append({
+            "cidr": result["cidr"],
+            "interfaces": result.get(
+                "interfaces",
+                [],
+            ),
+            "interface_ips": result.get(
+                "interface_ips",
+                target.get("ips", []),
+            ),
+            "found": result.get(
+                "found",
+                0,
+            ),
+            "cached": bool(
+                result.get("cached")
+            ),
+            "skipped": bool(
+                result.get("skipped")
+            ),
+            "reason": result.get(
+                "reason",
+            ),
         })
+
+        for device in result.get(
+            "devices",
+            [],
+        ):
+            ip = device.get("ip")
+
+            if not ip:
+                continue
+
+            existing = all_devices.get(ip)
+
+            if existing is None:
+                all_devices[ip] = device
+                continue
+
+            # Caso duas interfaces cubram redes sobrepostas,
+            # preserva todas as origens sem duplicar o dispositivo.
+            existing_interfaces = set(
+                existing.get(
+                    "interfaces",
+                    [],
+                )
+            )
+            existing_interfaces.update(
+                device.get(
+                    "interfaces",
+                    [],
+                )
+            )
+            existing["interfaces"] = sorted(
+                existing_interfaces
+            )
+
+    devices_payload = sorted(
+        all_devices.values(),
+        key=lambda device: tuple(
+            int(part)
+            for part in device["ip"].split(".")
+        ),
+    )
+
+    preferred = _choose_scan_network()
 
     me_info = {
         "hostname": platform.node(),
         "ips": my_ips,
-        "default_cidr": default_cidr,
-        "scan_interface": scan_if.get("name"),
-        "scan_ip": scan_if.get("ip"),
+        "default_cidr": preferred["cidr"],
+        "scan_interface": preferred.get(
+            "name"
+        ),
+        "scan_ip": preferred.get(
+            "ip"
+        ),
+        "scan_networks": network_results,
     }
 
     result = {
-        "cidr": cidr,
-        "scan_interface": scan_if.get("name"),
+        # Compatibilidade com o frontend antigo.
+        "cidr": (
+            network_results[0]["cidr"]
+            if network_results
+            else None
+        ),
+        "scan_interface": (
+            network_results[0]["interfaces"][0]
+            if network_results
+            and network_results[0]["interfaces"]
+            else None
+        ),
+
+        # Formato novo multi-interface.
+        "cidrs": [
+            item["cidr"]
+            for item in network_results
+            if not item["skipped"]
+        ],
+        "scan_interfaces": sorted({
+            interface
+            for item in network_results
+            for interface in item["interfaces"]
+        }),
+        "networks": network_results,
+        "skipped_networks": skipped_networks,
         "found": len(devices_payload),
         "devices": devices_payload,
         "me": me_info,
         "scanned_at": now.isoformat(),
     }
 
-    scan_run.found      = len(devices_payload)
-    scan_run.finished_at = now
-    scan_run.payload    = result
-    scan_run.save()
+    print(
+        "\n✅ [SCAN GERAL] "
+        f"{len(devices_payload)} dispositivo(s) em "
+        f"{len(network_results)} rede(s)."
+    )
 
-    print(f"🎉 [SCAN] Finalizado. {len(devices_payload)} dispositivos em {cidr}.")
     return JsonResponse(result)
 
 

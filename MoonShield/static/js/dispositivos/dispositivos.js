@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const SCAN_TTL_MS = 120_000;
     const SCAN_TTL_SEC = 120;
-    const SCAN_TIMEOUT_MS = 45_000;
+    const SCAN_TIMEOUT_MS = 90_000;
 
     /* ══════════════════════════════════════════════════════
        ÍCONES CORRETOS (Bootstrap Icons)
@@ -461,8 +461,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showToast(
             force
-                ? '🔍 Forçando nova varredura da LAN…'
-                : '🔄 Verificando dispositivos da LAN…'
+                ? '🔍 Forçando varredura em todas as interfaces…'
+                : '🔄 Verificando WAN, LAN, MGMT e demais interfaces…'
         );
 
         scanController = new AbortController();
@@ -537,6 +537,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     is_me: d.is_me === true,
                     is_new: false,
                     malicious_comm: false,
+                    network: d.network || null,
+                    interfaces: Array.isArray(d.interfaces)
+                        ? d.interfaces
+                        : [],
 
                     // Telemetria ainda simulada.
                     telemetry_mode: 'simulated',
@@ -579,12 +583,38 @@ document.addEventListener('DOMContentLoaded', () => {
             renderNetworkMap();
             renderCharts();
 
-            const cidr = data.cidr
-                ? ` · ${data.cidr}`
+            const networks = Array.isArray(data.networks)
+                ? data.networks
+                : [];
+
+            const scanned = networks.filter(
+                item => !item.skipped
+            );
+
+            const skipped = networks.filter(
+                item => item.skipped
+            );
+
+            const interfaces = Array.isArray(
+                data.scan_interfaces
+            )
+                ? data.scan_interfaces
+                : [];
+
+            const networkText = scanned.length
+                ? ` · ${scanned.length} rede${
+                    scanned.length !== 1 ? 's' : ''
+                }`
                 : '';
 
-            const iface = data.scan_interface
-                ? ` (${data.scan_interface})`
+            const interfaceText = interfaces.length
+                ? ` · ${interfaces.join(', ')}`
+                : '';
+
+            const skippedText = skipped.length
+                ? ` · ${skipped.length} ignorada${
+                    skipped.length !== 1 ? 's' : ''
+                }`
                 : '';
 
             showToast(
@@ -592,7 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     DEVICES.length !== 1 ? 's' : ''
                 } encontrado${
                     DEVICES.length !== 1 ? 's' : ''
-                }${cidr}${iface}`
+                }${networkText}${interfaceText}${skippedText}`
             );
 
         } catch (err) {

@@ -32,9 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeTab    = 'inventario';
     let selectedDevice = null;
     let renameTargetIp = null;
+    let scanInFlight = false;
+    let scanController = null;
 
-    const SCAN_TTL_MS  = 120_000;
+    const SCAN_TTL_MS = 120_000;
     const SCAN_TTL_SEC = 120;
+    const SCAN_TIMEOUT_MS = 45_000;
 
     /* ══════════════════════════════════════════════════════
        ÍCONES CORRETOS (Bootstrap Icons)
@@ -442,77 +445,178 @@ document.addEventListener('DOMContentLoaded', () => {
        SCAN
     ══════════════════════════════════════════════════════ */
     async function doScan(force = false) {
+        if (scanInFlight) {
+            if (force) showToast('⏳ Já existe uma varredura em andamento.');
+            return;
+        }
+
         const btn = $('devScanBtn');
-        btn.classList.add('dev-scanning');
-        showToast(force ? '🔍 Forçando nova varredura…' : '🔄 Verificando rede…');
+        const refreshBtn = $('devRefreshBtn');
+
+        scanInFlight = true;
+        btn?.classList.add('dev-scanning');
+
+        if (btn) btn.disabled = true;
+        if (refreshBtn) refreshBtn.disabled = true;
+
+        showToast(
+            force
+                ? '🔍 Forçando nova varredura da LAN…'
+                : '🔄 Verificando dispositivos da LAN…'
+        );
+
+        scanController = new AbortController();
+        const timeout = setTimeout(
+            () => scanController?.abort(),
+            SCAN_TIMEOUT_MS
+        );
 
         try {
-            const response = await fetch('/dispositivos/api/scan/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ttl_seconds: SCAN_TTL_SEC, force }),
-            });
+            const response = await fetch(
+                '/dispositivos/api/scan/',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        ttl_seconds: SCAN_TTL_SEC,
+                        force,
+                    }),
+                    signal: scanController.signal,
+                    cache: 'no-store',
+                }
+            );
 
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
+            let data = null;
+
+            try {
+                data = await response.json();
+            } catch (_) {
+                throw new Error(
+                    `Resposta inválida da API (HTTP ${response.status})`
+                );
+            }
+
+            if (!response.ok) {
+                throw new Error(
+                    data?.erro || `HTTP ${response.status}`
+                );
+            }
+
+            if (!Array.isArray(data.devices)) {
+                throw new Error(
+                    'A API não retornou a lista de dispositivos.'
+                );
+            }
 
             ME_IPS = data.me?.ips || [];
 
             DEVICES = data.devices.map((d, index) => {
-                // Ícone corrigido com a lógica inteligente
-                const icon = getDeviceIcon(d.type, d.hostname, d.os, d.open_ports);
+                const icon = getDeviceIcon(
+                    d.type,
+                    d.hostname,
+                    d.os,
+                    d.open_ports
+                );
 
                 return {
-                    id:         index + 1,
-                    hostname:   d.hostname   || 'Desconhecido',
-                    ip:         d.ip,
-                    mac:        d.mac        || 'Desconhecido',
-                    vendor:     d.vendor     || 'Genérico',
-                    os:         d.os         || 'Desconhecido',
-                    status:     d.status     || 'online',
-                    type:       d.type       || 'Dispositivo',
+                    id: index + 1,
+                    hostname: d.hostname || 'Desconhecido',
+                    ip: d.ip,
+                    mac: d.mac || 'Desconhecido',
+                    vendor: d.vendor || 'Genérico',
+                    os: d.os || 'Desconhecido',
+                    status: d.status || 'online',
+                    type: d.type || 'Dispositivo',
                     icon,
                     open_ports: d.open_ports || [],
                     risk_score: d.risk_score || 10,
                     first_seen: d.first_seen || null,
-                    last_seen:  d.last_seen  || null,
-                    is_me:      d.is_me      === true,
-                    is_new:     false,
+                    last_seen: d.last_seen || null,
+                    is_me: d.is_me === true,
+                    is_new: false,
                     malicious_comm: false,
 
-                    // Telemetria simulada — substituir por dados reais futuramente
+                    // Telemetria ainda simulada.
                     telemetry_mode: 'simulated',
-                    queries_dns:    rand(100, 2000),
-                    blocked_dns:    rand(0, 50),
-                    soc_events:     rand(0, 2),
+                    queries_dns: rand(100, 2000),
+                    blocked_dns: rand(0, 50),
+                    soc_events: rand(0, 2),
                     fw_connections: rand(10, 300),
-                    req_min:        rand(1, 10),
-                    dns_hourly:     Array.from({ length: 24 }, () => rand(0, 100)),
-                    blocked_hourly: Array.from({ length: 24 }, () => rand(0, 20)),
-                    conn_hourly:    Array.from({ length: 24 }, () => rand(0, 50)),
-                    ip_history:     [{ ip: d.ip, since: d.first_seen ? fmtRelative(d.first_seen) : 'Hoje' }],
+                    req_min: rand(1, 10),
+                    dns_hourly: Array.from(
+                        { length: 24 },
+                        () => rand(0, 100)
+                    ),
+                    blocked_hourly: Array.from(
+                        { length: 24 },
+                        () => rand(0, 20)
+                    ),
+                    conn_hourly: Array.from(
+                        { length: 24 },
+                        () => rand(0, 50)
+                    ),
+                    ip_history: [{
+                        ip: d.ip,
+                        since: d.first_seen
+                            ? fmtRelative(d.first_seen)
+                            : 'Hoje',
+                    }],
                     soc_events_list: [],
                 };
             });
 
-            // Hora da última atualização
             const now = new Date();
             const lbl = $('devLastUpdate');
-            if (lbl) lbl.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+            if (lbl) {
+                lbl.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+            }
 
             renderKPIs();
             renderTable();
             renderNetworkMap();
             renderCharts();
 
-            const cached = !force ? ' (cache)' : '';
-            showToast(`✓ ${DEVICES.length} dispositivo${DEVICES.length !== 1 ? 's' : ''}${cached}`);
+            const cidr = data.cidr
+                ? ` · ${data.cidr}`
+                : '';
+
+            const iface = data.scan_interface
+                ? ` (${data.scan_interface})`
+                : '';
+
+            showToast(
+                `✓ ${DEVICES.length} dispositivo${
+                    DEVICES.length !== 1 ? 's' : ''
+                } encontrado${
+                    DEVICES.length !== 1 ? 's' : ''
+                }${cidr}${iface}`
+            );
 
         } catch (err) {
-            console.error(err);
-            showToast('❌ Erro ao comunicar com a API.');
+            console.error('MoonShield network scan:', err);
+
+            if (err?.name === 'AbortError') {
+                showToast(
+                    '❌ O scan excedeu 45s e foi cancelado. Verifique a API/rede.'
+                );
+            } else {
+                showToast(
+                    `❌ Falha no scan: ${err?.message || 'erro desconhecido'}`
+                );
+            }
+
         } finally {
-            btn.classList.remove('dev-scanning');
+            clearTimeout(timeout);
+            scanController = null;
+            scanInFlight = false;
+
+            btn?.classList.remove('dev-scanning');
+
+            if (btn) btn.disabled = false;
+            if (refreshBtn) refreshBtn.disabled = false;
         }
     }
 

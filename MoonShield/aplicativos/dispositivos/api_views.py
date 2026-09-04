@@ -18,41 +18,285 @@ from .models import Dispositivo, ScanRun
 #  UTILITÁRIOS DE REDE
 # ═══════════════════════════════════════════════════════
 
+def _get_ipv4_interfaces():
+    """
+    Retorna interfaces IPv4 válidas da máquina.
+    Cada item contém interface, IPv4, máscara e CIDR conectado.
+    """
+    interfaces = []
+
+    for name, addrs in psutil.net_if_addrs().items():
+        stats = psutil.net_if_stats().get(name)
+        if stats and not stats.isup:
+            continue
+
+        for addr in addrs:
+            if addr.family != socket.AF_INET:
+                continue
+
+            ip = addr.address
+            if (
+                not ip
+                or ip.startswith("127.")
+                or ip.startswith("169.254.")
+            ):
+                continue
+
+            netmask = addr.netmask or "255.255.255.0"
+
+            try:
+                network = ipaddress.ip_network(
+                    f"{ip}/{netmask}",
+                    strict=False,
+                )
+            except ValueError:
+                continue
+
+            interfaces.append({
+                "name": name,
+                "ip": ip,
+                "netmask": netmask,
+                "network": network,
+                "cidr": str(network),
+                "private": ipaddress.ip_address(ip).is_private,
+            })
+
+    return interfaces
+
+
 def _get_all_ipv4():
-    """Retorna todos os IPs reais desta máquina (multi-interface)."""
-    ips = []
-    for _, addrs in psutil.net_if_addrs().items():
-        for a in addrs:
-            if a.family == socket.AF_INET:
-                ip = a.address
-                if not ip.startswith("127.") and not ip.startswith("169.254."):
-                    ips.append(ip)
-    return sorted(set(ips))
+    """Retorna todos os IPv4 reais desta máquina."""
+    return sorted({
+        item["ip"]
+        for item in _get_ipv4_interfaces()
+    })
 
 
-def _ping(ip: str, timeout_ms: int = 500) -> bool:
+def _default_route_interface():
+    """
+    Linux: descobre a interface usada pela rota default.
+    Windows/outros: retorna None.
+    """
+    if platform.system().lower() != "linux":
+        return None
+
     try:
-        r = subprocess.run(
-            ["ping", "-n", "1", "-w", str(timeout_ms), ip],
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+        for line in (result.stdout or "").splitlines():
+            parts = line.split()
+            if "dev" in parts:
+                index = parts.index("dev")
+                if index + 1 < len(parts):
+                    return parts[index + 1]
+    except Exception:
+        pass
+
+    return None
+
+
+def _choose_scan_network():
+    """
+    Escolhe a rede LAN mais provável sem hardcode de interface.
+
+    Prioridade:
+    1. rede privada que NÃO seja a interface de rota default;
+    2. interface cujo IP seja o primeiro host da sub-rede (.1 em /24);
+    3. menor rede conectada disponível;
+    4. fallback para a primeira interface válida.
+
+    Isso evita selecionar automaticamente a WAN/NAT quando o MoonShield
+    possui WAN + MGMT + LAN.
+    """
+    interfaces = _get_ipv4_interfaces()
+
+    if not interfaces:
+        return {
+            "name": None,
+            "ip": None,
+            "netmask": "255.255.255.0",
+            "network": ipaddress.ip_network("192.168.0.0/24"),
+            "cidr": "192.168.0.0/24",
+            "private": True,
+        }
+
+    default_if = _default_route_interface()
+
+    private = [
+        item
+        for item in interfaces
+        if item["private"]
+    ]
+
+    candidates = [
+        item
+        for item in private
+        if item["name"] != default_if
+    ] or private or interfaces
+
+    def score(item):
+        network = item["network"]
+
+        try:
+            first_host = next(network.hosts())
+            is_gateway_like = (
+                ipaddress.ip_address(item["ip"]) == first_host
+            )
+        except StopIteration:
+            is_gateway_like = False
+
+        # Maior score = melhor candidato.
+        return (
+            1 if is_gateway_like else 0,
+            1 if item["name"] != default_if else 0,
+            network.prefixlen,
+        )
+
+    return sorted(
+        candidates,
+        key=score,
+        reverse=True,
+    )[0]
+
+
+def _ping(ip: str, timeout_ms: int = 700) -> bool:
+    """
+    Ping compatível com Linux e Windows.
+
+    O código antigo usava os parâmetros do ping do Windows em Linux:
+    `ping -n 1 -w 500`.
+    No Linux `-w 500` representa um deadline enorme, deixando o endpoint
+    /scan/ pendente por muito tempo.
+    """
+    system = platform.system().lower()
+
+    if system == "windows":
+        command = [
+            "ping",
+            "-n",
+            "1",
+            "-w",
+            str(timeout_ms),
+            ip,
+        ]
+        process_timeout = max(2, (timeout_ms / 1000) + 1)
+    else:
+        timeout_seconds = max(
+            1,
+            int((timeout_ms + 999) / 1000),
+        )
+        command = [
+            "ping",
+            "-n",
+            "-c",
+            "1",
+            "-W",
+            str(timeout_seconds),
+            ip,
+        ]
+        process_timeout = timeout_seconds + 1
+
+    try:
+        result = subprocess.run(
+            command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            timeout=process_timeout,
         )
-        return r.returncode == 0
-    except Exception:
+        return result.returncode == 0
+    except (
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        OSError,
+    ):
         return False
 
 
 def _arp_table():
+    """
+    Retorna IP -> MAC.
+
+    Linux usa `ip neigh`; Windows mantém `arp -a`.
+    """
     mapping = {}
+    system = platform.system().lower()
+
     try:
-        r = subprocess.run(["arp", "-a"], capture_output=True, text=True, check=False)
-        for line in (r.stdout or "").splitlines():
-            parts = line.split()
-            if len(parts) >= 2 and "." in parts[0] and "-" in parts[1]:
-                mapping[parts[0]] = parts[1].replace("-", ":").upper()
+        if system == "linux":
+            result = subprocess.run(
+                ["ip", "neigh", "show"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,
+            )
+
+            for line in (result.stdout or "").splitlines():
+                parts = line.split()
+
+                if not parts:
+                    continue
+
+                ip = parts[0]
+
+                if "lladdr" not in parts:
+                    continue
+
+                index = parts.index("lladdr")
+
+                if index + 1 >= len(parts):
+                    continue
+
+                mac = parts[index + 1]
+
+                try:
+                    ipaddress.ip_address(ip)
+                except ValueError:
+                    continue
+
+                mapping[ip] = mac.replace(
+                    "-",
+                    ":",
+                ).upper()
+
+        else:
+            result = subprocess.run(
+                ["arp", "-a"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,
+            )
+
+            for line in (result.stdout or "").splitlines():
+                parts = line.split()
+
+                if len(parts) < 2:
+                    continue
+
+                ip = parts[0]
+                mac = parts[1]
+
+                if "." not in ip:
+                    continue
+
+                if "-" not in mac and ":" not in mac:
+                    continue
+
+                mapping[ip] = mac.replace(
+                    "-",
+                    ":",
+                ).upper()
+
     except Exception:
         pass
+
     return mapping
 
 
@@ -123,13 +367,19 @@ def _get_vendor(mac: str):
 @require_GET
 def system_info(request):
     my_ips = _get_all_ipv4()
+    scan_if = _choose_scan_network()
+
     return JsonResponse({
         "hostname": platform.node(),
         "os": f"{platform.system()} {platform.release()}",
         "os_detail": platform.platform(),
         "python": platform.python_version(),
         "ips": my_ips,
-        "ip_local": my_ips[0] if my_ips else None,
+        "ip_local": scan_if.get("ip") or (
+            my_ips[0] if my_ips else None
+        ),
+        "scan_interface": scan_if.get("name"),
+        "scan_cidr": scan_if.get("cidr"),
         "timezone": "America/Sao_Paulo",
     })
 
@@ -138,10 +388,14 @@ def system_info(request):
 def me(request):
     """Retorna identidade desta máquina para o front destacar 'EU'."""
     ips = _get_all_ipv4()
+    scan_if = _choose_scan_network()
+
     return JsonResponse({
         "hostname": platform.node(),
         "ips": ips,
-        "default_cidr": f"{'.'.join(ips[0].split('.')[:-1])}.0/24" if ips else "192.168.0.0/24",
+        "default_cidr": scan_if["cidr"],
+        "scan_interface": scan_if.get("name"),
+        "scan_ip": scan_if.get("ip"),
     })
 
 
@@ -158,9 +412,25 @@ def network_interfaces(request):
             elif str(a.family).endswith("AF_LINK") or a.family == getattr(psutil, "AF_LINK", object()):
                 mac = a.address.replace("-", ":").upper()
         st = if_stats.get(name)
+        cidr = None
+        if ipv4 and netmask:
+            try:
+                cidr = str(
+                    ipaddress.ip_network(
+                        f"{ipv4}/{netmask}",
+                        strict=False,
+                    )
+                )
+            except ValueError:
+                pass
+
         out.append({
-            "name": name, "ipv4": ipv4, "netmask": netmask,
-            "mac": mac, "is_up": bool(st.isup) if st else False,
+            "name": name,
+            "ipv4": ipv4,
+            "netmask": netmask,
+            "cidr": cidr,
+            "mac": mac,
+            "is_up": bool(st.isup) if st else False,
         })
     return JsonResponse({"interfaces": out})
 
@@ -169,7 +439,7 @@ def network_interfaces(request):
 @require_POST
 def network_scan(request):
     """
-    Scan da rede com cache SQLite.
+    Scan da rede com cache persistente.
     Body JSON (opcional):
       cidr          – ex: "192.168.1.0/24"
       ttl_seconds   – segundos antes de refazer o scan (padrão 120)
@@ -183,11 +453,10 @@ def network_scan(request):
     ttl    = int(body.get("ttl_seconds", 120))
     force  = bool(body.get("force", False))
 
-    my_ips    = _get_all_ipv4()
+    my_ips = _get_all_ipv4()
     my_ips_set = set(my_ips)
-    default_cidr = (
-        f"{'.'.join(my_ips[0].split('.')[:-1])}.0/24" if my_ips else "192.168.0.0/24"
-    )
+    scan_if = _choose_scan_network()
+    default_cidr = scan_if["cidr"]
     cidr = body.get("cidr") or default_cidr
 
     # ── Cache: se scan recente existe e não é force, devolve do banco ──
@@ -203,21 +472,73 @@ def network_scan(request):
     scan_run = ScanRun.objects.create(cidr=cidr)
 
     try:
-        net   = ipaddress.ip_network(cidr, strict=False)
-        hosts = [str(ip) for ip in net.hosts()]
+        net = ipaddress.ip_network(
+            cidr,
+            strict=False,
+        )
+
+        if net.version != 4:
+            raise ValueError
+
+        # Evita scans acidentais de /16, /8 etc.
+        if net.num_addresses > 1024:
+            scan_run.delete()
+            return JsonResponse(
+                {
+                    "erro": (
+                        "Rede muito grande para varredura direta. "
+                        "Use uma sub-rede de até 1024 endereços."
+                    )
+                },
+                status=400,
+            )
+
+        hosts = [
+            str(ip)
+            for ip in net.hosts()
+        ]
+
     except ValueError:
         scan_run.delete()
-        return JsonResponse({"erro": "CIDR inválido."}, status=400)
+        return JsonResponse(
+            {"erro": "CIDR IPv4 inválido."},
+            status=400,
+        )
 
-    # Ping paralelo
-    alive = []
-    with ThreadPoolExecutor(max_workers=80) as ex:
-        futures = {ex.submit(_ping, ip, 500): ip for ip in hosts}
-        for f in as_completed(futures):
-            if f.result():
-                alive.append(futures[f])
+    # 1) ICMP paralelo.
+    alive = set()
 
+    with ThreadPoolExecutor(
+        max_workers=min(96, max(1, len(hosts)))
+    ) as executor:
+        futures = {
+            executor.submit(
+                _ping,
+                ip,
+                700,
+            ): ip
+            for ip in hosts
+        }
+
+        for future in as_completed(futures):
+            try:
+                if future.result():
+                    alive.add(
+                        futures[future]
+                    )
+            except Exception:
+                pass
+
+    # 2) Complementa com a tabela de vizinhos.
+    # Alguns dispositivos não respondem ICMP, mas aparecem em `ip neigh`.
     arp = _arp_table()
+
+    for ip in arp:
+        try:
+            if ipaddress.ip_address(ip) in net:
+                alive.add(ip)
+        except ValueError:
+            pass
     now = timezone.now()
     devices_payload = []
 
@@ -277,15 +598,18 @@ def network_scan(request):
 
     me_info = {
         "hostname": platform.node(),
-        "ips":      my_ips,
+        "ips": my_ips,
         "default_cidr": default_cidr,
+        "scan_interface": scan_if.get("name"),
+        "scan_ip": scan_if.get("ip"),
     }
 
     result = {
-        "cidr":    cidr,
-        "found":   len(devices_payload),
+        "cidr": cidr,
+        "scan_interface": scan_if.get("name"),
+        "found": len(devices_payload),
         "devices": devices_payload,
-        "me":      me_info,
+        "me": me_info,
         "scanned_at": now.isoformat(),
     }
 

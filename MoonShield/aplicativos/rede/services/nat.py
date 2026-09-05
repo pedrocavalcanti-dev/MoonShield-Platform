@@ -46,7 +46,6 @@ from rede.dominio.erros import (
 
 from rede.dominio.tipos import (
     ModoIPv4,
-    PapelInterface,
     TipoNat,
 )
 
@@ -61,6 +60,9 @@ from rede.models import (
 
 from rede.services.agent_client import (
     requisitar_agent,
+)
+from rede.services.topologia import (
+    obter_topologia,
 )
 
 
@@ -185,6 +187,62 @@ def _obter_interface(
         ) from exc
 
 
+def _obter_interface_por_id(
+    interface_id: Any,
+) -> InterfaceRede:
+    try:
+        return InterfaceRede.objects.get(
+            pk=int(interface_id)
+        )
+    except (
+        InterfaceRede.DoesNotExist,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise InterfaceNaoEncontradaErro(
+            f"Interface #{interface_id} não está cadastrada no MoonShield."
+        ) from exc
+
+
+def _normalizar_interfaces_nat(
+    dados: dict[str, Any],
+) -> dict[str, Any]:
+    """Aceita nomes ou IDs do formulário e preserva o contrato por nome."""
+    normalizado = dict(dados)
+
+    for campo in (
+        "interface_origem",
+        "interface_saida",
+    ):
+        interface_id = dados.get(
+            f"{campo}_id"
+        )
+
+        if interface_id in (None, ""):
+            continue
+
+        interface = _obter_interface_por_id(
+            interface_id
+        )
+        nome = str(
+            dados.get(campo) or ""
+        ).strip()
+
+        if nome and nome != interface.nome:
+            raise ConfiguracaoRedeInvalidaErro(
+                f"{campo} não corresponde ao ID informado.",
+                detalhes={
+                    "campo": campo,
+                    "interface_id": interface.pk,
+                    "nome": nome,
+                },
+            )
+
+        normalizado[campo] = interface.nome
+
+    return normalizado
+
+
 # =============================================================================
 # REGRAS DE NEGÓCIO
 # =============================================================================
@@ -206,10 +264,23 @@ def _validar_papeis_nat(
     MGMT não recebe NAT automaticamente.
     """
 
-    if (
-        saida.papel
-        != PapelInterface.WAN.value
-    ):
+    topologia = obter_topologia()
+
+    saidas = {
+        interface["nome"]: interface
+        for interface in topologia["wan"]["interfaces"]
+    }
+    origens = {
+        interface["nome"]: interface
+        for grupo in (
+            topologia["lan"]["interfaces"],
+            topologia["dmz"],
+            topologia["custom"],
+        )
+        for interface in grupo
+    }
+
+    if saida.nome not in saidas:
         raise ConfiguracaoRedeInvalidaErro(
             (
                 "A interface de saída do NAT deve "
@@ -221,13 +292,7 @@ def _validar_papeis_nat(
             },
         )
 
-    papeis_origem = {
-        PapelInterface.LAN.value,
-        PapelInterface.DMZ.value,
-        PapelInterface.CUSTOM.value,
-    }
-
-    if origem.papel not in papeis_origem:
+    if origem.nome not in origens:
         raise ConfiguracaoRedeInvalidaErro(
             (
                 "A interface de origem do NAT deve ser "
@@ -236,6 +301,22 @@ def _validar_papeis_nat(
             detalhes={
                 "interface": origem.nome,
                 "papel": origem.papel,
+            },
+        )
+
+    for interface in (
+        saidas[saida.nome],
+        origens[origem.nome],
+    ):
+        desejado = interface.get("desejado", {})
+        if desejado.get("habilitada", True):
+            continue
+
+        raise ConfiguracaoRedeInvalidaErro(
+            "As interfaces de uma regra NAT devem estar habilitadas.",
+            detalhes={
+                "interface": interface["nome"],
+                "papel": desejado.get("papel"),
             },
         )
 
@@ -288,8 +369,11 @@ def salvar_regra_nat(
     NÃO aplica no Linux.
     """
 
-    normalizado = validar_nat_masquerade(
+    dados_normalizados = _normalizar_interfaces_nat(
         dados
+    )
+    normalizado = validar_nat_masquerade(
+        dados_normalizados
     )
 
     origem = _obter_interface(
@@ -318,7 +402,7 @@ def salvar_regra_nat(
         )
     )
 
-    prioridade = dados.get(
+    prioridade = dados_normalizados.get(
         "prioridade",
         100,
     )
@@ -335,16 +419,16 @@ def salvar_regra_nat(
             "Prioridade NAT inválida."
         ) from exc
 
-    if prioridade < 0:
+    if prioridade < 0 or prioridade > 2147483647:
         raise ConfiguracaoRedeInvalidaErro(
             (
-                "Prioridade NAT não pode "
-                "ser negativa."
+                "Prioridade NAT deve estar entre "
+                "0 e 2147483647."
             )
         )
 
     nome = str(
-        dados.get(
+        dados_normalizados.get(
             "nome",
             "NAT LAN → WAN",
         )
@@ -475,6 +559,12 @@ def montar_payload_nat(
     regras = []
 
     for regra in queryset:
+        if regra.ativa:
+            _validar_papeis_nat(
+                regra.interface_origem,
+                regra.interface_saida,
+            )
+
         regras.append(
             {
                 "id": regra.pk,

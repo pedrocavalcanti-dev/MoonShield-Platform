@@ -1131,6 +1131,8 @@ function notificarBloqueio(alteracao = safeApply.obterAlteracaoAtiva?.()) {
 function atualizarOpcoesInterfaces() {
     const interfaces = estado.get('interfaces.lista', []);
     const disponiveis = interfaces.filter(interfaceDisponivelParaSelecao);
+    const origensNat = disponiveis.filter(interfacePermitidaComoOrigemNat);
+    const saidasNat = disponiveis.filter(interfacePermitidaComoSaidaNat);
 
     preencherSelectInterface(
         elementos.routeInterface,
@@ -1140,13 +1142,13 @@ function atualizarOpcoesInterfaces() {
 
     preencherSelectInterface(
         elementos.natSourceInterface,
-        disponiveis,
+        origensNat,
         'Selecionar interface de origem'
     );
 
     preencherSelectInterface(
         elementos.natOutputInterface,
-        disponiveis,
+        saidasNat,
         'Selecionar interface de saída'
     );
 }
@@ -1160,6 +1162,18 @@ function interfaceDisponivelParaSelecao(item) {
     if (!nome || nome === 'lo') return false;
 
     return desejado.papel && desejado.papel !== 'unassigned';
+}
+
+
+function interfacePermitidaComoOrigemNat(item) {
+    const papel = String((item?.desejado || item || {}).papel || '').toLowerCase();
+    return ['lan', 'dmz', 'custom'].includes(papel);
+}
+
+
+function interfacePermitidaComoSaidaNat(item) {
+    const papel = String((item?.desejado || item || {}).papel || '').toLowerCase();
+    return papel === 'wan';
 }
 
 

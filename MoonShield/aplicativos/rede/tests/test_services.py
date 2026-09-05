@@ -23,8 +23,11 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
-from rede.dominio.erros import AlteracaoEstadoInvalidoErro
-from rede.models import AlteracaoRede
+from rede.dominio.erros import (
+    AgentIndisponivelErro,
+    AlteracaoEstadoInvalidoErro,
+)
+from rede.models import AlteracaoRede, SnapshotRede
 from rede.services import alteracoes as service
 
 
@@ -191,6 +194,34 @@ class AlteracoesServiceTests(TestCase):
         self.assertFalse(atualizada.em_andamento)
         self.assertIsNone(atualizada.expira_em)
 
+    def test_aplicar_persiste_snapshot_devolvido_pelo_agent(self):
+        alteracao = self.criar_modelo()
+        snapshot = SnapshotRede.objects.create(
+            dados={"snapshot_id": "agent-snapshot"},
+        )
+        resposta_agent = {
+            "status": "waiting_confirmation",
+            "snapshot": {"id": "agent-snapshot"},
+        }
+
+        with (
+            patch.object(service, "_bloquear_orquestracao_global"),
+            patch.object(service, "requisitar_agent", return_value=resposta_agent),
+            patch.object(
+                service,
+                "_criar_snapshot_de_resposta",
+                return_value=snapshot,
+            ) as criar_snapshot,
+            patch.object(service, "registrar_evento"),
+        ):
+            atualizada = service.aplicar_alteracao(alteracao.id)
+
+        self.assertEqual(atualizada.snapshot_anterior, snapshot)
+        self.assertEqual(
+            criar_snapshot.call_args.args[0],
+            resposta_agent["snapshot"],
+        )
+
     def test_confirmar_alteracao_e_idempotente_quando_ja_confirmada(self):
         alteracao = self.criar_modelo(
             status=AlteracaoRede.Status.CONFIRMADA
@@ -238,6 +269,27 @@ class AlteracoesServiceTests(TestCase):
         self.assertIsNone(confirmada.expira_em)
         agent.assert_called_once()
 
+    def test_confirmar_agent_indisponivel_mantem_aguardando_confirmacao(self):
+        alteracao = self.criar_modelo(
+            status=AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,
+            expira_em=timezone.now() + timedelta(seconds=60),
+        )
+
+        with patch.object(
+            service,
+            "requisitar_agent",
+            side_effect=AgentIndisponivelErro("Agent indisponível."),
+        ):
+            with self.assertRaises(AgentIndisponivelErro):
+                service.confirmar_alteracao(alteracao.id, usuario=self.usuario)
+
+        alteracao.refresh_from_db()
+        self.assertEqual(
+            alteracao.status,
+            AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,
+        )
+        self.assertTrue(alteracao.em_andamento)
+
     def test_rollback_e_idempotente_quando_ja_revertida(self):
         alteracao = self.criar_modelo(
             status=AlteracaoRede.Status.REVERTIDA
@@ -283,6 +335,49 @@ class AlteracoesServiceTests(TestCase):
         self.assertTrue(revertida.finalizada)
         self.assertFalse(revertida.em_andamento)
         self.assertIsNone(revertida.expira_em)
+
+    def test_rollback_envia_motivo_no_contrato_do_agent(self):
+        alteracao = self.criar_modelo(
+            status=AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,
+            expira_em=timezone.now() + timedelta(seconds=60),
+        )
+
+        with (
+            patch.object(
+                service,
+                "requisitar_agent",
+                return_value={"status": "reverted"},
+            ) as agent,
+            patch.object(service, "registrar_evento"),
+        ):
+            service.executar_rollback(
+                alteracao.id,
+                usuario=self.usuario,
+                motivo="Motivo de teste.",
+            )
+
+        payload = agent.call_args.args[1]
+        self.assertEqual(agent.call_args.args[0], "network.change.rollback")
+        self.assertEqual(payload["motivo"], "Motivo de teste.")
+        self.assertNotIn("reason", payload)
+
+    def test_rollback_agent_indisponivel_mantem_operacao_ativa(self):
+        alteracao = self.criar_modelo(
+            status=AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,
+            expira_em=timezone.now() + timedelta(seconds=60),
+        )
+
+        with patch.object(
+            service,
+            "requisitar_agent",
+            side_effect=AgentIndisponivelErro("Agent indisponível."),
+        ):
+            with self.assertRaises(AgentIndisponivelErro):
+                service.executar_rollback(alteracao.id, usuario=self.usuario)
+
+        alteracao.refresh_from_db()
+        self.assertEqual(alteracao.status, AlteracaoRede.Status.ROLLBACK)
+        self.assertTrue(alteracao.em_andamento)
 
     def test_reconciliar_agent_confirmed_atualiza_postgresql(self):
         alteracao = self.criar_modelo(

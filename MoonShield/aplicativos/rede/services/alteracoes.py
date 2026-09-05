@@ -62,7 +62,9 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from rede.dominio.erros import (
+    AgentIndisponivelErro,
     AgentOperacaoRecusadaErro,
+    AgentTimeoutErro,
     AlteracaoEstadoInvalidoErro,
     AlteracaoExpiradaErro,
     AlteracaoNaoEncontradaErro,
@@ -663,7 +665,8 @@ def aplicar_alteracao(alteracao_id: str | UUID) -> AlteracaoRede:
 
     try:
         snapshot_anterior = _criar_snapshot_de_resposta(
-            resultado.get("snapshot_before"),
+            resultado.get("snapshot_before")
+            or resultado.get("snapshot"),
             usuario=alteracao.solicitado_por,
             observacao=f"Estado anterior à alteração {alteracao.id}",
         )
@@ -778,6 +781,8 @@ def confirmar_alteracao(
             "network.change.confirm",
             payload,
         )
+    except (AgentIndisponivelErro, AgentTimeoutErro):
+        raise
     except Exception as exc:
         # A resposta de confirmação pode ter se perdido depois de o Agent já
         # ter confirmado. Consultamos o estado real antes de declarar falha.
@@ -898,13 +903,18 @@ def executar_rollback(
         )
 
         payload = _payload_operacao_agent(alteracao)
-        payload["reason"] = motivo
+        payload["motivo"] = motivo
 
     try:
         resultado = requisitar_agent(
             "network.change.rollback",
             payload,
         )
+    except (AgentIndisponivelErro, AgentTimeoutErro):
+        # Sem a confirmação do Agent, mantemos o rollback como operação ativa.
+        # O estado real será decidido por reconciliação posterior, nunca por
+        # inferência baseada em uma falha de comunicação.
+        raise
     except Exception as exc:
         # Antes de marcar falha, confirmamos se o Agent não concluiu o rollback
         # e apenas a resposta se perdeu.

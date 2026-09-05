@@ -38,6 +38,7 @@ from django.views.decorators.http import (
 
 from rede.dominio.erros import (
     AgentIndisponivelErro,
+    AgentRespostaInvalidaErro,
     AgentTimeoutErro,
     RedeErro,
 )
@@ -131,9 +132,16 @@ def api_diagnostico(request):
             status=401,
         )
 
+    if request.GET:
+        return _erro(
+            codigo="diagnostico_parametros_invalidos",
+            mensagem="O diagnostico geral nao aceita parametros.",
+            status=400,
+        )
+
     try:
         diagnostico = (
-            executar_diagnostico()
+            executar_diagnostico(usuario=request.user)
         )
 
         return _resposta(
@@ -150,6 +158,12 @@ def api_diagnostico(request):
         return _erro_rede(
             exc,
             status=504,
+        )
+
+    except AgentRespostaInvalidaErro as exc:
+        return _erro_rede(
+            exc,
+            status=502,
         )
 
     except RedeErro as exc:

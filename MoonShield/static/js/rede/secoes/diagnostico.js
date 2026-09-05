@@ -133,6 +133,7 @@ async function executar() {
         }
     } catch (error) {
         const erro = normalizarErro(error);
+        estado.set('diagnostico.resultado', null);
         renderizarErro(erro);
         notificacao.erro(erro.titulo, erro.mensagem);
     } finally {
@@ -292,6 +293,10 @@ function renderizarMeta(dados, saudavel) {
 ========================================================================== */
 
 function renderizarErro(erro) {
+    $$('[data-diagnostic-check-rendered]', elementos.container).forEach(item => item.remove());
+    setHidden(elementos.empty, false);
+    setHidden(elementos.metaPanel, true);
+
     elementos.healthPanel?.classList.remove('is-ok', 'is-warning');
     elementos.healthPanel?.classList.add('is-error');
 

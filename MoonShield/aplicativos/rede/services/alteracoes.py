@@ -671,11 +671,14 @@ def aplicar_alteracao(alteracao_id: str | UUID) -> AlteracaoRede:
             observacao=f"Estado anterior à alteração {alteracao.id}",
         )
 
-        snapshot_posterior = _criar_snapshot_de_resposta(
-            resultado.get("snapshot_after"),
-            usuario=alteracao.solicitado_por,
-            observacao=f"Estado após aplicação {alteracao.id}",
-        )
+        dados_snapshot_posterior = resultado.get("snapshot_after")
+
+        if dados_snapshot_posterior:
+            snapshot_posterior = _criar_snapshot_de_resposta(
+                dados_snapshot_posterior,
+                usuario=alteracao.solicitado_por,
+                observacao=f"Estado após aplicação {alteracao.id}",
+            )
     except Exception as exc:
         # O snapshot operacional do Agent continua sendo a base do rollback.
         # Falha na cópia de auditoria do Django não pode apagar um Safe Apply

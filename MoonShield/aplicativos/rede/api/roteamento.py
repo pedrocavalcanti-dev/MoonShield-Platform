@@ -25,17 +25,26 @@ import json
 from django.http import JsonResponse
 from django.views.decorators.http import (
     require_GET,
+    require_http_methods,
     require_POST,
 )
 
 from rede.dominio.erros import (
     AgentIndisponivelErro,
+    AgentTimeoutErro,
+    AlteracaoEstadoInvalidoErro,
+    AlteracaoExpiradaErro,
+    AlteracaoNaoEncontradaErro,
     RedeErro,
 )
+from rede.models import AlteracaoRede
 
 from rede.services.alteracoes import (
     aplicar_alteracao,
     criar_alteracao_roteamento,
+    obter_alteracao,
+    obter_alteracao_ativa,
+    reconciliar_alteracoes_expiradas,
     serializar_alteracao,
 )
 
@@ -104,15 +113,45 @@ def _erro(
     )
 
 
-def _erro_rede(
-    exc: RedeErro,
-    *,
-    status: int = 400,
-) -> JsonResponse:
+def _detalhes_com_alteracao(exc: RedeErro) -> dict:
+    detalhes = dict(exc.detalhes or {})
+    alteracao_id = detalhes.get("alteracao_id")
+
+    if alteracao_id:
+        try:
+            detalhes["alteracao"] = serializar_alteracao(obter_alteracao(alteracao_id))
+        except Exception:
+            pass
+
+    return detalhes
+
+
+def _erro_rede(exc: RedeErro, *, status: int | None = None) -> JsonResponse:
+    if status is None:
+        status = 400
+        if isinstance(exc, AlteracaoNaoEncontradaErro):
+            status = 404
+        elif isinstance(exc, AgentIndisponivelErro):
+            status = 503
+        elif isinstance(exc, AgentTimeoutErro):
+            status = 504
+        elif isinstance(exc, (AlteracaoEstadoInvalidoErro, AlteracaoExpiradaErro)):
+            status = 409
+
+    detalhes = _detalhes_com_alteracao(exc)
+    codigo = exc.codigo
+    if (
+        status == 409
+        and isinstance(exc, AlteracaoEstadoInvalidoErro)
+        and detalhes.get("alteracao_id")
+        and detalhes.get("status") in set(AlteracaoRede.statuses_em_andamento())
+    ):
+        codigo = "alteracao_rede_em_andamento"
+
     return _erro(
-        codigo=exc.codigo,
+        codigo=codigo,
         mensagem=exc.mensagem,
-        detalhes=exc.detalhes,
+        detalhes=detalhes,
         status=status,
     )
 
@@ -163,6 +202,32 @@ def _ler_json(
     return dados
 
 
+def _bloquear_mutacao_durante_safe_apply():
+    """Não mistura novo estado desejado com uma alteração ainda reversível."""
+    try:
+        reconciliar_alteracoes_expiradas()
+    except Exception:
+        # Se o Agent não puder confirmar o timeout, preservamos o lock local.
+        pass
+
+    ativa = obter_alteracao_ativa()
+    if ativa is None:
+        return None
+
+    return _erro(
+        codigo="alteracao_rede_em_andamento",
+        mensagem="Existe uma alteração de Rede aguardando conclusão.",
+        status=409,
+        detalhes={
+            "alteracao_id": str(ativa.id),
+            "status": ativa.status,
+            "status_label": ativa.get_status_display(),
+            "titulo": ativa.titulo,
+            "alteracao": serializar_alteracao(ativa),
+        },
+    )
+
+
 # =============================================================================
 # CONFIGURAÇÃO GERAL
 # =============================================================================
@@ -200,6 +265,11 @@ def api_roteamento(request):
 
                 "rotas": (
                     listar_rotas()
+                ),
+                "alteracao_ativa": (
+                    serializar_alteracao(obter_alteracao_ativa())
+                    if obter_alteracao_ativa()
+                    else None
                 ),
             }
         )
@@ -321,6 +391,10 @@ def api_roteamento_configurar(request):
     if auth:
         return auth
 
+    bloqueio = _bloquear_mutacao_durante_safe_apply()
+    if bloqueio:
+        return bloqueio
+
     try:
         dados = _ler_json(
             request
@@ -384,6 +458,7 @@ def api_roteamento_configurar(request):
 # =============================================================================
 
 
+@require_http_methods(["GET", "POST"])
 def api_rotas(request):
     """
     GET  /rede/api/roteamento/rotas/
@@ -440,74 +515,27 @@ def api_rotas(request):
                 status=500,
             )
 
-    # =========================================================================
-    # POST
-    # =========================================================================
+    bloqueio = _bloquear_mutacao_durante_safe_apply()
+    if bloqueio:
+        return bloqueio
 
-    if request.method == "POST":
-        try:
-            dados = _ler_json(
-                request
-            )
-
-            rota = salvar_rota(
-                dados
-            )
-
-            return _resposta(
-                {
-                    "rota": (
-                        serializar_rota(
-                            rota
-                        )
-                    ),
-
-                    "mensagem": (
-                        "Rota salva como "
-                        "estado desejado."
-                    ),
-                },
-                status=201,
-            )
-
-        except ValueError as exc:
-            return _erro(
-                codigo="json_invalido",
-                mensagem=str(
-                    exc
-                ),
-            )
-
-        except RedeErro as exc:
-            return _erro_rede(
-                exc
-            )
-
-        except Exception as exc:
-            return _erro(
-                codigo=(
-                    "route_create_error"
-                ),
-
-                mensagem=(
-                    "Não foi possível "
-                    "criar a rota."
-                ),
-
-                detalhes={
-                    "erro": str(
-                        exc
-                    )
-                },
-
-                status=500,
-            )
-
-    return _erro(
-        codigo="metodo_nao_permitido",
-        mensagem="Método não permitido.",
-        status=405,
-    )
+    try:
+        rota = salvar_rota(_ler_json(request))
+        return _resposta({
+            "rota": serializar_rota(rota),
+            "mensagem": "Rota salva como estado desejado.",
+        }, status=201)
+    except ValueError as exc:
+        return _erro(codigo="json_invalido", mensagem=str(exc))
+    except RedeErro as exc:
+        return _erro_rede(exc)
+    except Exception as exc:
+        return _erro(
+            codigo="route_create_error",
+            mensagem="Não foi possível criar a rota.",
+            detalhes={"erro": str(exc)},
+            status=500,
+        )
 
 
 # =============================================================================
@@ -515,6 +543,7 @@ def api_rotas(request):
 # =============================================================================
 
 
+@require_http_methods(["GET", "POST", "DELETE"])
 def api_rota_detalhe(
     request,
     rota_id: int,
@@ -554,9 +583,9 @@ def api_rota_detalhe(
                 status=404,
             )
 
-    # =========================================================================
-    # POST
-    # =========================================================================
+    bloqueio = _bloquear_mutacao_durante_safe_apply()
+    if bloqueio:
+        return bloqueio
 
     if request.method == "POST":
         try:
@@ -596,6 +625,14 @@ def api_rota_detalhe(
                 exc
             )
 
+        except Exception as exc:
+            return _erro(
+                codigo="route_update_error",
+                mensagem="Não foi possível atualizar a rota.",
+                detalhes={"erro": str(exc)},
+                status=500,
+            )
+
     # =========================================================================
     # DELETE
     # =========================================================================
@@ -619,11 +656,13 @@ def api_rota_detalhe(
                 status=404,
             )
 
-    return _erro(
-        codigo="metodo_nao_permitido",
-        mensagem="Método não permitido.",
-        status=405,
-    )
+        except Exception as exc:
+            return _erro(
+                codigo="route_delete_error",
+                mensagem="Não foi possível remover a rota.",
+                detalhes={"erro": str(exc)},
+                status=500,
+            )
 
 
 # =============================================================================
@@ -673,6 +712,7 @@ def api_roteamento_aplicar(request):
                     "Roteamento enviado para "
                     "aplicação segura."
                 ),
+                "alteracao_ativa": serializar_alteracao(alteracao) if alteracao.em_andamento else None,
             },
             status=202,
         )

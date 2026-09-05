@@ -34,6 +34,8 @@ from rede.dominio.erros import (
     RoteamentoErro,
 )
 
+from rede.dominio.constantes import PAPEIS_GERENCIADOS
+from rede.dominio.tipos import ModoIPv4, PapelInterface
 from rede.dominio.validacoes import (
     validar_gateway,
     validar_rota_estatica,
@@ -97,6 +99,47 @@ def _obter_interface(
                 "cadastrada no MoonShield."
             )
         ) from exc
+
+
+def _obter_interface_por_id(interface_id: Any) -> InterfaceRede:
+    try:
+        return InterfaceRede.objects.get(pk=int(interface_id))
+    except (InterfaceRede.DoesNotExist, TypeError, ValueError) as exc:
+        raise InterfaceNaoEncontradaErro(
+            f"Interface #{interface_id} não está cadastrada no MoonShield."
+        ) from exc
+
+
+def _normalizar_dados_rota(dados: dict[str, Any]) -> dict[str, Any]:
+    """Aceita a referência por id usada pelo painel e o nome do contrato legado."""
+    normalizado = dict(dados)
+
+    if "interface_id" not in normalizado:
+        return normalizado
+
+    interface_id = normalizado.get("interface_id")
+    if interface_id in (None, ""):
+        normalizado["interface"] = ""
+        return normalizado
+
+    normalizado["interface"] = _obter_interface_por_id(interface_id).nome
+    return normalizado
+
+
+def _validar_interface_rota(interface: InterfaceRede) -> None:
+    if interface.papel not in PAPEIS_GERENCIADOS:
+        raise ConfiguracaoRedeInvalidaErro(
+            "Rota estática exige uma interface gerenciada pela topologia oficial.",
+            detalhes={"interface": interface.nome, "papel": interface.papel},
+        )
+
+
+def _endereco_prefixo_para_gateway(interface: InterfaceRede) -> tuple[str | None, int | None]:
+    """Usa o desejado estático ou o último observado em uma interface DHCP."""
+    if interface.ipv4_modo == ModoIPv4.STATIC.value:
+        return interface.ipv4_endereco, interface.ipv4_prefixo
+
+    return interface.ipv4_atual, interface.prefixo_atual
 
 
 # =============================================================================
@@ -323,9 +366,8 @@ def salvar_rota(
     Cria/atualiza rota desejada.
     """
 
-    normalizado = validar_rota_estatica(
-        dados
-    )
+    dados = _normalizar_dados_rota(dados)
+    normalizado = validar_rota_estatica(dados)
 
     # A rota default pertence à configuração da WAN.
     if (
@@ -339,16 +381,13 @@ def salvar_rota(
             )
         )
 
-    interface = None
-
-    if normalizado[
-        "interface"
-    ]:
-        interface = _obter_interface(
-            normalizado[
-                "interface"
-            ]
+    interface = _obter_interface(normalizado["interface"]) if normalizado["interface"] else None
+    if interface is None:
+        raise ConfiguracaoRedeInvalidaErro(
+            "Rota estática exige uma interface de saída gerenciada.",
         )
+
+    _validar_interface_rota(interface)
 
     # -------------------------------------------------------------------------
     # GATEWAY DEVE SER ALCANÇÁVEL PELA INTERFACE
@@ -358,21 +397,12 @@ def salvar_rota(
         "gateway"
     ]
 
-    if (
-        gateway
-        and interface
-        and interface.ipv4_endereco
-        and interface.ipv4_prefixo
-        is not None
-    ):
+    endereco, prefixo = _endereco_prefixo_para_gateway(interface)
+    if gateway and endereco and prefixo is not None:
         validar_gateway(
             gateway,
-            endereco=(
-                interface.ipv4_endereco
-            ),
-            prefixo=(
-                interface.ipv4_prefixo
-            ),
+            endereco=endereco,
+            prefixo=prefixo,
             obrigatorio=True,
         )
 
@@ -383,13 +413,7 @@ def salvar_rota(
             rota_id
         )
 
-    rota.nome = str(
-        dados.get(
-            "nome",
-            "",
-        )
-        or ""
-    ).strip()
+    rota.nome = str(dados.get("nome", "") or "").strip()
 
     rota.destino = normalizado[
         "destino"
@@ -452,50 +476,38 @@ def montar_payload_roteamento() -> dict:
 
     config = obter_configuracao()
 
-    rotas = (
-        RotaEstatica.objects
-        .select_related(
-            "interface"
-        )
-        .filter(
-            ativa=True
-        )
-        .order_by(
-            "metrica",
-            "destino",
-        )
-    )
-
+    rotas = RotaEstatica.objects.select_related("interface").filter(ativa=True).order_by("metrica", "destino")
     payload_rotas = []
 
     for rota in rotas:
-        payload_rotas.append(
-            {
-                "id": rota.pk,
-                "destino": rota.destino,
-                "gateway": rota.gateway,
+        if rota.interface is None:
+            raise ConfiguracaoRedeInvalidaErro(
+                f"Rota estática #{rota.pk} não possui interface de saída.",
+            )
 
-                "interface": (
-                    rota.interface.nome
-                    if rota.interface
-                    else None
-                ),
+        _validar_interface_rota(rota.interface)
+        payload_rotas.append({
+            "id": rota.pk,
+            "destino": rota.destino,
+            "gateway": rota.gateway,
+            "interface_nome": rota.interface.nome,
+            "metrica": rota.metrica,
+            "ativa": True,
+        })
 
-                "metrica": rota.metrica,
-            }
-        )
+    interfaces_alvo = list(
+        InterfaceRede.objects.exclude(papel=PapelInterface.NAO_ATRIBUIDA.value)
+        .order_by("nome")
+        .values_list("nome", flat=True)
+    )
 
     return {
         "ipv4_forward": (
             config.ipv4_forward
         ),
 
-        "gerenciar_rota_default": (
-            config
-            .gerenciamento_automatico_rota_default
-        ),
-
         "rotas": payload_rotas,
+        "interfaces_alvo": interfaces_alvo,
     }
 
 

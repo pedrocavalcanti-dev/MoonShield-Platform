@@ -1,129 +1,180 @@
-# MoonShield — Guia Oficial de Desenvolvimento
+# MoonShield — AGENTS.md
 
-## 1. Objetivo deste arquivo
+## 1. Papel do Codex
 
-Este arquivo define as regras obrigatórias para qualquer agente de código, incluindo Codex, que trabalhe no repositório MoonShield.
+Este arquivo contém regras obrigatórias para agentes de código trabalhando no MoonShield.
 
-O projeto é conduzido pelo Pedro com apoio do ChatGPT como guia de arquitetura, revisão técnica, priorização e validação de decisões. O Codex deve atuar principalmente como executor técnico dentro do workspace: ler o código existente, implementar alterações, testar, revisar o diff e reportar claramente o que foi feito.
+Fluxo:
 
-O Codex NÃO possui comunicação automática com o ChatGPT. Quando o usuário disser que uma decisão, regra ou arquitetura foi definida pelo ChatGPT, trate essa informação como parte da especificação fornecida pelo usuário.
+Pedro
+→ ChatGPT define/revisa arquitetura, prioridade e critérios
+→ Codex analisa o workspace
+→ Codex implementa
+→ Codex testa
+→ Codex revisa o diff
+→ Pedro valida em Linux quando necessário
+→ ChatGPT revisa
+→ próximo lote
+
+O Codex deve atuar como executor técnico.
+
+Antes de editar:
+- leia este arquivo;
+- leia os arquivos relacionados;
+- procure consumidores/produtores;
+- entenda contratos existentes;
+- verifique impacto.
+
+Não reescreva o MoonShield do zero.
+Prefira alterações incrementais, pequenas e testáveis.
+
+Se uma instrução explícita recente do usuário conflitar com este arquivo, a instrução recente prevalece.
 
 ---
 
-# 2. Visão do produto
+# 2. Produto
 
-MoonShield é uma plataforma de segurança e gerenciamento de rede que deverá evoluir para um appliance Linux instalável, com futura imagem ISO própria baseada em Debian.
+Foco atual:
 
-O produto combina:
-- gerenciamento de interfaces;
-- roteamento;
-- NAT;
-- firewall;
-- DNS;
-- IDS/IPS com Suricata;
-- descoberta de dispositivos;
-- monitoramento;
-- incidentes;
-- auditoria;
-- diagnóstico;
-- painel web;
-- alterações de rede com Safe Apply.
+MOONSHIELD APPLIANCE ISO
 
-Objetivo final: instalar MoonShield em máquina física ou virtual e usá-lo como gateway/firewall de rede.
+A antiga instalação Linux genérica foi salva separadamente.
+
+Daqui em diante podemos alterar Django, Agent, banco, frontend e fluxos pensando somente na appliance.
+
+Destino:
+
+- Debian 13 amd64;
+- instalação por ISO;
+- systemd;
+- PostgreSQL;
+- NetworkManager;
+- nftables;
+- Suricata;
+- AdGuard Home;
+- MoonShield Agent;
+- Django;
+- Gunicorn;
+- Nginx;
+- console local.
+
+A ISO final deve instalar os componentes principais sem depender da internet.
+
+Internet será usada posteriormente para:
+- updates;
+- feeds;
+- regras;
+- integrações externas.
 
 ---
 
-# 3. Arquitetura principal
+# 3. Arquitetura
 
-## 3.1 Django / Control Plane
+Fluxo principal:
+
+Browser
+→ Nginx
+→ Django
+→ MoonShield Agent
+→ Linux
+
+Componentes Linux:
+
+- NetworkManager;
+- nftables;
+- Suricata;
+- AdGuard;
+- systemd.
 
 Responsabilidades:
+
+Django:
+- control plane;
 - interface web;
 - APIs;
 - autenticação;
 - regras de negócio;
-- estado desejado;
+- desired state;
 - topologia;
+- reconciliação;
 - histórico;
 - auditoria;
-- validação;
-- orquestração;
-- persistência em PostgreSQL;
-- comparação desejado x real;
-- reconciliação;
-- integração entre módulos.
+- PostgreSQL.
 
-O Django NÃO deve executar diretamente:
-- nmcli
-- ip
-- nft
-- iptables
-- ip6tables
-- sysctl
-- systemctl
-- alterações privilegiadas de rede
-- alterações diretas em /etc/NetworkManager
-- alterações diretas em /etc/network
-- alterações diretas de nftables
+Agent:
+- executor privilegiado;
+- leitura do estado Linux;
+- NetworkManager;
+- nftables;
+- rotas;
+- NAT;
+- snapshots;
+- rollback;
+- systemd;
+- integrações privilegiadas.
 
-Essas responsabilidades pertencem ao MoonShield-Agent.
+PostgreSQL:
+- desired state;
+- histórico;
+- auditoria;
+- configurações persistentes.
 
-## 3.2 MoonShield-Agent / executor privilegiado
+Linux:
+- observed state.
 
-Responsabilidades:
-- conversar com Linux;
-- consultar NetworkManager;
-- aplicar configurações;
-- consultar estado real;
-- executar operações privilegiadas;
-- criar snapshots;
-- executar rollback;
-- manter timer real de rollback;
-- aplicar nftables;
-- aplicar NAT;
-- consultar rotas;
-- consultar interfaces;
-- retornar resultados estruturados ao Django.
+Regra:
 
-O Agent NÃO deve decidir:
+PostgreSQL = desejado
+Linux = observado
+Django = decisão/orquestração
+Agent = execução privilegiada
+
+---
+
+# 4. Limites Django ↔ Agent
+
+Django NÃO deve executar diretamente:
+
+- nmcli;
+- ip;
+- nft;
+- iptables;
+- ip6tables;
+- sysctl;
+- systemctl;
+- alterações privilegiadas;
+- escrita direta em configurações críticas do Linux.
+
+Isso pertence ao Agent.
+
+O Agent NÃO decide:
+
 - qual interface é WAN;
-- qual interface é LAN;
-- qual interface é MGMT;
-- qual rede é HOME_NET;
-- qual topologia o usuário escolheu;
-- qual interface deve ser principal por regra de produto.
+- qual é LAN;
+- qual é MGMT;
+- HOME_NET;
+- topologia;
+- política de produto.
 
 Essas decisões pertencem ao Django.
 
----
-
-# 4. Fonte de verdade
-
-Regra principal:
-
-```text
-PostgreSQL = estado desejado + histórico + auditoria
-Linux      = estado real / observado
-Agent      = executor e leitor privilegiado
-Django     = cérebro / orquestrador
-```
-
-Nunca sobrescrever silenciosamente o estado desejado com o estado real.
-Nunca assumir que o banco representa o estado atual do Linux.
-Nunca assumir que o Linux está correto sem comparar com o desejado.
+Não alterar Django e Agent no mesmo lote sem necessidade explícita.
 
 ---
 
-# 5. Network Control é a fonte oficial de topologia
+# 5. Network Control
 
-O módulo `rede` deve comandar:
+O módulo `rede` é a fonte oficial de topologia.
+
+Ele controla:
+
 - WAN;
 - LAN;
 - MGMT;
 - DMZ;
-- redes internas;
-- papéis das interfaces;
-- gerenciamento administrativo;
+- CUSTOM;
+- UNASSIGNED;
+- interfaces;
 - IPv4;
 - gateway;
 - rota padrão;
@@ -131,362 +182,278 @@ O módulo `rede` deve comandar:
 - MTU;
 - roteamento;
 - NAT;
-- HOME_NET calculado;
-- estado desejado;
-- estado observado;
-- divergência;
-- reconciliação.
-
-Firewall, DNS, Suricata e Dispositivos devem consumir dados do Network Control.
-
-## Firewall
-Recebe da Rede:
-- WAN;
-- LAN;
-- MGMT;
 - redes internas;
 - HOME_NET;
-- interfaces físicas correspondentes.
+- desired state;
+- observed state;
+- reconciliação;
+- drift.
 
-## DNS
-Recebe:
-- IP da LAN;
-- redes internas;
-- interfaces locais relevantes.
+Firewall, DNS, Suricata, Dispositivos, DHCP e futuros módulos devem consumir a topologia da Rede.
 
-## Suricata
-Recebe:
-- HOME_NET;
-- redes internas;
-- interfaces monitoráveis.
-
-## Dispositivos
-Usa a classificação:
-- WAN;
-- LAN;
-- MGMT;
-- DMZ;
-- CUSTOM.
+Não criar fontes paralelas de WAN/LAN/HOME_NET.
 
 ---
 
-# 6. Topologia suportada
+# 6. Topologia
 
-Nunca hardcodar quantidade fixa de interfaces.
-Nunca hardcodar nomes como enp0s3, enp0s8, eth0 ou ens18.
+Nunca hardcodar:
 
-## 2 NICs
-Obrigatórias:
-- WAN
-- LAN
+- quantidade fixa de NICs;
+- enp0s3;
+- enp0s8;
+- ens18;
+- eno1;
+- eth0;
+- qualquer nome físico específico.
 
-MGMT dedicada é opcional.
+2 NICs:
 
-Exemplo:
-```text
-NIC 1 = WAN
-NIC 2 = LAN
-MGMT dedicada = nenhuma
-```
+- WAN obrigatória;
+- LAN obrigatória;
+- MGMT dedicada opcional;
+- gerenciamento pode ocorrer pela LAN.
 
-Gerenciamento pode ocorrer pela LAN.
+3+ NICs:
 
-## 3+ NICs
-Exemplo:
-```text
-WAN  = enp0s3
-LAN  = enp0s8
-MGMT = enp0s9
-```
+- WAN;
+- LAN;
+- MGMT opcional;
+- DMZ/CUSTOM/etc.
 
-MGMT continua opcional.
+Nunca assumir:
+
+terceira interface = MGMT
 
 Papéis válidos:
-- unassigned
-- wan
-- lan
-- mgmt
-- dmz
-- custom
 
-Regras:
-- WAN != LAN;
-- MGMT dedicada != WAN;
-- MGMT dedicada != LAN;
-- MGMT não é sinônimo de gerenciamento;
-- LAN pode permitir acesso administrativo;
-- unassigned = detectada, mas não gerenciada.
+- unassigned;
+- wan;
+- lan;
+- mgmt;
+- dmz;
+- custom.
 
----
+WAN != LAN.
 
-# 7. Estados das interfaces
+MGMT dedicada != WAN/LAN.
 
-Estados desejados:
-- unmanaged
-- synced
-- pending_apply
-- applying
-- waiting_confirmation
-- drifted
-- missing
-- error
-
-## unmanaged
-Interface detectada, mas ainda não administrada.
-
-## synced
-Desejado corresponde ao observado.
-
-## pending_apply
-Alteração desejada ainda não aplicada ao Linux.
-
-## applying
-Alteração em aplicação.
-
-## waiting_confirmation
-Aplicada e aguardando confirmação do Safe Apply.
-
-## drifted
-O Linux divergiu de uma configuração anteriormente aplicada.
-
-## missing
-Interface administrada não foi detectada.
-
-## error
-Falha de leitura, aplicação ou sincronização.
+UNASSIGNED = detectada mas não gerenciada.
 
 ---
 
-# 8. Estado desejado x observado
+# 7. Desired / Observed
 
-Preservar dois conceitos:
+Preservar sempre:
 
-```text
 desired
 observed
-```
 
-Exemplo:
-```json
-{
-  "desejado": {
-    "papel": "lan",
-    "ipv4_modo": "static",
-    "ipv4_endereco": "10.10.0.1",
-    "ipv4_prefixo": 24
-  },
-  "real": {
-    "estado_link": "up",
-    "ipv4": "10.10.0.1",
-    "prefixo": 24
-  }
-}
-```
+Nunca:
 
-O estado observado deve suportar múltiplos IPv4:
-```json
-{
-  "enderecos_ipv4": [
-    "10.53.52.49/24",
-    "10.53.52.51/24"
-  ]
-}
-```
+- substituir desired silenciosamente pelo Linux;
+- assumir que banco = estado real;
+- assumir que Linux está correto sem comparar.
 
----
+Observed deve suportar múltiplos IPv4.
 
-# 9. Revisões de configuração
+Revisões:
 
-Conceitos:
-```text
 revisao_desejada
 revisao_aplicada
-```
 
-Exemplo:
-```text
-desejada=5
-aplicada=4
-=> pending_apply
-```
+Se:
 
-Depois de confirmação:
-```text
-desejada=5
-aplicada=5
-```
+desejada > aplicada
+→ pending_apply
 
-Se o Linux divergir com revisões iguais:
-```text
-desired != observed
-=> drifted
-```
+Se:
+
+desejada == aplicada
+e desired != observed
+→ drifted
+
+Estados oficiais:
+
+- unmanaged;
+- synced;
+- pending_apply;
+- applying;
+- waiting_confirmation;
+- drifted;
+- missing;
+- error.
 
 ---
 
-# 10. Sincronização automática
+# 8. Reconciliação
 
-Ao abrir páginas de Rede:
+Ao consultar Rede:
+
 1. consultar estado;
 2. consultar Agent quando necessário;
-3. atualizar observado;
-4. persistir observado;
-5. comparar desejado x observado;
+3. obter observed;
+4. persistir observed;
+5. comparar desired x observed;
 6. calcular status;
-7. retornar ao frontend.
+7. responder ao frontend.
 
-`Atualizar` = força nova leitura.
-`Detectar interfaces` = força inventário.
-`Reconciliar` = força comparação completa.
+Ações:
 
-Reconciliação não deve aplicar automaticamente mudanças destrutivas.
+Atualizar = nova leitura.
+
+Detectar interfaces = novo inventário.
+
+Reconciliar = nova comparação.
+
+Reconciliação NÃO aplica automaticamente mudanças destrutivas.
 
 ---
 
-# 11. Safe Apply
+# 9. Safe Apply
 
-Fluxo obrigatório:
-```text
-estado desejado
-↓
-validação
-↓
-snapshot
-↓
-Agent aplica
-↓
-rollback armado
-↓
-waiting_confirmation
-↓
-usuário confirma
-↓
-rollback desarmado
-↓
-confirmed
-```
+Obrigatório para mudanças que possam interromper conectividade.
+
+Fluxo:
+
+desired
+→ validação
+→ snapshot
+→ Agent aplica
+→ rollback armado
+→ waiting_confirmation
+→ confirmação
+→ rollback desarmado
+→ confirmed
 
 Sem confirmação:
-```text
-waiting_confirmation
-↓
-rollback
-↓
-reverted
-```
 
-O timer real de rollback NÃO pode depender:
-- do navegador;
-- de JavaScript;
-- do processo Django;
-- de uma futura requisição HTTP.
+timeout
+→ rollback
+→ reverted
 
-O timer real pertence ao Agent.
+O timer real de rollback NÃO pode depender de:
 
----
+- browser;
+- JavaScript;
+- Django;
+- futura requisição HTTP.
 
-# 12. Proteção administrativa
+O rollback pertence ao lado privilegiado/Agent.
 
-Nunca alterar de forma destrutiva uma interface que mantém acesso administrativo sem Safe Apply.
-Nunca derrubar WAN/LAN ativa silenciosamente.
-Sempre preservar rollback.
+Nunca derrubar silenciosamente uma interface que mantém acesso administrativo.
 
 ---
 
-# 13. Firewall
+# 10. Roteamento
 
-Firewall usa nftables.
+Roteamento pertence ao módulo Rede.
 
-Regras:
+Deve respeitar:
+
+- topologia oficial;
+- WAN/LAN;
+- gateway;
+- default route;
+- métricas;
+- desired/observed;
+- Safe Apply;
+- Agent.
+
+Não alterar rota administrativa de forma destrutiva sem rollback.
+
+Não implementar NAT dentro do lote de Roteamento.
+
+---
+
+# 11. NAT
+
+NAT pertence à Rede.
+
+Responsabilidades:
+
+- MASQUERADE;
+- saída LAN → WAN;
+- integração com roteamento.
+
+Firewall trata:
+
+- ALLOW;
+- DENY;
+- DROP;
+- REJECT.
+
+Não misturar responsabilidades.
+
+---
+
+# 12. Firewall
+
+Backend:
+
+nftables
+
+Regras obrigatórias:
+
 - nunca usar `nft flush ruleset` como comportamento normal;
-- nunca apagar regras externas ao namespace MoonShield;
-- trabalhar somente nas tabelas/chains do MoonShield;
+- não apagar regras externas ao namespace MoonShield;
+- trabalhar apenas nas tabelas/chains MoonShield;
 - preservar conexões estabelecidas;
-- validar bloqueios globais perigosos;
-- preservar acesso administrativo.
+- preservar acesso administrativo;
+- validar regras globais perigosas.
 
-Firewall já possui fluxo validado:
-```text
-Django → Agent → nftables
-```
+Fluxo:
 
-Não reescrever sem necessidade.
+Django
+→ Agent
+→ nftables
 
----
-
-# 14. NAT
-
-NAT pertence ao módulo Rede.
-
-Firewall:
-- ALLOW
-- DENY
-- DROP
-- REJECT
-
-Rede:
-- MASQUERADE
-- NAT
-- roteamento
-- saída LAN → WAN
-
-Caso comum:
-```text
-LAN 10.10.0.0/24
-↓
-WAN
-↓
-MASQUERADE
-```
+Não reescrever esse contrato sem necessidade.
 
 ---
 
-# 15. HOME_NET
+# 13. HOME_NET
 
-O usuário não deve precisar digitar HOME_NET no fluxo normal.
+HOME_NET deve vir da Rede.
 
-Se LAN:
-```text
+Exemplo:
+
+LAN:
 10.10.0.1/24
-```
 
-Django calcula:
-```text
+Rede interna calculada:
 10.10.0.0/24
-```
 
-Na UI usar preferencialmente:
-```text
-Rede interna
-```
+O usuário não deve precisar preencher HOME_NET manualmente no fluxo normal.
+
+Suricata consome esse resultado.
 
 ---
 
-# 16. NetworkManager
+# 14. NetworkManager
 
-NetworkManager é o backend oficial da V1.
+NetworkManager é o backend oficial de rede da appliance.
 
-MoonShield deve:
-- detectar instalação;
-- instalar no bootstrap se necessário;
-- habilitar;
-- iniciar;
-- usar profiles persistentes;
-- preservar rede após reboot.
+Usar:
 
-Nunca assumir que NetworkManager já existe em Linux limpo.
-Nunca migrar automaticamente uma interface ativa de forma destrutiva no bootstrap.
+- perfis persistentes;
+- detecção dinâmica de interfaces;
+- configuração via Agent;
+- persistência após reboot.
+
+Não migrar/desativar interface administrativa de forma destrutiva durante bootstrap.
 
 ---
 
-# 17. PostgreSQL
+# 15. PostgreSQL
 
 PostgreSQL é o banco de produção.
 
-Persistir:
+Persistir nele:
+
 - interfaces;
-- desejado;
-- observado;
+- desired;
+- observed;
 - papéis;
 - roteamento;
 - NAT;
@@ -496,65 +463,57 @@ Persistir:
 - auditoria;
 - configurações.
 
-SQLite é somente DEV quando selecionado explicitamente.
+SQLite só pode ser usado explicitamente em DEV.
 
-Nunca criar fallback automático entre SQLite e PostgreSQL.
+Nunca criar fallback automático PostgreSQL → SQLite.
 
----
+Não modificar `.env` sem pedido.
 
-# 18. DATABASE_URL
-
-DEV:
-```env
-DATABASE_URL=sqlite:///banco_dados.sqlite3
-```
-
-PROD:
-```env
-DATABASE_URL=postgresql://moonshield:moonshield@127.0.0.1:5432/moonshield
-```
-
-Nunca modificar `.env` sem pedido explícito.
-Nunca criar segredo novo hardcoded.
+Não hardcodar segredos.
 
 ---
 
-# 19. Migrations
+# 16. Django
 
-Ao alterar models:
-1. informar que migration é necessária;
-2. gerar migration nova;
-3. nunca apagar migrations antigas;
-4. nunca editar migration já aplicada em produção;
-5. reportar nome da migration criada.
+Comando correto:
+
+python gerenciar.py
+
+NÃO usar:
+
+python manage.py
+
+Servidor atual:
+
+Gunicorn
+
+Não trocar para Uvicorn sem motivo arquitetural real.
 
 ---
 
-# 20. Frontend
+# 17. Frontend
 
-Não alterar visual sem necessidade quando a tarefa é lógica.
+Preservar quando não houver mudança visual explícita:
 
-Preservar:
 - IDs;
 - data-*;
-- Safe Apply;
-- drawer;
 - sidebar;
+- drawer;
 - toasts;
+- Safe Apply;
+- Histórico;
+- Aplicar Tudo;
+- Rollback;
 - responsividade.
 
-Não quebrar:
-- Aplicar Tudo;
-- Histórico;
-- Safe Apply;
-- Rollback;
-- navegação.
+Não fazer redesign junto com alteração lógica sem necessidade.
 
 ---
 
-# 21. Estilo de código
+# 18. Estilo de código
 
-Preferir:
+Preferir código:
+
 - compacto;
 - legível;
 - explícito;
@@ -563,298 +522,414 @@ Preferir:
 
 Evitar verticalização excessiva.
 
-Evitar:
-```python
-interface.ipv4_atual = (
-    item.get(
-        "ipv4"
-    )
-    or None
-)
-```
+Bom:
 
-Preferir:
-```python
 interface.ipv4_atual = item.get("ipv4") or None
-```
 
-Mas não minificar de forma ilegível.
+Evitar quebrar expressões simples em muitas linhas.
+
+Não minificar de forma ilegível.
 
 ---
 
-# 22. Fluxo obrigatório de desenvolvimento
+# 19. Segurança durante desenvolvimento
+
+Nunca:
+
+- expor tokens;
+- versionar secrets;
+- remover CSRF;
+- remover autenticação;
+- criar endpoint administrativo sem autenticação;
+- dar privilégios desnecessários;
+- executar comandos privilegiados diretamente no Django.
+
+Hardening completo será feito em etapa própria.
+
+Não transformar toda tarefa atual em auditoria genérica de segurança.
+
+---
+
+# 20. Windows x Linux
+
+Windows pode validar:
+
+- sintaxe;
+- imports;
+- Django;
+- migrations;
+- services;
+- APIs;
+- JS;
+- testes unitários.
+
+Linux/VM deve validar:
+
+- NetworkManager;
+- nmcli;
+- nftables;
+- systemd;
+- socket Unix;
+- Agent real;
+- interfaces reais;
+- rotas;
+- Suricata;
+- AdGuard;
+- reboot.
+
+Não fingir que uma validação Windows prova comportamento Linux.
+
+---
+
+# 21. VM de laboratório
+
+Ambiente atual pode usar nomes como:
+
+WAN = enp0s3
+LAN = enp0s8
+
+Isso é APENAS laboratório.
+
+Nunca hardcodar esses nomes no produto.
+
+Evitar alterações destrutivas na interface usada para administração.
+
+---
+
+# 22. Git
 
 Antes de editar:
-1. ler AGENTS.md;
-2. identificar arquivos relacionados;
-3. procurar consumidores;
-4. entender contratos;
-5. verificar impacto;
-6. preservar compatibilidade;
-7. informar se o Agent precisa mudar.
 
-Durante:
-1. alterar somente arquivos permitidos;
-2. não fazer refatorações fora do escopo;
-3. não alterar arquitetura sem necessidade;
-4. não alterar Agent se a tarefa disser Django apenas;
-5. não alterar frontend se a tarefa disser backend apenas;
-6. não mexer em configuração sem pedido.
+git status
 
 Depois:
-1. validar sintaxe;
-2. rodar testes relevantes;
-3. rodar Django check quando possível;
-4. revisar git diff;
-5. listar arquivos;
-6. listar testes;
-7. informar erros;
-8. informar migration;
-9. informar necessidade de mudança no Agent;
-10. nunca esconder falhas.
+
+git diff
+
+Nunca executar sem autorização explícita:
+
+git reset --hard
+git clean -fd
+
+Nunca descartar alterações locais silenciosamente.
 
 ---
 
 # 23. Regra de lotes
 
 Padrão:
-```text
-máximo 3 arquivos por lote
-```
 
-Se precisar de um quarto:
-- pare;
-- explique qual;
-- explique por quê;
-- aguarde autorização.
+máximo 3 arquivos por lote
+
+Se precisar de quarto arquivo:
+
+1. pare;
+2. informe o arquivo;
+3. explique por quê;
+4. aguarde autorização.
+
+Não ampliar escopo silenciosamente.
 
 ---
 
-# 24. Git
+# 24. Workflow obrigatório
 
 Antes:
-```bash
-git status
-```
+
+1. ler AGENTS.md;
+2. identificar arquivos do lote;
+3. procurar consumidores/produtores;
+4. entender contratos;
+5. verificar impacto;
+6. fazer `git status`.
+
+Durante:
+
+1. alterar somente o necessário;
+2. não refatorar fora do escopo;
+3. não mudar arquitetura sem necessidade;
+4. respeitar limite do lote;
+5. não alterar configuração real da VM sem pedido.
 
 Depois:
-```bash
-git diff
-```
 
-Nunca executar sem autorização explícita:
-```bash
-git reset --hard
-git clean -fd
-```
+1. validar sintaxe;
+2. executar testes relevantes;
+3. executar `gerenciar.py check`;
+4. revisar `git diff`;
+5. listar arquivos alterados;
+6. informar migrations;
+7. informar impacto no Agent;
+8. informar erros e pendências.
 
-Nunca descartar mudanças locais silenciosamente.
+Nunca esconder falhas.
 
 ---
 
-# 25. Windows x Linux
+# 25. Migrations
 
-No Windows pode validar:
-- sintaxe;
-- imports;
-- Django;
-- migrations;
-- serializers;
-- services;
-- APIs;
-- JS;
-- testes unitários.
+Ao alterar models:
 
-Não tentar validar no Windows:
+- gerar nova migration quando necessária;
+- nunca apagar migrations antigas;
+- nunca editar migration já aplicada;
+- informar o nome da migration criada.
+
+Se models não mudaram:
+
+Migration: não necessária.
+
+---
+
+# 26. Quando parar
+
+Parar e pedir autorização antes de:
+
+- alterar mais de 3 arquivos;
+- mudar arquitetura central;
+- quebrar contrato Django ↔ Agent;
+- alterar Django e Agent no mesmo lote;
+- apagar model/campo/tabela;
+- apagar migration;
+- mudar Safe Apply estruturalmente;
+- modificar `.env`;
+- alterar WAN ativa;
+- executar comando destrutivo;
+- aplicar mudança perigosa na VM.
+
+---
+
+# 27. Checkpoint atual
+
+Produto:
+
+100% MoonShield Appliance ISO.
+
+VM já possui e validou após reboot:
+
+- Debian 13;
 - NetworkManager;
-- nmcli;
-- nft;
-- systemctl;
-- socket Unix;
-- /run/moonshield/agent.sock;
-- interfaces Linux reais;
-- Suricata real.
-
-Isso deve ser validado na VM Linux.
-
----
-
-# 26. Ambiente Linux de laboratório
-
-Exemplo atual:
-```text
-WAN  = enp0s3
-LAN  = enp0s8
-MGMT = nenhuma dedicada
-```
-
-Esses nomes são apenas do laboratório.
-Nunca hardcodar.
-
-Evitar alterações destrutivas na interface usada para administração.
-
----
-
-# 27. Persistência após reboot
-
-Antes de considerar Rede finalizado:
-```text
-reboot
-↓
-NetworkManager sobe
-↓
-WAN volta
-↓
-LAN volta
-↓
-rota volta
-↓
-NAT volta
-↓
-Firewall volta
-↓
-Agent volta
-↓
-Django reconcilia
-↓
-painel mostra estado correto
-```
-
----
-
-# 28. Appliance / ISO
-
-Só iniciar ISO depois de validar:
-- Network;
-- Firewall;
-- DNS;
-- Suricata;
-- integrações;
-- reboot;
-- bootstrap em Linux limpo.
-
-Destino:
-- Debian 13 amd64;
-- systemd;
-- PostgreSQL;
-- NetworkManager;
-- Agent;
+- PostgreSQL 17;
 - Django;
-- Firewall;
-- DNS;
-- Suricata;
-- console local.
+- Gunicorn;
+- Nginx;
+- moonshield-web.service;
+- nftables;
+- Suricata 7.0.10;
+- Emerging Threats Open;
+- AdGuard Home v0.107.79;
+- DNS via AdGuard.
+
+Não reinstalar componentes já existentes sem necessidade.
 
 ---
 
-# 29. Segurança
+# 28. Network Control — progresso
 
-Nunca:
-- expor tokens;
-- versionar `.env`;
-- hardcodar secrets;
-- remover CSRF;
-- remover autenticação;
-- abrir privilégios desnecessários;
-- executar comando privilegiado via Django;
-- criar endpoint administrativo sem autenticação.
+Concluído:
 
-A auditoria completa de hardening será feita no fim do projeto. Durante o desenvolvimento atual, priorizar funcionalidade correta sem transformar cada tarefa em auditoria genérica.
-
----
-
-# 30. Prioridade atual
-
-Ordem oficial:
-1. interfaces desired/observed;
-2. reconciliação;
-3. topologia;
-4. overview;
-5. roteamento;
-6. NAT;
-7. Safe Apply;
-8. diagnóstico;
-9. Network → Firewall;
-10. Network → DNS;
-11. Network → Suricata;
-12. reboot/persistência;
-13. appliance/ISO.
-
----
-
-# 31. Lotes atuais
-
-## Lote 1
-- `MoonShield/aplicativos/rede/models.py`
-- `MoonShield/aplicativos/rede/services/interfaces.py`
-- `MoonShield/aplicativos/rede/dominio/tipos.py`
-
-Objetivos:
-- desired x observed;
-- status;
+Lote 1
+- desired/observed;
 - revisões;
-- múltiplos IPv4;
-- drift;
-- compatibilidade.
+- múltiplos IPv4.
 
-## Lote 2
-- `MoonShield/aplicativos/rede/dominio/validacoes.py`
-- `MoonShield/aplicativos/rede/services/reconciliacao.py`
-- `MoonShield/aplicativos/rede/services/inventario.py`
+Lote 2
+- inventário;
+- validação;
+- reconciliação.
 
-Objetivos:
-- validações;
-- reconciliação;
-- atualização automática;
-- inventário observado.
+Lote 3
+- interfaces/status API;
+- Agent health separado.
 
-## Lote 3
-- `MoonShield/aplicativos/rede/api/interfaces.py`
-- `MoonShield/aplicativos/rede/api/status.py`
-- `MoonShield/aplicativos/rede/api/urls.py`
+Lote 4
+- topologia oficial.
 
-## Lote 4
-- `MoonShield/aplicativos/rede/services/topologia.py`
-- `MoonShield/aplicativos/rede/api/topologia.py`
-- `MoonShield/aplicativos/rede/dominio/constantes.py`
+Lote 5
+- frontend Interfaces.
 
-## Lote 5
-- `MoonShield/static/js/rede/secoes/interfaces.js`
-- `MoonShield/templates/rede/parciais/_interfaces.html`
-- `MoonShield/static/js/rede/painel.js`
+Lote 6
+- Overview usando topologia oficial.
 
-## Lote 6
-- `MoonShield/static/js/rede/secoes/visao_geral.js`
-- `MoonShield/templates/rede/parciais/_visao_geral.html`
-- `MoonShield/aplicativos/rede/api/status.py`
+Próximo:
 
-## Lote 7
+Lote 7 — Roteamento
+
+Depois:
+
+Lote 8 — NAT
+Lote 9 — Safe Apply
+Lote 10 — Diagnóstico
+
+Não pular essa sequência.
+
+---
+
+# 29. Arquivos dos próximos lotes
+
+## Lote 7 — Roteamento
+
 - `MoonShield/aplicativos/rede/services/roteamento.py`
 - `MoonShield/aplicativos/rede/api/roteamento.py`
 - `MoonShield/static/js/rede/secoes/roteamento_nat.js`
 
-## Lote 8
+## Lote 8 — NAT
+
 - `MoonShield/aplicativos/rede/services/nat.py`
 - `MoonShield/aplicativos/rede/api/nat.py`
 - `MoonShield/templates/rede/parciais/_roteamento_nat.html`
 
-## Lote 9
+## Lote 9 — Safe Apply
+
 - `MoonShield/aplicativos/rede/services/alteracoes.py`
 - `MoonShield/aplicativos/rede/api/alteracoes.py`
 - `MoonShield/static/js/rede/componentes/safe_apply.js`
 
-## Lote 10
+## Lote 10 — Diagnóstico
+
 - `MoonShield/aplicativos/rede/services/diagnostico.py`
 - `MoonShield/aplicativos/rede/api/diagnostico.py`
 - `MoonShield/static/js/rede/secoes/diagnostico.js`
 
 ---
 
-# 32. Formato de resposta do Codex
+# 30. MoonShield Agent
 
-Ao terminar cada tarefa, responder:
+Código atual:
 
-```text
+`MoonShield-Agent/`
+
+Já existem módulos relacionados a:
+
+- NetworkManager;
+- inventário;
+- aplicação;
+- validação;
+- diagnóstico;
+- roteamento;
+- NAT;
+- snapshot;
+- rollback;
+- IPC;
+- firewall;
+- Suricata.
+
+Ainda NÃO assumir como definidos:
+
+- entrypoint final;
+- daemon final;
+- socket final;
+- service systemd final;
+- contrato final Django ↔ Agent.
+
+Não criar `moonshield-agent.service` por suposição.
+
+Depois dos Lotes 7–10:
+
+1. analisar Agent completo;
+2. fechar contrato Django ↔ Agent;
+3. definir execução/IPC;
+4. testar em Linux real.
+
+---
+
+# 31. Sequência após Rede
+
+Depois dos Lotes 7–10:
+
+1. fechar MoonShield Agent;
+2. testar Django ↔ Agent ↔ NetworkManager;
+3. integrar Agent ↔ nftables;
+4. integrar Suricata;
+5. integrar AdGuard;
+6. adaptar painel para Appliance;
+7. criar onboarding;
+8. criar console local;
+9. hardening final;
+10. automatizar instalação;
+11. gerar ISO;
+12. testar instalação limpa;
+13. validar reprodutibilidade.
+
+Não antecipar essas etapas sem necessidade.
+
+---
+
+# 32. Appliance UI
+
+Como os componentes farão parte da ISO, evitar conceitos antigos como:
+
+"Instalar Suricata"
+"Instalar AdGuard"
+"Instalar nftables"
+
+Preferir:
+
+Suricata
+- status;
+- configuração;
+- regras;
+- diagnóstico.
+
+AdGuard
+- status;
+- configuração;
+- integração.
+
+Firewall
+- política;
+- regras;
+- status.
+
+Isso será feito após Network/Agent.
+
+---
+
+# 33. Reboot / persistência
+
+Antes de considerar Rede finalizada, validar em Linux:
+
+reboot
+→ NetworkManager
+→ WAN
+→ LAN
+→ rota
+→ NAT
+→ Firewall
+→ Agent
+→ Django/reconciliação
+→ painel coerente
+
+Não considerar funcionalidade de rede concluída apenas por testes unitários.
+
+---
+
+# 34. ISO
+
+A VM atual é a appliance de desenvolvimento.
+
+Primeiro fazemos o software funcionar nela.
+
+Depois transformamos passos manuais em instalação reproduzível.
+
+Critério final:
+
+VM vazia
+→ instala ISO
+→ primeiro boot
+→ serviços ativos
+→ onboarding
+→ configuração da rede
+→ appliance funcional
+
+Se destruir a VM e reinstalar, o resultado deve ser reproduzível.
+
+---
+
+# 35. Formato de resposta
+
+Após implementação:
+
 Resumo
 - ...
 
@@ -871,88 +946,28 @@ Migration
 - necessária / não necessária
 
 Testes executados
-- comando
-- resultado
+- comando → resultado
 
-Agent
+Impacto no Agent
 - precisa / não precisa mudar
 
 Pendências
 - ...
-```
 
-Nunca responder apenas "feito".
-
----
-
-# 33. Quando parar e pedir autorização
-
-Parar antes de:
-- alterar mais de 3 arquivos;
-- quebrar contrato Django ↔ Agent;
-- apagar campo/model;
-- apagar migration;
-- remover tabela;
-- mudar Safe Apply estruturalmente;
-- alterar WAN ativa;
-- executar comando destrutivo;
-- modificar `.env`;
-- mudar arquitetura central;
-- alterar Django e Agent no mesmo lote sem autorização.
+Não responder apenas "feito".
 
 ---
 
-# 34. Relação Codex + ChatGPT
+# 36. Regra final
 
-Fluxo preferencial:
-
-```text
-Pedro
-↓
-ChatGPT ajuda a definir arquitetura, prioridade e critérios
-↓
-Pedro fornece tarefa ao Codex
-↓
-Codex lê workspace
-↓
-Codex implementa
-↓
-Codex testa
-↓
-Codex mostra diff
-↓
-Pedro valida em Linux quando necessário
-↓
-ChatGPT revisa resultado e orienta próximo passo
-↓
-próximo lote
-```
-
-O Codex deve respeitar decisões arquiteturais fornecidas pelo usuário, inclusive quando ele disser que foram definidas junto com o ChatGPT.
-
-Se houver conflito entre sugestão automática do Codex e este documento, este documento prevalece.
-Se houver conflito entre este documento e uma instrução explícita mais recente do usuário, a instrução explícita do usuário prevalece.
-
----
-
-# 35. Regra final
-
-Antes de qualquer alteração relevante:
-
-> Leia este arquivo inteiro.
-
-Depois:
-
-> Entenda o fluxo atual antes de editar.
+Antes:
+entenda o código.
 
 Durante:
+altere somente o necessário.
 
-> Altere somente o necessário.
+Depois:
+teste e revise o diff.
 
-Ao finalizar:
-
-> Teste, revise o diff e reporte tudo.
-
-O objetivo não é reescrever o MoonShield do zero.
-
-O objetivo é finalizar o MoonShield de forma incremental, segura, coerente e testável.
+Objetivo:
+finalizar o MoonShield Appliance de forma incremental, segura e testável.

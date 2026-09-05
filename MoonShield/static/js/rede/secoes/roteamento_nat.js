@@ -1153,12 +1153,13 @@ function atualizarOpcoesInterfaces() {
 
 
 function interfaceDisponivelParaSelecao(item) {
-    if (!item || item.habilitada === false) return false;
+    const desejado = item?.desejado || item || {};
+    if (!item || desejado.habilitada === false) return false;
 
     const nome = String(item.nome || '').trim();
     if (!nome || nome === 'lo') return false;
 
-    return true;
+    return desejado.papel && desejado.papel !== 'unassigned';
 }
 
 
@@ -1177,7 +1178,8 @@ function preencherSelectInterface(select, lista, placeholder) {
         const option = document.createElement('option');
 
         option.value = String(item.id);
-        option.textContent = `${item.nome} · ${rotuloPapel(item.papel)}`;
+        const desejado = item.desejado || item;
+        option.textContent = `${item.nome} · ${rotuloPapel(desejado.papel)}`;
 
         select.appendChild(option);
     });

@@ -56,7 +56,8 @@ from rede.services.alteracoes import (
     executar_rollback,
     listar_alteracoes,
     obter_alteracao,
-    reconciliar_alteracoes_expiradas,
+    obter_alteracao_ativa,
+    reconciliar_alteracoes_ativas,
     serializar_alteracao,
 )
 
@@ -114,6 +115,23 @@ def _erro(
     )
 
 
+def _detalhes_com_alteracao(
+    exc: RedeErro,
+) -> dict:
+    detalhes = dict(exc.detalhes or {})
+    alteracao_id = detalhes.get("alteracao_id")
+
+    if alteracao_id:
+        try:
+            detalhes["alteracao"] = serializar_alteracao(
+                obter_alteracao(alteracao_id)
+            )
+        except Exception:
+            pass
+
+    return detalhes
+
+
 def _erro_rede(
     exc: RedeErro,
     *,
@@ -153,10 +171,21 @@ def _erro_rede(
         ):
             status = 409
 
+    detalhes = _detalhes_com_alteracao(exc)
+    codigo = exc.codigo
+
+    if (
+        status == 409
+        and isinstance(exc, AlteracaoEstadoInvalidoErro)
+        and detalhes.get("alteracao_id")
+        and detalhes.get("status") in set(AlteracaoRede.statuses_em_andamento())
+    ):
+        codigo = "alteracao_rede_em_andamento"
+
     return _erro(
-        codigo=exc.codigo,
+        codigo=codigo,
         mensagem=exc.mensagem,
-        detalhes=exc.detalhes,
+        detalhes=detalhes,
         status=status,
     )
 
@@ -288,6 +317,8 @@ def api_alteracoes(request):
             )
         )
 
+        ativa = obter_alteracao_ativa()
+
         return _resposta(
             {
                 "total": len(
@@ -296,6 +327,12 @@ def api_alteracoes(request):
 
                 "alteracoes": (
                     alteracoes
+                ),
+
+                "ativa": (
+                    serializar_alteracao(ativa)
+                    if ativa
+                    else None
                 ),
             }
         )
@@ -655,8 +692,7 @@ def api_alteracoes_reconciliar(
     """
     POST /rede/api/alteracoes/reconciliar/
 
-    Verifica alterações expiradas no PostgreSQL
-    e pergunta ao Agent o estado real.
+    Verifica alterações ativas no PostgreSQL e pergunta ao Agent o estado real.
 
     Não executa rollback cegamente.
     """
@@ -669,13 +705,18 @@ def api_alteracoes_reconciliar(
         return auth
 
     try:
-        total = (
-            reconciliar_alteracoes_expiradas()
-        )
+        total = reconciliar_alteracoes_ativas()
+        ativa = obter_alteracao_ativa()
 
         return _resposta(
             {
                 "processadas": total,
+
+                "ativa": (
+                    serializar_alteracao(ativa)
+                    if ativa
+                    else None
+                ),
 
                 "mensagem": (
                     "Reconciliação concluída."

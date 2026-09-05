@@ -21,6 +21,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
@@ -45,7 +46,7 @@ class RedeApiTests(TestCase):
 
     def request_get(self, path="/rede/api/test/", *, autenticado=True):
         request = self.factory.get(path)
-        request.user = self.usuario if autenticado else User()
+        request.user = self.usuario if autenticado else AnonymousUser()
         return request
 
     def request_post(
@@ -66,12 +67,12 @@ class RedeApiTests(TestCase):
             data=data,
             content_type=content_type,
         )
-        request.user = self.usuario if autenticado else User()
+        request.user = self.usuario if autenticado else AnonymousUser()
         return request
 
     def request_delete(self, path="/rede/api/test/", *, autenticado=True):
         request = self.factory.delete(path)
-        request.user = self.usuario if autenticado else User()
+        request.user = self.usuario if autenticado else AnonymousUser()
         return request
 
     def json(self, response):
@@ -237,11 +238,6 @@ class RedeApiTests(TestCase):
                 "reconciliar_alteracoes_ativas",
                 return_value=1,
             ),
-            patch.object(
-                api_alteracoes,
-                "reconciliar_alteracoes_expiradas",
-                return_value=0,
-            ),
         ):
             response = api_alteracoes.api_alteracoes_reconciliar(
                 self.request_post(
@@ -258,7 +254,7 @@ class RedeApiTests(TestCase):
             str(ativa.id),
         )
 
-    def test_confirmar_retorna_estado_final_e_sem_ativa(self):
+    def test_confirmar_retorna_estado_final(self):
         alteracao = self.criar_alteracao(
             status=AlteracaoRede.Status.CONFIRMADA
         )
@@ -280,9 +276,9 @@ class RedeApiTests(TestCase):
             dados["alteracao"]["status"],
             "confirmed",
         )
-        self.assertIsNone(dados["ativa"])
+        self.assertNotIn("ativa", dados)
 
-    def test_rollback_retorna_estado_final_e_sem_ativa(self):
+    def test_rollback_retorna_estado_final(self):
         alteracao = self.criar_alteracao(
             status=AlteracaoRede.Status.REVERTIDA
         )
@@ -310,7 +306,7 @@ class RedeApiTests(TestCase):
             dados["alteracao"]["status"],
             "reverted",
         )
-        self.assertIsNone(dados["ativa"])
+        self.assertNotIn("ativa", dados)
 
     def test_interfaces_get_permitido_com_safe_apply_ativo(self):
         ativa = self.criar_alteracao(
@@ -319,8 +315,8 @@ class RedeApiTests(TestCase):
 
         with patch.object(
             api_interfaces,
-            "listar_interfaces",
-            return_value=[],
+            "reconciliar_interfaces",
+            return_value={"backend": None, "total": 0, "interfaces": []},
         ):
             response = api_interfaces.api_interfaces(
                 self.request_get("/rede/api/interfaces/")

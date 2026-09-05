@@ -57,6 +57,7 @@ const MODULOS = {
 let inicializado = false;
 let carregando = false;
 let aplicandoTudo = false;
+let detectandoInterfaces = false;
 let statusTimer = null;
 
 
@@ -92,9 +93,14 @@ async function iniciarPainel() {
     inicializarModulos();
 
     const secaoInicial = obterSecaoInicial();
+    estado.set('ui.carregamentoInicial', true);
     ativarSecao(secaoInicial, { atualizarHash: false });
 
-    await carregarEstadoInicial();
+    try {
+        await carregarEstadoInicial();
+    } finally {
+        estado.set('ui.carregamentoInicial', false);
+    }
 
     // A operação ativa precisa ser conhecida antes de liberar qualquer mutação.
     await verificarAlteracaoAtiva();
@@ -435,7 +441,7 @@ function atualizarEstadoControles() {
 ========================================================================== */
 
 async function atualizarTudo() {
-    if (carregando) return;
+    if (carregando || detectandoInterfaces) return;
 
     carregando = true;
     definirCarregamentoGlobal(true);
@@ -474,7 +480,9 @@ async function atualizarTudo() {
 ========================================================================== */
 
 async function detectarInterfaces() {
-    if (carregando) return;
+    if (carregando || detectandoInterfaces) return;
+
+    detectandoInterfaces = true;
 
     const botoes = [elementos.detectButton, elementos.interfacesDetectButton].filter(Boolean);
     botoes.forEach(botao => definirBotaoCarregando(botao, true));
@@ -483,29 +491,26 @@ async function detectarInterfaces() {
         const resposta = await api.post(api.urls.detectarInterfaces, {});
         const dados = resposta?.dados || {};
 
-        estado.set('interfaces.lista', Array.isArray(dados.interfaces) ? dados.interfaces : []);
-        estado.set('interfaces.backend', dados.backend || null);
-
         const ativa = dados.alteracao_ativa;
         if (ativa) {
             estado.set('alteracoes.ativa', ativa);
             safeApply.sincronizar?.(ativa);
         }
 
-        interfaces.renderizar?.();
+        const lista = await interfaces.carregar?.({ silencioso: true }) || [];
         visaoGeral.atualizarInterfaces?.();
         atualizarResumoBackend();
 
         notificacao.sucesso(
             'Interfaces detectadas',
-            `${Number(dados.total || dados.interfaces?.length || 0)} interface(s) encontrada(s).`
+            `${Number(lista.length)} interface(s) encontrada(s).`
         );
 
-        await carregarStatus({ silencioso: true });
         atualizarHorario();
     } catch (error) {
         exibirErroOperacao(error, 'Não foi possível detectar as interfaces do sistema.');
     } finally {
+        detectandoInterfaces = false;
         botoes.forEach(botao => definirBotaoCarregando(botao, false));
         atualizarEstadoControles();
     }
@@ -730,11 +735,13 @@ function definirBotaoCarregando(botao, ativo) {
         if (!botao.dataset.originalHtml) botao.dataset.originalHtml = botao.innerHTML;
         botao.disabled = true;
         botao.classList.add('is-loading');
+        botao.setAttribute('aria-busy', 'true');
         botao.innerHTML = '<span class="np-spinner"></span>';
         return;
     }
 
     botao.classList.remove('is-loading');
+    botao.setAttribute('aria-busy', 'false');
 
     if (botao.dataset.originalHtml) {
         botao.innerHTML = botao.dataset.originalHtml;

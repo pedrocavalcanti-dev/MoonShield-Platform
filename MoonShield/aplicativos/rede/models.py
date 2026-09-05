@@ -29,6 +29,8 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
+from rede.dominio.tipos import EstadoSincronizacao
+
 
 # =============================================================================
 # MIXINS
@@ -285,6 +287,12 @@ class InterfaceRede(TimeStampedModel):
         null=True,
     )
 
+    enderecos_ipv4 = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Todos os endereços IPv4 observados pelo Agent.",
+    )
+
     prefixo_atual = models.PositiveSmallIntegerField(
         blank=True,
         null=True,
@@ -313,6 +321,24 @@ class InterfaceRede(TimeStampedModel):
     # -------------------------------------------------------------------------
     # SINCRONIZAÇÃO
     # -------------------------------------------------------------------------
+
+    estado_sincronizacao = models.CharField(
+        max_length=24,
+        choices=[
+            (estado.value, estado.value)
+            for estado in EstadoSincronizacao
+        ],
+        default=EstadoSincronizacao.UNMANAGED.value,
+        db_index=True,
+    )
+
+    revisao_desejada = models.PositiveIntegerField(
+        default=1,
+    )
+
+    revisao_aplicada = models.PositiveIntegerField(
+        default=1,
+    )
 
     sincronizada = models.BooleanField(
         default=False,
@@ -378,7 +404,7 @@ class InterfaceRede(TimeStampedModel):
 
     @property
     def possui_ipv4(self) -> bool:
-        return bool(self.ipv4_atual)
+        return bool(self.enderecos_ipv4 or self.ipv4_atual)
 
     @property
     def possui_configuracao_estatica(self) -> bool:
@@ -396,14 +422,17 @@ class InterfaceRede(TimeStampedModel):
         self.detectada_em = timezone.now()
 
     def marcar_erro(self, mensagem: str) -> None:
+        self.estado_sincronizacao = EstadoSincronizacao.ERROR.value
         self.sincronizada = False
         self.pendente = True
         self.ultimo_erro = str(mensagem or "")
 
     def marcar_sincronizada(self) -> None:
+        self.estado_sincronizacao = EstadoSincronizacao.SYNCED.value
         self.sincronizada = True
         self.pendente = False
         self.ultimo_erro = ""
+        self.revisao_aplicada = self.revisao_desejada
         self.aplicada_em = timezone.now()
 
 

@@ -36,13 +36,11 @@ from rede.services.alteracoes import (
     serializar_alteracao,
 )
 from rede.services.interfaces import (
-    listar_interfaces,
     obter_interface_por_id,
     salvar_configuracao_interface,
     serializar_interface,
-    sincronizar_inventario,
 )
-from rede.services.inventario import obter_inventario
+from rede.services.reconciliacao import obter_estado_reconciliado, reconciliar_interfaces
 
 
 def _resposta(dados=None, *, status: int = 200) -> JsonResponse:
@@ -127,6 +125,41 @@ def _alteracao_ativa_serializada():
     return serializar_alteracao(ativa) if ativa else None
 
 
+def _dados_interfaces(resultado: dict, *, reconciliado: bool, aviso=None) -> dict:
+    dados = {
+        "backend": resultado.get("backend"),
+        "total": resultado.get("total", 0),
+        "interfaces": resultado.get("interfaces", []),
+        "reconciliado": reconciliado,
+        "alteracao_ativa": _alteracao_ativa_serializada(),
+    }
+
+    if aviso is not None:
+        dados["aviso"] = aviso
+
+    return dados
+
+
+def _interfaces_persistidas(exc: RedeErro) -> dict:
+    """Mantém o último observado quando o Agent não pode ser consultado."""
+    resultado = obter_estado_reconciliado()
+    interfaces = resultado.get("interfaces", [])
+    resultado["backend"] = next(
+        (
+            interface.get("real", {}).get("backend")
+            for interface in interfaces
+            if interface.get("real", {}).get("backend")
+        ),
+        None,
+    )
+
+    return _dados_interfaces(
+        resultado,
+        reconciliado=False,
+        aviso={"codigo": exc.codigo, "mensagem": exc.mensagem},
+    )
+
+
 def _bloquear_configuracao_durante_safe_apply():
     """
     Impede mudança do estado desejado enquanto uma operação de rede está ativa.
@@ -165,14 +198,17 @@ def api_interfaces(request):
         return auth
 
     try:
-        interfaces = listar_interfaces()
-        return _resposta({
-            "total": len(interfaces),
-            "interfaces": interfaces,
-            "alteracao_ativa": _alteracao_ativa_serializada(),
-        })
+        return _resposta(_dados_interfaces(
+            reconciliar_interfaces(),
+            reconciliado=True,
+        ))
     except RedeErro as exc:
-        return _erro_rede(exc)
+        try:
+            return _resposta(_interfaces_persistidas(exc))
+        except RedeErro:
+            return _erro_rede(exc)
+        except Exception:
+            return _erro_rede(exc)
     except Exception as exc:
         return _erro(
             codigo="interfaces_list_error",
@@ -195,18 +231,10 @@ def api_interfaces_detectar(request):
         return auth
 
     try:
-        inventario = obter_inventario()
-        sincronizar_inventario(inventario)
-        interfaces = listar_interfaces()
-
-        return _resposta({
-            "backend": inventario.get("backend"),
-            "total": len(interfaces),
-            "interfaces": interfaces,
-            "alteracao_ativa": _alteracao_ativa_serializada(),
-        })
-    except AgentIndisponivelErro as exc:
-        return _erro_rede(exc, status=503)
+        return _resposta(_dados_interfaces(
+            reconciliar_interfaces(),
+            reconciliado=True,
+        ))
     except RedeErro as exc:
         return _erro_rede(exc)
     except Exception as exc:

@@ -110,6 +110,21 @@ PAPEIS_PRINCIPAIS = {
 }
 
 
+# Papéis que participam da topologia administrada pelo MoonShield. Interfaces
+# apenas detectadas permanecem no inventário, mas não compõem políticas.
+PAPEIS_GERENCIADOS = {
+    papel.value
+    for papel in PapelInterface
+    if papel != PapelInterface.NAO_ATRIBUIDA
+}
+
+
+# Na V1, somente LANs administradas formam as redes internas e o HOME_NET.
+PAPEIS_HOME_NET = {
+    PapelInterface.LAN.value,
+}
+
+
 PAPEIS_COM_ROTA_DEFAULT = {
     PapelInterface.WAN.value,
 }

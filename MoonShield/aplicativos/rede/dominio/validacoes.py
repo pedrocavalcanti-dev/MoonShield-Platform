@@ -956,8 +956,7 @@ def validar_topologia_interfaces(
     Regras:
 
         - interface não pode aparecer duas vezes;
-        - somente uma WAN principal;
-        - somente uma LAN principal;
+        - somente uma interface principal por papel gerenciado;
         - apenas uma rota default;
         - redes IPv4 estáticas não podem se sobrepor;
         - opcionalmente exige WAN + LAN.
@@ -1037,6 +1036,31 @@ def validar_topologia_interfaces(
         raise TopologiaInvalidaErro(
             "Existe mais de uma LAN principal."
         )
+
+    for item in normalizadas:
+        if (
+            item["papel"] == PapelInterface.NAO_ATRIBUIDA.value
+            and item["principal"]
+        ):
+            raise TopologiaInvalidaErro(
+                "Interface não atribuída não pode ser principal."
+            )
+
+    for papel in (
+        PapelInterface.MGMT.value,
+        PapelInterface.DMZ.value,
+        PapelInterface.CUSTOM.value,
+    ):
+        principais = [
+            item
+            for item in normalizadas
+            if item["papel"] == papel and item["principal"]
+        ]
+
+        if len(principais) > 1:
+            raise TopologiaInvalidaErro(
+                f"Existe mais de uma interface principal com papel '{papel}'."
+            )
 
     # -------------------------------------------------------------------------
     # ROTA DEFAULT

@@ -36,6 +36,14 @@
 
             <button
                 type="button"
+                class="np-btn np-btn--ghost"
+                id="interfacesRefreshButton"
+            >
+                Atualizar
+            </button>
+
+            <button
+                type="button"
                 class="
                     np-btn
                     np-btn--ghost
@@ -72,6 +80,13 @@
         </div>
 
     </div>
+
+    <div
+        class="np-form-notice"
+        id="interfacesUpdateWarning"
+        role="status"
+        hidden
+    ></div>
 
 
     <!-- ============================================================
@@ -338,6 +353,21 @@
                     <div class="np-interface-field">
 
                         <span>
+                            IPv4s atuais
+                        </span>
+
+                        <strong
+                            data-interface-current-ips
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
                             Gateway
                         </span>
 
@@ -388,6 +418,40 @@
 
                         <strong
                             data-interface-management
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div class="np-interface-field">
+
+                        <span>
+                            Revisões
+                        </span>
+
+                        <strong
+                            data-interface-revisions
+                        >
+                            —
+                        </strong>
+
+                    </div>
+
+
+                    <div
+                        class="np-interface-field"
+                        data-interface-error-row
+                        hidden
+                    >
+
+                        <span>
+                            Erro
+                        </span>
+
+                        <strong
+                            data-interface-error
                         >
                             —
                         </strong>
@@ -675,4 +739,3 @@
             </div>
         </aside>
     </div>
-

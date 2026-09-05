@@ -6,7 +6,7 @@
 'use strict';
 
 import { estado } from '../nucleo/estado.js';
-import { $, setText, setStatusPill, setStatusDot } from '../nucleo/dom.js';
+import { $, setHidden, setText, setStatusPill, setStatusDot } from '../nucleo/dom.js';
 import { formatarIpv4, paraBooleano, rotuloBackend } from '../nucleo/utilitarios.js';
 
 let inicializado = false;
@@ -39,6 +39,12 @@ const elementos = {
     lanIpv4: null,
     lanManagement: null,
     lanNat: null,
+    notice: null,
+    topologyState: null,
+    topologyDetails: null,
+    mgmt: null,
+    management: null,
+    homeNet: null,
 };
 
 
@@ -91,6 +97,13 @@ function cachearElementos() {
     elementos.lanIpv4 = $('#overviewLanIpv4');
     elementos.lanManagement = $('#overviewLanManagement');
     elementos.lanNat = $('#overviewLanNat');
+
+    elementos.notice = $('#overviewNetworkNotice');
+    elementos.topologyState = $('#overviewTopologyState');
+    elementos.topologyDetails = $('#overviewTopologyDetails');
+    elementos.mgmt = $('#overviewMgmt');
+    elementos.management = $('#overviewManagement');
+    elementos.homeNet = $('#overviewHomeNet');
 }
 
 
@@ -159,10 +172,12 @@ function atualizarBackend() {
 ========================================================================== */
 
 function atualizarInterfaces() {
+    const resumo = obterResumoInterfaces();
     const lista = estado.get('interfaces.lista', []);
-    const configuradas = lista.filter(item => item.papel && item.papel !== 'unassigned').length;
+    const total = resumo.total ?? lista.length;
+    const configuradas = resumo.configuradas ?? lista.filter(interfaceGerenciada).length;
 
-    setText(elementos.interfacesTotal, lista.length, '0');
+    setText(elementos.interfacesTotal, total, '0');
     setText(elementos.interfacesConfigured, configuradas, '0');
 
     atualizarTopologia();
@@ -174,16 +189,25 @@ function atualizarInterfaces() {
 ========================================================================== */
 
 function atualizarAlteracoes() {
-    const lista = estado.get('alteracoes.lista', []);
-    const ativa = estado.get('alteracoes.ativa');
+    const estados = obterResumoInterfaces().estados_sincronizacao || {};
+    const pendentes = contarEstados(estados, 'pending_apply', 'applying', 'waiting_confirmation');
+    const sincronizadas = Number(estados.synced || 0);
+    const drifted = Number(estados.drifted || 0);
+    const missing = Number(estados.missing || 0);
+    const erros = Number(estados.error || 0);
+    const resumo = [
+        `${sincronizadas} sincronizada(s)`,
+        `${pendentes} pendente(s)`,
+    ];
 
-    const pendentesLista = lista.filter(item => ['created', 'validating', 'applying', 'waiting_confirmation', 'rollback'].includes(item.status)).length;
-    const pendentes = ativa && !lista.some(item => obterId(item) === obterId(ativa)) ? pendentesLista + 1 : pendentesLista;
+    if (drifted) resumo.push(`${drifted} divergente(s)`);
+    if (missing) resumo.push(`${missing} ausente(s)`);
+    if (erros) resumo.push(`${erros} erro(s)`);
 
     setText(elementos.pendingChanges, pendentes, '0');
-    setText(elementos.syncState, pendentes > 0 ? 'Pendente' : 'Sincronizado');
+    setText(elementos.syncState, resumo.join(' · '));
 
-    elementos.syncState?.classList.toggle('is-warning', pendentes > 0);
+    elementos.syncState?.classList.toggle('is-warning', pendentes > 0 || drifted > 0 || missing > 0 || erros > 0);
 }
 
 
@@ -210,13 +234,14 @@ function atualizarRoteamento() {
 ========================================================================== */
 
 function atualizarTopologia() {
-    const lista = estado.get('interfaces.lista', []);
-    const wan = selecionarInterface(lista, 'wan');
-    const lan = selecionarInterface(lista, 'lan');
+    const topologia = obterTopologia();
+    const wan = atualizarObservado(topologia?.wan?.principal);
+    const lan = atualizarObservado(topologia?.lan?.principal);
 
     renderizarWan(wan);
     renderizarLan(lan);
     renderizarInternet(wan);
+    renderizarTopologia(topologia, lan);
 }
 
 
@@ -239,10 +264,9 @@ function renderizarWan(wan) {
         return;
     }
 
-    const online = interfaceOnline(wan);
-    const ipv4 = enderecoAtualOuDesejado(wan);
-    const gateway = wan.gateway_atual || wan.gateway || '—';
-    const metrica = wan.metrica_atual ?? wan.metrica ?? '—';
+    const ipv4 = enderecoExibido(wan);
+    const gateway = obterDesejado(wan, 'gateway') || obterReal(wan, 'gateway') || '—';
+    const metrica = obterDesejado(wan, 'metrica') ?? obterReal(wan, 'metrica') ?? '—';
 
     setText(elementos.wanInterface, wan.nome);
     setText(elementos.wanAddress, ipv4);
@@ -253,7 +277,7 @@ function renderizarWan(wan) {
     setText(elementos.wanGatewayInfo, gateway);
     setText(elementos.wanMetric, metrica);
 
-    setStatusPill(elementos.wanState, online ? 'ok' : 'error', online ? 'Online' : 'Offline');
+    renderizarEstadoSincronizacao(elementos.wanState, wan);
 }
 
 
@@ -276,21 +300,23 @@ function renderizarLan(lan) {
         return;
     }
 
-    const online = interfaceOnline(lan);
-    const ipv4 = enderecoAtualOuDesejado(lan);
-    const management = paraBooleano(lan.acesso_gerenciamento);
+    const ipv4 = enderecoExibido(lan);
+    const management = paraBooleano(obterDesejado(lan, 'acesso_gerenciamento'));
     const nat = natAtivoParaInterface(lan);
 
     setText(elementos.lanInterface, lan.nome);
     setText(elementos.lanAddress, ipv4);
-    setText(elementos.lanStatus, online ? 'Link ativo' : 'Link inativo');
+    setText(
+        elementos.lanStatus,
+        `${interfaceOnline(lan) ? 'Link ativo' : 'Link inativo'} · ${rotuloSincronizacao(lan)}`
+    );
 
     setText(elementos.lanName, lan.nome);
     setText(elementos.lanIpv4, ipv4);
     setText(elementos.lanManagement, management ? 'Permitido' : 'Não');
     setText(elementos.lanNat, nat ? 'Ativo' : 'Não configurado');
 
-    setStatusPill(elementos.lanState, online ? 'ok' : 'error', online ? 'Online' : 'Offline');
+    renderizarEstadoSincronizacao(elementos.lanState, lan);
 }
 
 
@@ -316,7 +342,9 @@ function renderizarInternet(wan) {
             ? paraBooleano(internet.ok ?? internet.online ?? internet.sucesso, false)
             : paraBooleano(internet, false);
     } else {
-        online = wan ? interfaceOnline(wan) && Boolean(wan.gateway_atual || wan.gateway) : false;
+        online = wan
+            ? interfaceOnline(wan) && Boolean(obterDesejado(wan, 'gateway') || obterReal(wan, 'gateway'))
+            : false;
     }
 
     setText(elementos.internetStatus, online ? 'Conectado' : 'Não verificado');
@@ -327,37 +355,197 @@ function renderizarInternet(wan) {
    HELPERS
 ========================================================================== */
 
-function selecionarInterface(lista, papel) {
-    const candidatas = lista.filter(item => item.papel === papel);
-    if (!candidatas.length) return null;
+function obterResumoInterfaces() {
+    const resumo = estado.get('status.interfaces');
+    if (resumo && typeof resumo === 'object') return resumo;
 
-    return candidatas.find(item => paraBooleano(item.principal)) ||
-        candidatas.find(interfaceOnline) ||
-        candidatas[0];
+    const estados = {};
+    const lista = estado.get('interfaces.lista', []);
+
+    lista.forEach(interfaceRede => {
+        const estadoSincronizacao = obterEstadoSincronizacao(interfaceRede);
+        estados[estadoSincronizacao] = Number(estados[estadoSincronizacao] || 0) + 1;
+    });
+
+    return {
+        total: lista.length,
+        configuradas: lista.filter(interfaceGerenciada).length,
+        estados_sincronizacao: estados,
+    };
 }
 
 
-function interfaceOnline(item) {
-    if (!item) return false;
-    if (item.estado_link === 'up') return true;
-    if (item.estado_link === 'down') return false;
+function obterTopologia() {
+    const topologia = estado.get('status.topologia');
+    if (topologia && typeof topologia === 'object') return topologia;
 
-    return paraBooleano(item.carrier, false);
+    const resumo = obterResumoInterfaces();
+    const wan = resumo.wan_principal || null;
+    const lan = resumo.lan_principal || null;
+    const mgmt = resumo.mgmt_principal || null;
+
+    return {
+        valida: Boolean(wan && lan),
+        problemas: [],
+        avisos: [],
+        wan: { principal: wan },
+        lan: { principal: lan },
+        mgmt: { principal: mgmt },
+        gerenciamento: { principal: null },
+        home_net: [],
+    };
 }
 
 
-function enderecoAtualOuDesejado(item) {
-    if (item.ipv4_atual) {
-        if (String(item.ipv4_atual).includes('/')) return item.ipv4_atual;
-        return formatarIpv4(item.ipv4_atual, item.prefixo_atual);
+function atualizarObservado(interfaceRede) {
+    if (!interfaceRede) return null;
+
+    const atual = estado.get('interfaces.lista', []).find(item => obterId(item) === obterId(interfaceRede));
+    return atual || interfaceRede;
+}
+
+
+function obterDesejado(interfaceRede, campo, fallback = null) {
+    const desejado = interfaceRede?.desejado || interfaceRede?.desired || interfaceRede || {};
+    return desejado[campo] ?? fallback;
+}
+
+
+function obterReal(interfaceRede, campo, fallback = null) {
+    const real = interfaceRede?.real || interfaceRede?.observado || interfaceRede || {};
+    return real[campo] ?? fallback;
+}
+
+
+function interfaceGerenciada(interfaceRede) {
+    return obterDesejado(interfaceRede, 'papel', 'unassigned') !== 'unassigned';
+}
+
+
+function interfaceOnline(interfaceRede) {
+    const estadoLink = String(obterReal(interfaceRede, 'estado_link', '')).toLowerCase();
+    if (estadoLink === 'up') return true;
+    if (estadoLink === 'down') return false;
+
+    return paraBooleano(obterReal(interfaceRede, 'carrier'), false);
+}
+
+
+function obterEnderecoDesejado(interfaceRede) {
+    const modo = obterDesejado(interfaceRede, 'ipv4_modo', 'dhcp');
+    if (modo === 'dhcp') return 'DHCP';
+    if (modo === 'disabled') return 'Desativado';
+
+    const endereco = obterDesejado(interfaceRede, 'ipv4_endereco');
+    return endereco ? formatarIpv4(endereco, obterDesejado(interfaceRede, 'ipv4_prefixo')) : '—';
+}
+
+
+function obterEnderecoObservado(interfaceRede) {
+    const enderecos = obterReal(interfaceRede, 'enderecos_ipv4', []);
+    const endereco = Array.isArray(enderecos) && enderecos.length
+        ? enderecos[0]
+        : obterReal(interfaceRede, 'ipv4');
+
+    if (!endereco) return '—';
+    if (String(endereco).includes('/')) return String(endereco);
+    return formatarIpv4(endereco, obterReal(interfaceRede, 'prefixo'));
+}
+
+
+function enderecoExibido(interfaceRede) {
+    const observado = obterEnderecoObservado(interfaceRede);
+    const desejado = obterEnderecoDesejado(interfaceRede);
+
+    if (observado === '—') return desejado;
+    if (desejado === '—' || desejado === 'DHCP' || desejado === 'Desativado' || observado === desejado) {
+        return observado;
     }
 
-    if (item.ipv4_modo === 'dhcp') return 'DHCP';
-    if (item.ipv4_modo === 'disabled') return 'Desativado';
+    return `${observado} · desejado ${desejado}`;
+}
 
-    if (item.ipv4_endereco) return formatarIpv4(item.ipv4_endereco, item.ipv4_prefixo);
 
-    return '—';
+function obterEstadoSincronizacao(interfaceRede) {
+    const estadoSincronizacao = String(interfaceRede?.estado_sincronizacao || '').toLowerCase();
+    if (estadoSincronizacao) return estadoSincronizacao;
+    if (paraBooleano(interfaceRede?.sincronizada, false)) return 'synced';
+    if (paraBooleano(interfaceRede?.pendente, false)) return 'pending_apply';
+    return interfaceGerenciada(interfaceRede) ? 'pending_apply' : 'unmanaged';
+}
+
+
+function rotuloSincronizacao(interfaceRede) {
+    return {
+        unmanaged: 'Não gerenciada',
+        synced: 'Sincronizada',
+        pending_apply: 'Pendente de aplicação',
+        applying: 'Aplicando',
+        waiting_confirmation: 'Aguardando confirmação',
+        drifted: 'Divergente',
+        missing: 'Interface ausente',
+        error: 'Erro',
+    }[obterEstadoSincronizacao(interfaceRede)] || 'Estado desconhecido';
+}
+
+
+function renderizarEstadoSincronizacao(elemento, interfaceRede) {
+    const estadoSincronizacao = obterEstadoSincronizacao(interfaceRede);
+    const estilo = {
+        synced: 'ok',
+        pending_apply: 'pending',
+        applying: 'pending',
+        waiting_confirmation: 'warning',
+        drifted: 'warning',
+        missing: 'error',
+        error: 'error',
+        unmanaged: 'warning',
+    }[estadoSincronizacao] || 'pending';
+
+    setStatusPill(elemento, estilo, rotuloSincronizacao(interfaceRede));
+}
+
+
+function contarEstados(estados, ...nomes) {
+    return nomes.reduce((total, nome) => total + Number(estados[nome] || 0), 0);
+}
+
+
+function renderizarTopologia(topologia, lan) {
+    const status = estado.get('status') || {};
+    const problemas = Array.isArray(topologia?.problemas) ? topologia.problemas : [];
+    const avisos = Array.isArray(topologia?.avisos) ? topologia.avisos : [];
+    const valida = Boolean(topologia?.valida);
+    const mgmt = atualizarObservado(topologia?.mgmt?.principal);
+    const gerenciamento = atualizarObservado(topologia?.gerenciamento?.principal);
+    const homeNet = Array.isArray(topologia?.home_net) ? topologia.home_net : [];
+
+    setStatusPill(
+        elementos.topologyState,
+        valida ? 'ok' : 'warning',
+        valida ? 'Rede configurada' : 'Configuração incompleta'
+    );
+    setText(
+        elementos.topologyDetails,
+        problemas[0]?.mensagem || avisos[0]?.mensagem ||
+        (obterResumoInterfaces().configuradas ? 'WAN e LAN definem a topologia.' : 'Configure uma WAN e uma LAN para concluir a topologia básica.')
+    );
+    setText(
+        elementos.mgmt,
+        mgmt ? `MGMT · ${mgmt.nome}`
+            : gerenciamento && obterId(gerenciamento) === obterId(lan)
+                ? `Via LAN · ${lan.nome}`
+                : gerenciamento ? `Via ${gerenciamento.nome}` : 'Não configurado'
+    );
+    setText(elementos.management, gerenciamento ? 'Permitido' : 'Não configurado');
+    setText(elementos.homeNet, homeNet.length ? homeNet.join(' · ') : 'Não definida');
+
+    const avisoAtualizacao = status.reconciliado === false
+        ? status.aviso?.mensagem || 'Exibindo último estado conhecido.'
+        : problemas[0]?.mensagem || avisos[0]?.mensagem || '';
+
+    setHidden(elementos.notice, !avisoAtualizacao);
+    if (avisoAtualizacao) setText(elementos.notice, avisoAtualizacao);
 }
 
 

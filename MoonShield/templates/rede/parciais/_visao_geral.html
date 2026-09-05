@@ -22,6 +22,8 @@
         </div>
     </div>
 
+    <div class="np-form-notice" id="overviewNetworkNotice" role="status" hidden></div>
+
     <!-- RESUMO -->
     <div class="np-overview-cards">
         <article class="np-stat-card">
@@ -90,7 +92,7 @@
                 <small>detectadas</small>
             </div>
             <div class="np-stat-card__footer">
-                <span>Configuradas</span>
+                <span>Gerenciadas</span>
                 <strong id="overviewInterfacesConfigured">0</strong>
             </div>
         </article>
@@ -98,8 +100,8 @@
         <article class="np-stat-card">
             <div class="np-stat-card__head">
                 <div>
-                    <span class="np-stat-card__eyebrow">Mudanças</span>
-                    <strong>Alterações</strong>
+                    <span class="np-stat-card__eyebrow">Sincronização</span>
+                    <strong>Estado da Rede</strong>
                 </div>
                 <span class="np-stat-card__icon np-stat-card__icon--warning" aria-hidden="true">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -222,6 +224,22 @@
                 <div class="np-info-row"><span>IPv4</span><strong id="overviewLanIpv4">—</strong></div>
                 <div class="np-info-row"><span>Acesso administrativo</span><strong id="overviewLanManagement">—</strong></div>
                 <div class="np-info-row"><span>NAT</span><strong id="overviewLanNat">—</strong></div>
+            </div>
+        </article>
+
+        <article class="np-panel np-network-state-card">
+            <div class="np-panel__head">
+                <div>
+                    <span class="np-panel__eyebrow">Topologia</span>
+                    <h3>Rede interna e gerenciamento</h3>
+                </div>
+                <span class="np-status-pill np-status-pill--pending" id="overviewTopologyState">Verificando</span>
+            </div>
+            <div class="np-info-list">
+                <div class="np-info-row"><span>Gerenciamento</span><strong id="overviewMgmt">—</strong></div>
+                <div class="np-info-row"><span>Acesso administrativo</span><strong id="overviewManagement">—</strong></div>
+                <div class="np-info-row"><span>Redes internas</span><strong id="overviewHomeNet">—</strong></div>
+                <div class="np-info-row"><span>Estado</span><strong id="overviewTopologyDetails">—</strong></div>
             </div>
         </article>
     </div>

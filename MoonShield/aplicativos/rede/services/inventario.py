@@ -19,6 +19,7 @@ Este serviço NÃO altera interfaces e NÃO grava configuração desejada.
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 
 from rede.dominio.tipos import (
@@ -52,47 +53,21 @@ def obter_inventario() -> dict:
         "network.inventory"
     )
 
-    backend = _normalizar_backend(
-        dados.get(
-            "backend"
-        )
-    )
-
-    interfaces_brutas = dados.get(
-        "interfaces",
-        [],
-    )
-
-    if not isinstance(
-        interfaces_brutas,
-        list,
-    ):
+    backend = _normalizar_backend(dados.get("backend"))
+    interfaces_brutas = dados.get("interfaces", [])
+    if not isinstance(interfaces_brutas, list):
         interfaces_brutas = []
 
-    interfaces = []
-
-    for item in interfaces_brutas:
-        normalizada = (
-            normalizar_interface(
-                item,
-                backend=backend,
-            )
-        )
-
-        if normalizada:
-            interfaces.append(
-                normalizada
-            )
-
-    interfaces.sort(
-        key=lambda item: item["name"]
-    )
+    interfaces = [
+        interface
+        for item in interfaces_brutas
+        if (interface := normalizar_interface(item, backend=backend))
+    ]
+    interfaces.sort(key=lambda item: item["nome"])
 
     return {
         "backend": backend,
-        "total": len(
-            interfaces
-        ),
+        "total": len(interfaces),
         "interfaces": interfaces,
     }
 
@@ -102,9 +77,7 @@ def listar_interfaces() -> list[dict]:
     Retorna apenas a lista de interfaces.
     """
 
-    return obter_inventario()[
-        "interfaces"
-    ]
+    return obter_inventario()["interfaces"]
 
 
 def buscar_interface(
@@ -114,15 +87,13 @@ def buscar_interface(
     Procura uma interface física/lógica pelo nome.
     """
 
-    nome = str(
-        nome or ""
-    ).strip()
+    nome = str(nome or "").strip()
 
     if not nome:
         return None
 
     for interface in listar_interfaces():
-        if interface["name"] == nome:
+        if interface["nome"] == nome:
             return interface
 
     return None
@@ -142,125 +113,65 @@ def normalizar_interface(
     Normaliza interface recebida do Agent.
     """
 
-    if not isinstance(
-        item,
-        dict,
-    ):
+    if not isinstance(item, dict):
         return None
 
-    nome = str(
-        item.get("name")
-        or item.get("nome")
-        or item.get("interface")
-        or ""
-    ).strip()
+    nome = _texto_ou_none(item.get("nome") or item.get("name") or item.get("interface"))
 
     if not nome:
         return None
 
-    ipv4, prefixo = _extrair_ipv4(
-        item.get("ipv4")
+    enderecos_ipv4 = _normalizar_enderecos_ipv4(
+        item.get("ipv4") or item.get("enderecos_ipv4") or item.get("addresses")
+    )
+    ipv4_atual = _normalizar_ipv4(
+        item.get("ipv4_atual") or item.get("ipv4_address") or item.get("address")
+    )
+    prefixo_atual = _inteiro_ou_none(
+        item.get("prefixo_atual", item.get("ipv4_prefix", item.get("prefix")))
     )
 
-    # Compatibilidade caso o Agent devolva
-    # os valores diretamente.
-    if not ipv4:
-        ipv4 = (
-            item.get("ipv4_address")
-            or item.get("address")
-            or None
-        )
+    if not ipv4_atual and enderecos_ipv4:
+        ipv4_atual, prefixo_endereco = _extrair_ipv4(enderecos_ipv4[0])
+        prefixo_atual = prefixo_atual if prefixo_atual is not None else prefixo_endereco
 
-    if prefixo is None:
-        prefixo = (
-            item.get("ipv4_prefix")
-            or item.get("prefix")
-        )
-
-    prefixo = _inteiro_ou_none(
-        prefixo
+    conexao = item.get("connection")
+    conexao = conexao if isinstance(conexao, dict) else {}
+    nome_conexao = _texto_ou_none(
+        item.get("conexao") or conexao.get("name") or item.get("connection_name")
     )
-
-    conexao = item.get(
-        "connection",
-        {},
+    uuid_conexao = _texto_ou_none(
+        conexao.get("uuid") or item.get("connection_uuid") or item.get("conexao_uuid")
     )
-
-    if not isinstance(
-        conexao,
-        dict,
-    ):
-        conexao = {}
-
-    estado = _normalizar_estado(
-        item.get(
-            "state"
-        )
-    )
+    estado = _normalizar_estado(item.get("estado_link") or item.get("state"))
+    gateway_atual = _texto_ou_none(item.get("gateway_atual") or item.get("gateway"))
+    metrica_atual = _inteiro_ou_none(item.get("metrica_atual", item.get("metric")))
+    mtu_atual = _inteiro_ou_none(item.get("mtu_atual", item.get("mtu")))
+    mac_address = _texto_ou_none(item.get("mac_address") or item.get("mac"))
 
     return {
+        "nome": nome,
         "name": nome,
-
-        "mac": str(
-            item.get("mac")
-            or item.get("mac_address")
-            or ""
-        ).strip(),
-
+        "mac_address": mac_address,
+        "mac": mac_address,
+        "estado_link": estado,
         "state": estado,
-
-        "carrier": _bool_ou_none(
-            item.get(
-                "carrier"
-            )
-        ),
-
-        "ipv4": (
-            str(ipv4).strip()
-            if ipv4
-            else None
-        ),
-
-        "prefix": prefixo,
-
-        "gateway": (
-            str(
-                item.get("gateway")
-            ).strip()
-            if item.get("gateway")
-            else None
-        ),
-
-        "metric": _inteiro_ou_none(
-            item.get(
-                "metric"
-            )
-        ),
-
-        "mtu": _inteiro_ou_none(
-            item.get(
-                "mtu"
-            )
-        ),
-
-        "backend": _normalizar_backend(
-            item.get(
-                "backend",
-                backend,
-            )
-        ),
-
-        "connection_name": str(
-            conexao.get("name")
-            or item.get("connection_name")
-            or ""
-        ).strip(),
-
-        "connection_uuid": str(
-            conexao.get("uuid")
-            or item.get("connection_uuid")
-            or ""
-        ).strip(),
+        "carrier": _bool_ou_none(item.get("carrier")),
+        "ipv4": enderecos_ipv4,
+        "enderecos_ipv4": enderecos_ipv4,
+        "ipv4_atual": ipv4_atual,
+        "prefixo_atual": prefixo_atual,
+        "prefix": prefixo_atual,
+        "gateway_atual": gateway_atual,
+        "gateway": gateway_atual,
+        "metrica_atual": metrica_atual,
+        "metric": metrica_atual,
+        "mtu_atual": mtu_atual,
+        "mtu": mtu_atual,
+        "backend": _normalizar_backend(item.get("backend", backend)),
+        "conexao": nome_conexao,
+        "connection_name": nome_conexao,
+        "connection_uuid": uuid_conexao,
     }
 
 
@@ -269,9 +180,7 @@ def normalizar_interface(
 # =============================================================================
 
 
-def _extrair_ipv4(
-    valor: Any,
-) -> tuple[str | None, int | None]:
+def _extrair_ipv4(valor: Any) -> tuple[str | None, int | None]:
     """
     Aceita:
 
@@ -297,61 +206,55 @@ def _extrair_ipv4(
     if not valor:
         return None, None
 
-    if isinstance(
-        valor,
-        list,
-    ):
-        if not valor:
-            return None, None
+    if isinstance(valor, dict):
+        endereco = valor.get("endereco") or valor.get("address") or valor.get("ip")
+        prefixo = valor.get("prefixo", valor.get("prefix"))
+        return _normalizar_ipv4(endereco), _inteiro_ou_none(prefixo)
 
-        valor = valor[0]
+    texto = _texto_ou_none(valor)
+    if not texto:
+        return None, None
+    if "/" not in texto:
+        return _normalizar_ipv4(texto), None
 
-    if isinstance(
-        valor,
-        dict,
-    ):
-        endereco = (
-            valor.get("address")
-            or valor.get("endereco")
-            or valor.get("ip")
-        )
+    endereco, prefixo = texto.rsplit("/", 1)
+    return _normalizar_ipv4(endereco), _inteiro_ou_none(prefixo)
 
-        prefixo = (
-            valor.get("prefix")
-            or valor.get("prefixo")
-        )
 
-        return (
-            str(endereco).strip()
-            if endereco
-            else None,
-            _inteiro_ou_none(
-                prefixo
-            ),
-        )
+def _normalizar_enderecos_ipv4(valor: Any) -> list[str]:
+    if valor is None:
+        return []
+    if not isinstance(valor, list):
+        valor = [valor]
 
-    if isinstance(
-        valor,
-        str,
-    ):
-        valor = valor.strip()
+    resultado = []
+    for item in valor:
+        endereco, prefixo = _extrair_ipv4(item)
+        if not endereco:
+            continue
+        cidr = f"{endereco}/{prefixo}" if prefixo is not None else endereco
+        try:
+            cidr = str(ipaddress.IPv4Interface(cidr)) if prefixo is not None else str(ipaddress.IPv4Address(cidr))
+        except ValueError:
+            continue
+        if cidr not in resultado:
+            resultado.append(cidr)
+    return resultado
 
-        if "/" in valor:
-            ip, prefixo = valor.split(
-                "/",
-                1,
-            )
 
-            return (
-                ip.strip(),
-                _inteiro_ou_none(
-                    prefixo
-                ),
-            )
+def _normalizar_ipv4(valor: Any) -> str | None:
+    texto = _texto_ou_none(valor)
+    if not texto:
+        return None
+    try:
+        return str(ipaddress.IPv4Address(texto.split("/", 1)[0]))
+    except ValueError:
+        return None
 
-        return valor, None
 
-    return None, None
+def _texto_ou_none(valor: Any) -> str | None:
+    texto = str(valor or "").strip()
+    return texto or None
 
 
 def _normalizar_backend(

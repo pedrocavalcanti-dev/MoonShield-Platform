@@ -72,6 +72,19 @@ class EstadoLink(StrEnum):
     DOWN = "down"
 
 
+class EstadoSincronizacao(StrEnum):
+    """Estado do ciclo desejado, aplicado e observado da interface."""
+
+    UNMANAGED = "unmanaged"
+    SYNCED = "synced"
+    PENDING_APPLY = "pending_apply"
+    APPLYING = "applying"
+    WAITING_CONFIRMATION = "waiting_confirmation"
+    DRIFTED = "drifted"
+    MISSING = "missing"
+    ERROR = "error"
+
+
 # =============================================================================
 # BACKENDS DE REDE
 # =============================================================================

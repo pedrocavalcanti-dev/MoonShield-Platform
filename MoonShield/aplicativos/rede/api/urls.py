@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import alteracoes, diagnostico, interfaces, nat, roteamento, status
+from . import alteracoes, diagnostico, interfaces, nat, roteamento, status, topologia
 
 
 app_name = "rede_api"
@@ -11,6 +11,11 @@ urlpatterns = [
     # Status geral
     # -------------------------------------------------------------------------
     path("status/", status.api_status_rede, name="status"),
+
+    # -------------------------------------------------------------------------
+    # Topologia
+    # -------------------------------------------------------------------------
+    path("topologia/", topologia.api_topologia, name="topologia"),
 
     # -------------------------------------------------------------------------
     # Interfaces

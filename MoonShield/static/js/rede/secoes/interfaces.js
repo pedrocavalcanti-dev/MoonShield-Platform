@@ -17,6 +17,8 @@ let inicializado = false;
 let carregando = false;
 let salvando = false;
 let aplicandoId = null;
+let carregamentoAtual = null;
+let sequenciaSolicitada = 0;
 
 const elementos = {
     container: null,
@@ -26,7 +28,9 @@ const elementos = {
     configured: null,
     online: null,
     pending: null,
+    refreshButton: null,
     detectButton: null,
+    warning: null,
 
     form: null,
     id: null,
@@ -88,7 +92,9 @@ function cachearElementos() {
     elementos.configured = $('#interfacesConfigured');
     elementos.online = $('#interfacesOnline');
     elementos.pending = $('#interfacesPending');
+    elementos.refreshButton = $('#interfacesRefreshButton');
     elementos.detectButton = $('#interfacesDetectButton');
+    elementos.warning = $('#interfacesUpdateWarning');
 
     elementos.form = $('#interfaceConfigForm');
     elementos.id = $('#interfaceConfigId');
@@ -116,6 +122,7 @@ function cachearElementos() {
 function registrarEventos() {
     elementos.container?.addEventListener('click', tratarCliqueContainer);
     elementos.form?.addEventListener('submit', salvarConfiguracaoInterface);
+    elementos.refreshButton?.addEventListener('click', atualizarInterfaces);
     elementos.role?.addEventListener('change', atualizarCamposFormulario);
     elementos.ipv4Mode?.addEventListener('change', atualizarCamposFormulario);
 
@@ -128,64 +135,103 @@ function registrarEventos() {
    CARREGAR / RENDER
 ========================================================================== */
 
-async function carregar(opcoes = {}) {
-    if (carregando) return estado.get('interfaces.lista', []);
+function carregar(opcoes = {}) {
+    const sequencia = ++sequenciaSolicitada;
 
+    if (carregamentoAtual) return carregamentoAtual;
+
+    const promessa = executarCarregamento(sequencia, opcoes);
+    carregamentoAtual = promessa;
+
+    const liberarCarregamento = () => {
+        if (carregamentoAtual === promessa) carregamentoAtual = null;
+    };
+
+    promessa.then(liberarCarregamento, liberarCarregamento);
+
+    return promessa;
+}
+
+
+async function executarCarregamento(sequencia, opcoes = {}) {
     carregando = true;
+    definirCarregamento(true);
+    let lista = estado.get('interfaces.lista', []);
 
     try {
         const resposta = await api.get(api.urls.interfaces);
         const dados = resposta?.dados ?? resposta ?? {};
-        const lista = extrairInterfaces(dados);
+        lista = extrairInterfaces(dados);
 
-        estado.set('interfaces.lista', lista);
-        estado.set(
-            'interfaces.backend',
-            dados.backend ||
-            dados.gerenciador ||
-            dados.network_backend ||
-            estado.get('interfaces.backend') ||
-            null
-        );
-        estado.set('interfaces.carregado', true);
-
-        const ativa = dados.alteracao_ativa || dados.ativa || null;
-        if (ativa) {
-            estado.set('alteracoes.ativa', ativa);
-            safeApply.sincronizar?.(ativa);
-        }
-
-        renderizar();
-        return lista;
-    } catch (error) {
-        estado.set('interfaces.carregado', false);
-
-        if (!opcoes.silencioso) {
-            const erro = normalizarErro(error);
-            notificacao.erro(
-                erro.titulo || 'Erro nas interfaces',
-                erro.mensagem || 'Não foi possível carregar as interfaces de rede.'
+        if (sequencia === sequenciaSolicitada) {
+            estado.set('interfaces.lista', lista);
+            estado.set(
+                'interfaces.backend',
+                dados.backend ||
+                dados.gerenciador ||
+                dados.network_backend ||
+                estado.get('interfaces.backend') ||
+                null
             );
-        }
+            estado.set('interfaces.carregado', true);
+            estado.set('interfaces.reconciliado', dados.reconciliado !== false);
+            estado.set('interfaces.aviso', dados.aviso || null);
 
-        throw error;
+            const ativa = dados.alteracao_ativa || dados.ativa || null;
+            if (ativa) {
+                estado.set('alteracoes.ativa', ativa);
+                safeApply.sincronizar?.(ativa);
+            }
+
+            atualizarAvisoAtualizacao(dados);
+            renderizar();
+        }
+    } catch (error) {
+        if (sequencia === sequenciaSolicitada) {
+            estado.set('interfaces.carregado', false);
+            atualizarAvisoAtualizacao();
+
+            if (!opcoes.silencioso) {
+                const erro = normalizarErro(error);
+                notificacao.erro(
+                    erro.titulo || 'Erro nas interfaces',
+                    erro.mensagem || 'Não foi possível carregar as interfaces de rede.'
+                );
+            }
+
+            throw error;
+        }
     } finally {
         carregando = false;
+        definirCarregamento(false);
         atualizarEstadoControles();
     }
+
+    if (sequencia < sequenciaSolicitada) {
+        return executarCarregamento(sequenciaSolicitada, { silencioso: true });
+    }
+
+    return lista;
 }
 
 
 async function aoAtivar() {
-    if (estado.get('interfaces.carregado')) {
-        renderizar();
-        return;
-    }
+    if (estado.get('ui.carregamentoInicial')) return;
 
     try {
         await carregar({ silencioso: true });
     } catch {
         // Mantém o painel utilizável caso a leitura falhe.
+    }
+}
+
+
+async function atualizarInterfaces() {
+    try {
+        await carregar({ silencioso: false });
+        return true;
+    } catch {
+        return false;
     }
 }
 
@@ -219,6 +265,32 @@ function renderizar() {
     });
 
     atualizarEstadoControles();
+}
+
+
+function definirCarregamento(ativo) {
+    elementos.container?.setAttribute('aria-busy', ativo ? 'true' : 'false');
+
+    if (elementos.refreshButton) {
+        elementos.refreshButton.disabled = Boolean(ativo);
+        elementos.refreshButton.classList.toggle('is-loading', Boolean(ativo));
+        elementos.refreshButton.setAttribute('aria-busy', ativo ? 'true' : 'false');
+    }
+}
+
+
+function atualizarAvisoAtualizacao(dados = {}) {
+    const aviso = dados.aviso;
+    const exibir = dados.reconciliado === false && aviso;
+
+    setHidden(elementos.warning, !exibir);
+
+    if (exibir) {
+        setText(
+            elementos.warning,
+            aviso.mensagem || 'Não foi possível atualizar o estado pelo Agent. Exibindo o último estado conhecido.'
+        );
+    }
 }
 
 
@@ -321,10 +393,17 @@ function preencherCard(card, interfaceRede) {
     setText($('[data-interface-mac]', card), obterMac(interfaceRede));
     setText($('[data-interface-desired-ip]', card), obterIPv4Desejado(interfaceRede));
     setText($('[data-interface-current-ip]', card), obterIPv4(interfaceRede));
+    setText($('[data-interface-current-ips]', card), obterIPv4sObservados(interfaceRede));
     setText($('[data-interface-gateway]', card), obterGateway(interfaceRede));
     setText($('[data-interface-mtu]', card), obterMtu(interfaceRede));
     setText($('[data-interface-backend]', card), obterBackend(interfaceRede));
     setText($('[data-interface-management]', card), obterGerenciamento(interfaceRede));
+    setText($('[data-interface-revisions]', card), obterRevisoes(interfaceRede));
+
+    const erro = String(interfaceRede?.ultimo_erro || '').trim();
+    const erroLinha = $('[data-interface-error-row]', card);
+    setHidden(erroLinha, !erro);
+    setText($('[data-interface-error]', card), erro);
 
     atualizarLinkCard(card, interfaceRede);
     atualizarSincronizacaoCard(card, interfaceRede);
@@ -337,10 +416,12 @@ function preencherCard(card, interfaceRede) {
 
     const ativa = interfaceAtiva(interfaceRede);
     const pendente = interfacePendente(interfaceRede);
+    const estadoSincronizacao = obterEstadoSincronizacao(interfaceRede);
 
     card.classList.toggle('is-up', ativa);
     card.classList.toggle('is-down', !ativa);
     card.classList.toggle('is-pending', pendente);
+    card.dataset.syncStatus = estadoSincronizacao;
 
     atualizarAcoesCard(card, interfaceRede);
 }
@@ -380,18 +461,27 @@ function atualizarAcoesCard(card, interfaceRede) {
 
     if (aplicar) {
         const aplicando = String(aplicandoId) === String(id);
+        const estadoSincronizacao = obterEstadoSincronizacao(interfaceRede);
+        const podeAplicar = interfacePodeAplicar(interfaceRede);
+        const operacaoEmAndamento = [
+            'applying',
+            'waiting_confirmation',
+        ].includes(estadoSincronizacao);
 
         aplicar.disabled =
             bloqueado ||
             aplicando ||
-            !interfacePendente(interfaceRede);
+            operacaoEmAndamento ||
+            !podeAplicar;
 
         aplicar.setAttribute('aria-disabled', aplicar.disabled ? 'true' : 'false');
 
         if (bloqueado) {
             aplicar.title = 'Existe uma alteração de rede em andamento.';
-        } else if (!interfacePendente(interfaceRede)) {
-            aplicar.title = 'A interface já está sincronizada.';
+        } else if (operacaoEmAndamento) {
+            aplicar.title = 'Esta interface possui uma aplicação em andamento.';
+        } else if (!podeAplicar) {
+            aplicar.title = 'Não há uma aplicação pendente para esta interface.';
         } else {
             aplicar.removeAttribute('title');
         }
@@ -516,11 +606,6 @@ function atualizarCamposFormulario() {
     if (elementos.defaultRouteRow) elementos.defaultRouteRow.hidden = !wan;
 
     if (!wan) definirMarcado(elementos.defaultRoute, false);
-
-    if (!estatico) {
-        definirValor(elementos.ipv4Address, '');
-        definirValor(elementos.gateway, '');
-    }
 
     if (papel === 'unassigned') definirMarcado(elementos.primary, false);
 }
@@ -779,7 +864,7 @@ async function aplicarInterface(id) {
         return false;
     }
 
-    if (!interfacePendente(interfaceRede)) {
+    if (!interfacePodeAplicar(interfaceRede)) {
         notificacao.info?.(
             'Interface sincronizada',
             'Não existem alterações pendentes para aplicar nesta interface.'
@@ -1139,6 +1224,16 @@ function interfaceConfigurada(interfaceRede) {
 
 
 function interfacePendente(interfaceRede) {
+    const estado = obterEstadoSincronizacao(interfaceRede, { fallback: false });
+
+    if (estado) {
+        return [
+            'pending_apply',
+            'applying',
+            'waiting_confirmation',
+        ].includes(estado);
+    }
+
     if (interfaceRede?.pendente !== undefined) {
         return paraBooleano(interfaceRede.pendente, false);
     }
@@ -1148,6 +1243,14 @@ function interfacePendente(interfaceRede) {
     }
 
     return false;
+}
+
+
+function interfacePodeAplicar(interfaceRede) {
+    const estado = obterEstadoSincronizacao(interfaceRede, { fallback: false });
+
+    if (estado) return ['pending_apply', 'drifted'].includes(estado);
+    return interfacePendente(interfaceRede);
 }
 
 
@@ -1175,6 +1278,24 @@ function obterIPv4Desejado(interfaceRede) {
 
 
 function obterIPv4(interfaceRede) {
+    return obterIPv4sObservados(interfaceRede).split(' · ')[0] || '—';
+}
+
+
+function obterIPv4sObservados(interfaceRede) {
+    const enderecos = obterReal(interfaceRede, 'enderecos_ipv4', null);
+    const lista = Array.isArray(enderecos)
+        ? enderecos
+        : interfaceRede?.enderecos || interfaceRede?.addresses || [];
+    const ipv4s = lista
+        .map(endereco => {
+            if (typeof endereco === 'string') return endereco;
+            return endereco?.endereco || endereco?.address || '';
+        })
+        .filter(endereco => endereco && !endereco.includes(':'));
+
+    if (ipv4s.length) return [...new Set(ipv4s)].join(' · ');
+
     const direto = obterReal(
         interfaceRede,
         'ipv4',
@@ -1192,32 +1313,11 @@ function obterIPv4(interfaceRede) {
     );
 
     if (typeof direto === 'string' && direto) {
-        if (direto.includes('/')) return direto;
+        if (direto.includes('/') || prefixo === null || prefixo === undefined || prefixo === '') {
+            return direto;
+        }
 
-        return (
-            prefixo === null ||
-            prefixo === undefined ||
-            prefixo === ''
-        )
-            ? direto
-            : `${direto}/${prefixo}`;
-    }
-
-    const lista = interfaceRede?.enderecos || interfaceRede?.addresses;
-
-    if (Array.isArray(lista)) {
-        const ipv4 = lista.find(item => {
-            const valor =
-                typeof item === 'string'
-                    ? item
-                    : item?.endereco || item?.address || '';
-
-            return valor && !valor.includes(':');
-        });
-
-        if (typeof ipv4 === 'string') return ipv4;
-
-        return ipv4?.endereco || ipv4?.address || '—';
+        return `${direto}/${prefixo}`;
     }
 
     return '—';
@@ -1281,9 +1381,48 @@ function obterGerenciamento(interfaceRede) {
 }
 
 
+function obterRevisoes(interfaceRede) {
+    const desejada = interfaceRede?.revisao_desejada;
+    const aplicada = interfaceRede?.revisao_aplicada;
+
+    if (desejada === undefined && aplicada === undefined) return '—';
+    return `${aplicada ?? '—'} aplicada / ${desejada ?? '—'} desejada`;
+}
+
+
 /* ==========================================================================
    STATUS DO CARD
 ========================================================================== */
+
+const ESTADOS_SINCRONIZACAO = {
+    unmanaged: { texto: 'Não gerenciada', classe: 'np-status-dot--warning' },
+    synced: { texto: 'Sincronizada', classe: 'np-status-dot--ok' },
+    pending_apply: { texto: 'Pendente de aplicação', classe: 'np-status-dot--pending' },
+    applying: { texto: 'Aplicando', classe: 'np-status-dot--pending' },
+    waiting_confirmation: { texto: 'Aguardando confirmação', classe: 'np-status-dot--warning' },
+    drifted: { texto: 'Divergente', classe: 'np-status-dot--warning' },
+    missing: { texto: 'Interface ausente', classe: 'np-status-dot--error' },
+    error: { texto: 'Erro', classe: 'np-status-dot--error' },
+};
+
+
+function obterEstadoSincronizacao(interfaceRede, opcoes = {}) {
+    const { fallback = true } = opcoes;
+    const estado = String(interfaceRede?.estado_sincronizacao || '').toLowerCase();
+
+    if (ESTADOS_SINCRONIZACAO[estado]) return estado;
+    if (!fallback) return '';
+    if (!interfaceConfigurada(interfaceRede)) return 'unmanaged';
+    if (interfaceRede?.sincronizada !== undefined && paraBooleano(interfaceRede.sincronizada, false)) {
+        return 'synced';
+    }
+    if (interfaceRede?.pendente !== undefined && paraBooleano(interfaceRede.pendente, false)) {
+        return 'pending_apply';
+    }
+
+    return 'pending_apply';
+}
+
 
 function atualizarLinkCard(card, interfaceRede) {
     const pill = $('[data-interface-link]', card);
@@ -1316,8 +1455,9 @@ function atualizarSincronizacaoCard(card, interfaceRede) {
     const texto = $('[data-interface-sync]', card);
     const dot = $('[data-interface-sync-dot]', card);
 
-    const pendente = interfacePendente(interfaceRede);
     const erro = String(interfaceRede?.ultimo_erro || '').trim();
+    const estado = obterEstadoSincronizacao(interfaceRede);
+    const configuracao = ESTADOS_SINCRONIZACAO[estado];
 
     if (dot) {
         dot.classList.remove(
@@ -1328,20 +1468,11 @@ function atualizarSincronizacaoCard(card, interfaceRede) {
         );
     }
 
-    if (erro) {
-        setText(texto, 'Falha de sincronização');
-        dot?.classList.add('np-status-dot--error');
-        return;
-    }
+    setText(texto, configuracao?.texto || 'Estado desconhecido');
+    dot?.classList.add(configuracao?.classe || 'np-status-dot--pending');
 
-    if (pendente) {
-        setText(texto, 'Configuração não aplicada');
-        dot?.classList.add('np-status-dot--pending');
-        return;
-    }
-
-    setText(texto, 'Sincronizada');
-    dot?.classList.add('np-status-dot--ok');
+    if (erro && estado !== 'error') texto?.setAttribute('title', erro);
+    else texto?.removeAttribute('title');
 }
 
 
@@ -1447,6 +1578,7 @@ function ipv4Valido(valor) {
 function destruir() {
     elementos.container?.removeEventListener('click', tratarCliqueContainer);
     elementos.form?.removeEventListener('submit', salvarConfiguracaoInterface);
+    elementos.refreshButton?.removeEventListener('click', atualizarInterfaces);
     elementos.role?.removeEventListener('change', atualizarCamposFormulario);
     elementos.ipv4Mode?.removeEventListener('change', atualizarCamposFormulario);
 
@@ -1454,6 +1586,8 @@ function destruir() {
     carregando = false;
     salvando = false;
     aplicandoId = null;
+    carregamentoAtual = null;
+    sequenciaSolicitada = 0;
 }
 
 
@@ -1464,6 +1598,7 @@ export const interfaces = Object.freeze({
     renderizar,
     sincronizar,
     aoAtivar,
+    atualizarInterfaces,
     aplicarInterface,
     editarInterface,
 });

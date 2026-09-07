@@ -198,7 +198,10 @@ class Command(BaseCommand):
                 + detalhe
             )
 
-        self._ajustar_socket_se_necessario()
+        erro_socket = self._validar_permissoes_socket()
+
+        if erro_socket:
+            raise RuntimeError(erro_socket)
 
         if not self._teste_socket():
             raise RuntimeError(
@@ -493,33 +496,37 @@ WantedBy=multi-user.target
 
         return False
 
-    def _ajustar_socket_se_necessario(self) -> None:
+    def _validar_permissoes_socket(self) -> str | None:
         """
-        O servidor IPC normalmente já configura 0660/root:moonshield.
-        Isso é apenas uma proteção adicional para o primeiro bootstrap.
+        Confirma que o Agent, e não o bootstrap Django, definiu o socket
+        como root:moonshield 0660. O grupo permite acesso controlado ao
+        Gunicorn/Django quando seu serviço recebe SupplementaryGroups=moonshield.
         """
 
         if not self.SOCKET_PATH.exists():
-            return
+            return f"Socket do Agent não encontrado: {self.SOCKET_PATH}"
 
         gid = grp.getgrnam(self.GROUP_NAME).gr_gid
+        stat_socket = self.SOCKET_PATH.stat()
 
-        try:
-            os.chown(
-                self.SOCKET_PATH,
-                0,
-                gid,
-            )
-        except PermissionError:
-            pass
+        if not stat.S_ISSOCK(stat_socket.st_mode):
+            return f"Caminho do Agent não é Unix Socket: {self.SOCKET_PATH}"
 
-        try:
-            os.chmod(
-                self.SOCKET_PATH,
-                0o660,
+        mode = stat.S_IMODE(stat_socket.st_mode)
+
+        if mode != 0o660:
+            return (
+                "Permissão insegura ou inválida no socket do Agent: "
+                f"esperado 0660, encontrado {mode:04o}."
             )
-        except PermissionError:
-            pass
+
+        if stat_socket.st_uid != 0 or stat_socket.st_gid != gid:
+            return (
+                "Owner/group inválido no socket do Agent: esperado "
+                f"root:{self.GROUP_NAME}."
+            )
+
+        return None
 
     def _teste_socket(self) -> bool:
         """

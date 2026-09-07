@@ -29,6 +29,7 @@ import grp
 import importlib
 import logging
 import os
+import signal
 import socket
 import socketserver
 import stat
@@ -75,6 +76,7 @@ _estado = {
 _servidor_ref: "_ServidorUnix | None" = None
 _thread_ref: threading.Thread | None = None
 _semaforo = threading.BoundedSemaphore(MAX_CONEXOES_SIMULTANEAS)
+_encerramento_solicitado = threading.Event()
 
 
 # =============================================================================
@@ -171,7 +173,7 @@ def iniciar_servidor(
     # recuperamos o estado persistente do Safe Apply.
     _inicializar_rede()
 
-    _preparar_socket_path(socket_path)
+    _preparar_socket_path(socket_path, grupo)
 
     servidor = _ServidorUnix(
         socket_path,
@@ -1273,6 +1275,7 @@ def _normalizar_resultado_modulo(
 
 def _preparar_socket_path(
     socket_path: str,
+    grupo: str,
 ) -> None:
     path = Path(
         socket_path
@@ -1292,6 +1295,18 @@ def _preparar_socket_path(
         )
     except PermissionError:
         pass
+
+    try:
+        gid = grp.getgrnam(grupo).gr_gid
+        uid = 0 if os.geteuid() == 0 else os.geteuid()
+        os.chown(diretorio, uid, gid)
+    except PermissionError:
+        pass
+    except KeyError as exc:
+        raise RuntimeError(
+            f"Grupo Linux '{grupo}' não existe. "
+            "Crie-o antes de iniciar o MoonShield-Agent."
+        ) from exc
 
     if path.exists() or path.is_socket():
         modo = os.lstat(
@@ -1455,7 +1470,22 @@ def _bool(
 # MAIN
 # =============================================================================
 
-if __name__ == "__main__":
+def _tratar_sinal_encerramento(
+    numero_sinal: int,
+    _frame: Any,
+) -> None:
+    if _encerramento_solicitado.is_set():
+        return
+
+    _encerramento_solicitado.set()
+
+    logger.info(
+        "[ipc] sinal %s recebido; encerrando MoonShield-Agent...",
+        signal.Signals(numero_sinal).name,
+    )
+
+
+def executar_agent() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format=(
@@ -1464,6 +1494,28 @@ if __name__ == "__main__":
         ),
     )
 
-    iniciar_servidor(
-        bloquear=True
-    )
+    _encerramento_solicitado.clear()
+
+    signal.signal(signal.SIGTERM, _tratar_sinal_encerramento)
+    signal.signal(signal.SIGINT, _tratar_sinal_encerramento)
+
+    thread = iniciar_servidor(bloquear=False)
+
+    try:
+        while not _encerramento_solicitado.wait(timeout=0.5):
+            if thread is not None and not thread.is_alive():
+                raise RuntimeError(
+                    "O loop IPC do MoonShield-Agent foi encerrado inesperadamente."
+                )
+    finally:
+        # BaseServer.shutdown() precisa ser chamado fora da thread que executa
+        # serve_forever(). Aqui a thread principal aguarda o encerramento do
+        # loop e só então permite que o processo termine.
+        parar_servidor()
+
+        if thread is not None:
+            thread.join(timeout=5.0)
+
+
+if __name__ == "__main__":
+    executar_agent()

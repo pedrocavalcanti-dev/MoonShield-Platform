@@ -21,6 +21,7 @@ from django.views.decorators.http import require_GET, require_POST, require_http
 
 from rede.dominio.erros import (
     AgentIndisponivelErro,
+    AgentRespostaInvalidaErro,
     AgentTimeoutErro,
     AlteracaoEstadoInvalidoErro,
     AlteracaoExpiradaErro,
@@ -260,6 +261,10 @@ def api_nat_real(request):
         return _resposta(obter_estado_nat_real())
     except AgentIndisponivelErro as exc:
         return _erro_rede(exc, status=503)
+    except AgentTimeoutErro as exc:
+        return _erro_rede(exc, status=504)
+    except AgentRespostaInvalidaErro as exc:
+        return _erro_rede(exc, status=502)
     except RedeErro as exc:
         return _erro_rede(exc)
     except Exception as exc:

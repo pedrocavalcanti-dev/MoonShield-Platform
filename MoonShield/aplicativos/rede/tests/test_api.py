@@ -29,7 +29,12 @@ from rede.api import alteracoes as api_alteracoes
 from rede.api import interfaces as api_interfaces
 from rede.api import nat as api_nat
 from rede.api import roteamento as api_roteamento
-from rede.dominio.erros import AlteracaoEstadoInvalidoErro
+from rede.dominio.erros import (
+    AgentIndisponivelErro,
+    AgentRespostaInvalidaErro,
+    AgentTimeoutErro,
+    AlteracaoEstadoInvalidoErro,
+)
 from rede.models import AlteracaoRede
 
 
@@ -106,6 +111,40 @@ class RedeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertFalse(self.json(response)["ok"])
+
+    def test_roteamento_real_mapeia_erros_do_agent(self):
+        casos = (
+            (AgentIndisponivelErro("offline"), 503),
+            (AgentTimeoutErro("timeout"), 504),
+            (AgentRespostaInvalidaErro("resposta inválida"), 502),
+        )
+
+        for erro, status_esperado in casos:
+            with self.subTest(erro=erro.codigo), patch.object(
+                api_roteamento,
+                "obter_estado_roteamento_real",
+                side_effect=erro,
+            ):
+                response = api_roteamento.api_roteamento_real(self.request_get())
+
+            self.assertEqual(response.status_code, status_esperado)
+
+    def test_nat_real_mapeia_erros_do_agent(self):
+        casos = (
+            (AgentIndisponivelErro("offline"), 503),
+            (AgentTimeoutErro("timeout"), 504),
+            (AgentRespostaInvalidaErro("resposta inválida"), 502),
+        )
+
+        for erro, status_esperado in casos:
+            with self.subTest(erro=erro.codigo), patch.object(
+                api_nat,
+                "obter_estado_nat_real",
+                side_effect=erro,
+            ):
+                response = api_nat.api_nat_real(self.request_get())
+
+            self.assertEqual(response.status_code, status_esperado)
 
     def test_listagem_retorna_alteracao_ativa(self):
         ativa = self.criar_alteracao(

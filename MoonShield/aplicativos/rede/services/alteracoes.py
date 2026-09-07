@@ -1237,7 +1237,7 @@ def _resolver_expiracao(
     if not alteracao.requer_confirmacao:
         return None
 
-    agent_expira = resultado.get("expires_at")
+    agent_expira = resultado.get("expires_at") or resultado.get("expira_em")
 
     if agent_expira:
         parsed = _datetime(agent_expira)

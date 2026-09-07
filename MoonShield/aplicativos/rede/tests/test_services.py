@@ -146,7 +146,7 @@ class AlteracoesServiceTests(TestCase):
 
         resposta_agent = {
             "status": "waiting_confirmation",
-            "expires_at": expira.isoformat(),
+            "expira_em": expira.isoformat(),
         }
 
         with (
@@ -162,7 +162,7 @@ class AlteracoesServiceTests(TestCase):
             AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,
         )
         self.assertIsNotNone(atualizada.aplicada_em)
-        self.assertIsNotNone(atualizada.expira_em)
+        self.assertEqual(atualizada.expira_em, expira)
         self.assertTrue(atualizada.em_andamento)
 
         agent.assert_called_once()

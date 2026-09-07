@@ -31,6 +31,7 @@ from django.views.decorators.http import (
 
 from rede.dominio.erros import (
     AgentIndisponivelErro,
+    AgentRespostaInvalidaErro,
     AgentTimeoutErro,
     AlteracaoEstadoInvalidoErro,
     AlteracaoExpiradaErro,
@@ -335,6 +336,18 @@ def api_roteamento_real(request):
         return _erro_rede(
             exc,
             status=503,
+        )
+
+    except AgentTimeoutErro as exc:
+        return _erro_rede(
+            exc,
+            status=504,
+        )
+
+    except AgentRespostaInvalidaErro as exc:
+        return _erro_rede(
+            exc,
+            status=502,
         )
 
     except RedeErro as exc:

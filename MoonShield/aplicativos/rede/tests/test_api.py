@@ -422,7 +422,7 @@ class RedeApiTests(TestCase):
                 api_interfaces,
                 "criar_alteracao_interface",
                 return_value=alteracao,
-            ),
+            ) as criar_alteracao,
             patch.object(
                 api_interfaces,
                 "aplicar_alteracao",
@@ -440,6 +440,12 @@ class RedeApiTests(TestCase):
         self.assertEqual(
             self.json(response)["dados"]["alteracao"]["id"],
             str(alteracao.id),
+        )
+        self.assertEqual(
+            criar_alteracao.call_args.kwargs[
+                "requer_confirmacao"
+            ],
+            True,
         )
 
     def test_salvar_roteamento_bloqueado_durante_safe_apply(self):

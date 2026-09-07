@@ -1091,6 +1091,38 @@ def marcar_interface_sincronizada(
     )
 
 
+def registrar_revisao_interface_aplicada(
+    interface_id: int,
+    revisao: int,
+) -> InterfaceRede:
+    """Registra somente a revisão congelada pela alteração confirmada."""
+    interface = InterfaceRede.objects.select_for_update().get(pk=interface_id)
+    revisao = int(revisao)
+
+    if revisao <= interface.revisao_aplicada:
+        return interface
+
+    interface.revisao_aplicada = revisao
+
+    if interface.estado_sincronizacao in {
+        EstadoSincronizacao.APPLYING.value,
+        EstadoSincronizacao.WAITING_CONFIRMATION.value,
+    }:
+        interface.estado_sincronizacao = ""
+
+    _atualizar_estado_sincronizacao(interface, salvar=False)
+    interface.save(update_fields=[
+        "revisao_aplicada",
+        "estado_sincronizacao",
+        "sincronizada",
+        "pendente",
+        "ultimo_erro",
+        "atualizado_em",
+    ])
+
+    return interface
+
+
 def marcar_interface_erro(
     interface: InterfaceRede,
     erro: str,

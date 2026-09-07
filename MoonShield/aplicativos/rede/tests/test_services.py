@@ -271,6 +271,132 @@ class AlteracoesServiceTests(TestCase):
         self.assertIsNone(confirmada.expira_em)
         agent.assert_called_once()
 
+    def criar_interface_para_confirmacao(self, nome="lan-confirmacao"):
+        return InterfaceRede.objects.create(
+            nome=nome,
+            papel=InterfaceRede.Papel.LAN,
+            habilitada=True,
+            ipv4_modo=InterfaceRede.ModoIPv4.STATIC,
+            ipv4_endereco="192.168.50.1",
+            ipv4_prefixo=24,
+            rota_padrao=False,
+            mtu=1500,
+            estado_link=InterfaceRede.EstadoLink.UP,
+            ipv4_atual="192.168.50.1",
+            enderecos_ipv4=["192.168.50.1/24"],
+            prefixo_atual=24,
+            mtu_atual=1500,
+            revisao_desejada=2,
+            revisao_aplicada=1,
+        )
+
+    def criar_alteracao_interface_aguardando(self, interface):
+        p1, p2, p3 = self.patch_criacao()
+
+        with p1, p2, p3:
+            alteracao = service.criar_alteracao_interface(
+                interface.id,
+                usuario=self.usuario,
+            )
+
+        alteracao.status = AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO
+        alteracao.expira_em = timezone.now() + timedelta(seconds=60)
+        alteracao.save(update_fields=["status", "expira_em", "atualizado_em"])
+        return alteracao
+
+    def confirmar_alteracao_interface(self, alteracao):
+        with (
+            patch.object(
+                service,
+                "requisitar_agent",
+                return_value={"status": "confirmed"},
+            ),
+            patch.object(service, "registrar_evento"),
+        ):
+            return service.confirmar_alteracao(
+                alteracao.id,
+                usuario=self.usuario,
+            )
+
+    def test_confirmar_interface_promove_revisao_congelada(self):
+        interface = self.criar_interface_para_confirmacao()
+        alteracao = self.criar_alteracao_interface_aguardando(interface)
+
+        self.confirmar_alteracao_interface(alteracao)
+        interface.refresh_from_db()
+
+        self.assertEqual(
+            alteracao.configuracao_solicitada["revisoes_interfaces"][str(interface.id)],
+            2,
+        )
+        self.assertEqual(interface.revisao_aplicada, 2)
+        self.assertEqual(interface.estado_sincronizacao, "synced")
+        self.assertTrue(interface.sincronizada)
+        self.assertFalse(interface.pendente)
+
+    def test_confirmar_interface_e_idempotente_para_revisao(self):
+        interface = self.criar_interface_para_confirmacao()
+        alteracao = self.criar_alteracao_interface_aguardando(interface)
+
+        self.confirmar_alteracao_interface(alteracao)
+        self.confirmar_alteracao_interface(alteracao)
+        interface.refresh_from_db()
+
+        self.assertEqual(interface.revisao_aplicada, 2)
+
+    def test_confirmar_interface_preserva_desired_posterior(self):
+        interface = self.criar_interface_para_confirmacao()
+        alteracao = self.criar_alteracao_interface_aguardando(interface)
+
+        interface.ipv4_endereco = "192.168.60.1"
+        interface.revisao_desejada = 3
+        interface.save(update_fields=[
+            "ipv4_endereco",
+            "revisao_desejada",
+            "atualizado_em",
+        ])
+
+        self.confirmar_alteracao_interface(alteracao)
+        interface.refresh_from_db()
+
+        self.assertEqual(interface.revisao_desejada, 3)
+        self.assertEqual(interface.revisao_aplicada, 2)
+        self.assertEqual(interface.estado_sincronizacao, "pending_apply")
+
+    def test_confirmar_interface_nao_promove_outra_interface(self):
+        interface = self.criar_interface_para_confirmacao()
+        outra = self.criar_interface_para_confirmacao("lan-outra")
+        outra.revisao_desejada = 4
+        outra.revisao_aplicada = 1
+        outra.save(update_fields=[
+            "revisao_desejada",
+            "revisao_aplicada",
+            "atualizado_em",
+        ])
+        alteracao = self.criar_alteracao_interface_aguardando(interface)
+
+        self.confirmar_alteracao_interface(alteracao)
+        outra.refresh_from_db()
+
+        self.assertEqual(outra.revisao_aplicada, 1)
+
+    def test_reconciliar_confirmacao_promove_revisao_congelada(self):
+        interface = self.criar_interface_para_confirmacao()
+        alteracao = self.criar_alteracao_interface_aguardando(interface)
+
+        with (
+            patch.object(
+                service,
+                "requisitar_agent",
+                return_value={"status": "confirmed"},
+            ),
+            patch.object(service, "registrar_evento"),
+        ):
+            service.reconciliar_alteracao(alteracao.id)
+
+        interface.refresh_from_db()
+        self.assertEqual(interface.revisao_aplicada, 2)
+
     def test_confirmar_agent_indisponivel_mantem_aguardando_confirmacao(self):
         alteracao = self.criar_modelo(
             status=AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,

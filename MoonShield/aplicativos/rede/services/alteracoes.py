@@ -83,7 +83,12 @@ from rede.models import (
     SnapshotRede,
 )
 from rede.services.agent_client import requisitar_agent
-from rede.services.interfaces import montar_payload_interface, montar_payload_interfaces, obter_interface_por_id
+from rede.services.interfaces import (
+    montar_payload_interface,
+    montar_payload_interfaces,
+    obter_interface_por_id,
+    registrar_revisao_interface_aplicada,
+)
 from rede.services.nat import montar_payload_nat
 from rede.services.roteamento import montar_payload_roteamento
 
@@ -398,7 +403,12 @@ def criar_alteracao_interface(
         tipo=TipoAlteracaoRede.INTERFACE.value,
         titulo=f"Configurar interface {interface.nome}",
         descricao="Aplicação da configuração desejada da interface.",
-        configuracao_solicitada={"interface": payload},
+        configuracao_solicitada={
+            "interface": payload,
+            "revisoes_interfaces": {
+                str(interface.pk): interface.revisao_desejada,
+            },
+        },
         usuario=usuario,
         requer_confirmacao=requer_confirmacao,
     )
@@ -534,6 +544,24 @@ def _montar_payload_agent(alteracao: AlteracaoRede) -> dict:
         "confirmation_timeout": timeout,
         "desired": alteracao.configuracao_solicitada,
     }
+
+
+def _promover_revisoes_interfaces_confirmadas(
+    alteracao: AlteracaoRede,
+) -> None:
+    revisoes = (alteracao.configuracao_solicitada or {}).get(
+        "revisoes_interfaces",
+        {},
+    )
+
+    if not isinstance(revisoes, dict):
+        return
+
+    for interface_id, revisao in revisoes.items():
+        try:
+            registrar_revisao_interface_aplicada(int(interface_id), int(revisao))
+        except (TypeError, ValueError):
+            continue
 
 
 # =============================================================================
@@ -838,6 +866,7 @@ def confirmar_alteracao(
                 "atualizado_em",
             ]
         )
+        _promover_revisoes_interfaces_confirmadas(alteracao)
 
     registrar_evento(
         nivel=NivelEventoRede.SUCCESS.value,
@@ -1581,6 +1610,7 @@ def _marcar_confirmada_por_agent(
                 "atualizado_em",
             ]
         )
+        _promover_revisoes_interfaces_confirmadas(alteracao)
 
 
 def _marcar_falha_por_agent(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import grp
+import json
 import os
 import platform
 import pwd
@@ -205,7 +206,7 @@ class Command(BaseCommand):
 
         if not self._teste_socket():
             raise RuntimeError(
-                "Unix Socket foi criado, mas não aceitou conexão."
+                "Unix Socket foi criado, mas não respondeu ao system.ping."
             )
 
         self._ok(
@@ -530,11 +531,28 @@ WantedBy=multi-user.target
 
     def _teste_socket(self) -> bool:
         """
-        Apenas confirma que o Unix Stream Socket aceita conexão.
+        Confirma a prontidão do Agent com uma requisição IPC válida.
 
-        Não envia JSON aqui para não acoplar o bootstrap ao contrato do
-        protocolo do Agent. A API Django fará o ping funcional depois.
+        Uma conexão AF_UNIX aberta e fechada sem mensagem é inválida no
+        protocolo e gera ruído no journal do Agent. O bootstrap usa o ping
+        permitido pelo contrato para validar socket e dispatcher juntos.
         """
+
+        request_id = "bootstrap-readiness"
+        requisicao = {
+            "versao": 1,
+            "id": request_id,
+            "acao": "system.ping",
+            "dados": {},
+        }
+
+        mensagem = (
+            json.dumps(
+                requisicao,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
 
         client = socket.socket(
             socket.AF_UNIX,
@@ -547,8 +565,32 @@ WantedBy=multi-user.target
             client.connect(
                 str(self.SOCKET_PATH)
             )
-            return True
-        except OSError:
+            client.sendall(mensagem)
+
+            resposta = bytearray()
+
+            while b"\n" not in resposta:
+                bloco = client.recv(4096)
+
+                if not bloco:
+                    return False
+
+                resposta.extend(bloco)
+
+                if len(resposta) > 65536:
+                    return False
+
+            payload = json.loads(
+                bytes(resposta).split(b"\n", 1)[0].decode("utf-8")
+            )
+
+            return (
+                isinstance(payload, dict)
+                and payload.get("id") == request_id
+                and payload.get("acao") == "system.ping"
+                and payload.get("ok") is True
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return False
         finally:
             client.close()

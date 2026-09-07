@@ -25,10 +25,12 @@ from django.utils import timezone
 
 from rede.dominio.erros import (
     AgentIndisponivelErro,
+    AgentRespostaInvalidaErro,
     AlteracaoEstadoInvalidoErro,
 )
-from rede.models import AlteracaoRede, SnapshotRede
+from rede.models import AlteracaoRede, InterfaceRede, SnapshotRede
 from rede.services import alteracoes as service
+from rede.services import inventario, reconciliacao
 
 
 User = get_user_model()
@@ -484,3 +486,49 @@ class AlteracoesServiceTests(TestCase):
         )
         self.assertEqual(cancelada2.id, cancelada.id)
         self.assertTrue(cancelada2.finalizada)
+
+
+class InventarioObservedTests(TestCase):
+    def criar_interface(self) -> InterfaceRede:
+        return InterfaceRede.objects.create(
+            nome="wan-observed",
+            papel=InterfaceRede.Papel.WAN,
+            estado_link=InterfaceRede.EstadoLink.UP,
+            ipv4_atual="192.0.2.10",
+            prefixo_atual=24,
+            enderecos_ipv4=["192.0.2.10/24"],
+        )
+
+    def test_inventario_invalido_nao_vira_lista_vazia(self):
+        with patch.object(
+            inventario,
+            "requisitar_agent",
+            return_value={"backend": "networkmanager", "interfaces": {}},
+        ):
+            with self.assertRaises(AgentRespostaInvalidaErro):
+                inventario.obter_inventario()
+
+    def test_agent_offline_preserva_observed_anterior(self):
+        interface = self.criar_interface()
+
+        with patch.object(
+            reconciliacao,
+            "obter_inventario",
+            side_effect=AgentIndisponivelErro("Agent offline"),
+        ):
+            with self.assertRaises(AgentIndisponivelErro):
+                reconciliacao.reconciliar_interfaces()
+
+        interface.refresh_from_db()
+        self.assertEqual(interface.estado_link, InterfaceRede.EstadoLink.UP)
+        self.assertEqual(interface.enderecos_ipv4, ["192.0.2.10/24"])
+
+    def test_inventario_vazio_valido_marca_interface_gerenciada_missing(self):
+        interface = self.criar_interface()
+
+        reconciliacao.reconciliar_interfaces(
+            inventario={"backend": "networkmanager", "interfaces": []}
+        )
+
+        interface.refresh_from_db()
+        self.assertEqual(interface.estado_sincronizacao, "missing")

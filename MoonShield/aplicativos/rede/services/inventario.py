@@ -26,6 +26,7 @@ from rede.dominio.tipos import (
     BackendRede,
     EstadoLink,
 )
+from rede.dominio.erros import AgentRespostaInvalidaErro
 
 from rede.services.agent_client import (
     requisitar_agent,
@@ -54,9 +55,11 @@ def obter_inventario() -> dict:
     )
 
     backend = _normalizar_backend(dados.get("backend"))
-    interfaces_brutas = dados.get("interfaces", [])
+    interfaces_brutas = dados.get("interfaces")
     if not isinstance(interfaces_brutas, list):
-        interfaces_brutas = []
+        raise AgentRespostaInvalidaErro(
+            "A resposta de inventário do Agent deve conter uma lista de interfaces."
+        )
 
     interfaces = [
         interface

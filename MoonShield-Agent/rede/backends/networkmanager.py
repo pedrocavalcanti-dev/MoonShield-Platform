@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -37,6 +38,8 @@ from .base import (
     normalizar_rota,
 )
 
+
+logger = logging.getLogger(__name__)
 
 VERSAO_NETWORKMANAGER_BACKEND = "1.0"
 
@@ -139,9 +142,76 @@ class NetworkManagerBackend(BackendRede):
 
         return resultado
 
+    # Subcomandos nmcli que alteram estado. Qualquer chamada cujo primeiro
+    # argumento relevante (após flags -t/--escape/etc.) comece com um destes
+    # prefixos é considerada mutável.
+    _NMCLI_OPERACOES_MUTAVEIS = frozenset({
+        "connection.modify",
+        "connection.add",
+        "connection.delete",
+        "connection.up",
+        "connection.down",
+        "device.disconnect",
+        "device.reapply",
+    })
+
+    # Palavras-chave em argumentos que devem ser mascaradas.
+    _NMCLI_ARGS_SENSIVEIS = frozenset({
+        "password", "secret", "token", "credential",
+        "senha", "segredo",
+    })
+
+    @classmethod
+    def _classificar_nmcli(cls, args: tuple[str, ...]) -> str | None:
+        """Retorna a operação canônica (ex: 'connection.modify') se mutável, ou None."""
+        # Ignora flags iniciais (-t, --escape, -f, etc.) para chegar ao subcomando.
+        significativos: list[str] = []
+        pular_proximo = False
+        for arg in args:
+            if pular_proximo:
+                pular_proximo = False
+                continue
+            if arg.startswith("-"):
+                # Flags que consomem um valor a seguir.
+                if arg in ("-f", "--fields", "--escape", "--mode", "--colors"):
+                    pular_proximo = True
+                continue
+            significativos.append(arg)
+            if len(significativos) >= 2:
+                break
+
+        if len(significativos) < 2:
+            return None
+
+        operacao = f"{significativos[0]}.{significativos[1]}"
+        return operacao if operacao in cls._NMCLI_OPERACOES_MUTAVEIS else None
+
+    @classmethod
+    def _mascarar_args(cls, args: tuple[str, ...]) -> list[str]:
+        """Retorna cópia dos argumentos com valores sensíveis mascarados."""
+        resultado: list[str] = []
+        mascarar_proximo = False
+        for arg in args:
+            if mascarar_proximo:
+                resultado.append("***")
+                mascarar_proximo = False
+                continue
+            resultado.append(arg)
+            if any(palavra in arg.lower() for palavra in cls._NMCLI_ARGS_SENSIVEIS):
+                mascarar_proximo = True
+        return resultado
+
     def _nmcli(self, *args: str, verificar: bool = True, timeout: int = NMCLI_TIMEOUT) -> ResultadoComando:
         if not self.nmcli:
             raise BackendIndisponivel("nmcli não está disponível no sistema.")
+
+        operacao = self._classificar_nmcli(args)
+        if operacao is not None:
+            logger.info(
+                "[networkmanager] nmcli mutável | operacao=%s args=%s",
+                operacao,
+                self._mascarar_args(args),
+            )
 
         return self._executar([self.nmcli, *args], verificar=verificar, timeout=timeout)
 

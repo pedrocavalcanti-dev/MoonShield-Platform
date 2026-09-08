@@ -75,20 +75,22 @@ def _interfaces_impactadas(plano: dict[str, Any]) -> list[str]:
     for item in plano.get("interfaces") or []:
         adicionar(item.get("nome"))
 
-    roteamento = plano.get("roteamento") or {}
+    if plano.get("tipo") != "nat":
+        roteamento = plano.get("roteamento") or {}
 
-    for nome in roteamento.get("interfaces_alvo") or []:
-        adicionar(nome)
+        for nome in roteamento.get("interfaces_alvo") or []:
+            adicionar(nome)
 
-    if not roteamento.get("interfaces_alvo"):
-        for rota in roteamento.get("rotas") or []:
-            adicionar(rota.get("interface_nome"))
+        if not roteamento.get("interfaces_alvo"):
+            for rota in roteamento.get("rotas") or []:
+                adicionar(rota.get("interface_nome"))
 
-    nat = plano.get("nat") or {}
+    if plano.get("tipo") != "nat":
+        nat = plano.get("nat") or {}
 
-    for regra in nat.get("regras") or []:
-        adicionar(regra.get("interface_origem"))
-        adicionar(regra.get("interface_saida"))
+        for regra in nat.get("regras") or []:
+            adicionar(regra.get("interface_origem"))
+            adicionar(regra.get("interface_saida"))
 
     return interfaces
 
@@ -256,11 +258,13 @@ def _aplicar_nat(plano: dict[str, Any]) -> dict[str, Any] | None:
         len(regras),
     )
 
-    resultado = aplicar_regras_nat(regras)
     ipv4_forward = _ipv4_forward_efetivo(plano)
+    resultado = {}
 
-    if ipv4_forward is not None and not isinstance(plano.get("roteamento"), dict):
+    if ipv4_forward is not None:
         resultado["ipv4_forward"] = definir_ipv4_forward(ipv4_forward)
+
+    resultado["nftables"] = aplicar_regras_nat(regras)
 
     logger.info(
         "[rede.apply] NAT aplicado | resultado=%s",
@@ -455,9 +459,10 @@ def _verificar_nat(plano: dict[str, Any]) -> dict[str, Any] | None:
 def _verificar_resultado(plano: dict[str, Any]) -> dict[str, Any]:
     logger.info("[rede.apply] iniciando verificação pós-aplicação")
 
-    interfaces = _verificar_interfaces(plano)
-    roteamento = _verificar_roteamento(plano)
-    nat = _verificar_nat(plano)
+    tipo = plano.get("tipo")
+    interfaces = _verificar_interfaces(plano) if tipo in {"interface", "general"} else []
+    roteamento = _verificar_roteamento(plano) if tipo in {"routing", "general"} else None
+    nat = _verificar_nat(plano) if tipo in {"nat", "general"} else None
 
     falhas: list[dict[str, Any]] = [
         item
@@ -507,15 +512,17 @@ def _aplicar_plano(plano: dict[str, Any]) -> dict[str, Any]:
         "verificacao": None,
     }
 
+    tipo = plano["tipo"]
+
     # Interfaces primeiro para que LAN/WAN estejam no estado correto antes
-    # das rotas e do NAT.
-    if plano.get("interfaces"):
+    # das rotas e do NAT em uma alteração geral.
+    if tipo in {"interface", "general"} and plano.get("interfaces"):
         resultado["interfaces"] = _aplicar_interfaces(plano)
 
-    if plano.get("roteamento") is not None:
+    if tipo in {"routing", "general"} and plano.get("roteamento") is not None:
         resultado["roteamento"] = _aplicar_roteamento(plano)
 
-    if plano.get("nat") is not None:
+    if tipo in {"nat", "general"} and plano.get("nat") is not None:
         resultado["nat"] = _aplicar_nat(plano)
 
     resultado["verificacao"] = _verificar_resultado(plano)
@@ -630,7 +637,7 @@ def aplicar_alteracao(payload: dict[str, Any]) -> dict[str, Any]:
         try:
             snapshot = criar_snapshot(
                 snapshot_id,
-                interfaces=interfaces or None,
+                interfaces=interfaces,
                 incluir_roteamento=True,
                 incluir_nat=True,
                 metadados={

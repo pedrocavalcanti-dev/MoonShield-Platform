@@ -590,6 +590,11 @@ class AlteracoesServiceTests(TestCase):
             True,
         )
         self.assertEqual(
+            alteracao.configuracao_solicitada["roteamento"],
+            {"ipv4_forward": True},
+        )
+        self.assertNotIn("interfaces", alteracao.configuracao_solicitada)
+        self.assertEqual(
             alteracao.configuracao_solicitada["nat"]["regras"][0]["origem_cidr"],
             "192.168.50.0/24",
         )
@@ -659,6 +664,11 @@ class AlteracoesServiceTests(TestCase):
             alteracao.configuracao_solicitada["roteamento"]["ipv4_forward"],
             False,
         )
+        self.assertEqual(
+            alteracao.configuracao_solicitada["roteamento"],
+            {"ipv4_forward": False},
+        )
+        self.assertNotIn("interfaces", alteracao.configuracao_solicitada)
         self.assertFalse(alteracao.configuracao_solicitada["nat"]["regras"][0]["ativa"])
 
         alteracao.status = AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO

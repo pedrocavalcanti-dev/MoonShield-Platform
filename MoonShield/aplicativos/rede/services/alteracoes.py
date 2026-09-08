@@ -428,13 +428,25 @@ def criar_alteracao_interface(
 # CRIAÇÃO — ROTEAMENTO
 # =============================================================================
 
-def _montar_payload_roteamento_efetivo(nat: dict) -> dict:
-    roteamento = montar_payload_roteamento()
+def _ipv4_forward_efetivo(
+    nat: dict,
+    *,
+    roteamento: dict | None = None,
+) -> bool:
+    roteamento = roteamento or montar_payload_roteamento()
     nat_exige_forward = any(
         regra.get("ativa", True)
         for regra in nat.get("regras", [])
     )
-    roteamento["ipv4_forward"] = bool(roteamento["ipv4_forward"]) or nat_exige_forward
+    return bool(roteamento["ipv4_forward"]) or nat_exige_forward
+
+
+def _montar_payload_roteamento_efetivo(nat: dict) -> dict:
+    roteamento = montar_payload_roteamento()
+    roteamento["ipv4_forward"] = _ipv4_forward_efetivo(
+        nat,
+        roteamento=roteamento,
+    )
     return roteamento
 
 
@@ -468,7 +480,9 @@ def criar_alteracao_nat(
 ) -> AlteracaoRede:
     nat = montar_payload_nat(somente_ativas=False)
     payload = {
-        "roteamento": _montar_payload_roteamento_efetivo(nat),
+        "roteamento": {
+            "ipv4_forward": _ipv4_forward_efetivo(nat),
+        },
         "nat": nat,
     }
 

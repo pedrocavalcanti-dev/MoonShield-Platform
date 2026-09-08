@@ -80,8 +80,9 @@ def _interfaces_impactadas(plano: dict[str, Any]) -> list[str]:
     for nome in roteamento.get("interfaces_alvo") or []:
         adicionar(nome)
 
-    for rota in roteamento.get("rotas") or []:
-        adicionar(rota.get("interface_nome"))
+    if not roteamento.get("interfaces_alvo"):
+        for rota in roteamento.get("rotas") or []:
+            adicionar(rota.get("interface_nome"))
 
     nat = plano.get("nat") or {}
 
@@ -326,6 +327,33 @@ def _verificar_roteamento(plano: dict[str, Any]) -> dict[str, Any] | None:
 
     backend = obter_backend()
     resultado["rotas"] = backend.obter_rotas()
+
+    rotas_ausentes = []
+    rotas_ainda_presentes = []
+
+    for esperada in roteamento.get("rotas") or []:
+        encontrada = next(
+            (
+                observada
+                for observada in resultado["rotas"]
+                if observada.get("destino") == esperada.get("destino")
+                and observada.get("gateway") == esperada.get("gateway")
+                and observada.get("interface") == esperada.get("interface_nome")
+                and observada.get("metrica") == esperada.get("metrica")
+            ),
+            None,
+        )
+
+        if esperada.get("ativa", True) and encontrada is None:
+            rotas_ausentes.append(esperada)
+        elif not esperada.get("ativa", True) and encontrada is not None:
+            rotas_ainda_presentes.append(esperada)
+
+    if rotas_ausentes or rotas_ainda_presentes:
+        resultado["ok"] = False
+        resultado["erro"] = "Rotas estaticas nao correspondem ao estado solicitado."
+        resultado["rotas_ausentes"] = rotas_ausentes
+        resultado["rotas_ainda_presentes"] = rotas_ainda_presentes
 
     logger.info(
         "[rede.apply] verificação de roteamento | ok=%s ipv4_forward=%s",

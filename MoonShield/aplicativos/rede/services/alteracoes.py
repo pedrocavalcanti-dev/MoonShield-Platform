@@ -80,6 +80,7 @@ from rede.models import (
     ConfiguracaoRoteamento,
     EventoRede,
     InterfaceRede,
+    RotaEstatica,
     SnapshotRede,
 )
 from rede.services.agent_client import requisitar_agent
@@ -90,7 +91,11 @@ from rede.services.interfaces import (
     registrar_revisao_interface_aplicada,
 )
 from rede.services.nat import montar_payload_nat
-from rede.services.roteamento import montar_payload_roteamento
+from rede.services.roteamento import (
+    marcar_rota_removida,
+    marcar_rota_sincronizada,
+    montar_payload_roteamento,
+)
 
 
 STATUS_EM_ANDAMENTO = set(AlteracaoRede.statuses_em_andamento())
@@ -564,6 +569,40 @@ def _promover_revisoes_interfaces_confirmadas(
             continue
 
 
+def _promover_rotas_confirmadas(
+    alteracao: AlteracaoRede,
+) -> None:
+    configuracao = alteracao.configuracao_solicitada or {}
+
+    if alteracao.tipo != TipoAlteracaoRede.ROTEAMENTO.value:
+        return
+
+    for rota_solicitada in configuracao.get("rotas", []):
+        if not isinstance(rota_solicitada, dict):
+            continue
+
+        rota_id = rota_solicitada.get("id")
+
+        try:
+            rota = RotaEstatica.objects.select_for_update().get(pk=int(rota_id))
+        except (RotaEstatica.DoesNotExist, TypeError, ValueError):
+            continue
+
+        if (
+            rota.destino != rota_solicitada.get("destino")
+            or rota.gateway != rota_solicitada.get("gateway")
+            or rota.interface.nome != rota_solicitada.get("interface_nome")
+            or rota.metrica != rota_solicitada.get("metrica")
+        ):
+            continue
+
+        if rota_solicitada.get("ativa", True):
+            if rota.ativa:
+                marcar_rota_sincronizada(rota)
+        elif not rota.ativa:
+            marcar_rota_removida(rota)
+
+
 # =============================================================================
 # APLICAÇÃO
 # =============================================================================
@@ -867,6 +906,7 @@ def confirmar_alteracao(
             ]
         )
         _promover_revisoes_interfaces_confirmadas(alteracao)
+        _promover_rotas_confirmadas(alteracao)
 
     registrar_evento(
         nivel=NivelEventoRede.SUCCESS.value,
@@ -1611,6 +1651,7 @@ def _marcar_confirmada_por_agent(
             ]
         )
         _promover_revisoes_interfaces_confirmadas(alteracao)
+        _promover_rotas_confirmadas(alteracao)
 
 
 def _marcar_falha_por_agent(

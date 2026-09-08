@@ -18,6 +18,7 @@ Princípios:
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import shutil
@@ -745,14 +746,110 @@ class NetworkManagerBackend(BackendRede):
     # ROTAS PERSISTENTES
     # =========================================================================
 
+    @staticmethod
+    def _identidade_rota(rota: dict[str, Any]) -> tuple[str, str | None, int]:
+        destino = str(ipaddress.ip_network(rota["destino"], strict=False))
+        gateway = rota.get("gateway")
+        gateway = str(ipaddress.ip_address(gateway)) if gateway else None
+        return destino, gateway, int(rota.get("metrica", 100))
+
+    @staticmethod
+    def _separar_rotas_profile(valor: str) -> list[str]:
+        rotas = []
+        atual = []
+        nivel = 0
+        escapado = False
+
+        for caractere in valor:
+            if escapado:
+                atual.append(caractere)
+                escapado = False
+                continue
+
+            if caractere == "\\":
+                atual.append(caractere)
+                escapado = True
+                continue
+
+            if caractere == "{":
+                nivel += 1
+            elif caractere == "}" and nivel:
+                nivel -= 1
+            elif caractere == "," and not nivel:
+                rota = "".join(atual).strip()
+                if rota:
+                    rotas.append(rota)
+                atual = []
+                continue
+
+            atual.append(caractere)
+
+        rota = "".join(atual).strip()
+        if rota:
+            rotas.append(rota)
+
+        return rotas
+
+    @classmethod
+    def _normalizar_rota_profile(cls, valor: str) -> dict[str, Any] | None:
+        texto = str(valor or "").strip()
+
+        if not texto:
+            return None
+
+        formato_atual = re.search(
+            r"ip\s*=\s*([^,}\s]+).*?nh\s*=\s*([^,}\s]+)(?:.*?mt\s*=\s*(\d+))?",
+            texto,
+        )
+
+        if formato_atual:
+            destino, gateway, metrica = formato_atual.groups()
+        else:
+            campos = texto.split()
+            if not campos:
+                return None
+
+            destino = campos[0]
+            gateway = campos[1] if len(campos) > 1 else None
+            metrica = campos[2] if len(campos) > 2 else 100
+
+            if gateway and gateway.isdigit():
+                metrica = gateway
+                gateway = None
+
+        try:
+            rota = {
+                "destino": str(ipaddress.ip_network(destino, strict=False)),
+                "gateway": str(ipaddress.ip_address(gateway)) if gateway else None,
+                "metrica": int(metrica or 100),
+            }
+            cls._identidade_rota(rota)
+        except (TypeError, ValueError):
+            return None
+
+        return rota
+
+    def _rotas_profile(self, conexao: str) -> list[dict[str, Any]]:
+        valor = self.obter_conexao(conexao).get("ipv4", {}).get("routes") or ""
+        return [
+            {
+                "raw": rota,
+                "rota": self._normalizar_rota_profile(rota),
+            }
+            for rota in self._separar_rotas_profile(valor)
+        ]
+
     def configurar_rotas(
         self,
         rotas: list[dict[str, Any]],
         *,
         interfaces_alvo: list[str] | None = None,
     ) -> dict[str, Any]:
-        normalizadas = [normalizar_rota(rota) for rota in rotas]
-        normalizadas = [rota for rota in normalizadas if rota["ativa"]]
+        normalizadas = []
+
+        for rota in rotas:
+            normalizada = normalizar_rota(rota)
+            normalizadas.append(normalizada)
 
         agrupadas: dict[str, list[dict[str, Any]]] = {}
 
@@ -768,7 +865,11 @@ class NetworkManagerBackend(BackendRede):
             self.obter_interface(interface)
             agrupadas.setdefault(interface, []).append(rota)
 
-        alvos = set(interfaces_alvo or []) | set(agrupadas)
+        alvos = (
+            set(interfaces_alvo)
+            if interfaces_alvo is not None
+            else set(agrupadas)
+        )
         resultados = []
 
         for interface in sorted(alvos):
@@ -780,14 +881,56 @@ class NetworkManagerBackend(BackendRede):
                 conexao, _ = self._garantir_conexao(interface)
 
             rotas_interface = agrupadas.get(interface, [])
-            valor = ",".join(self._formatar_rota_nmcli(rota) for rota in rotas_interface)
+            desejadas = [rota for rota in rotas_interface if rota["ativa"]]
+            removidas = [
+                rota
+                for rota in rotas_interface
+                if not rota["ativa"] and rota["sincronizada"]
+            ]
+            identidades_removidas = {
+                self._identidade_rota(rota)
+                for rota in removidas
+            }
+            atuais = self._rotas_profile(conexao)
+            finais = []
+            identidades_finais = set()
+
+            for atual in atuais:
+                rota_atual = atual["rota"]
+                identidade = (
+                    self._identidade_rota(rota_atual)
+                    if rota_atual is not None
+                    else None
+                )
+
+                if identidade in identidades_removidas:
+                    continue
+
+                if identidade is not None:
+                    if identidade in identidades_finais:
+                        continue
+                    identidades_finais.add(identidade)
+
+                finais.append(atual["raw"])
+
+            for rota in desejadas:
+                identidade = self._identidade_rota(rota)
+
+                if identidade in identidades_finais:
+                    continue
+
+                finais.append(self._formatar_rota_nmcli(rota))
+                identidades_finais.add(identidade)
+
+            valor = ",".join(finais)
 
             self._nmcli("connection", "modify", conexao, "ipv4.routes", valor)
 
             resultados.append({
                 "interface": interface,
                 "conexao": conexao,
-                "rotas": rotas_interface,
+                "rotas": desejadas,
+                "removidas": removidas,
             })
 
         return {

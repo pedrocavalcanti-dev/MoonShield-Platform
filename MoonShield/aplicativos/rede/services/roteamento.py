@@ -35,7 +35,7 @@ from rede.dominio.erros import (
 )
 
 from rede.dominio.constantes import PAPEIS_GERENCIADOS
-from rede.dominio.tipos import ModoIPv4, PapelInterface
+from rede.dominio.tipos import ModoIPv4
 from rede.dominio.validacoes import (
     validar_gateway,
     validar_rota_estatica,
@@ -407,11 +407,27 @@ def salvar_rota(
         )
 
     if rota_id is None:
-        rota = RotaEstatica()
+        rota = RotaEstatica.objects.filter(
+            destino=normalizado["destino"],
+            gateway=gateway,
+            interface=interface,
+            metrica=normalizado["metrica"],
+            ativa=False,
+        ).first() or RotaEstatica()
+        rota_anterior = None
     else:
         rota = obter_rota(
             rota_id
         )
+        rota_anterior = {
+            "nome": rota.nome,
+            "destino": rota.destino,
+            "gateway": rota.gateway,
+            "interface": rota.interface,
+            "metrica": rota.metrica,
+            "sincronizada": rota.sincronizada,
+            "ativa": rota.ativa,
+        }
 
     rota.nome = str(dados.get("nome", "") or "").strip()
 
@@ -438,6 +454,41 @@ def salvar_rota(
     rota.full_clean()
     rota.save()
 
+    if rota_anterior and rota_anterior["ativa"] and (
+        rota_anterior["destino"],
+        rota_anterior["gateway"],
+        rota_anterior["interface"],
+        rota_anterior["metrica"],
+    ) != (
+        rota.destino,
+        rota.gateway,
+        rota.interface,
+        rota.metrica,
+    ):
+        removida, _ = RotaEstatica.objects.get_or_create(
+            destino=rota_anterior["destino"],
+            gateway=rota_anterior["gateway"],
+            interface=rota_anterior["interface"],
+            metrica=rota_anterior["metrica"],
+            defaults={
+                "nome": rota_anterior["nome"],
+                "ativa": False,
+                "sincronizada": rota_anterior["sincronizada"],
+                "pendente": True,
+            },
+        )
+
+        if removida.ativa or not removida.pendente:
+            removida.ativa = False
+            removida.pendente = True
+            removida.ultimo_erro = ""
+            removida.save(update_fields=[
+                "ativa",
+                "pendente",
+                "ultimo_erro",
+                "atualizado_em",
+            ])
+
     return rota
 
 
@@ -451,17 +502,25 @@ def excluir_rota(
     rota_id: int,
 ) -> None:
     """
-    Remove configuração desejada.
-
-    A retirada real do Linux será feita através
-    do fluxo seguro de alteração.
+    Marca a rota para remoção segura no próximo Safe Apply.
     """
 
     rota = obter_rota(
         rota_id
     )
 
-    rota.delete()
+    if not rota.ativa and not rota.pendente:
+        return
+
+    rota.ativa = False
+    rota.pendente = True
+    rota.ultimo_erro = ""
+    rota.save(update_fields=[
+        "ativa",
+        "pendente",
+        "ultimo_erro",
+        "atualizado_em",
+    ])
 
 
 # =============================================================================
@@ -476,10 +535,16 @@ def montar_payload_roteamento() -> dict:
 
     config = obter_configuracao()
 
-    rotas = RotaEstatica.objects.select_related("interface").filter(ativa=True).order_by("metrica", "destino")
+    rotas = RotaEstatica.objects.select_related("interface").filter(
+        ativa=True,
+    ).order_by("metrica", "destino")
+    removidas = RotaEstatica.objects.select_related("interface").filter(
+        ativa=False,
+        pendente=True,
+    ).order_by("metrica", "destino")
     payload_rotas = []
 
-    for rota in rotas:
+    for rota in list(rotas) + list(removidas):
         if rota.interface is None:
             raise ConfiguracaoRedeInvalidaErro(
                 f"Rota estática #{rota.pk} não possui interface de saída.",
@@ -492,14 +557,16 @@ def montar_payload_roteamento() -> dict:
             "gateway": rota.gateway,
             "interface_nome": rota.interface.nome,
             "metrica": rota.metrica,
-            "ativa": True,
+            "ativa": rota.ativa,
+            "pendente": rota.pendente,
+            "sincronizada": rota.sincronizada,
         })
 
-    interfaces_alvo = list(
-        InterfaceRede.objects.exclude(papel=PapelInterface.NAO_ATRIBUIDA.value)
-        .order_by("nome")
-        .values_list("nome", flat=True)
-    )
+    interfaces_alvo = sorted({
+        rota["interface_nome"]
+        for rota in payload_rotas
+        if rota["pendente"]
+    })
 
     return {
         "ipv4_forward": (
@@ -564,6 +631,23 @@ def marcar_rota_erro(
     rota.ultimo_erro = str(
         erro or ""
     )
+
+    rota.save(
+        update_fields=[
+            "sincronizada",
+            "pendente",
+            "ultimo_erro",
+            "atualizado_em",
+        ]
+    )
+
+
+def marcar_rota_removida(
+    rota: RotaEstatica,
+) -> None:
+    rota.sincronizada = False
+    rota.pendente = False
+    rota.ultimo_erro = ""
 
     rota.save(
         update_fields=[

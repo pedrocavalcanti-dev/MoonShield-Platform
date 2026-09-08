@@ -264,6 +264,7 @@ def normalizar_rota(rota: dict[str, Any]) -> dict[str, Any]:
         "interface_nome": str(interface).strip(),
         "metrica": metrica,
         "ativa": normalizar_bool(rota.get("ativa"), True),
+        "sincronizada": normalizar_bool(rota.get("sincronizada"), False),
     }
 
 

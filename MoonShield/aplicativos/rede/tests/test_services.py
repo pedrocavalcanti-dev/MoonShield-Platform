@@ -27,10 +27,12 @@ from rede.dominio.erros import (
     AgentIndisponivelErro,
     AgentRespostaInvalidaErro,
     AlteracaoEstadoInvalidoErro,
+    ConfiguracaoRedeInvalidaErro,
 )
-from rede.models import AlteracaoRede, InterfaceRede, SnapshotRede
+from rede.models import AlteracaoRede, InterfaceRede, RotaEstatica, SnapshotRede
 from rede.services import alteracoes as service
 from rede.services import inventario, reconciliacao
+from rede.services import roteamento
 
 
 User = get_user_model()
@@ -396,6 +398,170 @@ class AlteracoesServiceTests(TestCase):
 
         interface.refresh_from_db()
         self.assertEqual(interface.revisao_aplicada, 2)
+
+    def test_confirmar_roteamento_sincroniza_apenas_rota_congelada(self):
+        interface = self.criar_interface_para_confirmacao()
+        rota = RotaEstatica.objects.create(
+            destino="10.250.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface,
+            metrica=100,
+            ativa=True,
+        )
+        p1, p2, p3 = self.patch_criacao()
+
+        with p1, p2, p3:
+            alteracao = service.criar_alteracao_roteamento(usuario=self.usuario)
+
+        alteracao.status = AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO
+        alteracao.expira_em = timezone.now() + timedelta(seconds=60)
+        alteracao.save(update_fields=["status", "expira_em", "atualizado_em"])
+
+        self.confirmar_alteracao_interface(alteracao)
+        rota.refresh_from_db()
+
+        self.assertTrue(rota.sincronizada)
+        self.assertFalse(rota.pendente)
+
+    def test_payload_roteamento_alvo_somente_interface_com_rota(self):
+        interface_rota = self.criar_interface_para_confirmacao()
+        outra_interface = self.criar_interface_para_confirmacao("wan-sem-rota")
+        outra_interface.papel = InterfaceRede.Papel.WAN
+        outra_interface.save(update_fields=["papel", "atualizado_em"])
+        RotaEstatica.objects.create(
+            destino="10.250.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface_rota,
+            metrica=100,
+            ativa=True,
+        )
+
+        payload = roteamento.montar_payload_roteamento()
+
+        self.assertEqual(payload["interfaces_alvo"], [interface_rota.nome])
+
+    def test_remover_ultima_rota_mantem_tombstone_sincronizado_no_payload(self):
+        interface = self.criar_interface_para_confirmacao()
+        rota = RotaEstatica.objects.create(
+            destino="10.250.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface,
+            metrica=100,
+            ativa=True,
+            sincronizada=True,
+            pendente=False,
+        )
+
+        roteamento.excluir_rota(rota.id)
+        payload = roteamento.montar_payload_roteamento()
+
+        rota.refresh_from_db()
+        self.assertFalse(rota.ativa)
+        self.assertTrue(rota.pendente)
+        self.assertTrue(rota.sincronizada)
+        self.assertEqual(payload["interfaces_alvo"], [interface.nome])
+        self.assertEqual(payload["rotas"], [{
+            "id": rota.id,
+            "destino": "10.250.0.0/24",
+            "gateway": "192.168.50.254",
+            "interface_nome": interface.nome,
+            "metrica": 100,
+            "ativa": False,
+            "pendente": True,
+            "sincronizada": True,
+        }])
+
+    def test_remocao_sem_ownership_sincronizado_permanece_segura_no_payload(self):
+        interface = self.criar_interface_para_confirmacao()
+        rota = RotaEstatica.objects.create(
+            destino="10.251.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface,
+            metrica=100,
+            ativa=True,
+            sincronizada=False,
+            pendente=False,
+        )
+
+        roteamento.excluir_rota(rota.id)
+        payload = roteamento.montar_payload_roteamento()
+
+        self.assertEqual(payload["rotas"][0]["sincronizada"], False)
+        self.assertFalse(payload["rotas"][0]["ativa"])
+        self.assertTrue(payload["rotas"][0]["pendente"])
+
+    def test_substituir_rota_emite_adicao_e_remocao_na_mesma_interface(self):
+        interface = self.criar_interface_para_confirmacao()
+        rota_anterior = RotaEstatica.objects.create(
+            nome="anterior",
+            destino="10.252.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface,
+            metrica=100,
+            ativa=True,
+            sincronizada=True,
+            pendente=False,
+        )
+
+        rota_nova = roteamento.salvar_rota({
+            "nome": "nova",
+            "destino": "10.253.0.0/24",
+            "gateway": "192.168.50.254",
+            "interface_id": interface.id,
+            "metrica": 100,
+            "ativa": True,
+        }, rota_id=rota_anterior.id)
+        payload = roteamento.montar_payload_roteamento()
+
+        self.assertEqual(payload["interfaces_alvo"], [interface.nome])
+        self.assertEqual({
+            (item["destino"], item["ativa"], item["sincronizada"])
+            for item in payload["rotas"]
+        }, {
+            ("10.252.0.0/24", False, True),
+            ("10.253.0.0/24", True, False),
+        })
+        self.assertEqual(rota_nova.destino, "10.253.0.0/24")
+
+    def test_payload_de_remocao_nao_altera_interface_sem_delta(self):
+        interface_alvo = self.criar_interface_para_confirmacao()
+        interface_sem_delta = self.criar_interface_para_confirmacao("lan-sem-delta")
+        rota = RotaEstatica.objects.create(
+            destino="10.254.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface_alvo,
+            metrica=100,
+            ativa=True,
+            sincronizada=True,
+            pendente=False,
+        )
+        RotaEstatica.objects.create(
+            destino="10.255.0.0/24",
+            gateway="192.168.50.254",
+            interface=interface_sem_delta,
+            metrica=100,
+            ativa=True,
+            sincronizada=True,
+            pendente=False,
+        )
+
+        roteamento.excluir_rota(rota.id)
+        payload = roteamento.montar_payload_roteamento()
+
+        self.assertEqual(payload["interfaces_alvo"], [interface_alvo.nome])
+        self.assertEqual(len(payload["rotas"]), 2)
+
+    def test_rota_default_continua_rejeitada_como_rota_estatica(self):
+        interface = self.criar_interface_para_confirmacao()
+
+        with self.assertRaises(ConfiguracaoRedeInvalidaErro):
+            roteamento.salvar_rota({
+                "destino": "0.0.0.0/0",
+                "gateway": "192.168.50.254",
+                "interface_id": interface.id,
+                "metrica": 100,
+                "ativa": True,
+            })
 
     def test_confirmar_agent_indisponivel_mantem_aguardando_confirmacao(self):
         alteracao = self.criar_modelo(

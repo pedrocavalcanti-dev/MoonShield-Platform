@@ -80,6 +80,7 @@ from rede.models import (
     ConfiguracaoRoteamento,
     EventoRede,
     InterfaceRede,
+    RegraNat,
     RotaEstatica,
     SnapshotRede,
 )
@@ -90,7 +91,11 @@ from rede.services.interfaces import (
     obter_interface_por_id,
     registrar_revisao_interface_aplicada,
 )
-from rede.services.nat import montar_payload_nat
+from rede.services.nat import (
+    marcar_regra_removida,
+    marcar_regra_sincronizada,
+    montar_payload_nat,
+)
 from rede.services.roteamento import (
     marcar_rota_removida,
     marcar_rota_sincronizada,
@@ -423,12 +428,24 @@ def criar_alteracao_interface(
 # CRIAÇÃO — ROTEAMENTO
 # =============================================================================
 
+def _montar_payload_roteamento_efetivo(nat: dict) -> dict:
+    roteamento = montar_payload_roteamento()
+    nat_exige_forward = any(
+        regra.get("ativa", True)
+        for regra in nat.get("regras", [])
+    )
+    roteamento["ipv4_forward"] = bool(roteamento["ipv4_forward"]) or nat_exige_forward
+    return roteamento
+
+
 def criar_alteracao_roteamento(
     *,
     usuario=None,
     requer_confirmacao: bool = True,
 ) -> AlteracaoRede:
-    payload = montar_payload_roteamento()
+    payload = _montar_payload_roteamento_efetivo(
+        montar_payload_nat(somente_ativas=False)
+    )
 
     return criar_alteracao(
         tipo=TipoAlteracaoRede.ROTEAMENTO.value,
@@ -449,7 +466,11 @@ def criar_alteracao_nat(
     usuario=None,
     requer_confirmacao: bool = True,
 ) -> AlteracaoRede:
-    payload = montar_payload_nat(somente_ativas=False)
+    nat = montar_payload_nat(somente_ativas=False)
+    payload = {
+        "roteamento": _montar_payload_roteamento_efetivo(nat),
+        "nat": nat,
+    }
 
     return criar_alteracao(
         tipo=TipoAlteracaoRede.NAT.value,
@@ -471,10 +492,11 @@ def criar_alteracao_geral(
     requer_confirmacao: bool = True,
 ) -> AlteracaoRede:
     """Cria alteração contendo todo o estado desejado da Rede."""
+    nat = montar_payload_nat(somente_ativas=False)
     payload = {
         "interfaces": montar_payload_interfaces().get("interfaces", []),
-        "roteamento": montar_payload_roteamento(),
-        "nat": montar_payload_nat(somente_ativas=False),
+        "roteamento": _montar_payload_roteamento_efetivo(nat),
+        "nat": nat,
     }
 
     return criar_alteracao(
@@ -601,6 +623,47 @@ def _promover_rotas_confirmadas(
                 marcar_rota_sincronizada(rota)
         elif not rota.ativa:
             marcar_rota_removida(rota)
+
+
+def _promover_regras_nat_confirmadas(
+    alteracao: AlteracaoRede,
+) -> None:
+    configuracao = alteracao.configuracao_solicitada or {}
+    nat = configuracao.get("nat")
+
+    if alteracao.tipo == TipoAlteracaoRede.NAT.value and nat is None:
+        nat = configuracao
+
+    if not isinstance(nat, dict):
+        return
+
+    for regra_solicitada in nat.get("regras", []):
+        if not isinstance(regra_solicitada, dict):
+            continue
+
+        regra_id = regra_solicitada.get("id")
+
+        try:
+            regra = RegraNat.objects.select_for_update().select_related(
+                "interface_origem",
+                "interface_saida",
+            ).get(pk=int(regra_id))
+        except (RegraNat.DoesNotExist, TypeError, ValueError):
+            continue
+
+        if (
+            regra.interface_origem.nome != regra_solicitada.get("interface_origem")
+            or regra.interface_saida.nome != regra_solicitada.get("interface_saida")
+            or regra.origem_cidr != regra_solicitada.get("origem_cidr")
+            or regra.prioridade != regra_solicitada.get("prioridade")
+        ):
+            continue
+
+        if regra_solicitada.get("ativa", True):
+            if regra.ativa:
+                marcar_regra_sincronizada(regra)
+        elif not regra.ativa:
+            marcar_regra_removida(regra)
 
 
 # =============================================================================
@@ -907,6 +970,7 @@ def confirmar_alteracao(
         )
         _promover_revisoes_interfaces_confirmadas(alteracao)
         _promover_rotas_confirmadas(alteracao)
+        _promover_regras_nat_confirmadas(alteracao)
 
     registrar_evento(
         nivel=NivelEventoRede.SUCCESS.value,
@@ -1652,6 +1716,7 @@ def _marcar_confirmada_por_agent(
         )
         _promover_revisoes_interfaces_confirmadas(alteracao)
         _promover_rotas_confirmadas(alteracao)
+        _promover_regras_nat_confirmadas(alteracao)
 
 
 def _marcar_falha_por_agent(

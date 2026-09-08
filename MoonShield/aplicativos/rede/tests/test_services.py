@@ -27,11 +27,13 @@ from rede.dominio.erros import (
     AgentIndisponivelErro,
     AgentRespostaInvalidaErro,
     AlteracaoEstadoInvalidoErro,
+    ConflitoInterfaceErro,
     ConfiguracaoRedeInvalidaErro,
 )
-from rede.models import AlteracaoRede, InterfaceRede, RotaEstatica, SnapshotRede
+from rede.models import AlteracaoRede, InterfaceRede, RegraNat, RotaEstatica, SnapshotRede
 from rede.services import alteracoes as service
 from rede.services import inventario, reconciliacao
+from rede.services import nat
 from rede.services import roteamento
 
 
@@ -562,6 +564,111 @@ class AlteracoesServiceTests(TestCase):
                 "metrica": 100,
                 "ativa": True,
             })
+
+    def criar_interfaces_nat(self):
+        origem = self.criar_interface_para_confirmacao("lan-nat")
+        saida = self.criar_interface_para_confirmacao("wan-nat")
+        saida.papel = InterfaceRede.Papel.WAN
+        saida.save(update_fields=["papel", "atualizado_em"])
+        return origem, saida
+
+    def test_nat_lan_wan_valido_exige_forward_e_safe_apply(self):
+        origem, saida = self.criar_interfaces_nat()
+        regra = nat.salvar_regra_nat({
+            "interface_origem_id": origem.id,
+            "interface_saida_id": saida.id,
+            "ativa": True,
+        })
+        p1, p2, p3 = self.patch_criacao()
+
+        with p1, p2, p3:
+            alteracao = service.criar_alteracao_nat(usuario=self.usuario)
+
+        self.assertTrue(alteracao.requer_confirmacao)
+        self.assertEqual(
+            alteracao.configuracao_solicitada["roteamento"]["ipv4_forward"],
+            True,
+        )
+        self.assertEqual(
+            alteracao.configuracao_solicitada["nat"]["regras"][0]["origem_cidr"],
+            "192.168.50.0/24",
+        )
+        self.assertEqual(regra.tipo, RegraNat.Tipo.MASQUERADE)
+
+    def test_nat_rejeita_interfaces_sem_papeis_validos_ou_iguais(self):
+        origem, saida = self.criar_interfaces_nat()
+        mgmt = self.criar_interface_para_confirmacao("mgmt-nat")
+        mgmt.papel = InterfaceRede.Papel.MGMT
+        mgmt.save(update_fields=["papel", "atualizado_em"])
+        lan_saida = self.criar_interface_para_confirmacao("lan-saida-nat")
+
+        with self.assertRaises(ConfiguracaoRedeInvalidaErro):
+            nat.salvar_regra_nat({
+                "interface_origem_id": mgmt.id,
+                "interface_saida_id": saida.id,
+            })
+
+        with self.assertRaises(ConfiguracaoRedeInvalidaErro):
+            nat.salvar_regra_nat({
+                "interface_origem_id": origem.id,
+                "interface_saida_id": lan_saida.id,
+            })
+
+        with self.assertRaises(ConflitoInterfaceErro):
+            nat.salvar_regra_nat({
+                "interface_origem_id": origem.id,
+                "interface_saida_id": origem.id,
+            })
+
+    def test_nat_equivalente_nao_duplica_estado_desejado(self):
+        origem, saida = self.criar_interfaces_nat()
+        primeira = nat.salvar_regra_nat({
+            "interface_origem_id": origem.id,
+            "interface_saida_id": saida.id,
+        })
+        segunda = nat.salvar_regra_nat({
+            "interface_origem_id": origem.id,
+            "interface_saida_id": saida.id,
+        })
+
+        self.assertEqual(primeira.id, segunda.id)
+        self.assertEqual(RegraNat.objects.count(), 1)
+
+    def test_remover_ultima_regra_nat_mantem_tombstone_e_retorna_forward_global(self):
+        origem, saida = self.criar_interfaces_nat()
+        regra = RegraNat.objects.create(
+            interface_origem=origem,
+            interface_saida=saida,
+            origem_cidr="192.168.50.0/24",
+            ativa=True,
+            sincronizada=True,
+            pendente=False,
+        )
+
+        nat.excluir_regra_nat(regra.id)
+        p1, p2, p3 = self.patch_criacao()
+
+        with p1, p2, p3:
+            alteracao = service.criar_alteracao_nat(usuario=self.usuario)
+
+        regra.refresh_from_db()
+        self.assertFalse(regra.ativa)
+        self.assertTrue(regra.pendente)
+        self.assertTrue(regra.sincronizada)
+        self.assertEqual(
+            alteracao.configuracao_solicitada["roteamento"]["ipv4_forward"],
+            False,
+        )
+        self.assertFalse(alteracao.configuracao_solicitada["nat"]["regras"][0]["ativa"])
+
+        alteracao.status = AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO
+        alteracao.expira_em = timezone.now() + timedelta(seconds=60)
+        alteracao.save(update_fields=["status", "expira_em", "atualizado_em"])
+        self.confirmar_alteracao_interface(alteracao)
+
+        regra.refresh_from_db()
+        self.assertFalse(regra.sincronizada)
+        self.assertFalse(regra.pendente)
 
     def test_confirmar_agent_indisponivel_mantem_aguardando_confirmacao(self):
         alteracao = self.criar_modelo(

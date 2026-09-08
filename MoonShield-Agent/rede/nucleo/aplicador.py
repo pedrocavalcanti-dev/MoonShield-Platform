@@ -93,6 +93,23 @@ def _interfaces_impactadas(plano: dict[str, Any]) -> list[str]:
     return interfaces
 
 
+def _ipv4_forward_efetivo(plano: dict[str, Any]) -> bool | None:
+    nat = plano.get("nat") or {}
+
+    if nat.get("aplicar") and any(
+        regra.get("ativa", True)
+        for regra in nat.get("regras") or []
+    ):
+        return True
+
+    roteamento = plano.get("roteamento") or {}
+
+    if roteamento.get("ipv4_forward") is not None:
+        return bool(roteamento["ipv4_forward"])
+
+    return None
+
+
 def _resumo_interface(item: dict[str, Any]) -> dict[str, Any]:
     configuracao = item.get("configuracao") or {}
 
@@ -165,14 +182,16 @@ def _aplicar_roteamento(plano: dict[str, Any]) -> dict[str, Any] | None:
 
     resultado: dict[str, Any] = {}
 
-    if roteamento.get("ipv4_forward") is not None:
+    ipv4_forward = _ipv4_forward_efetivo(plano)
+
+    if ipv4_forward is not None:
         logger.info(
             "[rede.apply] configurando ipv4_forward | valor=%s",
-            roteamento["ipv4_forward"],
+            ipv4_forward,
         )
 
         resultado["ipv4_forward"] = definir_ipv4_forward(
-            roteamento["ipv4_forward"]
+            ipv4_forward
         )
 
     if roteamento.get("rotas") is not None:
@@ -238,6 +257,10 @@ def _aplicar_nat(plano: dict[str, Any]) -> dict[str, Any] | None:
     )
 
     resultado = aplicar_regras_nat(regras)
+    ipv4_forward = _ipv4_forward_efetivo(plano)
+
+    if ipv4_forward is not None and not isinstance(plano.get("roteamento"), dict):
+        resultado["ipv4_forward"] = definir_ipv4_forward(ipv4_forward)
 
     logger.info(
         "[rede.apply] NAT aplicado | resultado=%s",
@@ -317,7 +340,7 @@ def _verificar_roteamento(plano: dict[str, Any]) -> dict[str, Any] | None:
         "ipv4_forward": obter_ipv4_forward(),
     }
 
-    esperado_forward = roteamento.get("ipv4_forward")
+    esperado_forward = _ipv4_forward_efetivo(plano)
 
     if esperado_forward is not None and resultado["ipv4_forward"] != esperado_forward:
         resultado["ok"] = False
@@ -372,16 +395,50 @@ def _verificar_nat(plano: dict[str, Any]) -> dict[str, Any] | None:
 
     status = obter_status_nat()
 
-    esperado = len([
+    esperadas = [
         regra
         for regra in nat.get("regras") or []
         if regra.get("ativa", True)
-    ])
+    ]
+    identidades_esperadas = {
+        (
+            str(regra.get("id") or ""),
+            regra.get("interface_origem"),
+            regra.get("interface_saida"),
+            regra.get("rede_origem"),
+        )
+        for regra in esperadas
+    }
+    identidades_observadas = [
+        (
+            str(regra.get("id") or ""),
+            regra.get("interface_origem"),
+            regra.get("interface_saida"),
+            regra.get("rede_origem"),
+        )
+        for regra in status.get("regras") or []
+    ]
+    ipv4_forward = _ipv4_forward_efetivo(plano)
+    ipv4_forward_observado = obter_ipv4_forward()
 
     resultado = {
-        "ok": status.get("total_regras", 0) == esperado,
-        "esperado": esperado,
+        "ok": (
+            status.get("disponivel", False)
+            and status.get("total_regras", 0) == len(esperadas)
+            and set(identidades_observadas) == identidades_esperadas
+            and len(identidades_observadas) == len(set(identidades_observadas))
+            and (not esperadas or status.get("tabela_existe", False))
+            and (
+                ipv4_forward is None
+                or ipv4_forward_observado == ipv4_forward
+            )
+        ),
+        "esperado": len(esperadas),
         "observado": status.get("total_regras", 0),
+        "ipv4_forward_esperado": ipv4_forward,
+        "ipv4_forward_observado": ipv4_forward_observado,
+        "identidades_esperadas": sorted(identidades_esperadas),
+        "identidades_observadas": sorted(identidades_observadas),
         "status": status,
     }
 

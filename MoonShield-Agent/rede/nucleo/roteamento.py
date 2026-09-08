@@ -10,6 +10,8 @@ Essa decisão vem do estado desejado enviado pelo Django.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ from .configuracao import obter_backend
 
 
 IPV4_FORWARD_PATH = Path("/proc/sys/net/ipv4/ip_forward")
+IPV4_FORWARD_SYSCTL_PATH = Path("/etc/sysctl.d/90-moonshield-network.conf")
 
 
 # =============================================================================
@@ -28,6 +31,41 @@ def obter_ipv4_forward() -> bool:
         return IPV4_FORWARD_PATH.read_text(encoding="utf-8").strip() == "1"
     except (OSError, ValueError):
         return False
+
+
+def _persistir_ipv4_forward(ativo: bool) -> None:
+    conteudo = (
+        "# Gerenciado pelo MoonShield-Agent.\n"
+        f"net.ipv4.ip_forward = {1 if ativo else 0}\n"
+    )
+    temporario = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=IPV4_FORWARD_SYSCTL_PATH.parent,
+            prefix=f".{IPV4_FORWARD_SYSCTL_PATH.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as arquivo:
+            temporario = Path(arquivo.name)
+            arquivo.write(conteudo)
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
+
+        os.chmod(temporario, 0o644)
+        os.replace(temporario, IPV4_FORWARD_SYSCTL_PATH)
+    except OSError as exc:
+        if temporario:
+            try:
+                temporario.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+        raise RuntimeError(
+            f"Não foi possível persistir net.ipv4.ip_forward: {exc}"
+        ) from exc
 
 
 def definir_ipv4_forward(ativo: bool) -> dict[str, Any]:
@@ -47,9 +85,13 @@ def definir_ipv4_forward(ativo: bool) -> dict[str, Any]:
             "O valor de net.ipv4.ip_forward não permaneceu no estado solicitado."
         )
 
+    _persistir_ipv4_forward(atual)
+
     return {
         "ok": True,
         "ipv4_forward": atual,
+        "persistente": True,
+        "mecanismo": str(IPV4_FORWARD_SYSCTL_PATH),
     }
 
 
@@ -137,6 +179,7 @@ def configurar_rotas(
 
 __all__ = [
     "IPV4_FORWARD_PATH",
+    "IPV4_FORWARD_SYSCTL_PATH",
     "obter_ipv4_forward",
     "definir_ipv4_forward",
     "listar_rotas",

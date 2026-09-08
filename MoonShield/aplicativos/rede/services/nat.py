@@ -498,17 +498,25 @@ def excluir_regra_nat(
     regra_id: int,
 ) -> None:
     """
-    Remove a configuração desejada.
-
-    ATENÇÃO:
-    Quem removerá a regra real do Linux será alteracoes.py.
+    Marca a regra para remoção segura no próximo Safe Apply.
     """
 
     regra = obter_regra_nat(
         regra_id
     )
 
-    regra.delete()
+    if not regra.ativa and not regra.pendente:
+        return
+
+    regra.ativa = False
+    regra.pendente = True
+    regra.ultimo_erro = ""
+    regra.save(update_fields=[
+        "ativa",
+        "pendente",
+        "ultimo_erro",
+        "atualizado_em",
+    ])
 
 
 # =============================================================================
@@ -587,6 +595,8 @@ def montar_payload_nat(
                 ),
 
                 "ativa": regra.ativa,
+                "sincronizada": regra.sincronizada,
+                "pendente": regra.pendente,
             }
         )
 
@@ -645,6 +655,23 @@ def marcar_regra_erro(
     regra.ultimo_erro = str(
         erro or ""
     )
+
+    regra.save(
+        update_fields=[
+            "sincronizada",
+            "pendente",
+            "ultimo_erro",
+            "atualizado_em",
+        ]
+    )
+
+
+def marcar_regra_removida(
+    regra: RegraNat,
+) -> None:
+    regra.sincronizada = False
+    regra.pendente = False
+    regra.ultimo_erro = ""
 
     regra.save(
         update_fields=[

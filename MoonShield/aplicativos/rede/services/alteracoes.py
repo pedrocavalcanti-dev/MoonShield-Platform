@@ -507,8 +507,31 @@ def criar_alteracao_geral(
 ) -> AlteracaoRede:
     """Cria alteração contendo todo o estado desejado da Rede."""
     nat = montar_payload_nat(somente_ativas=False)
+
+    # montar_payload_interfaces() também executa a reconciliação interna da
+    # rota default automática. Portanto, capturamos as revisões somente depois
+    # de montar o payload, garantindo que o mapa represente exatamente o
+    # desired state enviado ao Agent.
+    interfaces = montar_payload_interfaces().get("interfaces", [])
+
+    ids_interfaces = [
+        item.get("id")
+        for item in interfaces
+        if isinstance(item, dict) and item.get("id") is not None
+    ]
+
+    revisoes_interfaces = {
+        str(interface_id): revisao
+        for interface_id, revisao in (
+            InterfaceRede.objects
+            .filter(pk__in=ids_interfaces)
+            .values_list("pk", "revisao_desejada")
+        )
+    }
+
     payload = {
-        "interfaces": montar_payload_interfaces().get("interfaces", []),
+        "interfaces": interfaces,
+        "revisoes_interfaces": revisoes_interfaces,
         "roteamento": _montar_payload_roteamento_efetivo(nat),
         "nat": nat,
     }
@@ -610,10 +633,17 @@ def _promover_rotas_confirmadas(
 ) -> None:
     configuracao = alteracao.configuracao_solicitada or {}
 
-    if alteracao.tipo != TipoAlteracaoRede.ROTEAMENTO.value:
+    if alteracao.tipo == TipoAlteracaoRede.ROTEAMENTO.value:
+        roteamento = configuracao
+    elif alteracao.tipo == TipoAlteracaoRede.GERAL.value:
+        roteamento = configuracao.get("roteamento")
+    else:
         return
 
-    for rota_solicitada in configuracao.get("rotas", []):
+    if not isinstance(roteamento, dict):
+        return
+
+    for rota_solicitada in roteamento.get("rotas", []):
         if not isinstance(rota_solicitada, dict):
             continue
 

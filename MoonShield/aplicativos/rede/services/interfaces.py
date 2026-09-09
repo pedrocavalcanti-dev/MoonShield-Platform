@@ -51,6 +51,7 @@ from rede.dominio.validacoes import (
 )
 
 from rede.models import (
+    ConfiguracaoRoteamento,
     InterfaceRede,
 )
 
@@ -843,6 +844,25 @@ def salvar_configuracao_interface(
             outra.save()
 
     # =========================================================================
+    # GERENCIAMENTO AUTOMÁTICO DE ROTA DEFAULT
+    # =========================================================================
+
+    config_roteamento = ConfiguracaoRoteamento.objects.first()
+    gerenciamento_auto = (
+        config_roteamento.gerenciamento_automatico_rota_default
+        if config_roteamento
+        else True
+    )
+
+    if (
+        gerenciamento_auto
+        and novo_papel == PapelInterface.WAN.value
+        and principal
+        and normalizado.get("ipv4_modo") == ModoIPv4.DHCP.value
+    ):
+        normalizado["rota_padrao"] = True
+
+    # =========================================================================
     # ROTA DEFAULT ÚNICA
     # =========================================================================
 
@@ -1030,12 +1050,81 @@ def montar_payload_interface(
 # =============================================================================
 
 
+
+@transaction.atomic
+def _sincronizar_rota_padrao_automatica() -> None:
+    """
+    Corrige o desired state legado antes do Apply Geral.
+
+    Com o gerenciamento automático ativo, a WAN principal em DHCP deve ser a
+    única interface marcada como rota padrão. Isso evita que um
+    ``rota_padrao=False`` antigo no PostgreSQL seja reenviado ao Agent.
+    """
+
+    config_roteamento = ConfiguracaoRoteamento.objects.first()
+
+    gerenciamento_auto = (
+        config_roteamento.gerenciamento_automatico_rota_default
+        if config_roteamento
+        else True
+    )
+
+    if not gerenciamento_auto:
+        return
+
+    wan_principal = (
+        InterfaceRede.objects
+        .select_for_update()
+        .filter(
+            papel=PapelInterface.WAN.value,
+            principal=True,
+            ipv4_modo=ModoIPv4.DHCP.value,
+        )
+        .order_by("nome")
+        .first()
+    )
+
+    if wan_principal is None:
+        return
+
+    if not wan_principal.rota_padrao:
+        wan_principal.rota_padrao = True
+        wan_principal.revisao_desejada += 1
+        _atualizar_estado_sincronizacao(
+            wan_principal,
+            salvar=False,
+        )
+        wan_principal.save()
+
+    outras_rotas_default = (
+        InterfaceRede.objects
+        .select_for_update()
+        .filter(
+            rota_padrao=True,
+        )
+        .exclude(
+            pk=wan_principal.pk
+        )
+    )
+
+    for outra in outras_rotas_default:
+        outra.rota_padrao = False
+        outra.revisao_desejada += 1
+        _atualizar_estado_sincronizacao(
+            outra,
+            salvar=False,
+        )
+        outra.save()
+
+
 def montar_payload_interfaces() -> dict:
     """
     Retorna todas as interfaces administradas pelo MoonShield.
 
     Interfaces UNASSIGNED não são enviadas para aplicação.
     """
+
+    _sincronizar_rota_padrao_automatica()
 
     queryset = (
         InterfaceRede.objects

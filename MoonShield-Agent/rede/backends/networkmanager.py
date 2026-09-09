@@ -408,7 +408,7 @@ class NetworkManagerBackend(BackendRede):
                 "uuid": campos[1],
                 "tipo": campos[2],
                 "interface": campos[3] or None,
-                "autoconnect": campos[4].lower() == "yes",
+                "autoconnect": bool(self._parse_bool_nmcli(campos[4], False)),
                 "ativa": bool(campos[3]),
             })
 
@@ -484,14 +484,24 @@ class NetworkManagerBackend(BackendRede):
             "uuid": dados.get("connection.uuid") or None,
             "tipo": dados.get("connection.type") or None,
             "interface": dados.get("connection.interface-name") or None,
-            "autoconnect": dados.get("connection.autoconnect", "").lower() == "yes",
+            "autoconnect": bool(
+                self._parse_bool_nmcli(
+                    dados.get("connection.autoconnect", ""),
+                    False,
+                )
+            ),
             "ipv4": {
                 "method": dados.get("ipv4.method") or None,
                 "addresses": dados.get("ipv4.addresses") or "",
                 "gateway": dados.get("ipv4.gateway") or "",
                 "routes": dados.get("ipv4.routes") or "",
                 "route_metric": self._parse_int(dados.get("ipv4.route-metric")),
-                "never_default": dados.get("ipv4.never-default", "").lower() == "yes",
+                "never_default": bool(
+                    self._parse_bool_nmcli(
+                        dados.get("ipv4.never-default", ""),
+                        False,
+                    )
+                ),
             },
             "mtu": self._parse_int(dados.get("802-3-ethernet.mtu")),
             "raw": dados,
@@ -1091,12 +1101,19 @@ class NetworkManagerBackend(BackendRede):
 
             valor = raw.get(propriedade)
 
-            if propriedade == "ipv4.never-default":
-                texto = str(valor).strip().lower()
-                if texto in ("no", "false", "0", ""):
-                    valor = "no"
-                else:
-                    valor = "yes"
+            if propriedade in {"connection.autoconnect", "ipv4.never-default"}:
+                booleano = self._parse_bool_nmcli(valor, None)
+                if booleano is None:
+                    raise ConfiguracaoBackendInvalida(
+                        f"Valor booleano inválido no snapshot: {propriedade}",
+                        detalhes={
+                            "propriedade": propriedade,
+                            "valor": valor,
+                            "interface": interface,
+                            "conexao": conexao,
+                        },
+                    )
+                valor = self._yes_no(booleano)
             else:
                 valor = valor or ""
 
@@ -1234,6 +1251,41 @@ class NetworkManagerBackend(BackendRede):
     @staticmethod
     def _yes_no(valor: bool) -> str:
         return "yes" if valor else "no"
+
+    @staticmethod
+    def _parse_bool_nmcli(
+        valor: Any,
+        padrao: bool | None = None,
+    ) -> bool | None:
+        """Normaliza booleanos do nmcli, inclusive quando a saída é localizada."""
+        if isinstance(valor, bool):
+            return valor
+
+        if isinstance(valor, (int, float)):
+            return valor != 0
+
+        if valor is None:
+            return padrao
+
+        texto = str(valor).strip().lower()
+
+        if texto in {"1", "true", "yes", "sim", "on", "enabled", "ativo"}:
+            return True
+
+        if texto in {
+            "",
+            "0",
+            "false",
+            "no",
+            "nao",
+            "não",
+            "off",
+            "disabled",
+            "inativo",
+        }:
+            return False
+
+        return padrao
 
     @staticmethod
     def _parse_int(valor: Any) -> int | None:

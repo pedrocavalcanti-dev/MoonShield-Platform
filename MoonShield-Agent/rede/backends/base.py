@@ -231,7 +231,10 @@ def normalizar_configuracao_interface(configuracao: dict[str, Any] | None) -> di
         "ipv4_endereco": str(endereco).strip() if endereco else None,
         "ipv4_prefixo": prefixo,
         "gateway": str(gateway).strip() if gateway else None,
-        "rota_padrao": normalizar_bool(config.get("rota_padrao"), False),
+        "rota_padrao": normalizar_bool(
+            config.get("rota_padrao"),
+            True if (modo == "dhcp" and str(config.get("papel") or "").strip().lower() == "wan") else False
+        ),
         "metrica": metrica,
         "mtu": mtu,
     }

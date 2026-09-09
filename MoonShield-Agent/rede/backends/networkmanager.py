@@ -1089,7 +1089,18 @@ class NetworkManagerBackend(BackendRede):
             if propriedade not in raw:
                 continue
 
-            argumentos.extend([propriedade, raw.get(propriedade) or ""])
+            valor = raw.get(propriedade)
+
+            if propriedade == "ipv4.never-default":
+                texto = str(valor).strip().lower()
+                if texto in ("no", "false", "0", ""):
+                    valor = "no"
+                else:
+                    valor = "yes"
+            else:
+                valor = valor or ""
+
+            argumentos.extend([propriedade, valor])
 
         if len(argumentos) > 3:
             self._nmcli(*argumentos)

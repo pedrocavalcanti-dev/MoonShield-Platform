@@ -782,10 +782,11 @@ def validar_configuracao_interface(
         )
     )
 
+    padrao_rota = True if (papel.value == "wan" and modo.value == "dhcp") else False
     rota_padrao = _bool(
         config.get(
             "rota_padrao",
-            False,
+            padrao_rota,
         )
     )
 

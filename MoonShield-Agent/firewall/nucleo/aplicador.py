@@ -29,11 +29,17 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 from firewall.nucleo.rollback import (
+    TIMEOUT_SAFE_APPLY_PADRAO,
+    armar_rollback_pendente,
     criar_snapshot,
+    existe_alteracao_pendente,
+    marcar_alteracao_falhou,
+    registrar_alteracao_aplicando,
     restaurar,
     tabela_existe,
 )
@@ -43,6 +49,9 @@ from firewall.nucleo.seguranca import (
     CHAIN_INPUT,
     CHAIN_OUTPUT,
     CHAIN_RULES,
+    CHAIN_RULES_FORWARD,
+    CHAIN_RULES_INPUT,
+    CHAIN_RULES_OUTPUT,
     CHAIN_SYSTEM,
     TABELA_FAMILIA,
     TABELA_NOME,
@@ -56,7 +65,7 @@ from firewall.nucleo.seguranca import (
 )
 
 
-VERSAO_APLICADOR = "1.1"
+VERSAO_APLICADOR = "1.3"
 
 TIMEOUT_NFT = 30
 MAX_SCRIPT_BYTES = 4 * 1024 * 1024
@@ -83,6 +92,52 @@ def aplicar(dados: dict[str, Any]) -> dict[str, Any]:
 
 
 def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
+    """Apply legado: transacional imediato, sem janela de confirmação."""
+    if existe_alteracao_pendente():
+        return {
+            "ok": False,
+            "status": "erro",
+            "codigo": "alteracao_em_andamento",
+            "erro": "Existe um Safe Apply de Firewall aguardando conclusão.",
+        }
+    return _aplicar_regras_impl(dados, safe_apply=False)
+
+
+def aplicar_alteracao(dados: dict[str, Any]) -> dict[str, Any]:
+    """Apply oficial A9 com rollback armado até confirmação explícita."""
+    if existe_alteracao_pendente():
+        return {
+            "ok": False,
+            "status": "erro",
+            "codigo": "alteracao_em_andamento",
+            "erro": "Já existe uma alteração de Firewall em andamento.",
+        }
+
+    alteracao_id = str(dados.get("alteracao_id") or uuid.uuid4().hex).strip()
+    try:
+        timeout_segundos = int(
+            dados.get("timeout_segundos")
+            or dados.get("timeout")
+            or TIMEOUT_SAFE_APPLY_PADRAO
+        )
+    except (TypeError, ValueError):
+        timeout_segundos = TIMEOUT_SAFE_APPLY_PADRAO
+
+    return _aplicar_regras_impl(
+        dados,
+        safe_apply=True,
+        alteracao_id=alteracao_id,
+        timeout_segundos=timeout_segundos,
+    )
+
+
+def _aplicar_regras_impl(
+    dados: dict[str, Any],
+    *,
+    safe_apply: bool,
+    alteracao_id: str | None = None,
+    timeout_segundos: int = TIMEOUT_SAFE_APPLY_PADRAO,
+) -> dict[str, Any]:
     """
     Payload esperado:
         {
@@ -92,14 +147,24 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
                 "interface_wan": "...",
                 "interface_lan": "...",
                 "interface_mgmt": "...",
-                "home_net": "..."
+                "home_net": "...",
+                "interfaces_gerenciamento": [...]
             }
         }
     """
     inicio = time.monotonic()
+    snapshot_id: str | None = None
+    safe_registrado = False
 
     with _lock:
         _stats["aplicacoes"] += 1
+
+        if existe_alteracao_pendente():
+            return _falha(
+                "alteracao_em_andamento",
+                "Existe um Safe Apply de Firewall aguardando conclusão.",
+                inicio=inicio,
+            )
 
         try:
             regras = dados.get("regras", [])
@@ -185,6 +250,31 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
             )
             snapshot_id = snapshot["snapshot"]["id"]
 
+            if safe_apply:
+                try:
+                    registrar_alteracao_aplicando(
+                        alteracao_id=str(alteracao_id or ""),
+                        snapshot_id=snapshot_id,
+                        timeout_segundos=timeout_segundos,
+                        metadados={
+                            "total_regras": len(regras),
+                            "topologia": {
+                                "interface_wan": contexto.interface_wan,
+                                "interface_lan": contexto.interface_lan,
+                                "interface_mgmt": contexto.interface_mgmt,
+                                "home_net": contexto.home_net,
+                            },
+                        },
+                    )
+                    safe_registrado = True
+                except Exception as exc:
+                    return _falha(
+                        "safe_apply_reserva_falhou",
+                        str(exc),
+                        snapshot_id=snapshot_id,
+                        inicio=inicio,
+                    )
+
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -205,6 +295,17 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
                 )
 
                 if check.returncode != 0:
+                    erro_check = (
+                        check.stderr.strip()
+                        or check.stdout.strip()
+                        or "nft -c rejeitou a configuração."
+                    )
+                    if safe_apply and alteracao_id:
+                        marcar_alteracao_falhou(
+                            alteracao_id=alteracao_id,
+                            erro=erro_check,
+                            rollback=None,
+                        )
                     return _falha(
                         "nft_validacao_falhou",
                         check.stderr.strip()
@@ -228,6 +329,17 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
                     if rb.get("ok"):
                         _stats["rollbacks"] += 1
 
+                    if safe_apply and alteracao_id:
+                        marcar_alteracao_falhou(
+                            alteracao_id=alteracao_id,
+                            erro=(
+                                apply.stderr.strip()
+                                or apply.stdout.strip()
+                                or "Falha ao aplicar configuração."
+                            ),
+                            rollback=rb,
+                        )
+
                     return _falha(
                         "nft_apply_falhou",
                         apply.stderr.strip()
@@ -246,6 +358,13 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
                     if rb.get("ok"):
                         _stats["rollbacks"] += 1
 
+                    if safe_apply and alteracao_id:
+                        marcar_alteracao_falhou(
+                            alteracao_id=alteracao_id,
+                            erro="Configuração aplicada, mas o healthcheck falhou.",
+                            rollback=rb,
+                        )
+
                     return _falha(
                         "healthcheck_pos_apply_falhou",
                         "Configuração aplicada, mas o healthcheck falhou.",
@@ -256,6 +375,48 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
                     )
 
                 duracao = time.monotonic() - inicio
+
+                if safe_apply and alteracao_id:
+                    try:
+                        estado_safe = armar_rollback_pendente(
+                            alteracao_id=alteracao_id,
+                            timeout_segundos=timeout_segundos,
+                        )
+                    except Exception as exc:
+                        rb = restaurar(snapshot_id)
+                        if rb.get("ok"):
+                            _stats["rollbacks"] += 1
+                        marcar_alteracao_falhou(
+                            alteracao_id=alteracao_id,
+                            erro=f"Falha ao armar rollback: {exc}",
+                            rollback=rb,
+                        )
+                        return _falha(
+                            "safe_apply_armamento_falhou",
+                            str(exc),
+                            snapshot_id=snapshot_id,
+                            rollback=rb,
+                            inicio=inicio,
+                        )
+
+                    _stats["sucessos"] += 1
+                    _stats["ultimo_apply"] = time.time()
+                    _stats["ultimo_erro"] = ""
+                    _stats["ultima_duracao_segundos"] = duracao
+
+                    return {
+                        "ok": True,
+                        "status": "waiting_confirmation",
+                        "mensagem": (
+                            "Regras aplicadas; aguardando confirmação antes do timeout."
+                        ),
+                        "alteracao_id": alteracao_id,
+                        "snapshot_id": snapshot_id,
+                        "total_regras": len(regras),
+                        "duracao_segundos": round(duracao, 3),
+                        "verificacao": verificacao,
+                        "safe_apply": estado_safe,
+                    }
 
                 _stats["sucessos"] += 1
                 _stats["ultimo_apply"] = time.time()
@@ -279,9 +440,27 @@ def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
                     pass
 
         except Exception as exc:
+            rb = None
+            if safe_apply and safe_registrado and alteracao_id and snapshot_id:
+                try:
+                    rb = restaurar(snapshot_id)
+                    if rb.get("ok"):
+                        _stats["rollbacks"] += 1
+                    marcar_alteracao_falhou(
+                        alteracao_id=alteracao_id,
+                        erro=str(exc),
+                        rollback=rb,
+                    )
+                except Exception:
+                    # O estado persistente continua em applying/rollback_failed e
+                    # será recuperado conservadoramente no próximo boot do Agent.
+                    pass
+
             return _falha(
                 "erro_interno_aplicacao",
                 str(exc),
+                snapshot_id=snapshot_id,
+                rollback=rb,
                 inicio=inicio,
             )
 
@@ -292,13 +471,25 @@ def _gerar_script(
     contexto: ContextoSeguranca,
 ) -> str:
     """
-    Gera uma tabela completa MoonShield.
+    Gera a tabela MoonShield completa sem tocar em tabelas externas.
 
-    O script é autocontido e NÃO referencia tabelas de terceiros.
+    A9.2:
+    - políticas administrativas são separadas por hook;
+    - `ms_emergency` é preservada entre aplicações normais;
+    - `ms_system` protege somente INPUT administrativo;
+    - `ms_rules` fica vazia apenas para compatibilidade legada.
     """
+    tabela_ja_existe = tabela_existe()
+
+    emergency_existentes = (
+        _obter_expressoes_chain(CHAIN_EMERGENCY)
+        if tabela_ja_existe
+        else []
+    )
+
     linhas: list[str] = []
 
-    if tabela_existe():
+    if tabela_ja_existe:
         linhas.append(
             f"delete table {TABELA_FAMILIA} {TABELA_NOME}"
         )
@@ -312,42 +503,57 @@ def _gerar_script(
         f"  chain {CHAIN_EMERGENCY} {{",
         "  }",
 
+        # Compatibilidade com leitores antigos. Políticas novas NÃO usam esta
+        # chain porque cada hook possui sua chain administrativa própria.
         f"  chain {CHAIN_RULES} {{",
+        "  }",
+
+        f"  chain {CHAIN_RULES_INPUT} {{",
+        "  }",
+
+        f"  chain {CHAIN_RULES_FORWARD} {{",
+        "  }",
+
+        f"  chain {CHAIN_RULES_OUTPUT} {{",
         "  }",
 
         f"  chain {CHAIN_INPUT} {{",
         "    type filter hook input priority 0; policy accept;",
         f"    jump {CHAIN_SYSTEM}",
         f"    jump {CHAIN_EMERGENCY}",
-        f"    jump {CHAIN_RULES}",
+        f"    jump {CHAIN_RULES_INPUT}",
         "  }",
 
         f"  chain {CHAIN_FORWARD} {{",
         "    type filter hook forward priority 0; policy accept;",
-        f"    jump {CHAIN_SYSTEM}",
+        "    ct state established,related accept",
         f"    jump {CHAIN_EMERGENCY}",
-        f"    jump {CHAIN_RULES}",
+        f"    jump {CHAIN_RULES_FORWARD}",
         "  }",
 
         f"  chain {CHAIN_OUTPUT} {{",
         "    type filter hook output priority 0; policy accept;",
-        f"    jump {CHAIN_SYSTEM}",
-        f"    jump {CHAIN_EMERGENCY}",
-        f"    jump {CHAIN_RULES}",
+        "    ct state established,related accept",
+        f"    jump {CHAIN_RULES_OUTPUT}",
         "  }",
 
         "}",
     ])
 
-    script = "\n".join(linhas) + "\n"
-
-    # Injeta regras de sistema e usuário com comandos add/insert.
-    pos = []
+    pos: list[str] = []
 
     for expr in gerar_regras_sistema(contexto):
         pos.append(
             f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
             f"{CHAIN_SYSTEM} {expr}"
+        )
+
+    # Emergency é estado runtime (block/unblock/AutoBan), não desired policy.
+    # Uma aplicação administrativa não pode apagar bloqueios já ativos.
+    for expr in emergency_existentes:
+        pos.append(
+            f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
+            f"{CHAIN_EMERGENCY} {expr}"
         )
 
     regras_ordenadas = sorted(
@@ -359,27 +565,107 @@ def _gerar_script(
         key=lambda r: int(r.get("priority", 100)),
     )
 
+    chain_por_direcao = {
+        "in": CHAIN_RULES_INPUT,
+        "forward": CHAIN_RULES_FORWARD,
+        "out": CHAIN_RULES_OUTPUT,
+    }
+
     for regra in regras_ordenadas:
         direction = str(regra.get("dir") or "in").lower()
 
-        # BOTH é uma conveniência do painel: a mesma política é materializada
-        # em duas regras nft, uma pela interface de entrada e outra pela de
-        # saída. O banco continua mantendo uma única regra lógica.
+        # BOTH continua sendo uma única regra lógica no Django, materializada
+        # em INPUT + OUTPUT. FORWARD permanece uma decisão explícita.
         directions = ("in", "out") if direction == "both" else (direction,)
 
         for concrete_direction in directions:
+            chain = chain_por_direcao.get(concrete_direction)
+
+            if not chain:
+                raise ValueError(
+                    f"Direção de regra sem chain correspondente: {concrete_direction!r}."
+                )
+
             regra_runtime = {
                 **regra,
                 "dir": concrete_direction,
             }
-            expr = _regra_para_expr(regra_runtime, contexto)
+
+            expr = _regra_para_expr(
+                regra_runtime,
+                contexto,
+            )
+
             if expr:
                 pos.append(
                     f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
-                    f"{CHAIN_RULES} {expr}"
+                    f"{chain} {expr}"
                 )
 
+    script = "\n".join(linhas) + "\n"
+
     return script + "\n".join(pos) + ("\n" if pos else "")
+
+
+def _obter_expressoes_chain(
+    chain: str,
+) -> list[str]:
+    """
+    Exporta somente expressões de regras de uma chain MoonShield.
+
+    Usado para preservar `ms_emergency` durante um policy apply. Handles são
+    removidos porque pertencem à instância atual do ruleset.
+    """
+    nft = shutil.which("nft")
+
+    if not nft:
+        return []
+
+    try:
+        result = subprocess.run(
+            [
+                nft,
+                "-a",
+                "list",
+                "chain",
+                TABELA_FAMILIA,
+                TABELA_NOME,
+                chain,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_NFT,
+            check=False,
+        )
+    except Exception:
+        return []
+
+    if result.returncode != 0:
+        return []
+
+    expressoes: list[str] = []
+
+    for linha in (result.stdout or "").splitlines():
+        texto = linha.strip()
+
+        if (
+            not texto
+            or texto.startswith("table ")
+            or texto.startswith("chain ")
+            or texto in {"{", "}"}
+        ):
+            continue
+
+        if "# handle" in texto:
+            texto = texto.rsplit(
+                "# handle",
+                1,
+            )[0].strip()
+
+        if texto and texto not in expressoes:
+            expressoes.append(texto)
+
+    return expressoes
 
 
 def _regra_para_expr(
@@ -413,27 +699,36 @@ def _regra_para_expr(
         partes.append(_endereco_expr("daddr", dst))
 
     proto = str(regra.get("proto") or "any").lower()
-
-    if proto != "any":
-        if proto == "icmp":
-            partes.append("ip protocol icmp")
-        elif proto == "icmpv6":
-            partes.append("ip6 nexthdr icmpv6")
-        else:
-            partes.append(proto)
-
     port = str(regra.get("port") or "any")
 
-    if port != "any" and proto in {"tcp", "udp"}:
-        partes.append(_porta_expr(proto, port))
+    if proto == "icmp":
+        partes.append("ip protocol icmp")
+    elif proto == "icmpv6":
+        partes.append("ip6 nexthdr icmpv6")
+    elif proto in {"tcp", "udp"}:
+        if port != "any":
+            # `_porta_expr` já inclui o protocolo: `tcp dport 443`.
+            partes.append(
+                _porta_expr(
+                    proto,
+                    port,
+                )
+            )
+        else:
+            partes.append(
+                f"meta l4proto {proto}"
+            )
 
     if _bool(regra.get("log", True)):
         action = str(regra.get("action") or "deny").lower()
-        prefix = (
-            "MS-FW-ALLOW: "
-            if action in {"allow", "accept"}
-            else "MS-FW-DROP: "
-        )
+
+        if action in {"allow", "accept"}:
+            prefix = "MS-FW-ALLOW: "
+        elif action == "reject":
+            prefix = "MS-FW-REJECT: "
+        else:
+            prefix = "MS-FW-DROP: "
+
         partes.append(
             f'log prefix "{prefix}" flags all counter'
         )
@@ -447,9 +742,32 @@ def _regra_para_expr(
     else:
         partes.append("drop")
 
-    desc = sanitizar_comentario(regra.get("desc") or "")
-    if desc:
-        partes.append(f'comment "{desc}"')
+    regra_id = str(
+        regra.get("id")
+        or regra.get("pk")
+        or ""
+    ).strip()
+
+    desc = sanitizar_comentario(
+        regra.get("desc")
+        or ""
+    )
+
+    marcador = (
+        f"moonshield-fw:{regra_id}"
+        if regra_id
+        else "moonshield-fw"
+    )
+
+    comentario = sanitizar_comentario(
+        f"{marcador} | {desc}"
+        if desc
+        else marcador
+    )
+
+    partes.append(
+        f'comment "{comentario}"'
+    )
 
     return " ".join(partes)
 
@@ -553,7 +871,9 @@ def verificar_estado() -> dict[str, Any]:
     obrigatorias = {
         CHAIN_SYSTEM,
         CHAIN_EMERGENCY,
-        CHAIN_RULES,
+        CHAIN_RULES_INPUT,
+        CHAIN_RULES_FORWARD,
+        CHAIN_RULES_OUTPUT,
         CHAIN_INPUT,
         CHAIN_FORWARD,
         CHAIN_OUTPUT,
@@ -573,6 +893,18 @@ def verificar_estado() -> dict[str, Any]:
 
 
 def bloquear_ip(dados: dict[str, Any]) -> dict[str, Any]:
+    """Bloqueia IP serializando a mutação com policy apply."""
+    with _lock:
+        if existe_alteracao_pendente():
+            return {
+                "ok": False,
+                "codigo": "alteracao_em_andamento",
+                "erro": "Bloqueio emergencial pausado durante Safe Apply do Firewall.",
+            }
+        return _bloquear_ip_sem_lock(dados)
+
+
+def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
     ip = str(dados.get("ip") or "").strip()
     motivo = sanitizar_comentario(
         dados.get("motivo") or "bloqueio emergencial"
@@ -654,6 +986,18 @@ def bloquear(dados: dict[str, Any]) -> dict[str, Any]:
 
 
 def liberar_ip(dados: dict[str, Any]) -> dict[str, Any]:
+    """Libera IP serializando a mutação com policy apply."""
+    with _lock:
+        if existe_alteracao_pendente():
+            return {
+                "ok": False,
+                "codigo": "alteracao_em_andamento",
+                "erro": "Liberação emergencial pausada durante Safe Apply do Firewall.",
+            }
+        return _liberar_ip_sem_lock(dados)
+
+
+def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
     ip = str(dados.get("ip") or "").strip()
 
     try:

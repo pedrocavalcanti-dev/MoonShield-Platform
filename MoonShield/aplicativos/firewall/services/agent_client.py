@@ -512,15 +512,37 @@ def agente_disponivel() -> bool:
 # FIREWALL — LEITURA
 # =============================================================================
 
-def status() -> dict[str, Any]:
+def status(
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+
+    if config is not None:
+        if not isinstance(config, dict):
+            raise TypeError("config deve ser um dict.")
+        payload["config"] = config
+
     return chamar_dados(
-        "firewall.status"
+        "firewall.status",
+        payload,
     )
 
 
-def interfaces() -> dict[str, Any]:
+def interfaces(
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+
+    if config is not None:
+        if not isinstance(config, dict):
+            raise TypeError("config deve ser um dict.")
+        payload["config"] = config
+
     return chamar_dados(
-        "firewall.interfaces"
+        "firewall.interfaces",
+        payload,
     )
 
 
@@ -536,9 +558,20 @@ def emergency() -> dict[str, Any]:
     )
 
 
-def diagnostico() -> dict[str, Any]:
+def diagnostico(
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+
+    if config is not None:
+        if not isinstance(config, dict):
+            raise TypeError("config deve ser um dict.")
+        payload["config"] = config
+
     return chamar_dados(
         "firewall.diagnostico",
+        payload,
         timeout=30.0,
     )
 
@@ -639,6 +672,89 @@ def rollback(
     )
 
 
+
+# =============================================================================
+# FIREWALL — SAFE APPLY (A9)
+# =============================================================================
+
+def aplicar_alteracao(
+    regras: list[dict[str, Any]],
+    *,
+    alteracao_id: str | None = None,
+    iface_map: dict[str, str] | None = None,
+    config: dict[str, Any] | None = None,
+    timeout_segundos: int = 60,
+) -> dict[str, Any]:
+    if not isinstance(regras, list):
+        raise TypeError("regras deve ser uma lista.")
+
+    payload: dict[str, Any] = {
+        "regras": regras,
+        "iface_map": iface_map or {},
+        "timeout_segundos": int(timeout_segundos),
+    }
+    if alteracao_id:
+        payload["alteracao_id"] = str(alteracao_id)
+    if config:
+        payload["config"] = config
+
+    return chamar_dados(
+        "firewall.change.apply",
+        payload,
+        timeout=TIMEOUT_OPERACAO_LONGA,
+    )
+
+
+def confirmar_alteracao(alteracao_id: str) -> dict[str, Any]:
+    alteracao_id = str(alteracao_id or "").strip()
+    if not alteracao_id:
+        raise ValueError("alteracao_id é obrigatório.")
+    return chamar_dados(
+        "firewall.change.confirm",
+        {"alteracao_id": alteracao_id},
+        timeout=30.0,
+    )
+
+
+def reverter_alteracao(
+    alteracao_id: str,
+    *,
+    motivo: str = "Rollback solicitado pelo Django MoonShield.",
+) -> dict[str, Any]:
+    alteracao_id = str(alteracao_id or "").strip()
+    if not alteracao_id:
+        raise ValueError("alteracao_id é obrigatório.")
+    return chamar_dados(
+        "firewall.change.rollback",
+        {
+            "alteracao_id": alteracao_id,
+            "motivo": str(motivo or "Rollback solicitado pelo Django MoonShield."),
+        },
+        timeout=TIMEOUT_OPERACAO_LONGA,
+    )
+
+
+def status_alteracao(alteracao_id: str) -> dict[str, Any]:
+    alteracao_id = str(alteracao_id or "").strip()
+    if not alteracao_id:
+        raise ValueError("alteracao_id é obrigatório.")
+    return chamar_dados(
+        "firewall.change.status",
+        {"alteracao_id": alteracao_id},
+        timeout=20.0,
+    )
+
+
+def cancelar_alteracao(alteracao_id: str) -> dict[str, Any]:
+    alteracao_id = str(alteracao_id or "").strip()
+    if not alteracao_id:
+        raise ValueError("alteracao_id é obrigatório.")
+    return chamar_dados(
+        "firewall.change.cancel",
+        {"alteracao_id": alteracao_id},
+        timeout=TIMEOUT_OPERACAO_LONGA,
+    )
+
 # =============================================================================
 # FIREWALL — EMERGÊNCIA
 # =============================================================================
@@ -698,7 +814,10 @@ def liberar_ip(
 # STATUS SEGURO PARA UI
 # =============================================================================
 
-def status_seguro() -> dict[str, Any]:
+def status_seguro(
+    *,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Nunca lança exceção.
 
@@ -707,7 +826,9 @@ def status_seguro() -> dict[str, Any]:
     """
     try:
         dados_ping = ping()
-        dados_status = status()
+        dados_status = status(
+            config=config,
+        )
 
         return {
             "ok": True,

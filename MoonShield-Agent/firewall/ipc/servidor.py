@@ -53,7 +53,7 @@ from firewall.ipc.protocolo import (
 
 logger = logging.getLogger(__name__)
 
-VERSAO_SERVIDOR_IPC = "1.0"
+VERSAO_SERVIDOR_IPC = "1.1"
 DIRETORIO_PADRAO = "/run/moonshield"
 GRUPO_PADRAO = "moonshield"
 SOCKET_MODE = 0o660
@@ -141,6 +141,52 @@ def _inicializar_rede() -> None:
 
 
 # =============================================================================
+# INICIALIZAÇÃO DO FIREWALL
+# =============================================================================
+
+def _inicializar_firewall() -> None:
+    """Recupera Safe Apply persistente do Firewall antes do socket IPC abrir."""
+    try:
+        from firewall.nucleo.rollback import inicializar_rollback_pendente
+
+        resultado = inicializar_rollback_pendente()
+        recuperadas = resultado.get("recuperadas", [])
+        revertidas = resultado.get("revertidas", [])
+        erros = resultado.get("erros", [])
+
+        logger.info(
+            "[firewall] Safe Apply inicializado | recuperadas=%s revertidas=%s erros=%s",
+            len(recuperadas),
+            len(revertidas),
+            len(erros),
+        )
+
+        for alteracao_id in recuperadas:
+            logger.info(
+                "[firewall] Safe Apply recuperado | alteracao_id=%s",
+                alteracao_id,
+            )
+
+        for alteracao_id in revertidas:
+            logger.warning(
+                "[firewall] rollback recuperado no boot | alteracao_id=%s",
+                alteracao_id,
+            )
+
+        for erro in erros:
+            logger.error(
+                "[firewall] falha ao recuperar alteração | alteracao_id=%s erro=%s",
+                erro.get("alteracao_id"),
+                erro.get("erro"),
+            )
+
+    except Exception:
+        logger.exception(
+            "[firewall] falha durante inicialização do Safe Apply"
+        )
+
+
+# =============================================================================
 # API PÚBLICA
 # =============================================================================
 
@@ -169,9 +215,11 @@ def iniciar_servidor(
         )
         return _thread_ref
 
-    # Antes de aceitar qualquer operação privilegiada de Rede,
-    # recuperamos o estado persistente do Safe Apply.
+    # Antes de aceitar qualquer operação privilegiada, recuperamos os estados
+    # persistentes de Safe Apply. A ordem mantém Rede primeiro e Firewall depois;
+    # cada módulo restaura apenas os recursos que possui.
     _inicializar_rede()
+    _inicializar_firewall()
 
     _preparar_socket_path(socket_path, grupo)
 
@@ -566,19 +614,17 @@ class ErroOperacao(RuntimeError):
         self.detalhes = detalhes or {}
 
 
+
 def _despachar(
     req: RequisicaoIPC,
 ) -> dict[str, Any]:
-    if req.acao.startswith(
-        "network."
-    ):
-        return _despachar_rede(
-            req
-        )
+    if req.acao.startswith("network."):
+        return _despachar_rede(req)
 
-    handler = _HANDLERS.get(
-        req.acao
-    )
+    if req.acao.startswith("firewall."):
+        return _despachar_firewall(req)
+
+    handler = _HANDLERS.get(req.acao)
 
     if handler is None:
         raise ErroOperacao(
@@ -586,106 +632,45 @@ def _despachar(
             codigo="acao_sem_handler",
         )
 
-    resultado = handler(
-        req.dados
-    )
+    resultado = handler(req.dados)
 
     if resultado is None:
         return {}
 
-    if isinstance(
-        resultado,
-        dict,
-    ):
+    if isinstance(resultado, dict):
         return resultado
 
-    return {
-        "resultado": resultado,
-    }
+    return {"resultado": resultado}
 
 
 def _despachar_rede(
     req: RequisicaoIPC,
 ) -> dict[str, Any]:
-    """
-    Encaminha ações network.* para o dispatcher oficial do módulo Rede.
-
-    O servidor IPC continua sendo único:
-        /run/moonshield/agent.sock
-
-    O módulo Rede recebe somente:
-        ação já validada;
-        dados da requisição.
-    """
-
+    """Encaminha network.* ao dispatcher oficial rede.ipc.handlers."""
     try:
-        modulo = importlib.import_module(
-            "rede.ipc.handlers"
-        )
-
+        modulo = importlib.import_module("rede.ipc.handlers")
     except Exception as exc:
         raise ErroOperacao(
-            (
-                "Não foi possível carregar "
-                f"o módulo de Rede: {exc}"
-            ),
+            f"Não foi possível carregar o módulo de Rede: {exc}",
             codigo="rede_modulo_indisponivel",
-            detalhes={
-                "tipo": type(exc).__name__,
-            },
+            detalhes={"tipo": type(exc).__name__},
         ) from exc
 
-    executar = getattr(
-        modulo,
-        "executar_acao_rede",
-        None,
-    )
+    executar = getattr(modulo, "executar_acao_rede", None)
 
-    if not callable(
-        executar
-    ):
+    if not callable(executar):
         raise ErroOperacao(
-            (
-                "O dispatcher do módulo de "
-                "Rede não está disponível."
-            ),
+            "O dispatcher do módulo de Rede não está disponível.",
             codigo="rede_dispatcher_indisponivel",
         )
 
     try:
-        resultado = executar(
-            req.acao,
-            req.dados,
-        )
-
+        resultado = executar(req.acao, req.dados)
     except Exception as exc:
-        codigo = str(
-            getattr(
-                exc,
-                "codigo",
-                "",
-            )
-            or "rede_operacao_falhou"
-        )
-
-        detalhes = (
-            getattr(
-                exc,
-                "detalhes",
-                {},
-            )
-            or {}
-        )
-
-        if not isinstance(
-            detalhes,
-            dict,
-        ):
-            detalhes = {
-                "detalhes": str(
-                    detalhes
-                )
-            }
+        codigo = str(getattr(exc, "codigo", "") or "rede_operacao_falhou")
+        detalhes = getattr(exc, "detalhes", {}) or {}
+        if not isinstance(detalhes, dict):
+            detalhes = {"detalhes": str(detalhes)}
 
         logger.warning(
             "[rede] operação falhou | acao=%s id=%s codigo=%s mensagem=%s detalhes=%s",
@@ -697,34 +682,90 @@ def _despachar_rede(
         )
 
         raise ErroOperacao(
-            (
-                str(exc)
-                or "A operação de Rede falhou."
-            ),
+            str(exc) or "A operação de Rede falhou.",
             codigo=codigo,
             detalhes=detalhes,
         ) from exc
 
     if resultado is None:
         return {}
-
-    if isinstance(
-        resultado,
-        dict,
-    ):
+    if isinstance(resultado, dict):
         return resultado
 
     raise ErroOperacao(
         "O módulo de Rede retornou um formato inválido.",
         codigo="rede_resposta_invalida",
-        detalhes={
-            "tipo": type(resultado).__name__,
-        },
+        detalhes={"tipo": type(resultado).__name__},
+    )
+
+
+def _despachar_firewall(
+    req: RequisicaoIPC,
+) -> dict[str, Any]:
+    """
+    Encaminha firewall.* ao dispatcher oficial firewall.ipc.handlers.
+
+    O servidor principal não conhece regras, topologia, nftables ou Safe Apply.
+    Ele apenas transporta uma ação já validada e o payload para o módulo.
+    """
+    try:
+        modulo = importlib.import_module("firewall.ipc.handlers")
+    except Exception as exc:
+        raise ErroOperacao(
+            f"Não foi possível carregar o módulo de Firewall: {exc}",
+            codigo="firewall_modulo_indisponivel",
+            detalhes={"tipo": type(exc).__name__},
+        ) from exc
+
+    executar = getattr(modulo, "executar_acao_firewall", None)
+
+    if not callable(executar):
+        raise ErroOperacao(
+            "O dispatcher do módulo de Firewall não está disponível.",
+            codigo="firewall_dispatcher_indisponivel",
+        )
+
+    try:
+        resultado = executar(req.acao, req.dados)
+    except Exception as exc:
+        codigo = str(
+            getattr(exc, "codigo", "")
+            or "firewall_operacao_falhou"
+        )
+        detalhes = getattr(exc, "detalhes", {}) or {}
+
+        if not isinstance(detalhes, dict):
+            detalhes = {"detalhes": str(detalhes)}
+
+        logger.warning(
+            "[firewall] operação falhou | acao=%s id=%s codigo=%s mensagem=%s detalhes=%s",
+            req.acao,
+            req.id,
+            codigo,
+            str(exc),
+            detalhes,
+        )
+
+        raise ErroOperacao(
+            str(exc) or "A operação de Firewall falhou.",
+            codigo=codigo,
+            detalhes=detalhes,
+        ) from exc
+
+    if resultado is None:
+        return {}
+    if isinstance(resultado, dict):
+        return resultado
+
+    raise ErroOperacao(
+        "O módulo de Firewall retornou um formato inválido.",
+        codigo="firewall_resposta_invalida",
+        detalhes={"tipo": type(resultado).__name__},
     )
 
 
 # =============================================================================
-# HANDLERS
+# HANDLERS DO SISTEMA
 # =============================================================================
 
 def _h_ping(
@@ -736,10 +777,7 @@ def _h_ping(
         "ipc": VERSAO_SERVIDOR_IPC,
         "pid": os.getpid(),
         "uptime_segundos": _uptime_segundos(),
-        "socket": _estado.get(
-            "socket",
-            SOCKET_PADRAO,
-        ),
+        "socket": _estado.get("socket", SOCKET_PADRAO),
     }
 
 
@@ -749,524 +787,21 @@ def _h_info(
     return {
         "servico": "moonshield-agent",
         "pid": os.getpid(),
-        "uid": (
-            os.getuid()
-            if hasattr(
-                os,
-                "getuid",
-            )
-            else None
-        ),
-        "gid": (
-            os.getgid()
-            if hasattr(
-                os,
-                "getgid",
-            )
-            else None
-        ),
+        "uid": os.getuid() if hasattr(os, "getuid") else None,
+        "gid": os.getgid() if hasattr(os, "getgid") else None,
         "ipc": VERSAO_SERVIDOR_IPC,
         "uptime_segundos": _uptime_segundos(),
         "stats": obter_stats(),
     }
 
 
-def _h_firewall_status(
-    _: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel([
-        (
-            "firewall.nucleo.status",
-            "obter_status",
-        ),
-        (
-            "firewall.nucleo.instalador",
-            "obter_status",
-        ),
-    ])
-
-
-def _h_firewall_interfaces(
-    _: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel([
-        (
-            "firewall.nucleo.status",
-            "obter_interfaces",
-        ),
-        (
-            "firewall.nucleo.status",
-            "listar_interfaces",
-        ),
-    ])
-
-
-def _h_firewall_rules(
-    _: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel([
-        (
-            "firewall.nucleo.status",
-            "obter_regras",
-        ),
-        (
-            "firewall.nucleo.status",
-            "listar_regras",
-        ),
-        (
-            "firewall.nucleo.instalador",
-            "listar_regras",
-        ),
-    ])
-
-
-def _h_firewall_emergency(
-    _: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel([
-        (
-            "firewall.nucleo.status",
-            "obter_emergency",
-        ),
-        (
-            "firewall.nucleo.status",
-            "listar_emergency",
-        ),
-    ])
-
-
-def _h_firewall_diagnostico(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.status",
-                "diagnosticar",
-            ),
-            (
-                "firewall.nucleo.status",
-                "executar_diagnostico",
-            ),
-        ],
-        dados,
-    )
-
-
-def _h_firewall_install(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.instalador",
-                "instalar",
-            ),
-            (
-                "firewall.nucleo.instalador",
-                "instalar_firewall",
-            ),
-            (
-                "firewall.nucleo.instalador",
-                "instalar_regras",
-            ),
-        ],
-        dados,
-    )
-
-
-def _h_firewall_repair(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.instalador",
-                "reparar",
-            ),
-            (
-                "firewall.nucleo.instalador",
-                "reparar_firewall",
-            ),
-        ],
-        dados,
-    )
-
-
-def _h_firewall_uninstall(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    if not _bool(
-        dados.get("confirmar")
-    ):
-        raise ErroOperacao(
-            (
-                "A desinstalação exige "
-                "dados.confirmar=true."
-            ),
-            codigo="confirmacao_necessaria",
-        )
-
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.instalador",
-                "desinstalar",
-            ),
-            (
-                "firewall.nucleo.instalador",
-                "remover",
-            ),
-            (
-                "firewall.nucleo.instalador",
-                "remover_regras",
-            ),
-        ],
-        dados,
-    )
-
-
-def _h_firewall_apply(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    regras = dados.get(
-        "regras",
-        dados.get(
-            "rules",
-            [],
-        ),
-    )
-
-    if not isinstance(
-        regras,
-        list,
-    ):
-        raise ErroOperacao(
-            "dados.regras deve ser uma lista.",
-            codigo="payload_invalido",
-        )
-
-    iface_map = (
-        dados.get("iface_map")
-        or {}
-    )
-
-    if not isinstance(
-        iface_map,
-        dict,
-    ):
-        raise ErroOperacao(
-            (
-                "dados.iface_map deve ser "
-                "um objeto."
-            ),
-            codigo="payload_invalido",
-        )
-
-    payload = dict(
-        dados
-    )
-
-    payload["regras"] = regras
-    payload["iface_map"] = iface_map
-
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.aplicador",
-                "aplicar",
-            ),
-            (
-                "firewall.nucleo.aplicador",
-                "aplicar_regras",
-            ),
-        ],
-        payload,
-    )
-
-
-def _h_firewall_rollback(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.rollback",
-                "restaurar_ultimo",
-            ),
-            (
-                "firewall.nucleo.rollback",
-                "rollback",
-            ),
-            (
-                "firewall.nucleo.rollback",
-                "restaurar",
-            ),
-        ],
-        dados,
-    )
-
-
-def _h_firewall_block(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    ip = str(
-        dados.get("ip")
-        or ""
-    ).strip()
-
-    if not ip:
-        raise ErroOperacao(
-            "Campo dados.ip é obrigatório.",
-            codigo="payload_invalido",
-        )
-
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.aplicador",
-                "bloquear_ip",
-            ),
-            (
-                "firewall.nucleo.aplicador",
-                "bloquear",
-            ),
-        ],
-        dados,
-    )
-
-
-def _h_firewall_unblock(
-    dados: dict[str, Any],
-) -> dict[str, Any]:
-    ip = str(
-        dados.get("ip")
-        or ""
-    ).strip()
-
-    if not ip:
-        raise ErroOperacao(
-            "Campo dados.ip é obrigatório.",
-            codigo="payload_invalido",
-        )
-
-    return _chamar_primeiro_disponivel(
-        [
-            (
-                "firewall.nucleo.aplicador",
-                "liberar_ip",
-            ),
-            (
-                "firewall.nucleo.aplicador",
-                "desbloquear_ip",
-            ),
-            (
-                "firewall.nucleo.aplicador",
-                "liberar",
-            ),
-        ],
-        dados,
-    )
-
-
 _HANDLERS: dict[
     str,
-    Callable[
-        [dict[str, Any]],
-        dict[str, Any],
-    ],
+    Callable[[dict[str, Any]], dict[str, Any]],
 ] = {
     "system.ping": _h_ping,
     "system.info": _h_info,
-    "firewall.status": _h_firewall_status,
-    "firewall.interfaces": _h_firewall_interfaces,
-    "firewall.rules": _h_firewall_rules,
-    "firewall.emergency": _h_firewall_emergency,
-    "firewall.diagnostico": _h_firewall_diagnostico,
-    "firewall.install": _h_firewall_install,
-    "firewall.repair": _h_firewall_repair,
-    "firewall.uninstall": _h_firewall_uninstall,
-    "firewall.apply": _h_firewall_apply,
-    "firewall.rollback": _h_firewall_rollback,
-    "firewall.block": _h_firewall_block,
-    "firewall.unblock": _h_firewall_unblock,
 }
-
-
-# =============================================================================
-# ADAPTADOR TEMPORÁRIO DOS MÓDULOS
-# =============================================================================
-
-def _chamar_primeiro_disponivel(
-    candidatos: list[
-        tuple[
-            str,
-            str,
-        ]
-    ],
-    dados: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    erros_import: list[str] = []
-
-    for modulo_nome, func_nome in candidatos:
-        try:
-            modulo = importlib.import_module(
-                modulo_nome
-            )
-
-        except Exception as exc:
-            erros_import.append(
-                (
-                    f"{modulo_nome}: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-            )
-            continue
-
-        func = getattr(
-            modulo,
-            func_nome,
-            None,
-        )
-
-        if not callable(
-            func
-        ):
-            continue
-
-        try:
-            if dados:
-                try:
-                    resultado = func(
-                        dados
-                    )
-                except TypeError:
-                    resultado = func()
-
-            else:
-                try:
-                    resultado = func()
-                except TypeError:
-                    resultado = func({})
-
-        except Exception as exc:
-            raise ErroOperacao(
-                (
-                    f"{modulo_nome}.{func_nome} "
-                    f"falhou: {exc}"
-                ),
-                codigo="falha_modulo_firewall",
-                detalhes={
-                    "modulo": modulo_nome,
-                    "funcao": func_nome,
-                    "tipo": type(exc).__name__,
-                },
-            ) from exc
-
-        return _normalizar_resultado_modulo(
-            resultado
-        )
-
-    raise ErroOperacao(
-        (
-            "Operação ainda não está disponível "
-            "no núcleo do Firewall."
-        ),
-        codigo="modulo_indisponivel",
-        detalhes={
-            "tentativas": erros_import,
-        },
-    )
-
-
-def _normalizar_resultado_modulo(
-    resultado: Any,
-) -> dict[str, Any]:
-    if resultado is None:
-        return {}
-
-    if isinstance(
-        resultado,
-        dict,
-    ):
-        if resultado.get("ok") is False:
-            msg = (
-                resultado.get("erro")
-                or resultado.get("error")
-                or resultado.get("mensagem")
-                or "Operação recusada pelo módulo."
-            )
-
-            raise ErroOperacao(
-                str(msg),
-                codigo=str(
-                    resultado.get("codigo")
-                    or "operacao_falhou"
-                ),
-                detalhes={
-                    k: v
-                    for k, v in resultado.items()
-                    if k not in {
-                        "ok",
-                        "erro",
-                        "error",
-                        "mensagem",
-                        "codigo",
-                    }
-                },
-            )
-
-        return resultado
-
-    if (
-        isinstance(
-            resultado,
-            tuple,
-        )
-        and len(resultado) >= 2
-    ):
-        ok = bool(
-            resultado[0]
-        )
-
-        mensagem = str(
-            resultado[1]
-        )
-
-        if not ok:
-            raise ErroOperacao(
-                mensagem
-            )
-
-        return {
-            "ok": True,
-            "mensagem": mensagem,
-        }
-
-    if isinstance(
-        resultado,
-        bool,
-    ):
-        if not resultado:
-            raise ErroOperacao(
-                "Operação retornou falha."
-            )
-
-        return {
-            "ok": True,
-        }
-
-    if isinstance(
-        resultado,
-        str,
-    ):
-        return {
-            "mensagem": resultado,
-        }
-
-    return {
-        "resultado": resultado,
-    }
 
 
 # =============================================================================

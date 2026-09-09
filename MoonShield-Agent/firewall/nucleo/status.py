@@ -49,6 +49,9 @@ from firewall.nucleo.seguranca import (
     CHAIN_INPUT,
     CHAIN_OUTPUT,
     CHAIN_RULES,
+    CHAIN_RULES_FORWARD,
+    CHAIN_RULES_INPUT,
+    CHAIN_RULES_OUTPUT,
     CHAIN_SYSTEM,
     TABELA_FAMILIA,
     TABELA_NOME,
@@ -60,7 +63,7 @@ from firewall.nucleo.seguranca import (
 )
 
 
-VERSAO_STATUS = "1.0"
+VERSAO_STATUS = "1.1"
 
 TIMEOUT_COMANDO = 8
 
@@ -75,7 +78,9 @@ SOCKET_AGENT = Path("/run/moonshield/agent.sock")
 CHAINS_OBRIGATORIAS = (
     CHAIN_SYSTEM,
     CHAIN_EMERGENCY,
-    CHAIN_RULES,
+    CHAIN_RULES_INPUT,
+    CHAIN_RULES_FORWARD,
+    CHAIN_RULES_OUTPUT,
     CHAIN_INPUT,
     CHAIN_FORWARD,
     CHAIN_OUTPUT,
@@ -129,10 +134,14 @@ def obter_status(
     """
     dados = dados or {}
 
-    cfg = dados.get("config")
+    cfg_recebida = dados.get("config")
+    config_fornecida = isinstance(cfg_recebida, dict)
 
-    if not isinstance(cfg, dict):
-        cfg = carregar_config_local()
+    cfg = (
+        cfg_recebida
+        if config_fornecida
+        else carregar_config_local()
+    )
 
     contexto = detectar_contexto(
         cfg
@@ -172,8 +181,7 @@ def obter_status(
     )
 
     configurado = bool(
-        config_existe
-        and topo.ok
+        topo.ok
         and contexto.interface_wan
         and contexto.interface_lan
     )
@@ -245,6 +253,11 @@ def obter_status(
                 ARQUIVO_CONFIG
             ),
             "existe": config_existe,
+            "fonte": (
+                "control_plane"
+                if config_fornecida
+                else "local"
+            ),
             "dados": cfg,
         },
 
@@ -405,13 +418,78 @@ def obter_regras(
     dados: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Lista a chain administrativa `ms_rules`.
+    Lista políticas administrativas separadas por hook.
 
-    Não retorna dump de tabelas externas.
+    A chain legada `ms_rules` é consultada apenas como fallback para uma
+    instalação ainda não migrada pelo primeiro Apply A9.2.
     """
-    return _listar_chain(
-        CHAIN_RULES
+    grupos = (
+        ("in", CHAIN_RULES_INPUT),
+        ("forward", CHAIN_RULES_FORWARD),
+        ("out", CHAIN_RULES_OUTPUT),
     )
+
+    regras: list[dict[str, Any]] = []
+    chains: dict[str, dict[str, Any]] = {}
+    novas_disponiveis = False
+
+    for direcao, chain in grupos:
+        resultado = _listar_chain(
+            chain
+        )
+        chains[chain] = resultado
+
+        if not resultado.get("ok"):
+            continue
+
+        novas_disponiveis = True
+
+        for item in resultado.get("regras", []):
+            if not isinstance(item, dict):
+                continue
+
+            regras.append(
+                {
+                    **item,
+                    "direcao": direcao,
+                    "chain": chain,
+                }
+            )
+
+    legado = None
+
+    if not novas_disponiveis:
+        legado = _listar_chain(
+            CHAIN_RULES
+        )
+
+        if legado.get("ok"):
+            for item in legado.get("regras", []):
+                if not isinstance(item, dict):
+                    continue
+
+                regras.append(
+                    {
+                        **item,
+                        "direcao": "legacy",
+                        "chain": CHAIN_RULES,
+                    }
+                )
+
+    return {
+        "ok": bool(
+            novas_disponiveis
+            or (
+                isinstance(legado, dict)
+                and legado.get("ok")
+            )
+        ),
+        "regras": regras,
+        "total": len(regras),
+        "chains": chains,
+        "legacy": legado,
+        "separado_por_hook": novas_disponiveis,
+    }
 
 
 def listar_regras(

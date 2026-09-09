@@ -41,11 +41,13 @@ ACOES = frozenset({
     "system.ping",
     "system.info",
 
+    # Firewall — leitura/operações legadas preservadas por compatibilidade.
     "firewall.status",
     "firewall.interfaces",
     "firewall.rules",
     "firewall.emergency",
     "firewall.diagnostico",
+    "firewall.diagnostics",
     "firewall.install",
     "firewall.repair",
     "firewall.uninstall",
@@ -54,6 +56,15 @@ ACOES = frozenset({
     "firewall.block",
     "firewall.unblock",
 
+    # Firewall — contrato oficial de alteração.
+    # O núcleo Safe Apply completo é implementado no A9 Lote 4.
+    "firewall.change.apply",
+    "firewall.change.confirm",
+    "firewall.change.rollback",
+    "firewall.change.status",
+    "firewall.change.cancel",
+
+    # Rede.
     "network.status",
     "network.inventory",
     "network.diagnostics",
@@ -73,6 +84,7 @@ ALIASES_ACAO = {
     "regras": "firewall.rules",
     "emergency": "firewall.emergency",
     "diagnostico": "firewall.diagnostico",
+    "diagnóstico": "firewall.diagnostico",
     "instalar": "firewall.install",
     "reparar": "firewall.repair",
     "desinstalar": "firewall.uninstall",
@@ -226,6 +238,8 @@ def decodificar_resposta(raw: bytes | str) -> RespostaIPC:
             raise ErroProtocolo("Resposta não está em UTF-8 válido.") from None
     else:
         texto = str(raw)
+        if len(texto.encode(ENCODING)) > MAX_MENSAGEM_BYTES:
+            raise ErroProtocolo("Resposta excede o limite permitido.")
 
     try:
         payload = json.loads(texto.strip())

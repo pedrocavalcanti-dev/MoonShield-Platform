@@ -53,14 +53,22 @@ from typing import Any, Iterable
 # CONSTANTES
 # =============================================================================
 
-VERSAO_SEGURANCA = "1.0"
+VERSAO_SEGURANCA = "1.1"
 
 TABELA_FAMILIA = "inet"
 TABELA_NOME = "moonshield"
 
 CHAIN_SYSTEM = "ms_system"
 CHAIN_EMERGENCY = "ms_emergency"
+
+# `ms_rules` permanece somente como chain legada de compatibilidade.
+# As políticas novas são separadas por hook para impedir que uma regra INPUT
+# seja alcançada por FORWARD/OUTPUT (e vice-versa).
 CHAIN_RULES = "ms_rules"
+CHAIN_RULES_INPUT = "ms_rules_input"
+CHAIN_RULES_FORWARD = "ms_rules_forward"
+CHAIN_RULES_OUTPUT = "ms_rules_output"
+
 CHAIN_INPUT = "ms_input"
 CHAIN_FORWARD = "ms_forward"
 CHAIN_OUTPUT = "ms_output"
@@ -69,6 +77,9 @@ CHAINS_GERENCIADAS = frozenset({
     CHAIN_SYSTEM,
     CHAIN_EMERGENCY,
     CHAIN_RULES,
+    CHAIN_RULES_INPUT,
+    CHAIN_RULES_FORWARD,
+    CHAIN_RULES_OUTPUT,
     CHAIN_INPUT,
     CHAIN_FORWARD,
     CHAIN_OUTPUT,
@@ -161,9 +172,18 @@ class ContextoSeguranca:
     interface_lan: str = ""
     interface_mgmt: str = ""
     home_net: str = ""
+
+    # Compatibilidade V1: primeiro IP/rede administrativo observado.
     ip_local: str = ""
     gateway: str = ""
     rede_mgmt: str = ""
+
+    # A decisão de QUAIS interfaces são administrativas vem do Django/rede.
+    # O Agent apenas observa IP/rede dessas interfaces no Linux.
+    interfaces_gerenciamento: list[str] = field(default_factory=list)
+    ips_gerenciamento: list[str] = field(default_factory=list)
+    redes_gerenciamento: list[str] = field(default_factory=list)
+
     interfaces_existentes: set[str] = field(default_factory=set)
 
     def iface_map(self) -> dict[str, str]:
@@ -195,6 +215,9 @@ class ContextoSeguranca:
             "ip_local": self.ip_local,
             "gateway": self.gateway,
             "rede_mgmt": self.rede_mgmt,
+            "interfaces_gerenciamento": list(self.interfaces_gerenciamento),
+            "ips_gerenciamento": list(self.ips_gerenciamento),
+            "redes_gerenciamento": list(self.redes_gerenciamento),
             "interfaces_existentes": sorted(self.interfaces_existentes),
             "iface_map": self.iface_map(),
         }
@@ -222,17 +245,11 @@ class ResultadoValidacao:
 
 def detectar_contexto(cfg: dict[str, Any] | None = None) -> ContextoSeguranca:
     """
-    Constrói o contexto real do host Linux.
+    Constrói o contexto técnico do host a partir da topologia DECIDIDA pelo
+    Django/Network Control.
 
-    cfg esperado, quando disponível:
-        {
-            "interface_wan": "enp0s3",
-            "interface_lan": "enp0s9",
-            "interface_mgmt": "enp0s8",
-            "home_net": "10.10.0.0/24"
-        }
-
-    Campos ausentes são detectados de forma conservadora.
+    O Agent pode validar/observar interfaces, endereços e rota default, mas
+    nunca escolhe WAN/LAN/MGMT/HOME_NET por conta própria.
     """
     cfg = cfg or {}
 
@@ -243,21 +260,51 @@ def detectar_contexto(cfg: dict[str, Any] | None = None) -> ContextoSeguranca:
     mgmt = _texto(cfg.get("interface_mgmt"))
     home_net = _texto(cfg.get("home_net"))
 
+    gerenciamento_raw = cfg.get("interfaces_gerenciamento")
+    interfaces_gerenciamento: list[str] = []
+
+    if isinstance(gerenciamento_raw, (list, tuple, set)):
+        for item in gerenciamento_raw:
+            nome = _texto(item)
+
+            if (
+                nome
+                and _RE_IFACE.fullmatch(nome)
+                and nome not in interfaces_gerenciamento
+            ):
+                interfaces_gerenciamento.append(nome)
+
+    # Compatibilidade: uma MGMT explicitamente recebida do Control Plane é
+    # administrativa. Não há fallback para WAN/LAN/default route no Agent.
+    if mgmt and mgmt not in interfaces_gerenciamento:
+        interfaces_gerenciamento.append(mgmt)
+
     rota = detectar_rota_padrao()
 
-    if not wan:
-        wan = rota.get("interface", "")
+    # Gateway é apenas estado observado e só é associado à WAN quando a rota
+    # default real pertence à WAN fornecida pelo Control Plane.
+    gateway = ""
+    if wan and rota.get("interface") == wan:
+        gateway = rota.get("gateway", "")
 
-    gateway = rota.get("gateway", "")
-    ip_local = detectar_ip_interface(mgmt) if mgmt else ""
+    ips_gerenciamento: list[str] = []
+    redes_gerenciamento: list[str] = []
 
-    # Se não houver IP na MGMT, tenta IP da interface usada pela rota default.
-    if not ip_local and wan:
-        ip_local = detectar_ip_interface(wan)
+    for interface in interfaces_gerenciamento:
+        if interface not in interfaces:
+            continue
 
-    rede_mgmt = ""
-    if mgmt:
-        rede_mgmt = detectar_rede_interface(mgmt)
+        ip = detectar_ip_interface(interface)
+        rede = detectar_rede_interface(interface)
+
+        if ip and ip not in ips_gerenciamento:
+            ips_gerenciamento.append(ip)
+
+        if rede and rede not in redes_gerenciamento:
+            redes_gerenciamento.append(rede)
+
+    ip_local = ips_gerenciamento[0] if ips_gerenciamento else ""
+    rede_mgmt = redes_gerenciamento[0] if redes_gerenciamento else ""
 
     return ContextoSeguranca(
         interface_wan=wan,
@@ -267,9 +314,11 @@ def detectar_contexto(cfg: dict[str, Any] | None = None) -> ContextoSeguranca:
         ip_local=ip_local,
         gateway=gateway,
         rede_mgmt=rede_mgmt,
+        interfaces_gerenciamento=interfaces_gerenciamento,
+        ips_gerenciamento=ips_gerenciamento,
+        redes_gerenciamento=redes_gerenciamento,
         interfaces_existentes=interfaces,
     )
-
 
 def listar_interfaces() -> list[str]:
     """
@@ -499,6 +548,23 @@ def validar_topologia(
             "WAN, LAN e MGMT não podem apontar para a mesma interface."
         )
 
+    for iface in contexto.interfaces_gerenciamento:
+        if not _RE_IFACE.fullmatch(iface):
+            erros.append(
+                f"Interface administrativa possui nome inválido: {iface!r}."
+            )
+            continue
+
+        if iface not in contexto.interfaces_existentes:
+            erros.append(
+                f"Interface administrativa não existe no sistema: {iface}."
+            )
+
+    if not contexto.interfaces_gerenciamento:
+        avisos.append(
+            "Nenhuma interface de gerenciamento foi informada pelo Control Plane."
+        )
+
     if contexto.home_net:
         try:
             rede = ipaddress.ip_network(
@@ -520,9 +586,13 @@ def validar_topologia(
             "mas validações de origem interna ficarão limitadas."
         )
 
-    if contexto.interface_mgmt and not contexto.rede_mgmt:
+    if (
+        contexto.interfaces_gerenciamento
+        and not contexto.redes_gerenciamento
+    ):
         avisos.append(
-            "Não foi possível determinar automaticamente a rede da MGMT."
+            "Não foi possível observar uma rede IPv4 nas interfaces "
+            "administrativas informadas."
         )
 
     return ResultadoValidacao(
@@ -738,10 +808,8 @@ def validar_anti_lockout(
     contexto: ContextoSeguranca,
 ) -> None:
     """
-    Bloqueia regras administrativas claramente perigosas.
-
-    Não tenta substituir a proteção definitiva do ms_system.
-    Esta é uma segunda camada defensiva para impedir regras óbvias de lockout.
+    Bloqueia regras administrativas claramente perigosas para os pontos de
+    gerenciamento definidos pelo Control Plane.
     """
     action = _texto(
         regra.get("action"),
@@ -775,55 +843,60 @@ def validar_anti_lockout(
         "any",
     )
 
-    # Bloqueio genérico entrando pela interface de gerenciamento.
+    ifaces_admin = set(contexto.interfaces_gerenciamento)
+
+    # `MGMT` continua reconhecido como alias lógico quando existe uma MGMT
+    # dedicada, mas interfaces administrativas também podem ser LAN/WAN caso o
+    # Django tenha explicitamente autorizado isso.
+    if contexto.interface_mgmt:
+        ifaces_admin.add("MGMT")
+
+    # Bloqueio genérico entrando por qualquer interface administrativa.
     if (
-        contexto.interface_mgmt
-        and iface in {
-            contexto.interface_mgmt,
-            "MGMT",
-            "any",
-        }
+        ifaces_admin
+        and iface in (ifaces_admin | {"any"})
         and src == "any"
         and dst == "any"
         and port == "any"
     ):
         raise OperacaoPerigosa(
             "Regra genérica de bloqueio pode derrubar o acesso "
-            "pela interface de gerenciamento."
+            "de gerenciamento do MoonShield."
         )
 
-    # Nunca permitir regra genérica contra o IP local da administração.
-    if contexto.ip_local:
-        if _endereco_contem(
-            dst,
-            contexto.ip_local,
-        ):
-            if port == "any":
+    # Nunca permitir bloqueio genérico aos IPs locais administrativos.
+    if port == "any":
+        for ip_local in contexto.ips_gerenciamento:
+            if _endereco_contem(
+                dst,
+                ip_local,
+            ):
                 raise OperacaoPerigosa(
-                    "Regra bloqueia genericamente o IP local do MoonShield."
+                    "Regra bloqueia genericamente um IP administrativo "
+                    "do MoonShield."
                 )
 
-    # Protege a rede de gerenciamento quando detectável.
-    if contexto.rede_mgmt:
-        if src == "any" and _redes_sobrepoem(
-            dst,
-            contexto.rede_mgmt,
-        ):
-            raise OperacaoPerigosa(
-                "Regra pode bloquear genericamente a rede de gerenciamento."
-            )
+    # Protege as redes administrativas explicitamente observadas.
+    if src == "any":
+        for rede_admin in contexto.redes_gerenciamento:
+            if _redes_sobrepoem(
+                dst,
+                rede_admin,
+            ):
+                raise OperacaoPerigosa(
+                    "Regra pode bloquear genericamente uma rede "
+                    "de gerenciamento."
+                )
 
 
 def gerar_regras_sistema(
     contexto: ContextoSeguranca | dict[str, Any],
 ) -> list[str]:
     """
-    Gera somente regras ESSENCIAIS da chain ms_system.
+    Gera regras ESSENCIAIS para a proteção do INPUT administrativo.
 
-    Essas regras não pertencem ao usuário e não devem ser misturadas
-    com ms_rules.
-
-    A função retorna expressões nft, não executa comandos.
+    `ms_system` será chamado somente pelo hook INPUT no aplicador A9.2.
+    A função não executa comandos.
     """
     if not isinstance(contexto, ContextoSeguranca):
         contexto = detectar_contexto(contexto)
@@ -833,26 +906,25 @@ def gerar_regras_sistema(
         'iifname "lo" accept',
     ]
 
-    if contexto.interface_mgmt:
+    for interface in contexto.interfaces_gerenciamento:
         regras.append(
-            f'iifname "{contexto.interface_mgmt}" accept'
+            f'iifname "{interface}" accept'
         )
 
-    if contexto.ip_local:
+    for ip_local in contexto.ips_gerenciamento:
+        familia = "ip6" if ":" in ip_local else "ip"
         regras.append(
-            f"ip daddr {contexto.ip_local} accept"
+            f"{familia} daddr {ip_local} accept"
         )
 
-    if contexto.rede_mgmt:
+    for rede_admin in contexto.redes_gerenciamento:
+        familia = "ip6" if ":" in rede_admin else "ip"
         regras.append(
-            f"ip saddr {contexto.rede_mgmt} accept"
+            f"{familia} saddr {rede_admin} accept"
         )
-
-    # O gateway não é sempre entrada administrativa, então não liberamos
-    # genericamente qualquer tráfego para ele. Apenas mantemos informação
-    # no contexto para verificações futuras.
 
     return _deduplicar(regras)
+
 
 
 # =============================================================================

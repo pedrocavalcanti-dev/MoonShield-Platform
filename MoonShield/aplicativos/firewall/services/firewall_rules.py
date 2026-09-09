@@ -32,12 +32,15 @@ from firewall.models import (
 )
 
 from . import agent_client
-from .firewall_status import obter_estado_firewall
+from .firewall_status import (
+    obter_contexto_firewall_rede,
+    obter_estado_firewall,
+)
 
 
 logger = logging.getLogger(__name__)
 
-VERSAO_RULES_SERVICE = "1.0"
+VERSAO_RULES_SERVICE = "1.1"
 
 
 # =============================================================================
@@ -93,6 +96,24 @@ def aplicar_regras_pendentes() -> dict[str, Any]:
     Mesmo que apenas uma regra tenha mudado, enviamos o estado desejado inteiro.
     O Agent aplica de forma transacional.
     """
+    topologia_rede = obter_contexto_firewall_rede()
+
+    if not topologia_rede.get("ok"):
+        erro_topologia = topologia_rede.get("erro") or {}
+
+        return {
+            "ok": False,
+            "codigo": str(
+                erro_topologia.get("codigo")
+                or "topologia_rede_incompleta"
+            ),
+            "erro": str(
+                erro_topologia.get("mensagem")
+                or "Topologia oficial da Rede incompleta."
+            ),
+            "topologia": topologia_rede,
+        }
+
     estado = obter_estado_firewall(
         incluir_detalhes=False
     )
@@ -115,36 +136,16 @@ def aplicar_regras_pendentes() -> dict[str, Any]:
 
     regras = listar_regras_para_agent()
 
-    config = {
-        "interface_wan": estado.get(
-            "interface_wan",
-            "",
-        ),
-        "interface_lan": estado.get(
-            "interface_lan",
-            "",
-        ),
-        "interface_mgmt": estado.get(
-            "interface_mgmt",
-            "",
-        ),
-        "home_net": estado.get(
-            "home_net",
-            "",
-        ),
-    }
-
-    iface_map = {
-        "WAN": config["interface_wan"],
-        "LAN": config["interface_lan"],
-        "MGMT": config["interface_mgmt"],
-    }
-
-    iface_map = {
-        chave: valor
-        for chave, valor in iface_map.items()
-        if valor
-    }
+    # A aplicação nunca deriva topologia do status observado do Agent.
+    # WAN/LAN/MGMT/HOME_NET são congelados a partir do Network Control.
+    config = dict(
+        topologia_rede.get("config_agent")
+        or {}
+    )
+    iface_map = dict(
+        topologia_rede.get("iface_map")
+        or {}
+    )
 
     try:
         resultado = agent_client.aplicar_regras(
@@ -211,6 +212,14 @@ def aplicar_regras_pendentes() -> dict[str, Any]:
         ),
         "total_regras": len(regras),
         "resultado_agent": resultado,
+        "topologia_fonte": "rede",
+        "topologia": {
+            "interface_wan": topologia_rede.get("interface_wan", ""),
+            "interface_lan": topologia_rede.get("interface_lan", ""),
+            "interface_mgmt": topologia_rede.get("interface_mgmt", ""),
+            "home_net": topologia_rede.get("home_net", ""),
+            "redes_internas": topologia_rede.get("redes_internas", []),
+        },
         "sync": obter_sync_status(),
     }
 

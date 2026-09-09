@@ -42,9 +42,11 @@ class ConfiguracaoFirewall(models.Model):
     """
     Singleton com o estado/configuração conhecida pelo Django.
 
-    A fonte de verdade técnica continua sendo o MoonShield-Agent.
-    Este model guarda configuração de negócio, onboarding e último estado
-    observado para UI/auditoria.
+    A fonte de verdade da topologia é o módulo `rede`.
+    O MoonShield-Agent é a fonte do estado Linux observado do firewall.
+    Este model mantém configuração de negócio, onboarding e cache do último
+    estado consolidado para UI/auditoria. Os campos de topologia abaixo são
+    somente cache de compatibilidade e nunca devem comandar WAN/LAN/MGMT.
     """
 
     ativo = models.BooleanField(
@@ -60,7 +62,7 @@ class ConfiguracaoFirewall(models.Model):
         default=False,
     )
 
-    # Topologia
+    # Topologia — cache derivado do módulo `rede`; não é fonte de verdade.
     interface_wan = models.CharField(
         max_length=32,
         blank=True,
@@ -193,27 +195,26 @@ class ConfiguracaoFirewall(models.Model):
             or status.get("operacional")
         )
 
+        # A topologia oficial vem de `rede`. Não preservamos silenciosamente
+        # valores antigos: se a Rede remover MGMT ou alterar WAN/LAN/HOME_NET,
+        # o cache do Firewall deve refletir exatamente o estado oficial.
         self.interface_wan = str(
             status.get("interface_wan")
-            or self.interface_wan
             or ""
         )[:32]
 
         self.interface_lan = str(
             status.get("interface_lan")
-            or self.interface_lan
             or ""
         )[:32]
 
         self.interface_mgmt = str(
             status.get("interface_mgmt")
-            or self.interface_mgmt
             or ""
         )[:32]
 
         self.home_net = str(
             status.get("home_net")
-            or self.home_net
             or ""
         )[:64]
 

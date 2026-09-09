@@ -26,9 +26,12 @@ Este módulo NÃO:
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from datetime import datetime, timezone
 from typing import Any
+
+from rede.services.topologia import obter_topologia
 
 from . import agent_client
 
@@ -36,7 +39,485 @@ from . import agent_client
 logger = logging.getLogger(__name__)
 
 
-VERSAO_STATUS_SERVICE = "1.0"
+VERSAO_STATUS_SERVICE = "1.1"
+
+
+# =============================================================================
+# TOPOLOGIA OFICIAL — NETWORK CONTROL
+# =============================================================================
+
+def obter_contexto_firewall_rede() -> dict[str, Any]:
+    """
+    Monta o contexto de topologia consumido pelo Firewall a partir do módulo
+    `rede`, que é a fonte oficial de WAN/LAN/MGMT e redes internas.
+
+    O Firewall não descobre papéis pela rota default e não consulta Linux para
+    decidir topologia. O Agent continuará validando se as interfaces recebidas
+    realmente existem no host.
+    """
+    try:
+        topologia = obter_topologia()
+    except Exception as exc:
+        logger.exception(
+            "Falha ao obter topologia oficial da Rede para o Firewall."
+        )
+        return _contexto_rede_indisponivel(
+            codigo="topologia_rede_indisponivel",
+            mensagem=str(exc),
+        )
+
+    if not isinstance(topologia, dict):
+        return _contexto_rede_indisponivel(
+            codigo="topologia_rede_invalida",
+            mensagem="O módulo Rede retornou topologia em formato inválido.",
+        )
+
+    wan = _selecionar_interface_topologia(
+        topologia.get("wan"),
+    )
+    lan = _selecionar_interface_topologia(
+        topologia.get("lan"),
+    )
+    mgmt = _selecionar_interface_topologia(
+        topologia.get("mgmt"),
+    )
+
+    redes_internas = _extrair_redes_internas(
+        topologia,
+    )
+    home_net = _extrair_home_net(
+        topologia,
+        lan=lan,
+        redes_internas=redes_internas,
+    )
+
+    interface_wan = _nome_interface(wan)
+    interface_lan = _nome_interface(lan)
+    interface_mgmt = _nome_interface(mgmt)
+
+    interfaces_gerenciamento = _extrair_interfaces_gerenciamento(
+        topologia,
+        lan=lan,
+        mgmt=mgmt,
+    )
+
+    iface_map = {
+        chave: valor
+        for chave, valor in {
+            "WAN": interface_wan,
+            "LAN": interface_lan,
+            "MGMT": interface_mgmt,
+        }.items()
+        if valor
+    }
+
+    config_agent = {
+        "interface_wan": interface_wan,
+        "interface_lan": interface_lan,
+        "interface_mgmt": interface_mgmt,
+        "home_net": home_net,
+        # A lista de interfaces administrativas é decisão do Control Plane.
+        # O Agent apenas valida/observa as interfaces recebidas.
+        "interfaces_gerenciamento": interfaces_gerenciamento,
+    }
+
+    faltando: list[str] = []
+
+    if not interface_wan:
+        faltando.append("WAN")
+
+    if not interface_lan:
+        faltando.append("LAN")
+
+    return {
+        "ok": not faltando,
+        "fonte": "rede",
+        "interface_wan": interface_wan,
+        "interface_lan": interface_lan,
+        "interface_mgmt": interface_mgmt,
+        "home_net": home_net,
+        "redes_internas": redes_internas,
+        "interfaces_gerenciamento": interfaces_gerenciamento,
+        "iface_map": iface_map,
+        "config_agent": config_agent,
+        "faltando": faltando,
+        "erro": (
+            None
+            if not faltando
+            else {
+                "codigo": "topologia_rede_incompleta",
+                "mensagem": (
+                    "A topologia oficial da Rede ainda não possui: "
+                    + ", ".join(faltando)
+                    + "."
+                ),
+            }
+        ),
+        "raw": topologia,
+    }
+
+
+def _contexto_rede_indisponivel(
+    *,
+    codigo: str,
+    mensagem: str,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "fonte": "rede",
+        "interface_wan": "",
+        "interface_lan": "",
+        "interface_mgmt": "",
+        "home_net": "",
+        "redes_internas": [],
+        "interfaces_gerenciamento": [],
+        "iface_map": {},
+        "config_agent": {
+            "interface_wan": "",
+            "interface_lan": "",
+            "interface_mgmt": "",
+            "home_net": "",
+            "interfaces_gerenciamento": [],
+        },
+        "faltando": [
+            "WAN",
+            "LAN",
+        ],
+        "erro": {
+            "codigo": codigo,
+            "mensagem": mensagem,
+        },
+        "raw": {},
+    }
+
+
+def _selecionar_interface_topologia(
+    grupo: Any,
+) -> dict[str, Any]:
+    """
+    Seleciona a interface principal de um grupo de topologia.
+
+    Compatível com o contrato atual de `rede.services.topologia`, onde grupos
+    como WAN/LAN expõem `interfaces`, sem assumir quantidade fixa de NICs.
+    """
+    if isinstance(grupo, dict):
+        principal = grupo.get("principal")
+
+        if isinstance(principal, dict) and _nome_interface(principal):
+            return principal
+
+        interfaces = grupo.get("interfaces")
+    elif isinstance(grupo, list):
+        interfaces = grupo
+    else:
+        interfaces = []
+
+    if not isinstance(interfaces, list):
+        return {}
+
+    validas = [
+        item
+        for item in interfaces
+        if isinstance(item, dict) and _nome_interface(item)
+    ]
+
+    for item in validas:
+        desejado = item.get("desejado")
+        desejado = desejado if isinstance(desejado, dict) else {}
+
+        if _bool(
+            item.get("principal")
+            or desejado.get("principal")
+        ):
+            return item
+
+    for item in validas:
+        desejado = item.get("desejado")
+        desejado = desejado if isinstance(desejado, dict) else {}
+
+        if _bool(
+            desejado.get("habilitada", True)
+        ):
+            return item
+
+    return validas[0] if validas else {}
+
+
+def _nome_interface(
+    interface: Any,
+) -> str:
+    if isinstance(interface, str):
+        return interface.strip()
+
+    if not isinstance(interface, dict):
+        return ""
+
+    return str(
+        interface.get("nome")
+        or interface.get("interface")
+        or ""
+    ).strip()
+
+
+def _iterar_interfaces_topologia(
+    topologia: dict[str, Any],
+):
+    """Itera interfaces conhecidas sem assumir quantidade fixa de NICs."""
+    vistos: set[str] = set()
+
+    for chave in (
+        "wan",
+        "lan",
+        "mgmt",
+        "dmz",
+        "custom",
+    ):
+        grupo = topologia.get(chave)
+
+        if isinstance(grupo, dict):
+            interfaces = grupo.get("interfaces", [])
+        elif isinstance(grupo, list):
+            interfaces = grupo
+        else:
+            interfaces = []
+
+        if not isinstance(interfaces, list):
+            continue
+
+        for interface in interfaces:
+            if not isinstance(interface, dict):
+                continue
+
+            nome = _nome_interface(interface)
+
+            if not nome or nome in vistos:
+                continue
+
+            vistos.add(nome)
+            yield interface
+
+
+def _extrair_interfaces_gerenciamento(
+    topologia: dict[str, Any],
+    *,
+    lan: dict[str, Any],
+    mgmt: dict[str, Any],
+) -> list[str]:
+    """
+    Resolve onde o appliance pode ser administrado usando SOMENTE decisões do
+    Network Control.
+
+    Ordem:
+    1. interfaces com `acesso_gerenciamento=True`;
+    2. MGMT dedicada, quando existente;
+    3. LAN principal como fallback de produto para topologias de 2 NICs.
+
+    O fallback pertence ao Django/Control Plane; o Agent não o deduz do Linux.
+    """
+    nomes: list[str] = []
+
+    for interface in _iterar_interfaces_topologia(topologia):
+        desejado = interface.get("desejado")
+        desejado = desejado if isinstance(desejado, dict) else {}
+
+        if not _bool(
+            desejado.get("acesso_gerenciamento")
+            or interface.get("acesso_gerenciamento")
+        ):
+            continue
+
+        nome = _nome_interface(interface)
+
+        if nome and nome not in nomes:
+            nomes.append(nome)
+
+    if nomes:
+        return nomes
+
+    nome_mgmt = _nome_interface(mgmt)
+
+    if nome_mgmt:
+        return [nome_mgmt]
+
+    nome_lan = _nome_interface(lan)
+
+    return [nome_lan] if nome_lan else []
+
+
+def _extrair_redes_internas(
+    topologia: dict[str, Any],
+) -> list[str]:
+    """
+    Lista CIDRs internos derivados da própria topologia da Rede.
+
+    Preferimos a configuração desejada; o último estado observado da Rede é
+    usado apenas quando a interface não possui endereço estático desejado.
+    """
+    redes: list[str] = []
+
+    fornecidas = topologia.get("redes_internas")
+
+    if isinstance(fornecidas, (list, tuple, set)):
+        for item in fornecidas:
+            cidr = ""
+
+            if isinstance(item, str):
+                cidr = item
+            elif isinstance(item, dict):
+                cidr = str(
+                    item.get("cidr")
+                    or item.get("rede")
+                    or ""
+                )
+
+            normalizada = _normalizar_cidr(cidr)
+            if normalizada and normalizada not in redes:
+                redes.append(normalizada)
+
+    for chave in (
+        "lan",
+        "dmz",
+        "custom",
+    ):
+        grupo = topologia.get(chave)
+
+        if isinstance(grupo, dict):
+            interfaces = grupo.get("interfaces", [])
+        elif isinstance(grupo, list):
+            interfaces = grupo
+        else:
+            interfaces = []
+
+        if not isinstance(interfaces, list):
+            continue
+
+        for interface in interfaces:
+            if not isinstance(interface, dict):
+                continue
+
+            cidr = _cidr_interface_topologia(
+                interface
+            )
+
+            if cidr and cidr not in redes:
+                redes.append(cidr)
+
+    return redes
+
+
+def _extrair_home_net(
+    topologia: dict[str, Any],
+    *,
+    lan: dict[str, Any],
+    redes_internas: list[str],
+) -> str:
+    """
+    Mantém o contrato V1 do Agent, que recebe um único HOME_NET.
+
+    Se a Rede já fornecer HOME_NET explicitamente, usamos esse valor. Caso
+    contrário, usamos a rede da LAN principal. A lista completa de redes
+    internas continua disponível separadamente para módulos futuros.
+    """
+    for chave in (
+        "home_net",
+        "HOME_NET",
+    ):
+        normalizada = _normalizar_cidr(
+            topologia.get(chave)
+        )
+        if normalizada:
+            return normalizada
+
+    cidr_lan = _cidr_interface_topologia(
+        lan
+    )
+
+    if cidr_lan:
+        return cidr_lan
+
+    return (
+        redes_internas[0]
+        if redes_internas
+        else ""
+    )
+
+
+def _cidr_interface_topologia(
+    interface: dict[str, Any],
+) -> str:
+    if not isinstance(interface, dict):
+        return ""
+
+    desejado = interface.get("desejado")
+    desejado = desejado if isinstance(desejado, dict) else {}
+
+    endereco = str(
+        desejado.get("ipv4_endereco")
+        or ""
+    ).strip()
+    prefixo = desejado.get(
+        "ipv4_prefixo"
+    )
+
+    if endereco and prefixo is not None:
+        return _normalizar_cidr(
+            f"{endereco}/{prefixo}"
+        )
+
+    real = interface.get("real")
+    real = real if isinstance(real, dict) else {}
+
+    enderecos = real.get(
+        "enderecos_ipv4"
+    )
+
+    if isinstance(enderecos, list):
+        for cidr in enderecos:
+            normalizada = _normalizar_cidr(
+                cidr
+            )
+            if normalizada:
+                return normalizada
+
+    endereco_real = str(
+        real.get("ipv4")
+        or ""
+    ).strip()
+    prefixo_real = real.get(
+        "prefixo"
+    )
+
+    if endereco_real and prefixo_real is not None:
+        return _normalizar_cidr(
+            f"{endereco_real}/{prefixo_real}"
+        )
+
+    return ""
+
+
+def _normalizar_cidr(
+    valor: Any,
+) -> str:
+    texto = str(
+        valor
+        or ""
+    ).strip()
+
+    if not texto:
+        return ""
+
+    try:
+        rede = ipaddress.ip_network(
+            texto,
+            strict=False,
+        )
+    except ValueError:
+        return ""
+
+    if rede.version != 4:
+        return ""
+
+    return str(rede)
 
 
 # =============================================================================
@@ -52,7 +533,14 @@ def obter_estado_firewall(
 
     Nunca lança exceção por Agent offline.
     """
-    consulta = agent_client.status_seguro()
+    topologia_rede = obter_contexto_firewall_rede()
+
+    consulta = agent_client.status_seguro(
+        config=topologia_rede.get(
+            "config_agent",
+            {},
+        ),
+    )
 
     if not consulta.get(
         "agent_disponivel"
@@ -70,6 +558,7 @@ def obter_estado_firewall(
                 erro.get("mensagem")
                 or "MoonShield-Agent indisponível."
             ),
+            topologia_rede=topologia_rede,
         )
 
     raw = consulta.get(
@@ -122,15 +611,15 @@ def obter_estado_firewall(
     ):
         chains = {}
 
-    topologia = raw.get(
+    topologia_agent = raw.get(
         "topologia"
     )
 
     if not isinstance(
-        topologia,
+        topologia_agent,
         dict,
     ):
-        topologia = {}
+        topologia_agent = {}
 
     ipc = raw.get(
         "ipc"
@@ -163,11 +652,16 @@ def obter_estado_firewall(
         )
     )
 
-    configurado = _bool(
+    configurado_agent = _bool(
         raw.get(
             "configurado",
             False,
         )
+    )
+
+    configurado = bool(
+        topologia_rede.get("ok")
+        and configurado_agent
     )
 
     instalado = _bool(
@@ -241,33 +735,46 @@ def obter_estado_firewall(
         "status": status,
         "status_label": status_label,
 
+        # WAN/LAN/MGMT/HOME_NET vêm exclusivamente do Network Control.
+        "topologia_fonte": "rede",
+        "topologia_rede_ok": bool(
+            topologia_rede.get("ok")
+        ),
+        "topologia_erro": topologia_rede.get(
+            "erro"
+        ),
         "interface_wan": str(
-            topologia.get("wan")
+            topologia_rede.get("interface_wan")
             or ""
         ),
         "interface_lan": str(
-            topologia.get("lan")
+            topologia_rede.get("interface_lan")
             or ""
         ),
         "interface_mgmt": str(
-            topologia.get("mgmt")
+            topologia_rede.get("interface_mgmt")
             or ""
         ),
         "home_net": str(
-            topologia.get("home_net")
+            topologia_rede.get("home_net")
             or ""
         ),
+        "redes_internas": list(
+            topologia_rede.get("redes_internas")
+            or []
+        ),
 
+        # Dados abaixo são observados pelo Agent e não definem papéis.
         "ip_local": str(
-            topologia.get("ip_local")
+            topologia_agent.get("ip_local")
             or ""
         ),
         "gateway": str(
-            topologia.get("gateway")
+            topologia_agent.get("gateway")
             or ""
         ),
         "rede_mgmt": str(
-            topologia.get("rede_mgmt")
+            topologia_agent.get("rede_mgmt")
             or ""
         ),
 
@@ -322,7 +829,8 @@ def obter_estado_firewall(
             "ping": ping,
             "tabela": tabela,
             "chains": chains,
-            "topologia": topologia,
+            "topologia_rede": topologia_rede,
+            "topologia_agent_observada": topologia_agent,
         }
 
     return resultado
@@ -390,28 +898,66 @@ def obter_status_resumido() -> dict[str, Any]:
 
 def obter_interfaces() -> dict[str, Any]:
     """
-    Consulta interfaces diretamente no Agent.
-
-    Nunca executa comandos no host Django.
+    Consulta interfaces no Agent, mas o mapeamento WAN/LAN/MGMT é sempre
+    fornecido pelo módulo `rede`.
     """
+    topologia_rede = obter_contexto_firewall_rede()
+
     try:
-        dados = agent_client.interfaces()
+        dados = agent_client.interfaces(
+            config=topologia_rede.get(
+                "config_agent",
+                {},
+            ),
+        )
+
+        if not isinstance(dados, dict):
+            dados = {}
+
+        dados = dict(dados)
+        dados["mapeamento"] = dict(
+            topologia_rede.get("iface_map")
+            or {}
+        )
+        dados["home_net"] = str(
+            topologia_rede.get("home_net")
+            or ""
+        )
+        dados["redes_internas"] = list(
+            topologia_rede.get("redes_internas")
+            or []
+        )
+        dados["topologia_fonte"] = "rede"
+        dados["topologia_rede_ok"] = bool(
+            topologia_rede.get("ok")
+        )
 
         return {
             "ok": True,
             **dados,
-            "erro": None,
+            "erro": topologia_rede.get("erro"),
         }
 
     except agent_client.ErroAgent as exc:
         return {
             "ok": False,
             "interfaces": [],
-            "mapeamento": {
-                "WAN": "",
-                "LAN": "",
-                "MGMT": "",
-            },
+            "mapeamento": dict(
+                topologia_rede.get("iface_map")
+                or {}
+            ),
+            "home_net": str(
+                topologia_rede.get("home_net")
+                or ""
+            ),
+            "redes_internas": list(
+                topologia_rede.get("redes_internas")
+                or []
+            ),
+            "topologia_fonte": "rede",
+            "topologia_rede_ok": bool(
+                topologia_rede.get("ok")
+            ),
             "erro": {
                 "codigo": "agent_indisponivel",
                 "mensagem": str(exc),
@@ -420,13 +966,25 @@ def obter_interfaces() -> dict[str, Any]:
 
 
 def obter_diagnostico() -> dict[str, Any]:
+    topologia_rede = obter_contexto_firewall_rede()
+
     try:
-        dados = agent_client.diagnostico()
+        dados = agent_client.diagnostico(
+            config=topologia_rede.get(
+                "config_agent",
+                {},
+            ),
+        )
 
         return {
             "ok": True,
             **dados,
-            "erro": None,
+            "topologia_fonte": "rede",
+            "topologia_rede_ok": bool(
+                topologia_rede.get("ok")
+            ),
+            "topologia_rede": topologia_rede,
+            "erro": topologia_rede.get("erro"),
         }
 
     except agent_client.ErroAgent as exc:
@@ -475,7 +1033,16 @@ def _estado_indisponivel(
     *,
     codigo: str,
     mensagem: str,
+    topologia_rede: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    topologia_rede = (
+        topologia_rede
+        if isinstance(topologia_rede, dict)
+        else _contexto_rede_indisponivel(
+            codigo="topologia_rede_indisponivel",
+            mensagem="Topologia da Rede indisponível.",
+        )
+    )
     return {
         "ok": False,
 
@@ -501,10 +1068,33 @@ def _estado_indisponivel(
         "status": "agent_indisponivel",
         "status_label": "Agent indisponível",
 
-        "interface_wan": "",
-        "interface_lan": "",
-        "interface_mgmt": "",
-        "home_net": "",
+        "topologia_fonte": "rede",
+        "topologia_rede_ok": bool(
+            topologia_rede.get("ok")
+        ),
+        "topologia_erro": topologia_rede.get(
+            "erro"
+        ),
+        "interface_wan": str(
+            topologia_rede.get("interface_wan")
+            or ""
+        ),
+        "interface_lan": str(
+            topologia_rede.get("interface_lan")
+            or ""
+        ),
+        "interface_mgmt": str(
+            topologia_rede.get("interface_mgmt")
+            or ""
+        ),
+        "home_net": str(
+            topologia_rede.get("home_net")
+            or ""
+        ),
+        "redes_internas": list(
+            topologia_rede.get("redes_internas")
+            or []
+        ),
 
         "ip_local": "",
         "gateway": "",

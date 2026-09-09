@@ -20,6 +20,7 @@ O estado fica persistido em /var/lib/moonshield/rede/changes/.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -45,6 +46,8 @@ STATUS_FINAIS = {
     "failed",
     "cancelled",
 }
+
+logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
 _timers: dict[str, threading.Event] = {}
@@ -250,6 +253,15 @@ def armar_rollback(
     with _lock:
         _salvar_estado(estado)
 
+    logger.info(
+        "[rede.safe_apply] ARMED | alteracao_id=%s tipo=%s timeout=%s watchdog=%s snapshot_id=%s",
+        alteracao_id,
+        tipo,
+        int(timeout_segundos),
+        WATCHDOG_APLICACAO_SEGUNDOS,
+        snapshot_id,
+    )
+
     _agendar_timer(alteracao_id)
     return obter_status_alteracao(alteracao_id)
 
@@ -293,6 +305,13 @@ def marcar_aguardando_confirmacao(alteracao_id: str) -> dict[str, Any]:
         estado["expira_em"] = _iso(expira)
         _salvar_estado(estado)
 
+    logger.info(
+        "[rede.safe_apply] WAITING_CONFIRMATION | alteracao_id=%s timeout=%s expira_em=%s",
+        alteracao_id,
+        timeout,
+        estado.get("expira_em"),
+    )
+
     _agendar_timer(alteracao_id)
     return obter_status_alteracao(alteracao_id)
 
@@ -332,6 +351,12 @@ def confirmar_alteracao(alteracao_id: str) -> dict[str, Any]:
         )
 
     _cancelar_timer(alteracao_id)
+
+    logger.info(
+        "[rede.safe_apply] CONFIRMED | alteracao_id=%s",
+        alteracao_id,
+    )
+
     return obter_status_alteracao(alteracao_id)
 
 
@@ -366,6 +391,15 @@ def _executar_reversao(alteracao_id: str, motivo: str, *, status_final: str) -> 
 
         snapshot_id = estado.get("snapshot_id")
 
+    logger.warning(
+        "[rede.safe_apply] ROLLBACK_START | alteracao_id=%s status_anterior=%s status_final=%s snapshot_id=%s motivo=%s",
+        alteracao_id,
+        status_atual,
+        status_final,
+        snapshot_id,
+        motivo,
+    )
+
     _cancelar_timer(alteracao_id)
 
     try:
@@ -384,6 +418,13 @@ def _executar_reversao(alteracao_id: str, motivo: str, *, status_final: str) -> 
 
             _salvar_estado(estado)
 
+        logger.warning(
+            "[rede.safe_apply] ROLLBACK_OK | alteracao_id=%s status=%s snapshot_id=%s",
+            alteracao_id,
+            status_final,
+            snapshot_id,
+        )
+
         return obter_status_alteracao(alteracao_id)
 
     except Exception as exc:
@@ -398,6 +439,13 @@ def _executar_reversao(alteracao_id: str, motivo: str, *, status_final: str) -> 
             estado["expira_epoch"] = None
             estado["expira_em"] = None
             _salvar_estado(estado)
+
+        logger.exception(
+            "[rede.safe_apply] ROLLBACK_FAILED | alteracao_id=%s snapshot_id=%s erro=%s",
+            alteracao_id,
+            snapshot_id,
+            str(exc),
+        )
 
         raise RollbackErro(
             f"Rollback da alteração falhou: {exc}",
@@ -452,14 +500,35 @@ def _rollback_timeout(alteracao_id: str) -> None:
                 _agendar_timer(alteracao_id)
                 return
 
-        reverter_alteracao(
+            status = estado.get("status")
+            snapshot_id = estado.get("snapshot_id")
+
+        logger.warning(
+            "[rede.safe_apply] TIMEOUT_EXPIRED | alteracao_id=%s status=%s snapshot_id=%s",
+            alteracao_id,
+            status,
+            snapshot_id,
+        )
+
+        resultado = reverter_alteracao(
             alteracao_id,
             motivo="Rollback automático: prazo de segurança expirado.",
         )
 
-    except Exception:
-        # O estado de falha é persistido por _executar_reversao quando possível.
-        pass
+        logger.warning(
+            "[rede.safe_apply] TIMEOUT_ROLLBACK_OK | alteracao_id=%s status=%s",
+            alteracao_id,
+            resultado.get("status"),
+        )
+
+    except Exception as exc:
+        # _executar_reversao persiste "failed" quando a restauração chegou a iniciar.
+        # O log explícito garante observabilidade mesmo em falhas anteriores.
+        logger.exception(
+            "[rede.safe_apply] TIMEOUT_ROLLBACK_FAILED | alteracao_id=%s erro=%s",
+            alteracao_id,
+            str(exc),
+        )
 
 
 def _enriquecer_estado(estado: dict[str, Any]) -> dict[str, Any]:
@@ -538,14 +607,32 @@ def inicializar_rollback_pendente() -> dict[str, Any]:
 
         try:
             if _segundos_restantes(estado) <= 0:
+                logger.warning(
+                    "[rede.safe_apply] RECOVERY_EXPIRED | alteracao_id=%s status=%s",
+                    alteracao_id,
+                    estado.get("status"),
+                )
+
                 reverter_alteracao(
                     alteracao_id,
                     motivo="Rollback automático após reinicialização do Agent.",
                 )
                 revertidas.append(alteracao_id)
+
+                logger.warning(
+                    "[rede.safe_apply] RECOVERY_ROLLBACK_OK | alteracao_id=%s",
+                    alteracao_id,
+                )
             else:
                 _agendar_timer(alteracao_id)
                 recuperadas.append(alteracao_id)
+
+                logger.info(
+                    "[rede.safe_apply] RECOVERY_REARMED | alteracao_id=%s status=%s segundos_restantes=%s",
+                    alteracao_id,
+                    estado.get("status"),
+                    _segundos_restantes(estado),
+                )
         except Exception as exc:
             erros.append({
                 "alteracao_id": alteracao_id,

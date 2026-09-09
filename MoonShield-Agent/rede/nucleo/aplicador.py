@@ -123,6 +123,8 @@ def _resumo_interface(item: dict[str, Any]) -> dict[str, Any]:
         "ipv4_endereco": configuracao.get("ipv4_endereco"),
         "ipv4_prefixo": configuracao.get("ipv4_prefixo"),
         "gateway": configuracao.get("gateway") or configuracao.get("ipv4_gateway"),
+        "rota_padrao": configuracao.get("rota_padrao"),
+        "metrica": configuracao.get("metrica"),
         "mtu": configuracao.get("mtu"),
     }
 

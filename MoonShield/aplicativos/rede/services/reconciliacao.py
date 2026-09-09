@@ -568,7 +568,7 @@ def _reconciliar_roteamento(
 
     rotas_desejadas = list(
         RotaEstatica.objects
-        .select_for_update()
+        .select_for_update(of=("self",))
         .select_related("interface")
         .order_by(
             "metrica",
@@ -812,7 +812,7 @@ def _reconciliar_nat(
 
     desejadas = list(
         RegraNat.objects
-        .select_for_update()
+        .select_for_update(of=("self",))
         .select_related(
             "interface_origem",
             "interface_saida",

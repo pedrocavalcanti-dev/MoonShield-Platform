@@ -249,7 +249,42 @@ def _patch_eve_filename(conteudo: str, eve_path: str) -> str:
 
 
 def _patch_af_packet(conteudo: str, interfaces: tuple[str, ...]) -> str:
-    bloco = ["af-packet:", "  # == MOONSHIELD RUNTIME =="]
+    """
+    Substitui SOMENTE a seção top-level `af-packet:`.
+
+    Implementação linha a linha para não consumir outras seções YAML.
+    """
+    linhas = conteudo.splitlines()
+
+    inicio = None
+    for idx, linha in enumerate(linhas):
+        if linha.strip() == "af-packet:" and not linha.startswith((" ", "\t", "#")):
+            inicio = idx
+            break
+
+    if inicio is None:
+        raise ValueError("Seção af-packet do suricata.yaml não encontrada.")
+
+    fim = len(linhas)
+    for idx in range(inicio + 1, len(linhas)):
+        linha = linhas[idx]
+
+        # Linhas vazias, comentários e conteúdo indentado ainda pertencem
+        # à seção atual.
+        if not linha.strip():
+            continue
+        if linha.startswith((" ", "\t", "#")):
+            continue
+
+        # Primeiro conteúdo real em coluna 0 encerra a seção af-packet.
+        fim = idx
+        break
+
+    bloco = [
+        "af-packet:",
+        "  # == MOONSHIELD RUNTIME ==",
+    ]
+
     for i, iface in enumerate(interfaces):
         bloco.extend([
             f"  - interface: {iface}",
@@ -258,13 +293,9 @@ def _patch_af_packet(conteudo: str, interfaces: tuple[str, ...]) -> str:
             "    cluster-type: cluster_flow",
             "    defrag: yes",
         ])
-    novo_bloco = "\n".join(bloco) + "\n"
 
-    padrao = re.compile(r"(?ms)^af-packet:\n(?:(?:[ \t].*)?\n)*")
-    if not padrao.search(conteudo):
-        raise ValueError("Seção af-packet do suricata.yaml não encontrada.")
-
-    return padrao.sub(novo_bloco, conteudo, count=1)
+    novas_linhas = linhas[:inicio] + bloco + linhas[fim:]
+    return "\n".join(novas_linhas) + "\n"
 
 
 def _iface(valor: Any) -> str:

@@ -971,3 +971,69 @@ teste e revise o diff.
 
 Objetivo:
 finalizar o MoonShield Appliance de forma incremental, segura e testável.
+
+
+---
+
+# 37. Execução de comandos pelo agente — REGRA DE PRIORIDADE MÁXIMA
+
+Esta regra sobrescreve, para execução pelo agente, quaisquer instruções anteriores deste arquivo que mandem executar:
+
+- git status;
+- git diff;
+- git grep;
+- git log;
+- git show;
+- git ls-files;
+- git rev-parse;
+- rg;
+- grep;
+- Select-String;
+- Get-Content;
+- Test-Path;
+- comandos Python;
+- py_compile;
+- unittest;
+- pytest;
+- gerenciar.py check;
+- qualquer outro comando de terminal.
+
+## Regra principal
+
+O AGENTE NÃO DEVE EXECUTAR COMANDOS DE TERMINAL.
+
+Isso vale tanto antes, durante quanto depois da implementação.
+
+O agente deve usar o editor e as ferramentas nativas de leitura/edição de arquivos do workspace.
+
+Não utilizar o terminal apenas para localizar código que pode ser localizado pelas ferramentas de navegação/leitura do editor.
+
+## Antes de editar
+
+O agente deve:
+
+1. ler AGENTS.md;
+2. ler GEMINI.md quando existir;
+3. analisar somente os arquivos necessários;
+4. navegar pelo código usando leitura/exploração nativa do editor;
+5. entender o contrato relacionado à tarefa;
+6. identificar os arquivos mínimos necessários.
+
+NÃO executar:
+
+```text
+git status
+git grep
+rg
+grep
+Get-Content
+Select-String
+findstr
+cat
+type
+head
+tail
+python
+py
+pytest
+unittest

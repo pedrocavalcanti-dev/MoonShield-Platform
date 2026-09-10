@@ -1,4 +1,4 @@
-﻿"""
+"""
 suricata/diagnostico.py
 Doctor do MOONSHIELD Sensor — verifica toda a stack do Suricata.
 Usa informações de topologia salvas no config.json quando disponíveis.
@@ -461,3 +461,61 @@ def _exibir_comandos_uteis():
         linha_texto(f"  {desc}:", C_DIM)
         linha_texto(f"    {cmd}", C_NORMAL)
         linha_vazia()
+
+
+# =============================================================================
+# API OPERACIONAL A10
+# =============================================================================
+
+def obter_diagnostico(config: dict | None = None) -> dict:
+    """
+    API não interativa para uso futuro pelo IPC.
+
+    Mantém `executar_diagnostico(cfg)` intacto para o instalador/menu legado,
+    mas oferece um diagnóstico estruturado que recebe a topologia oficial do
+    Control Plane em vez de tentar escolher papéis de rede.
+    """
+    try:
+        from suricata.configuracao import normalizar_config, validar_config_host
+        from suricata.status import obter_status
+
+        cfg = normalizar_config(config or {})
+        host = validar_config_host(cfg)
+        estado = obter_status({"config": cfg.para_dict()})
+
+        checks = {
+            "suricata_instalado": bool(
+                estado.get("suricata", {}).get("instalado")
+            ),
+            "servico_ativo": bool(
+                estado.get("servico", {}).get("active")
+            ),
+            "topologia_valida": bool(host.get("ok")),
+            "yaml_existe": bool(
+                estado.get("yaml", {}).get("existe")
+            ),
+            "rules_ms_instaladas": bool(
+                estado.get("rules_ms", {}).get("existe")
+            ),
+            "eve_existe": bool(
+                estado.get("eve", {}).get("existe")
+            ),
+            "sem_drift": not bool(
+                estado.get("drift", {}).get("tem_drift")
+            ),
+        }
+
+        return {
+            "ok": all(checks.values()),
+            "checks": checks,
+            "topologia": host,
+            "status": estado,
+        }
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "codigo": "diagnostico_falhou",
+            "erro": str(exc),
+            "checks": {},
+        }

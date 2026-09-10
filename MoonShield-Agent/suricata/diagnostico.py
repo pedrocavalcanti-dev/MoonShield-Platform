@@ -23,13 +23,78 @@ YAML_CANDIDATOS = [
 REGRAS_DEST = Path("/var/lib/suricata/rules/moonshield/ms.rules")
 EVE_JSON    = Path("/var/log/suricata/eve.json")
 
-# ── Imports visuais ───────────────────────────────────────────────────────────
-from nucleo.interface import (
-    cabecalho, separador, linha_texto, linha_vazia,
-    aguardar_enter,
-    C_DESTAQUE, C_DIM, C_OK, C_ERRO, C_AVISO, C_NORMAL, C_TITULO,
-)
-from nucleo.utilitarios import run_cmd, cmd_existe
+# ── Compatibilidade com UI/utilitários legados ───────────────────────────────
+#
+# O diagnóstico precisa funcionar em dois contextos:
+#   1) launcher/instalador legado;
+#   2) import normal como pacote `suricata.diagnostico` pelo MoonShield-Agent.
+#
+# Por isso não deixamos uma dependência de layout impedir o import do módulo.
+
+try:
+    # Layout legado original
+    from nucleo.interface import (
+        cabecalho, separador, linha_texto, linha_vazia,
+        aguardar_enter,
+        C_DESTAQUE, C_DIM, C_OK, C_ERRO, C_AVISO, C_NORMAL, C_TITULO,
+    )
+except (ModuleNotFoundError, ImportError):
+    try:
+        # Layout alternativo do Agent
+        from interface.interface import (
+            cabecalho, separador, linha_texto, linha_vazia,
+            aguardar_enter,
+            C_DESTAQUE, C_DIM, C_OK, C_ERRO, C_AVISO, C_NORMAL, C_TITULO,
+        )
+    except (ModuleNotFoundError, ImportError):
+        # Fallback simples: mantém o módulo importável e o Doctor utilizável
+        # mesmo quando a camada visual não está carregada.
+        C_DESTAQUE = ""
+        C_DIM = ""
+        C_OK = ""
+        C_ERRO = ""
+        C_AVISO = ""
+        C_NORMAL = ""
+        C_TITULO = ""
+
+        def cabecalho(cfg=None):
+            print("=" * 78)
+            print("MOONSHIELD — SURICATA DOCTOR")
+            print("=" * 78)
+
+        def separador():
+            print("-" * 78)
+
+        def linha_texto(texto="", cor="", alinhamento=None):
+            print(texto)
+
+        def linha_vazia():
+            print()
+
+        def aguardar_enter():
+            # Não bloqueia chamadas do runtime/IPC.
+            # O launcher legado, quando disponível, continua usando sua própria UI.
+            return None
+
+
+try:
+    from nucleo.utilitarios import run_cmd, cmd_existe
+except (ModuleNotFoundError, ImportError):
+    import shutil
+    import subprocess
+
+    def cmd_existe(nome: str) -> bool:
+        return shutil.which(nome) is not None
+
+    def run_cmd(comando: str):
+        proc = subprocess.run(
+            comando,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return proc.returncode, proc.stdout or "", proc.stderr or ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════

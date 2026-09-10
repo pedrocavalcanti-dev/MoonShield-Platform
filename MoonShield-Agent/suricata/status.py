@@ -25,7 +25,7 @@ from suricata.configuracao import (
     normalizar_config,
 )
 
-VERSAO_STATUS = "1.0"
+VERSAO_STATUS = "1.1"
 TIMEOUT = 20
 
 
@@ -61,9 +61,8 @@ def obter_status(dados: dict[str, Any] | None = None) -> dict[str, Any]:
                 observado.get("interfaces_monitoradas", [])
                 != list(desejado.interfaces_monitoradas)
             ),
-            "eve_path": bool(
-                observado.get("eve_path")
-                and observado.get("eve_path") != desejado.eve_path
+            "eve_path": _normalizar_eve_observado(observado.get("eve_path", "")) != str(
+                Path(desejado.eve_path)
             ),
             "rules_ms": not observado.get("rules_ms_carregada", False),
         }
@@ -98,23 +97,44 @@ def obter_status(dados: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def _versao_suricata() -> dict[str, Any]:
+    """
+    `suricata --version` não é usado como critério único de instalação:
+    algumas builds/distribuições podem devolver RC diferente de zero mesmo
+    imprimindo a versão. A existência do executável é a fonte primária.
+    """
     binario = shutil.which("suricata")
     if not binario:
-        return {"instalado": False, "binario": "", "versao": ""}
+        return {
+            "instalado": False,
+            "binario": "",
+            "versao": "",
+            "returncode_version": None,
+        }
 
-    r = subprocess.run(
-        [binario, "--version"],
-        capture_output=True,
-        text=True,
-        timeout=TIMEOUT,
-        check=False,
-    )
-    texto = (r.stdout or r.stderr or "").strip()
-    return {
-        "instalado": r.returncode == 0,
-        "binario": binario,
-        "versao": texto.splitlines()[0] if texto else "",
-    }
+    try:
+        r = subprocess.run(
+            [binario, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
+            check=False,
+        )
+        texto = (r.stdout or r.stderr or "").strip()
+        versao = texto.splitlines()[0] if texto else ""
+        return {
+            "instalado": True,
+            "binario": binario,
+            "versao": versao,
+            "returncode_version": r.returncode,
+        }
+    except Exception as exc:
+        return {
+            "instalado": True,
+            "binario": binario,
+            "versao": "",
+            "returncode_version": None,
+            "aviso": f"Binário existe, mas leitura de versão falhou: {exc}",
+        }
 
 
 def _servico() -> dict[str, Any]:
@@ -147,27 +167,39 @@ def _ler_observado_yaml(path: Path) -> dict[str, Any]:
         }
 
     texto = path.read_text(encoding="utf-8", errors="ignore")
-    home: list[str] = []
 
-    m = re.search(r'(?m)^\s*HOME_NET:\s*["\']?(\[[^\n"\']+\])', texto)
+    home: list[str] = []
+    m = re.search(
+        r'(?m)^[ \t]*HOME_NET:[ \t]*["\']?(\[[^\n"\']+\])',
+        texto,
+    )
     if m:
         raw = m.group(1).strip()[1:-1]
         home = [x.strip() for x in raw.split(",") if x.strip()]
 
+    # Captura SOMENTE a primeira seção top-level `af-packet:` até o próximo
+    # cabeçalho top-level. Assim não mistura exemplos de outras seções do YAML.
     interfaces: list[str] = []
-    m_af = re.search(r"(?ms)^af-packet:\n(?:(?:[ \t].*)?\n)*", texto)
-    if m_af:
-        for iface in re.findall(r"(?m)^\s*-\s+interface:\s*([^\s#]+)", m_af.group(0)):
+    bloco_af = _secao_top_level(texto, "af-packet")
+    if bloco_af:
+        for iface in re.findall(
+            r"(?m)^[ \t]+-[ \t]+interface:[ \t]*([^\s#]+)",
+            bloco_af,
+        ):
             if iface not in {"default", "none"} and iface not in interfaces:
                 interfaces.append(iface)
 
     eve_path = ""
+    # Procura o primeiro `eve-log` dentro de outputs e pega seu filename.
     m_eve = re.search(
-        r"(?ms)^\s*-\s+eve-log:\s*\n(.*?)(?=^\s*-\s+\S|\Z)",
+        r"(?ms)^[ \t]+-[ \t]+eve-log:[ \t]*\n(.*?)(?=^[ \t]+-[ \t]+\S|\Z)",
         texto,
     )
     if m_eve:
-        m_file = re.search(r"(?m)^\s*filename:\s*([^\s#]+)", m_eve.group(1))
+        m_file = re.search(
+            r"(?m)^[ \t]+filename:[ \t]*([^\s#]+)",
+            m_eve.group(1),
+        )
         if m_file:
             eve_path = m_file.group(1).strip()
 
@@ -177,6 +209,49 @@ def _ler_observado_yaml(path: Path) -> dict[str, Any]:
         "eve_path": eve_path,
         "rules_ms_carregada": "moonshield/ms.rules" in texto,
     }
+
+
+def _secao_top_level(texto: str, nome: str) -> str:
+    """
+    Retorna um bloco YAML iniciado por `<nome>:` em coluna 0 e encerrado no
+    próximo cabeçalho top-level não comentado.
+    """
+    linhas = texto.splitlines()
+    inicio = None
+
+    alvo = f"{nome}:"
+    for idx, linha in enumerate(linhas):
+        if linha == alvo:
+            inicio = idx
+            break
+
+    if inicio is None:
+        return ""
+
+    fim = len(linhas)
+    for idx in range(inicio + 1, len(linhas)):
+        linha = linhas[idx]
+        if not linha or linha.startswith((" ", "\t", "#")):
+            continue
+        if re.match(r"^[A-Za-z0-9_.-]+:\s*(?:#.*)?$", linha):
+            fim = idx
+            break
+
+    return "\n".join(linhas[inicio:fim]) + "\n"
+
+
+def _normalizar_eve_observado(valor: str) -> str:
+    """
+    No YAML padrão, `filename: eve.json` é relativo ao diretório de logs do
+    Suricata, normalmente `/var/log/suricata`.
+    """
+    valor = str(valor or "").strip()
+    if not valor:
+        return ""
+    p = Path(valor)
+    if p.is_absolute():
+        return str(p)
+    return str(Path("/var/log/suricata") / p)
 
 
 def _status_eve(path: Path) -> dict[str, Any]:
@@ -209,7 +284,7 @@ def _status_eve(path: Path) -> dict[str, Any]:
             except Exception:
                 continue
     except Exception:
-        tamanho = path.stat().st_size
+        pass
 
     return {
         "existe": True,

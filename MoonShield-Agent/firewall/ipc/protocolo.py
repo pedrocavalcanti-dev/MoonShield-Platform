@@ -34,14 +34,26 @@ SOCKET_PADRAO = "/run/moonshield/agent.sock"
 MAX_MENSAGEM_BYTES = 2 * 1024 * 1024
 ENCODING = "utf-8"
 
-_RE_ID = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
-_RE_ACAO = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
+_RE_ID = re.compile(
+    r"^[A-Za-z0-9_.:@-]{1,128}$"
+)
+
+_RE_ACAO = re.compile(
+    r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$"
+)
+
 
 ACOES = frozenset({
+    #
+    # Sistema.
+    #
     "system.ping",
     "system.info",
 
-    # Firewall — leitura/operações legadas preservadas por compatibilidade.
+    #
+    # Firewall — leitura/operações legadas
+    # preservadas por compatibilidade.
+    #
     "firewall.status",
     "firewall.interfaces",
     "firewall.rules",
@@ -56,15 +68,18 @@ ACOES = frozenset({
     "firewall.block",
     "firewall.unblock",
 
+    #
     # Firewall — contrato oficial de alteração.
-    # O núcleo Safe Apply completo é implementado no A9 Lote 4.
+    #
     "firewall.change.apply",
     "firewall.change.confirm",
     "firewall.change.rollback",
     "firewall.change.status",
     "firewall.change.cancel",
 
+    #
     # Rede.
+    #
     "network.status",
     "network.inventory",
     "network.diagnostics",
@@ -75,9 +90,33 @@ ACOES = frozenset({
     "network.change.rollback",
     "network.change.status",
     "network.change.cancel",
+
+    #
+    # Suricata IDS.
+    #
+    "suricata.status",
+    "suricata.diagnostics",
+
+    #
+    # Suricata — configuração operacional.
+    #
+    "suricata.config.validate",
+    "suricata.config.apply",
+
+    #
+    # Suricata — controle do serviço.
+    #
+    "suricata.service.status",
+    "suricata.service.start",
+    "suricata.service.stop",
+    "suricata.service.restart",
 })
 
+
 ALIASES_ACAO = {
+    #
+    # Aliases legados do Firewall.
+    #
     "ping": "system.ping",
     "status": "firewall.status",
     "interfaces": "firewall.interfaces",
@@ -92,6 +131,12 @@ ALIASES_ACAO = {
     "rollback": "firewall.rollback",
     "bloquear": "firewall.block",
     "liberar": "firewall.unblock",
+
+    #
+    # Alias explícito Suricata.
+    #
+    "suricata.diagnostico":
+        "suricata.diagnostics",
 }
 
 
@@ -103,14 +148,19 @@ class AcaoNaoPermitida(ErroProtocolo):
     """Ação não pertence à allowlist do protocolo."""
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(
+    slots=True,
+    frozen=True,
+)
 class RequisicaoIPC:
     id: str
     acao: str
     dados: dict[str, Any]
     versao: int = VERSAO_PROTOCOLO
 
-    def para_dict(self) -> dict[str, Any]:
+    def para_dict(
+        self,
+    ) -> dict[str, Any]:
         return {
             "versao": self.versao,
             "id": self.id,
@@ -119,7 +169,10 @@ class RequisicaoIPC:
         }
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(
+    slots=True,
+    frozen=True,
+)
 class RespostaIPC:
     id: str
     acao: str
@@ -128,7 +181,9 @@ class RespostaIPC:
     erro: dict[str, Any] | None = None
     versao: int = VERSAO_PROTOCOLO
 
-    def para_dict(self) -> dict[str, Any]:
+    def para_dict(
+        self,
+    ) -> dict[str, Any]:
         return {
             "versao": self.versao,
             "id": self.id,
@@ -143,131 +198,328 @@ def novo_id() -> str:
     return uuid.uuid4().hex
 
 
-def normalizar_acao(acao: Any) -> str:
-    valor = str(acao or "").strip().lower()
+def normalizar_acao(
+    acao: Any,
+) -> str:
+    valor = str(
+        acao or ""
+    ).strip().lower()
+
     if not valor:
-        raise ErroProtocolo("Campo 'acao' é obrigatório.")
+        raise ErroProtocolo(
+            "Campo 'acao' é obrigatório."
+        )
 
-    valor = ALIASES_ACAO.get(valor, valor)
+    valor = ALIASES_ACAO.get(
+        valor,
+        valor,
+    )
 
-    if not _RE_ACAO.fullmatch(valor):
-        raise ErroProtocolo("Formato de ação inválido.")
+    if not _RE_ACAO.fullmatch(
+        valor
+    ):
+        raise ErroProtocolo(
+            "Formato de ação inválido."
+        )
 
     if valor not in ACOES:
-        raise AcaoNaoPermitida(f"Ação não permitida: {valor}")
+        raise AcaoNaoPermitida(
+            f"Ação não permitida: {valor}"
+        )
 
     return valor
 
 
-def validar_id(valor: Any) -> str:
-    if valor is None or str(valor).strip() == "":
+def validar_id(
+    valor: Any,
+) -> str:
+    if (
+        valor is None
+        or str(valor).strip() == ""
+    ):
         return novo_id()
 
-    valor = str(valor).strip()
-    if not _RE_ID.fullmatch(valor):
-        raise ErroProtocolo("Campo 'id' inválido.")
+    valor = str(
+        valor
+    ).strip()
+
+    if not _RE_ID.fullmatch(
+        valor
+    ):
+        raise ErroProtocolo(
+            "Campo 'id' inválido."
+        )
+
     return valor
 
 
-def validar_dados(valor: Any) -> dict[str, Any]:
+def validar_dados(
+    valor: Any,
+) -> dict[str, Any]:
     if valor is None:
         return {}
-    if not isinstance(valor, dict):
-        raise ErroProtocolo("Campo 'dados' deve ser um objeto JSON.")
+
+    if not isinstance(
+        valor,
+        dict,
+    ):
+        raise ErroProtocolo(
+            (
+                "Campo 'dados' deve ser "
+                "um objeto JSON."
+            )
+        )
+
     return valor
 
 
-def validar_versao(valor: Any) -> int:
+def validar_versao(
+    valor: Any,
+) -> int:
     if valor is None:
         return VERSAO_PROTOCOLO
 
     try:
-        versao = int(valor)
-    except (TypeError, ValueError):
-        raise ErroProtocolo("Versão do protocolo inválida.") from None
+        versao = int(
+            valor
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        raise ErroProtocolo(
+            "Versão do protocolo inválida."
+        ) from None
 
     if versao != VERSAO_PROTOCOLO:
         raise ErroProtocolo(
-            f"Versão incompatível. Recebida={versao}, suportada={VERSAO_PROTOCOLO}."
+            (
+                "Versão incompatível. "
+                f"Recebida={versao}, "
+                f"suportada={VERSAO_PROTOCOLO}."
+            )
         )
+
     return versao
 
 
-def decodificar_requisicao(raw: bytes | str) -> RequisicaoIPC:
-    if isinstance(raw, bytes):
+def decodificar_requisicao(
+    raw: bytes | str,
+) -> RequisicaoIPC:
+    if isinstance(
+        raw,
+        bytes,
+    ):
         if len(raw) > MAX_MENSAGEM_BYTES:
-            raise ErroProtocolo("Mensagem excede o limite permitido.")
+            raise ErroProtocolo(
+                (
+                    "Mensagem excede o "
+                    "limite permitido."
+                )
+            )
+
         try:
-            texto = raw.decode(ENCODING)
+            texto = raw.decode(
+                ENCODING
+            )
         except UnicodeDecodeError:
-            raise ErroProtocolo("Mensagem não está em UTF-8 válido.") from None
+            raise ErroProtocolo(
+                (
+                    "Mensagem não está "
+                    "em UTF-8 válido."
+                )
+            ) from None
+
     else:
-        texto = str(raw)
-        if len(texto.encode(ENCODING)) > MAX_MENSAGEM_BYTES:
-            raise ErroProtocolo("Mensagem excede o limite permitido.")
+        texto = str(
+            raw
+        )
+
+        if (
+            len(
+                texto.encode(
+                    ENCODING
+                )
+            )
+            > MAX_MENSAGEM_BYTES
+        ):
+            raise ErroProtocolo(
+                (
+                    "Mensagem excede o "
+                    "limite permitido."
+                )
+            )
 
     texto = texto.strip()
+
     if not texto:
-        raise ErroProtocolo("Mensagem vazia.")
+        raise ErroProtocolo(
+            "Mensagem vazia."
+        )
 
     try:
-        payload = json.loads(texto)
+        payload = json.loads(
+            texto
+        )
     except json.JSONDecodeError as exc:
         raise ErroProtocolo(
-            f"JSON inválido na posição {exc.pos}: {exc.msg}"
+            (
+                "JSON inválido na posição "
+                f"{exc.pos}: {exc.msg}"
+            )
         ) from None
 
-    if not isinstance(payload, dict):
-        raise ErroProtocolo("A raiz da mensagem deve ser um objeto JSON.")
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        raise ErroProtocolo(
+            (
+                "A raiz da mensagem deve "
+                "ser um objeto JSON."
+            )
+        )
 
     return RequisicaoIPC(
-        id=validar_id(payload.get("id")),
-        acao=normalizar_acao(payload.get("acao")),
-        dados=validar_dados(payload.get("dados")),
-        versao=validar_versao(payload.get("versao")),
+        id=validar_id(
+            payload.get("id")
+        ),
+        acao=normalizar_acao(
+            payload.get("acao")
+        ),
+        dados=validar_dados(
+            payload.get("dados")
+        ),
+        versao=validar_versao(
+            payload.get("versao")
+        ),
     )
 
 
-def decodificar_resposta(raw: bytes | str) -> RespostaIPC:
-    if isinstance(raw, bytes):
+def decodificar_resposta(
+    raw: bytes | str,
+) -> RespostaIPC:
+    if isinstance(
+        raw,
+        bytes,
+    ):
         if len(raw) > MAX_MENSAGEM_BYTES:
-            raise ErroProtocolo("Resposta excede o limite permitido.")
+            raise ErroProtocolo(
+                (
+                    "Resposta excede o "
+                    "limite permitido."
+                )
+            )
+
         try:
-            texto = raw.decode(ENCODING)
+            texto = raw.decode(
+                ENCODING
+            )
         except UnicodeDecodeError:
-            raise ErroProtocolo("Resposta não está em UTF-8 válido.") from None
+            raise ErroProtocolo(
+                (
+                    "Resposta não está "
+                    "em UTF-8 válido."
+                )
+            ) from None
+
     else:
-        texto = str(raw)
-        if len(texto.encode(ENCODING)) > MAX_MENSAGEM_BYTES:
-            raise ErroProtocolo("Resposta excede o limite permitido.")
+        texto = str(
+            raw
+        )
+
+        if (
+            len(
+                texto.encode(
+                    ENCODING
+                )
+            )
+            > MAX_MENSAGEM_BYTES
+        ):
+            raise ErroProtocolo(
+                (
+                    "Resposta excede o "
+                    "limite permitido."
+                )
+            )
 
     try:
-        payload = json.loads(texto.strip())
+        payload = json.loads(
+            texto.strip()
+        )
     except json.JSONDecodeError as exc:
-        raise ErroProtocolo(f"Resposta JSON inválida: {exc.msg}") from None
+        raise ErroProtocolo(
+            (
+                "Resposta JSON inválida: "
+                f"{exc.msg}"
+            )
+        ) from None
 
-    if not isinstance(payload, dict):
-        raise ErroProtocolo("A raiz da resposta deve ser um objeto JSON.")
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        raise ErroProtocolo(
+            (
+                "A raiz da resposta deve "
+                "ser um objeto JSON."
+            )
+        )
 
-    ok = payload.get("ok")
-    if not isinstance(ok, bool):
-        raise ErroProtocolo("Campo 'ok' da resposta deve ser booleano.")
+    ok = payload.get(
+        "ok"
+    )
 
-    erro = payload.get("erro")
-    if erro is not None and not isinstance(erro, dict):
-        raise ErroProtocolo("Campo 'erro' deve ser objeto JSON ou null.")
+    if not isinstance(
+        ok,
+        bool,
+    ):
+        raise ErroProtocolo(
+            (
+                "Campo 'ok' da resposta "
+                "deve ser booleano."
+            )
+        )
+
+    erro = payload.get(
+        "erro"
+    )
+
+    if (
+        erro is not None
+        and not isinstance(
+            erro,
+            dict,
+        )
+    ):
+        raise ErroProtocolo(
+            (
+                "Campo 'erro' deve ser "
+                "objeto JSON ou null."
+            )
+        )
 
     return RespostaIPC(
-        id=validar_id(payload.get("id")),
-        acao=normalizar_acao(payload.get("acao")),
+        id=validar_id(
+            payload.get("id")
+        ),
+        acao=normalizar_acao(
+            payload.get("acao")
+        ),
         ok=ok,
-        dados=validar_dados(payload.get("dados")),
+        dados=validar_dados(
+            payload.get("dados")
+        ),
         erro=erro,
-        versao=validar_versao(payload.get("versao")),
+        versao=validar_versao(
+            payload.get("versao")
+        ),
     )
 
 
-def _serializar(payload: dict[str, Any]) -> bytes:
+def _serializar(
+    payload: dict[str, Any],
+) -> bytes:
     try:
         texto = json.dumps(
             payload,
@@ -275,13 +527,30 @@ def _serializar(payload: dict[str, Any]) -> bytes:
             separators=(",", ":"),
             default=str,
         )
-    except (TypeError, ValueError) as exc:
-        raise ErroProtocolo(f"Falha ao serializar mensagem: {exc}") from exc
+    except (
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise ErroProtocolo(
+            (
+                "Falha ao serializar "
+                f"mensagem: {exc}"
+            )
+        ) from exc
 
-    raw = (texto + "\n").encode(ENCODING)
+    raw = (
+        texto + "\n"
+    ).encode(
+        ENCODING
+    )
 
     if len(raw) > MAX_MENSAGEM_BYTES:
-        raise ErroProtocolo("Mensagem serializada excede o limite permitido.")
+        raise ErroProtocolo(
+            (
+                "Mensagem serializada "
+                "excede o limite permitido."
+            )
+        )
 
     return raw
 
@@ -293,16 +562,28 @@ def codificar_requisicao(
     req_id: str | None = None,
 ) -> bytes:
     req = RequisicaoIPC(
-        id=validar_id(req_id),
-        acao=normalizar_acao(acao),
-        dados=validar_dados(dados),
+        id=validar_id(
+            req_id
+        ),
+        acao=normalizar_acao(
+            acao
+        ),
+        dados=validar_dados(
+            dados
+        ),
     )
 
-    return _serializar(req.para_dict())
+    return _serializar(
+        req.para_dict()
+    )
 
 
-def codificar_resposta(resposta: RespostaIPC) -> bytes:
-    return _serializar(resposta.para_dict())
+def codificar_resposta(
+    resposta: RespostaIPC,
+) -> bytes:
+    return _serializar(
+        resposta.para_dict()
+    )
 
 
 def resposta_ok(
@@ -313,7 +594,9 @@ def resposta_ok(
         id=requisicao.id,
         acao=requisicao.acao,
         ok=True,
-        dados=validar_dados(dados),
+        dados=validar_dados(
+            dados
+        ),
         erro=None,
     )
 
@@ -330,13 +613,23 @@ def resposta_erro(
     if requisicao is not None:
         final_id = requisicao.id
         final_acao = requisicao.acao
+
     else:
-        final_id = validar_id(req_id)
-        final_acao = "system.ping"
+        final_id = validar_id(
+            req_id
+        )
+
+        final_acao = (
+            "system.ping"
+        )
 
         if acao:
             try:
-                final_acao = normalizar_acao(acao)
+                final_acao = (
+                    normalizar_acao(
+                        acao
+                    )
+                )
             except ErroProtocolo:
                 pass
 
@@ -346,8 +639,15 @@ def resposta_erro(
         ok=False,
         dados={},
         erro={
-            "codigo": str(codigo or "erro"),
-            "mensagem": str(mensagem or "Erro desconhecido."),
-            "detalhes": detalhes or {},
+            "codigo": str(
+                codigo or "erro"
+            ),
+            "mensagem": str(
+                mensagem
+                or "Erro desconhecido."
+            ),
+            "detalhes": (
+                detalhes or {}
+            ),
         },
     )

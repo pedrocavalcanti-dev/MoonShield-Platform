@@ -53,7 +53,7 @@ from firewall.ipc.protocolo import (
 
 logger = logging.getLogger(__name__)
 
-VERSAO_SERVIDOR_IPC = "1.1"
+VERSAO_SERVIDOR_IPC = "1.2"
 DIRETORIO_PADRAO = "/run/moonshield"
 GRUPO_PADRAO = "moonshield"
 SOCKET_MODE = 0o660
@@ -624,6 +624,9 @@ def _despachar(
     if req.acao.startswith("firewall."):
         return _despachar_firewall(req)
 
+    if req.acao.startswith("suricata."):
+        return _despachar_suricata(req)
+
     handler = _HANDLERS.get(req.acao)
 
     if handler is None:
@@ -760,6 +763,73 @@ def _despachar_firewall(
     raise ErroOperacao(
         "O módulo de Firewall retornou um formato inválido.",
         codigo="firewall_resposta_invalida",
+        detalhes={"tipo": type(resultado).__name__},
+    )
+
+
+def _despachar_suricata(
+    req: RequisicaoIPC,
+) -> dict[str, Any]:
+    """
+    Encaminha suricata.* ao dispatcher oficial suricata.ipc.handlers.
+
+    O servidor principal não decide topologia, HOME_NET, interfaces de captura,
+    regras IDS ou estado desejado. Ele apenas transporta uma ação já validada e
+    o payload para o módulo Suricata.
+    """
+    try:
+        modulo = importlib.import_module("suricata.ipc.handlers")
+    except Exception as exc:
+        raise ErroOperacao(
+            f"Não foi possível carregar o módulo Suricata: {exc}",
+            codigo="suricata_modulo_indisponivel",
+            detalhes={"tipo": type(exc).__name__},
+        ) from exc
+
+    executar = getattr(modulo, "executar_acao_suricata", None)
+
+    if not callable(executar):
+        raise ErroOperacao(
+            "O dispatcher do módulo Suricata não está disponível.",
+            codigo="suricata_dispatcher_indisponivel",
+        )
+
+    try:
+        resultado = executar(req.acao, req.dados)
+    except Exception as exc:
+        codigo = str(
+            getattr(exc, "codigo", "")
+            or "suricata_operacao_falhou"
+        )
+        detalhes = getattr(exc, "detalhes", {}) or {}
+
+        if not isinstance(detalhes, dict):
+            detalhes = {"detalhes": str(detalhes)}
+
+        logger.warning(
+            "[suricata] operação falhou | acao=%s id=%s codigo=%s mensagem=%s detalhes=%s",
+            req.acao,
+            req.id,
+            codigo,
+            str(exc),
+            detalhes,
+        )
+
+        raise ErroOperacao(
+            str(exc) or "A operação do Suricata falhou.",
+            codigo=codigo,
+            detalhes=detalhes,
+        ) from exc
+
+    if resultado is None:
+        return {}
+
+    if isinstance(resultado, dict):
+        return resultado
+
+    raise ErroOperacao(
+        "O módulo Suricata retornou um formato inválido.",
+        codigo="suricata_resposta_invalida",
         detalhes={"tipo": type(resultado).__name__},
     )
 

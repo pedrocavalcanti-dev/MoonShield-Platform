@@ -69,7 +69,7 @@
                 executarTarefaTemplate: "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
                 cancelarTarefaTemplate: "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
                 logsTarefaTemplate: "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}",
-                redeTopologia: "{% url 'rede_api:topologia' %}"
+                redeTopologia: "{% url 'rede:rede_api:topologia' %}"
             }
         };
     </script>
@@ -235,7 +235,7 @@
                     </div>
 
                     <div class="btn-group justify-between">
-                        <a class="btn btn--secondary" href="{% url 'incidentes:suricata_painel' %}">Voltar ao painel</a>
+                        <a class="btn btn--secondary" href="{% if request.GET.origem == 'onboarding_appliance' %}{% url 'autenticacao:onboarding' %}{% else %}{% url 'incidentes:suricata_painel' %}{% endif %}">Voltar{% if request.GET.origem == 'onboarding_appliance' %} ao onboarding{% else %} ao painel{% endif %}</a>
                         <button class="btn btn--primary" id="btnStep1Next" type="button">Verificar ambiente</button>
                     </div>
                 </section>
@@ -686,7 +686,7 @@
             </div>
             <div class="modal__footer">
                 <button class="btn btn--secondary" type="button" data-close-modal>Continuar aqui</button>
-                <a class="btn btn--secondary" href="{% url 'incidentes:suricata_painel' %}">Sair mesmo assim</a>
+                <a class="btn btn--secondary" href="{% if request.GET.origem == 'onboarding_appliance' %}{% url 'autenticacao:onboarding' %}{% else %}{% url 'incidentes:suricata_painel' %}{% endif %}">Sair mesmo assim</a>
             </div>
         </div>
     </div>

@@ -46,7 +46,7 @@
                 instalar: "{% url 'firewall:api_install' %}",
                 reparar: "{% url 'firewall:api_repair' %}",
                 tarefas: "{% url 'firewall:api_tasks' %}",
-                redeTopologia: "{% url 'rede_api:topologia' %}"
+                redeTopologia: "{% url 'rede:rede_api:topologia' %}"
             }
         };
     </script>
@@ -56,7 +56,7 @@
     <div class="app-shell">
         <aside class="setup-sidebar">
             <div>
-                <a href="{% url 'firewall:painel' %}" class="brand" aria-label="MoonShield Firewall">
+                <a href="{% url 'firewall:painel' %}" class="brand" aria-label="MoonShield Firewall" data-onboarding-return>
                     <div class="brand__mark">
                         <svg viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M12 2.7 20 6v5.2c0 5.1-3.4 9.1-8 10.8-4.6-1.7-8-5.7-8-10.8V6l8-3.3Z"></path>
@@ -141,7 +141,7 @@
 
         <main class="setup-main">
             <div class="setup-topbar">
-                <a href="{% url 'firewall:painel' %}" class="back-link">
+                <a href="{% url 'firewall:painel' %}" class="back-link" data-onboarding-return>
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="m15 18-6-6 6-6"></path>
                     </svg>
@@ -326,7 +326,7 @@
                     <div class="page-actions">
                         <button class="btn btn--secondary" type="button" data-go-step="1">Voltar</button>
                         <div class="page-actions__right">
-                            <a class="btn btn--ghost" href="{% url 'firewall:painel' %}" id="btnOpenPanelEnvironment" hidden>
+                            <a class="btn btn--ghost" href="{% url 'firewall:painel' %}" id="btnOpenPanelEnvironment" data-onboarding-return hidden>
                                 Abrir painel
                             </a>
                             <button class="btn btn--primary" type="button" id="btnEnvironmentNext" disabled>
@@ -600,7 +600,7 @@
                         </div>
 
                         <div class="page-actions page-actions--center">
-                            <a href="{% url 'firewall:painel' %}" class="btn btn--primary" id="btnFirewallSuccessTarget">
+                            <a href="{% url 'firewall:painel' %}" class="btn btn--primary" id="btnFirewallSuccessTarget" data-onboarding-return>
                                 Abrir Firewall
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="m9 18 6-6-6-6"></path>

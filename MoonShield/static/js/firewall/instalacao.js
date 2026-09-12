@@ -29,11 +29,24 @@
         bindEvents();
         setOperator();
         hydrateFromPrecheck(INITIAL_PRECHECK);
-        if (new URLSearchParams(window.location.search).get("origem") === "onboarding_appliance" && els.successTarget) {
-            els.successTarget.href = APP.urls.onboardingAppliance;
+        configureOnboardingReturn();
+        refreshEnvironment({ silent: true });
+    }
+
+    function configureOnboardingReturn() {
+        const origem = new URLSearchParams(window.location.search).get("origem");
+
+        if (origem !== "onboarding_appliance" || !URLS.onboardingAppliance) {
+            return;
+        }
+
+        $$('[data-onboarding-return]').forEach((link) => {
+            link.href = URLS.onboardingAppliance;
+        });
+
+        if (els.successTarget) {
             els.successTarget.textContent = "Voltar ao onboarding";
         }
-        refreshEnvironment({ silent: true });
     }
 
     function cacheDom() {

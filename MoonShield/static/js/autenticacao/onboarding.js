@@ -9,6 +9,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let chosenTheme = OB.tema === "light" ? "light" : "dark";
   let interfaces = [];
   let topology = {};
+  let applianceConfig = {};
+  let networkConfirmed = false;
   let safeApplyPoll = null;
 
   const $ = (id) => document.getElementById(id);
@@ -104,12 +106,50 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
+  function displayValue(value, fallback = "Não informado") {
+    const text = String(value ?? "").trim();
+    return text && text !== "—" ? text : fallback;
+  }
+
+  function renderObservedAppliance(info) {
+    const container = $("applianceObserved");
+    if (!container) return;
+
+    const version = info.moonshield_version || info.versao || info.version;
+    const cards = [
+      ["Hostname", info.hostname],
+      ["Sistema", info.so],
+      ["Fuso horário", info.timezone],
+      ["IP de gerenciamento", info.ip_local],
+    ];
+
+    if (String(version ?? "").trim() && version !== "—") {
+      cards.push(["MoonShield", version]);
+    }
+
+    container.innerHTML = cards.map(([label, value]) => `
+      <div class="ob-observed__card">
+        <small>${escapeHtml(label)}</small>
+        <strong>${escapeHtml(displayValue(value))}</strong>
+      </div>
+    `).join("");
+  }
+
   async function loadApplianceIdentity() {
     try {
-      const [config, sysinfo] = await Promise.all([getJSON(OB.urls.config), getJSON(OB.urls.sysinfo)]); const node = config.config?.node || {};
-      if ($("fieldApplianceName")) $("fieldApplianceName").value = node.name || ""; if ($("fieldApplianceEnvironment")) $("fieldApplianceEnvironment").value = node.ambiente || "lab"; if ($("fieldApplianceTag")) $("fieldApplianceTag").value = node.tag || ""; if ($("fieldApplianceDesc")) $("fieldApplianceDesc").value = node.desc || "";
-      const info = sysinfo.sysinfo || {}; $("applianceObserved").innerHTML = [["Hostname real", info.hostname], ["Sistema operacional", info.so], ["Timezone", info.timezone], ["IP", info.ip_local], ["MoonShield", info.moonshield_version || info.versao || info.version]].map(([label, value]) => `<span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span>`).join("");
-    } catch (error) { setHint("applianceObserved", error.message, "#ef4444"); }
+      const [config, sysinfo] = await Promise.all([getJSON(OB.urls.config), getJSON(OB.urls.sysinfo)]);
+      applianceConfig = config.config || {};
+      const node = applianceConfig.node || {};
+
+      if ($("fieldApplianceName")) $("fieldApplianceName").value = node.name || "";
+      if ($("fieldApplianceEnvironment")) $("fieldApplianceEnvironment").value = node.ambiente || "lab";
+      if ($("fieldApplianceTag")) $("fieldApplianceTag").value = node.tag || "";
+      if ($("fieldApplianceDesc")) $("fieldApplianceDesc").value = node.desc || "";
+
+      renderObservedAppliance(sysinfo.sysinfo || {});
+    } catch (error) {
+      setHint("applianceObserved", error.message, "#ef4444");
+    }
   }
 
   async function saveApplianceIdentity() {
@@ -119,29 +159,195 @@ document.addEventListener("DOMContentLoaded", () => {
     catch (error) { setHint("applianceObserved", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
-  function interfaceRoleOptions(selected) { return [["unassigned", "Não atribuída"], ["wan", "WAN"], ["lan", "LAN"], ["mgmt", "MGMT"], ["dmz", "DMZ"], ["custom", "CUSTOM"]].map(([value, label]) => `<option value="${value}"${selected === value ? " selected" : ""}>${label}</option>`).join(""); }
-
-  function renderInterfaces() {
-    const container = $("onboardingInterfaces"); if (!container) return;
-    if (!interfaces.length) { container.textContent = "Nenhuma interface foi detectada pelo módulo Rede."; return; }
-    container.innerHTML = interfaces.map((item) => { const real = item.real || {}; const desired = item.desejado || {}; const role = desired.papel || "unassigned"; const status = real.estado_link === "up" || real.carrier === true ? "UP" : (real.estado_link || "Desconhecido"); return `<article class="ob-interface-card" data-interface-id="${item.id}"><header><strong>${escapeHtml(item.nome)}</strong><span class="ob-status-pill">${escapeHtml(status)}</span></header><p>Carrier ${real.carrier === true ? "Sim" : "Não"} · Rota default ${desired.rota_padrao ? "Sim" : "Não"}<br>MAC ${escapeHtml(item.mac_address || "—")} · IPv4 observado ${escapeHtml(real.ipv4 || "—")}</p><label>Função<select data-interface-role>${interfaceRoleOptions(role)}</select></label><div class="ob-ipv4-fields" data-ipv4-fields><label>Modo IPv4<select data-ipv4-mode><option value="dhcp">DHCP</option><option value="static">Estático</option></select></label><label>Endereço IPv4<input data-ipv4-address inputmode="decimal" placeholder="Endereço definido pelo operador" value="${escapeHtml(desired.ipv4_endereco || "")}"></label><label>Prefixo<input data-ipv4-prefix inputmode="numeric" placeholder="Prefixo" value="${escapeHtml(desired.ipv4_prefixo ?? "")}"></label><label>Gateway (opcional)<input data-ipv4-gateway inputmode="decimal" value="${escapeHtml(desired.gateway || "")}"></label></div></article>`; }).join("");
-    container.querySelectorAll("[data-interface-id]").forEach((card) => { const current = interfaces.find((item) => String(item.id) === card.dataset.interfaceId); const desired = current?.desejado || {}; const mode = card.querySelector("[data-ipv4-mode]"); if (mode) mode.value = desired.ipv4_modo || (card.querySelector("[data-interface-role]")?.value === "lan" ? "static" : "dhcp"); card.querySelector("[data-interface-role]")?.addEventListener("change", () => { if (mode && !mode.value) mode.value = "dhcp"; refreshIpv4Fields(card); }); mode?.addEventListener("change", () => refreshIpv4Fields(card)); refreshIpv4Fields(card); });
+  function interfaceRoleOptions(selected) {
+    return [["unassigned", "Não atribuída"], ["wan", "WAN"], ["lan", "LAN"], ["mgmt", "MGMT"], ["dmz", "DMZ"], ["custom", "CUSTOM"]]
+      .map(([value, label]) => `<option value="${value}"${selected === value ? " selected" : ""}>${label}</option>`)
+      .join("");
   }
 
-  function refreshIpv4Fields(card) { const role = card.querySelector("[data-interface-role]")?.value || "unassigned"; const fields = card.querySelector("[data-ipv4-fields]"); if (!fields) return; fields.hidden = role === "unassigned"; }
+  function ipv4ChoiceOptions() {
+    return [
+      ["keep", "Manter configuração atual"],
+      ["dhcp", "DHCP"],
+      ["static", "Estático"],
+    ].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  }
 
-  async function loadInterfaces() { try { const response = await getJSON(OB.urls.redeInterfaces); interfaces = response.dados?.interfaces || []; renderInterfaces(); } catch (error) { setHint("interfacesHint", error.message, "#ef4444"); } }
+  function initialIpv4Choice(item) {
+    const real = item.real || {};
+    const desired = item.desejado || {};
+    const hasObservedConfiguration = Boolean(
+      real.ipv4 || real.gateway || real.conexao_nome || real.conexao_uuid ||
+      (Array.isArray(real.enderecos_ipv4) && real.enderecos_ipv4.length)
+    );
+
+    if (hasObservedConfiguration || desired.ipv4_modo === "disabled") return "keep";
+    return desired.ipv4_modo === "static" ? "static" : "dhcp";
+  }
+
+  function ipv4ModeLabel(mode) {
+    return { dhcp: "DHCP", static: "Estático", disabled: "Desativado" }[mode] || "Não informado";
+  }
+
+  function renderInterfaces() {
+    const container = $("onboardingInterfaces");
+    if (!container) return;
+    if (!interfaces.length) {
+      container.textContent = "Nenhuma interface foi detectada pelo módulo Rede.";
+      return;
+    }
+
+    container.innerHTML = interfaces.map((item) => {
+      const real = item.real || {};
+      const desired = item.desejado || {};
+      const role = desired.papel || "unassigned";
+      const linkUp = real.estado_link === "up" || real.carrier === true;
+      const linkLabel = linkUp ? "UP" : (real.estado_link || "Desconhecido").toUpperCase();
+
+      return `
+        <article class="ob-interface-card" data-interface-id="${item.id}" data-role="${role}">
+          <header>
+            <strong>${escapeHtml(item.nome)}</strong>
+            <span class="ob-status-pill ${linkUp ? "is-up" : "is-neutral"}">${escapeHtml(linkLabel)}</span>
+          </header>
+          <div class="ob-interface-observed">
+            <small>Observado</small>
+            <p>MAC ${escapeHtml(displayValue(item.mac_address))} · IPv4 ${escapeHtml(displayValue(real.ipv4))}</p>
+            <p>Gateway ${escapeHtml(displayValue(real.gateway))}</p>
+          </div>
+          <div class="ob-interface-desired">
+            <small>Desejado</small>
+            <p>IPv4 ${escapeHtml(ipv4ModeLabel(desired.ipv4_modo))} · Rota default ${desired.rota_padrao ? "Sim" : "Não"}</p>
+          </div>
+          <label>Função<select data-interface-role>${interfaceRoleOptions(role)}</select></label>
+          <label>Configuração IPv4<select data-ipv4-choice>${ipv4ChoiceOptions()}</select></label>
+          <p class="ob-ipv4-copy" data-ipv4-keep-copy>O IPv4 desejado atual será preservado sem copiar o estado observado.</p>
+          <p class="ob-ipv4-copy" data-ipv4-dhcp-copy hidden>Endereço, prefixo e gateway serão obtidos automaticamente.</p>
+          <div class="ob-ipv4-fields" data-ipv4-static-fields hidden>
+            <label>Endereço IPv4<input data-ipv4-address inputmode="decimal" placeholder="Endereço definido pelo operador" value="${escapeHtml(desired.ipv4_endereco || "")}"></label>
+            <label>Prefixo<input data-ipv4-prefix inputmode="numeric" placeholder="Prefixo" value="${escapeHtml(desired.ipv4_prefixo ?? "")}"></label>
+            <label>Gateway (opcional)<input data-ipv4-gateway inputmode="decimal" value="${escapeHtml(desired.gateway || "")}"></label>
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    container.querySelectorAll("[data-interface-id]").forEach((card) => {
+      const current = interfaces.find((item) => String(item.id) === card.dataset.interfaceId);
+      const ipv4Choice = card.querySelector("[data-ipv4-choice]");
+      if (ipv4Choice) ipv4Choice.value = initialIpv4Choice(current || {});
+
+      card.querySelector("[data-interface-role]")?.addEventListener("change", () => refreshInterfaceCard(card));
+      ipv4Choice?.addEventListener("change", () => refreshInterfaceCard(card));
+      refreshInterfaceCard(card);
+    });
+  }
+
+  function refreshInterfaceCard(card) {
+    const role = card.querySelector("[data-interface-role]")?.value || "unassigned";
+    const choice = card.querySelector("[data-ipv4-choice]")?.value || "keep";
+    const keepCopy = card.querySelector("[data-ipv4-keep-copy]");
+    const dhcpCopy = card.querySelector("[data-ipv4-dhcp-copy]");
+    const staticFields = card.querySelector("[data-ipv4-static-fields]");
+
+    card.dataset.role = role;
+    if (keepCopy) keepCopy.hidden = choice !== "keep";
+    if (dhcpCopy) dhcpCopy.hidden = choice !== "dhcp";
+    if (staticFields) staticFields.hidden = choice !== "static";
+  }
+
+  async function loadInterfaces() {
+    try {
+      const response = await getJSON(OB.urls.redeInterfaces);
+      interfaces = response.dados?.interfaces || [];
+      renderInterfaces();
+    } catch (error) {
+      setHint("interfacesHint", error.message, "#ef4444");
+    }
+  }
+
+  function preservedIpv4Payload(desired) {
+    return {
+      ipv4_modo: desired.ipv4_modo,
+      ipv4_endereco: desired.ipv4_endereco,
+      ipv4_prefixo: desired.ipv4_prefixo,
+      gateway: desired.gateway,
+      rota_padrao: desired.rota_padrao,
+      metrica: desired.metrica,
+      mtu: desired.mtu,
+      habilitada: desired.habilitada,
+    };
+  }
+
+  function interfacePayload(item, hasMgmt) {
+    const desired = item.current.desejado || {};
+    const preserveCurrent = item.ipv4Choice === "keep";
+    const explicitIpv4 = item.ipv4Choice === "static"
+      ? {
+          ipv4_modo: "static",
+          ipv4_endereco: item.address,
+          ipv4_prefixo: Number(item.prefix),
+          gateway: item.gateway || null,
+        }
+      : {
+          ipv4_modo: "dhcp",
+          ipv4_endereco: null,
+          ipv4_prefixo: null,
+          gateway: null,
+        };
+
+    return {
+      papel: item.role,
+      principal: ["wan", "lan", "mgmt"].includes(item.role),
+      acesso_gerenciamento: item.role === "mgmt" || (!hasMgmt && item.role === "lan"),
+      ...(preserveCurrent ? preservedIpv4Payload(desired) : { ...preservedIpv4Payload(desired), ...explicitIpv4 }),
+    };
+  }
 
   async function saveInterfaceRoles() {
-    const selected = [...document.querySelectorAll("[data-interface-id]")].map((card) => ({ id: Number(card.dataset.interfaceId), role: card.querySelector("[data-interface-role]")?.value || "unassigned", mode: card.querySelector("[data-ipv4-mode]")?.value || "dhcp", address: card.querySelector("[data-ipv4-address]")?.value.trim() || "", prefix: card.querySelector("[data-ipv4-prefix]")?.value.trim() || "", gateway: card.querySelector("[data-ipv4-gateway]")?.value.trim() || "" })); const wan = selected.filter((item) => item.role === "wan"); const lan = selected.filter((item) => item.role === "lan");
-    if (wan.length !== 1 || lan.length !== 1) { setHint("interfacesHint", "Defina exatamente uma WAN e uma LAN. MGMT é opcional.", "#ef4444"); return; }
-    const invalidStatic = selected.find((item) => ["wan", "lan", "mgmt"].includes(item.role) && item.mode === "static" && (!item.address || !item.prefix)); if (invalidStatic) { setHint("interfacesHint", `Informe endereço e prefixo para a interface ${invalidStatic.role.toUpperCase()} estática.`, "#ef4444"); return; }
-    const button = $("btnStep7Next"); setBusy(button, true);
+    const selected = [...document.querySelectorAll("[data-interface-id]")].map((card) => {
+      const current = interfaces.find((candidate) => String(candidate.id) === card.dataset.interfaceId) || {};
+      return {
+        id: Number(card.dataset.interfaceId),
+        current,
+        role: card.querySelector("[data-interface-role]")?.value || "unassigned",
+        ipv4Choice: card.querySelector("[data-ipv4-choice]")?.value || "keep",
+        address: card.querySelector("[data-ipv4-address]")?.value.trim() || "",
+        prefix: card.querySelector("[data-ipv4-prefix]")?.value.trim() || "",
+        gateway: card.querySelector("[data-ipv4-gateway]")?.value.trim() || "",
+      };
+    });
+    const wan = selected.filter((item) => item.role === "wan");
+    const lan = selected.filter((item) => item.role === "lan");
+
+    if (wan.length !== 1 || lan.length !== 1) {
+      setHint("interfacesHint", "Defina exatamente uma WAN e uma LAN. MGMT é opcional.", "#ef4444");
+      return;
+    }
+
+    const invalidStatic = selected.find((item) => item.ipv4Choice === "static" && (!item.address || !item.prefix));
+    if (invalidStatic) {
+      setHint("interfacesHint", `Informe endereço e prefixo para a interface ${invalidStatic.current.nome || invalidStatic.id} estática.`, "#ef4444");
+      return;
+    }
+
+    const button = $("btnStep7Next");
+    setBusy(button, true);
     try {
       const hasMgmt = selected.some((item) => item.role === "mgmt");
-      for (const item of selected) { const current = interfaces.find((candidate) => candidate.id === item.id) || {}; const desired = current.desejado || {}; const mode = item.mode === "static" ? "static" : "dhcp"; await postJSON(OB.urls.redeConfigurar.replace("/0/", `/${item.id}/`), { papel: item.role, principal: ["wan", "lan", "mgmt"].includes(item.role), acesso_gerenciamento: item.role === "mgmt" || (!hasMgmt && item.role === "lan"), ipv4_modo: mode, ipv4_endereco: mode === "static" ? item.address : null, ipv4_prefixo: mode === "static" ? Number(item.prefix) : null, gateway: mode === "static" ? (item.gateway || null) : null, rota_padrao: item.role === "wan" ? (desired.rota_padrao ?? true) : false, metrica: desired.metrica || 100, mtu: desired.mtu || 1500, habilitada: desired.habilitada !== false }); }
-      topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {}; goToStep(8);
-    } catch (error) { setHint("interfacesHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
+      for (const item of selected) {
+        await postJSON(
+          OB.urls.redeConfigurar.replace("/0/", `/${item.id}/`),
+          interfacePayload(item, hasMgmt),
+        );
+      }
+      topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {};
+      goToStep(8);
+    } catch (error) {
+      setHint("interfacesHint", error.message, "#ef4444");
+    } finally {
+      setBusy(button, false);
+    }
   }
 
   function principal(role) { return topology[role]?.principal || null; }
@@ -159,16 +365,90 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function pollAlteration(id) {
     clearTimeout(safeApplyPoll);
-    try { const response = await getJSON(alterationUrl(OB.urls.redeAlteracao, id)); const alteration = response.dados?.alteracao || response.dados; renderSafeApply(alteration); if (["waiting_confirmation", "validating", "applying", "created", "rollback"].includes(alteration.status)) safeApplyPoll = setTimeout(() => pollAlteration(id), 2000); else if (alteration.status === "confirmed") { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || topology; setHint("safeApplyState", "Rede confirmada com sucesso.", "#22c55e"); $("btnApplyNetwork").disabled = true; } else setHint("safeApplyState", alteration.status === "reverted" ? "As alterações de rede foram revertidas para preservar o acesso." : "As alterações de rede falharam. Revise e tente novamente.", "#ef4444"); }
+    try { const response = await getJSON(alterationUrl(OB.urls.redeAlteracao, id)); const alteration = response.dados?.alteracao || response.dados; renderSafeApply(alteration); if (["waiting_confirmation", "validating", "applying", "created", "rollback"].includes(alteration.status)) safeApplyPoll = setTimeout(() => pollAlteration(id), 2000); else if (alteration.status === "confirmed") { networkConfirmed = true; topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || topology; setHint("safeApplyState", "Rede confirmada com sucesso.", "#22c55e"); $("btnApplyNetwork").disabled = true; } else setHint("safeApplyState", alteration.status === "reverted" ? "As alterações de rede foram revertidas para preservar o acesso." : "As alterações de rede falharam. Revise e tente novamente.", "#ef4444"); }
     catch (error) { setHint("safeApplyState", error.message, "#ef4444"); }
   }
 
   async function applyNetwork() { const button = $("btnApplyNetwork"); setBusy(button, true); try { const response = await postJSON(OB.urls.redeAplicarTudo, {}); const alteration = response.dados?.alteracao || response.alteracao; renderSafeApply(alteration); if (alteration?.id) pollAlteration(alteration.id); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } finally { setBusy(button, false); } }
-  async function confirmNetwork(id) { try { const response = await postJSON(alterationUrl(OB.urls.redeConfirmar, id), {}); renderSafeApply(response.dados?.alteracao || response.alteracao); goToStep(9); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } }
+  async function confirmNetwork(id) { try { const response = await postJSON(alterationUrl(OB.urls.redeConfirmar, id), {}); networkConfirmed = true; renderSafeApply(response.dados?.alteracao || response.alteracao); goToStep(9); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } }
 
-  function serviceState(service) { return service?.status_label || (service?.saudavel ? "Operacional" : "Requer atenção"); }
+  function servicePresentation(service) {
+    if (!service?.configurado) {
+      return { label: "Ainda não configurado", level: "neutral", configuration: "Não configurado", health: "Ainda não validada" };
+    }
+    if (service.saudavel) {
+      return { label: "Operacional", level: "ok", configuration: "Configurado", health: "Operacional" };
+    }
+    if (service.status === "erro" || service.status === "falha") {
+      return { label: "Falha", level: "error", configuration: "Configurado", health: "Falha na verificação" };
+    }
+    return { label: "Requer atenção", level: "warning", configuration: "Configurado", health: service.status_label || "Requer atenção" };
+  }
+
+  function serviceCard({ eyebrow, name, service, details = [], actionUrl = "", actionLabel = "", note = "" }) {
+    const presentation = servicePresentation(service);
+    const facts = [
+      ["Configuração", presentation.configuration],
+      ["Saúde", presentation.health],
+      ...details,
+    ];
+
+    return `
+      <article class="ob-service-card">
+        <header>
+          <div><small>${escapeHtml(eyebrow)}</small><strong>${escapeHtml(name)}</strong></div>
+          <span class="ob-service-status ob-service-status--${presentation.level}">${escapeHtml(presentation.label)}</span>
+        </header>
+        <div class="ob-service-facts">
+          ${facts.map(([label, value]) => `<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></div>`).join("")}
+        </div>
+        ${note ? `<p class="ob-service-note">${escapeHtml(note)}</p>` : ""}
+        ${actionUrl ? `<a class="ob-btn ob-btn--ghost" href="${escapeHtml(actionUrl)}">${escapeHtml(actionLabel)}</a>` : ""}
+      </article>
+    `;
+  }
+
   async function loadServices() {
-    const container = $("onboardingServices"); try { const response = await getJSON(OB.urls.servicos); const services = response.servicos || {}; container.innerHTML = [["DNS / AdGuard", services.adguard, OB.urls.dns, "Abrir DNS"], ["IDS / Suricata", services.suricata, OB.urls.suricata, "Abrir IDS"], ["Firewall / nftables", services.firewall, OB.urls.firewall, "Abrir Firewall"]].map(([name, service, url, label]) => `<article class="ob-service-card"><header><strong>${name}</strong><span>${escapeHtml(serviceState(service))}</span></header><p>Configuração: ${service?.configurado ? "Configurado" : "Estado consultado"}<br>Saúde: ${escapeHtml(serviceState(service))}</p>${url ? `<a class="ob-btn ob-btn--ghost" href="${escapeHtml(url)}">${label}</a>` : ""}</article>`).join(""); } catch (error) { if (container) container.textContent = error.message; }
+    const container = $("onboardingServices");
+    if (!container) return;
+
+    try {
+      const response = await getJSON(OB.urls.servicos);
+      const services = response.servicos || {};
+      const adguard = services.adguard || {};
+      const suricata = services.suricata || {};
+      const firewall = services.firewall || {};
+
+      container.innerHTML = [
+        serviceCard({
+          eyebrow: "DNS",
+          name: "AdGuard Home",
+          service: adguard,
+          details: [
+            ["Serviço local", adguard.ativo ? "Detectado" : "Não detectado"],
+            ["Proteção", adguard.protecao ? "Ativa" : "Não informada"],
+            ["Filtros", Number.isFinite(Number(adguard.filtros_ativos)) ? `${Number(adguard.filtros_ativos)} ativos` : "Não informado"],
+          ],
+          note: "Configurações avançadas ficam disponíveis em DNS & Rede após concluir.",
+        }),
+        serviceCard({
+          eyebrow: "IDS",
+          name: "Suricata",
+          service: suricata,
+          actionUrl: OB.urls.suricata,
+          actionLabel: suricata.configurado ? "Revisar IDS" : "Configurar IDS",
+        }),
+        serviceCard({
+          eyebrow: "FIREWALL",
+          name: "nftables / MoonShield",
+          service: firewall,
+          actionUrl: OB.urls.firewall,
+          actionLabel: firewall.configurado ? "Revisar Firewall" : "Configurar Firewall",
+        }),
+      ].join("");
+    } catch (error) {
+      container.textContent = error.message;
+    }
   }
 
   async function completeOnboarding() { const button = $("btnCompleteOnboarding"); setBusy(button, true); try { await loadServices(); await postJSON(OB.urls.completar, {}); goToStep(10); } catch (error) { const pending = error.payload?.pendencias; setHint("completionHint", pending?.length ? `Ainda falta: ${pending.join(", ")}.` : error.message, "#ef4444"); } finally { setBusy(button, false); } }
@@ -180,13 +460,39 @@ document.addEventListener("DOMContentLoaded", () => {
     $("avatarInput")?.addEventListener("change", (event) => { avatarFile = event.target.files?.[0] || null; if (avatarFile) setHint("avatarHint", "Foto selecionada.", "#22c55e"); }); $("btnUploadAvatar")?.addEventListener("click", () => $("avatarInput")?.click());
   }
 
-  function chooseResumeStep() { if (OB.passwordChanged !== true) return 2; const identityName = $("fieldApplianceName")?.value?.trim() || ""; const identityTag = $("fieldApplianceTag")?.value?.trim() || ""; const identityDesc = $("fieldApplianceDesc")?.value?.trim() || ""; if (!identityName || (identityName === "MS-NODE-01" && !identityTag && !identityDesc)) return 6; if (!topology.wan?.principal || !topology.lan?.principal) return 7; return 8; }
+  async function loadNetworkConfirmation() {
+    try {
+      const response = await getJSON(`${OB.urls.redeAlteracoes}?status=confirmed&limite=1`);
+      networkConfirmed = (response.dados?.alteracoes || []).some((alteracao) => alteracao.status === "confirmed");
+    } catch (_) {
+      networkConfirmed = false;
+    }
+  }
+
+  function applianceIdentityIncomplete() {
+    const node = applianceConfig.node || {};
+    const name = String(node.name ?? $("fieldApplianceName")?.value ?? "").trim();
+    const tag = String(node.tag ?? $("fieldApplianceTag")?.value ?? "").trim();
+    const desc = String(node.desc ?? $("fieldApplianceDesc")?.value ?? "").trim();
+    const environment = String(node.ambiente ?? $("fieldApplianceEnvironment")?.value ?? "").trim();
+    const defaultIdentity = name === "MS-NODE-01" && !tag && !desc;
+
+    return !name || defaultIdentity || !["lab", "prod"].includes(environment);
+  }
+
+  function chooseResumeStep() {
+    if (OB.passwordChanged !== true) return 2;
+    if (applianceIdentityIncomplete()) return 6;
+    if (!topology.wan?.principal || !topology.lan?.principal) return 7;
+    if (!networkConfirmed) return 8;
+    return 9;
+  }
 
   async function init() {
     if ($("greetName")) $("greetName").textContent = OB.fullName || OB.username || "operador"; if ($("fieldUsername")) $("fieldUsername").value = OB.username || "";
     initVisuals(); bindProfileControls(); backButtons(); $("btnStep1Next")?.addEventListener("click", () => goToStep(2)); $("btnStep4Next")?.addEventListener("click", () => goToStep(5)); $("btnStep6Next")?.addEventListener("click", saveApplianceIdentity); $("btnStep7Next")?.addEventListener("click", saveInterfaceRoles); $("btnApplyNetwork")?.addEventListener("click", applyNetwork); $("btnCompleteOnboarding")?.addEventListener("click", completeOnboarding);
     try { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {}; } catch (_) { topology = {}; }
-    await loadApplianceIdentity();
+    await Promise.all([loadApplianceIdentity(), loadNetworkConfirmation()]);
     goToStep(chooseResumeStep());
   }
   init();

@@ -66,7 +66,11 @@ def montar_payload_topologia() -> dict:
 def obter_status() -> dict:
     """Obtém o status geral do Suricata via Agent."""
     payload = montar_payload_topologia()
-    return requisitar_agent("suricata.status", payload, timeout=15)
+    return requisitar_agent(
+        "suricata.status", 
+        {"config": payload}, 
+        timeout=15
+    )
 
 
 def obter_diagnostico() -> dict:

@@ -104,12 +104,12 @@ def get_modo() -> str:
             "simulação",
             "demo",
         }:
-            return "demo"
+            return "prod"
 
     except Exception:
         pass
 
-    return "demo"
+    return "prod"
 
 
 def get_modo_atual() -> str:

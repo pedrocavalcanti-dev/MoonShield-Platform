@@ -5,9 +5,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MoonShield — Configuração Inicial</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="{% static 'css/autenticacao/onboarding.css' %}" />
     <!-- Welcome overlay CSS — necessário para o efeito final de boas-vindas -->
     <link rel="stylesheet" href="{% static 'css/reutilizaveis/welcome.css' %}" />
@@ -18,6 +15,7 @@
 <script>
     window.OB = {
         username:   "{{ request.user.username|escapejs }}",
+        passwordChanged: {{ profile.last_password_change|yesno:"true,false" }},
         fullName:   "{{ request.user.get_full_name|escapejs }}",
         initials:   "{{ profile.get_initials|escapejs }}",
         avatarUrl:  "{% if profile.avatar %}{{ profile.avatar.url }}{% endif %}",
@@ -30,6 +28,19 @@
             salvarPrefs:       "{% url 'autenticacao:api_salvar_prefs' %}",
             completar:         "{% url 'autenticacao:api_completar_onboarding' %}",
             dashboard:         "{% url 'painel:index' %}",
+            config:            "{% url 'configuracoes:api_config' %}",
+            salvarConfig:      "{% url 'configuracoes:api_salvar' %}",
+            servicos:          "{% url 'configuracoes:api_servicos' %}",
+            sysinfo:           "{% url 'configuracoes:api_sysinfo' %}",
+            dns:               "{% url 'dns:painel' %}",
+            redeInterfaces:    "{% url 'rede_api:interfaces' %}",
+            redeTopologia:     "{% url 'rede_api:topologia' %}",
+            redeAplicarTudo:   "{% url 'rede_api:aplicar_tudo' %}",
+            redeConfigurar:    "{% url 'rede_api:interface_configurar' 0 %}",
+            redeAlteracao:     "{% url 'rede_api:alteracao_detalhe' '00000000-0000-0000-0000-000000000000' %}",
+            redeConfirmar:     "{% url 'rede_api:alteracao_confirmar' '00000000-0000-0000-0000-000000000000' %}",
+            suricata:          "{% url 'incidentes:suricata_onboarding' %}?origem=onboarding_appliance",
+            firewall:          "{% url 'firewall:instalacao' %}?origem=onboarding_appliance",
         }
     };
 </script>
@@ -118,6 +129,11 @@
                     <span class="ob-nav-step__desc">Tema da interface</span>
                 </div>
             </div>
+            <div class="ob-nav-step" data-step="6"><div class="ob-nav-step__left"><div class="ob-nav-step__dot">6</div><div class="ob-nav-step__connector"></div></div><div class="ob-nav-step__info"><span class="ob-nav-step__label">Appliance</span><span class="ob-nav-step__desc">Identidade do equipamento</span></div></div>
+            <div class="ob-nav-step" data-step="7"><div class="ob-nav-step__left"><div class="ob-nav-step__dot">7</div><div class="ob-nav-step__connector"></div></div><div class="ob-nav-step__info"><span class="ob-nav-step__label">Interfaces</span><span class="ob-nav-step__desc">Papéis de rede</span></div></div>
+            <div class="ob-nav-step" data-step="8"><div class="ob-nav-step__left"><div class="ob-nav-step__dot">8</div><div class="ob-nav-step__connector"></div></div><div class="ob-nav-step__info"><span class="ob-nav-step__label">Rede</span><span class="ob-nav-step__desc">Revisão e Safe Apply</span></div></div>
+            <div class="ob-nav-step" data-step="9"><div class="ob-nav-step__left"><div class="ob-nav-step__dot">9</div><div class="ob-nav-step__connector"></div></div><div class="ob-nav-step__info"><span class="ob-nav-step__label">Proteção</span><span class="ob-nav-step__desc">Serviços e validação</span></div></div>
+            <div class="ob-nav-step" data-step="10"><div class="ob-nav-step__left"><div class="ob-nav-step__dot">10</div></div><div class="ob-nav-step__info"><span class="ob-nav-step__label">Concluído</span><span class="ob-nav-step__desc">MoonShield pronto</span></div></div>
         </nav>
 
         <div class="ob-sidebar__footer">
@@ -140,7 +156,7 @@
                 <span>Primeiro acesso</span>
             </div>
             <h1 class="ob-step__title">Bem-vindo ao<br><em>MoonShield.</em></h1>
-            <p class="ob-step__desc">Olá, <strong id="greetName">operador</strong> — vamos configurar sua conta em menos de 1 minuto.</p>
+            <p class="ob-step__desc">Olá, <strong id="greetName">operador</strong> — vamos preparar sua MoonShield Appliance.</p>
 
             <div class="ob-welcome-list">
                 <div class="ob-witem">
@@ -178,7 +194,6 @@
                     Começar
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
-                <button class="ob-btn ob-btn--ghost" id="btnSkip">Pular configuração</button>
             </div>
         </div>
 
@@ -235,7 +250,6 @@
                     <p class="ob-field__hint" id="confirmHint"></p>
                 </div>
             </div>
-
             <div class="ob-step__actions ob-step__actions--nav">
                 <button class="ob-btn ob-btn--ghost ob-btn--back" data-back="1">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
@@ -263,7 +277,7 @@
                     <label class="ob-field__label" for="fieldDisplayName">Nome de exibição</label>
                     <div class="ob-input-wrap">
                         <input type="text" class="ob-input" id="fieldDisplayName"
-                            placeholder="Ex: Pedro (Ph)" maxlength="50" autocomplete="off">
+                            placeholder="Ex: Pedro (Ph)" maxlength="50" autocomplete="off" value="{{ profile.display_name|escape }}">
                     </div>
                     <p class="ob-field__hint">Como você será chamado no sistema</p>
                 </div>
@@ -271,7 +285,7 @@
                     <label class="ob-field__label" for="fieldCargo">Cargo / Função</label>
                     <div class="ob-input-wrap">
                         <input type="text" class="ob-input" id="fieldCargo"
-                            placeholder="Ex: Analista SOC Sênior" maxlength="80" autocomplete="off">
+                            placeholder="Ex: Analista SOC Sênior" maxlength="80" autocomplete="off" value="{{ profile.cargo|escape }}">
                     </div>
                 </div>
             </div>
@@ -443,15 +457,27 @@
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
                     Voltar
                 </button>
-                <button class="ob-btn ob-btn--launch" id="btnLaunch">
+                <button class="ob-btn ob-btn--launch" id="btnStep5Next">
                     <span class="ob-btn-text">
-                        Entrar no MoonShield
+                        Continuar para a appliance
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </span>
                     <span class="ob-btn-loader"></span>
                 </button>
             </div>
         </div>
+
+        <div class="ob-step" id="step6">
+            <div class="ob-step__eyebrow"><span class="ob-step__num">03</span><span class="ob-step__sep">/</span><span>Identidade da appliance</span></div>
+            <h2 class="ob-step__title">Identifique o<br><em>equipamento.</em></h2>
+            <p class="ob-step__desc">Esta é a identidade administrativa. O hostname Linux é somente leitura.</p>
+            <div class="ob-fields"><div class="ob-field"><label class="ob-field__label" for="fieldApplianceName">Nome da Appliance</label><input class="ob-input" id="fieldApplianceName" maxlength="64" value="{{ configuracao.node_name|escape }}"></div><div class="ob-field"><label class="ob-field__label" for="fieldApplianceEnvironment">Ambiente administrativo</label><select class="ob-input" id="fieldApplianceEnvironment"><option value="lab"{% if configuracao.node_ambiente == 'lab' %} selected{% endif %}>LAB</option><option value="prod"{% if configuracao.node_ambiente == 'prod' %} selected{% endif %}>Produção</option></select></div><div class="ob-field"><label class="ob-field__label" for="fieldApplianceTag">Local / Tag</label><input class="ob-input" id="fieldApplianceTag" maxlength="128" value="{{ configuracao.node_tag|escape }}"></div><div class="ob-field"><label class="ob-field__label" for="fieldApplianceDesc">Descrição</label><input class="ob-input" id="fieldApplianceDesc" maxlength="255" value="{{ configuracao.node_desc|escape }}"></div></div>
+            <div class="ob-observed" id="applianceObserved">Carregando informações observadas…</div><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="5">Voltar</button><button class="ob-btn ob-btn--primary" id="btnStep6Next">Salvar identidade</button></div>
+        </div>
+        <div class="ob-step" id="step7"><div class="ob-step__eyebrow"><span class="ob-step__num">04</span><span class="ob-step__sep">/</span><span>Interfaces</span></div><h2 class="ob-step__title">Defina os papéis<br><em>da rede.</em></h2><p class="ob-step__desc">WAN e LAN são obrigatórias; MGMT é opcional. Nenhuma interface é selecionada automaticamente.</p><div class="ob-interface-grid" id="onboardingInterfaces">Carregando interfaces reais…</div><p class="ob-field__hint" id="interfacesHint"></p><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="6">Voltar</button><button class="ob-btn ob-btn--primary" id="btnStep7Next">Salvar papéis</button></div></div>
+        <div class="ob-step" id="step8"><div class="ob-step__eyebrow"><span class="ob-step__num">05</span><span class="ob-step__sep">/</span><span>Rede</span></div><h2 class="ob-step__title">Revise e aplique<br><em>com segurança.</em></h2><p class="ob-step__desc">A aplicação usa o Safe Apply da Rede. O rollback real pertence ao Agent.</p><div class="ob-review" id="networkReview">Carregando estado desejado…</div><div class="ob-safe-apply" id="safeApplyState" hidden></div><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="7">Voltar</button><button class="ob-btn ob-btn--primary" id="btnApplyNetwork">Aplicar configuração de rede</button></div></div>
+        <div class="ob-step" id="step9"><div class="ob-step__eyebrow"><span class="ob-step__num">06</span><span class="ob-step__sep">/</span><span>Proteção e validação</span></div><h2 class="ob-step__title">Confirme a<br><em>proteção local.</em></h2><p class="ob-step__desc">Estados reais. Configure IDS e Firewall nos assistentes especializados quando necessário.</p><div class="ob-service-grid" id="onboardingServices">Consultando componentes locais…</div><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="8">Voltar</button><button class="ob-btn ob-btn--primary" id="btnCompleteOnboarding">Validar e concluir</button></div><p class="ob-field__hint" id="completionHint"></p></div>
+        <div class="ob-step" id="step10"><div class="ob-step__eyebrow"><span class="ob-step__num">07</span><span class="ob-step__sep">/</span><span>Concluído</span></div><h2 class="ob-step__title">MoonShield<br><em>está pronto.</em></h2><p class="ob-step__desc">A configuração inicial da appliance foi registrada. Estados que requerem atenção continuam visíveis no painel.</p><div class="ob-step__actions"><a class="ob-btn ob-btn--primary" href="{% url 'painel:index' %}">Entrar no MoonShield</a></div></div>
 
     </main>
 </div>

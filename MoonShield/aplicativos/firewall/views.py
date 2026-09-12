@@ -99,6 +99,7 @@ from .services.firewall_rules import (
     obter_regras_linux,
     rollback as service_rollback,
 )
+from rede.services.topologia import obter_topologia
 from .services.firewall_status import (
     obter_diagnostico,
     obter_estado_firewall,
@@ -862,6 +863,23 @@ def api_fw_feed(request):
 # API — INSTALAÇÃO
 # =============================================================================
 
+def _topologia_oficial_firewall():
+    """Retorna os papéis da Rede; o assistente não aceita uma topologia paralela."""
+    topologia = obter_topologia()
+    wan = (topologia.get("wan") or {}).get("principal") or {}
+    lan = (topologia.get("lan") or {}).get("principal") or {}
+    mgmt = (topologia.get("mgmt") or {}).get("principal") or {}
+    if not wan or not lan:
+        raise ValueError("Configure WAN e LAN no módulo Rede antes do Firewall.")
+    if not topologia.get("valida"):
+        raise ValueError("Corrija a topologia oficial da Rede antes do Firewall.")
+    return {
+        "interface_wan": wan.get("nome", ""),
+        "interface_lan": lan.get("nome", ""),
+        "interface_mgmt": mgmt.get("nome", "") if mgmt else "",
+        "home_net": ",".join(topologia.get("home_net") or []),
+    }
+
 @require_POST
 @login_required(login_url=LOGIN_URL)
 def api_install(request):
@@ -877,42 +895,15 @@ def api_install(request):
     if erro_response:
         return erro_response
 
-    interface_wan = str(
-        dados.get(
-            "interface_wan"
-        )
-        or dados.get(
-            "wan"
-        )
-        or ""
-    ).strip()
+    try:
+        rede_oficial = _topologia_oficial_firewall()
+    except Exception as exc:
+        return JsonResponse({"ok": False, "erro": {"mensagem": str(exc)}}, status=409)
 
-    interface_lan = str(
-        dados.get(
-            "interface_lan"
-        )
-        or dados.get(
-            "lan"
-        )
-        or ""
-    ).strip()
-
-    interface_mgmt = str(
-        dados.get(
-            "interface_mgmt"
-        )
-        or dados.get(
-            "mgmt"
-        )
-        or ""
-    ).strip()
-
-    home_net = str(
-        dados.get(
-            "home_net"
-        )
-        or ""
-    ).strip()
+    interface_wan = rede_oficial["interface_wan"]
+    interface_lan = rede_oficial["interface_lan"]
+    interface_mgmt = rede_oficial["interface_mgmt"]
+    home_net = rede_oficial["home_net"]
 
     payload = {
         "interface_wan": interface_wan,
@@ -1003,20 +994,12 @@ def api_repair(request):
     if erro_response:
         return erro_response
 
-    payload = {
-        "interface_wan": dados.get(
-            "interface_wan"
-        ),
-        "interface_lan": dados.get(
-            "interface_lan"
-        ),
-        "interface_mgmt": dados.get(
-            "interface_mgmt"
-        ),
-        "home_net": dados.get(
-            "home_net"
-        ),
-    }
+    try:
+        rede_oficial = _topologia_oficial_firewall()
+    except Exception as exc:
+        return JsonResponse({"ok": False, "erro": {"mensagem": str(exc)}}, status=409)
+
+    payload = rede_oficial
 
     tarefa, resultado = _executar_tarefa_sincrona(
         tipo=TarefaFirewall.Tipo.REPARAR,

@@ -20,13 +20,6 @@
         })();
     </script>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-        rel="stylesheet"
-    >
-
     <link rel="stylesheet" href="{% static 'css/firewall/instalacao.css' %}">
     <link rel="icon" type="image/png" sizes="32x32" href="{% static 'favicon/favicon-32x32.png' %}">
 </head>
@@ -46,12 +39,14 @@
             precheck: precheckEl ? JSON.parse(precheckEl.textContent) : {},
             urls: {
                 painel: "{% url 'firewall:painel' %}",
+                onboardingAppliance: "{% url 'autenticacao:onboarding' %}",
                 status: "{% url 'firewall:api_status' %}",
                 diagnostico: "{% url 'firewall:api_diagnostico' %}",
                 interfaces: "{% url 'firewall:api_interfaces' %}",
                 instalar: "{% url 'firewall:api_install' %}",
                 reparar: "{% url 'firewall:api_repair' %}",
-                tarefas: "{% url 'firewall:api_tasks' %}"
+                tarefas: "{% url 'firewall:api_tasks' %}",
+                redeTopologia: "{% url 'rede_api:topologia' %}"
             }
         };
     </script>
@@ -373,7 +368,7 @@
                                     <span>Internet / uplink</span>
                                 </label>
                                 <div class="select-wrap">
-                                    <select id="selectWan" required>
+                                    <select id="selectWan" required disabled>
                                         <option value="">Selecione a interface WAN</option>
                                     </select>
                                 </div>
@@ -386,7 +381,7 @@
                                     <span>Gerenciamento</span>
                                 </label>
                                 <div class="select-wrap">
-                                    <select id="selectMgmt" required>
+                                    <select id="selectMgmt" required disabled>
                                         <option value="">Selecione a interface de gerenciamento</option>
                                     </select>
                                 </div>
@@ -401,7 +396,7 @@
                                     <span>Rede protegida</span>
                                 </label>
                                 <div class="select-wrap">
-                                    <select id="selectLan" required>
+                                    <select id="selectLan" required disabled>
                                         <option value="">Selecione a interface LAN</option>
                                     </select>
                                 </div>
@@ -415,11 +410,12 @@
                                 </label>
                                 <input
                                     id="inputHomeNet"
+                                    disabled
                                     type="text"
                                     inputmode="text"
                                     autocomplete="off"
                                     spellcheck="false"
-                                    placeholder="10.10.0.0/24"
+                                    placeholder="Derivada da Rede oficial"
                                 >
                                 <small class="field__help">Informe a rede interna em CIDR.</small>
                             </div>
@@ -604,7 +600,7 @@
                         </div>
 
                         <div class="page-actions page-actions--center">
-                            <a href="{% url 'firewall:painel' %}" class="btn btn--primary">
+                            <a href="{% url 'firewall:painel' %}" class="btn btn--primary" id="btnFirewallSuccessTarget">
                                 Abrir Firewall
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="m9 18 6-6-6-6"></path>

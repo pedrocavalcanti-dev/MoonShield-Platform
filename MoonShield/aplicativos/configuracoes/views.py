@@ -5,6 +5,7 @@ import logging
 from urllib.parse import urlparse
 
 from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -99,6 +100,7 @@ def _url_adguard_local(cfg: ConfigSistema) -> str:
 def _estado_adguard(cfg: ConfigSistema) -> dict:
     base = {
         "tipo": "adguard", "nome": "AdGuard Home", "fonte": "local", "ativo": False,
+        "configurado": bool(AdGuardClient),
         "saudavel": False, "status": "indisponivel", "status_label": "Indisponível",
         "dns_resolver": False, "api": False, "protecao": False, "filtros_ativos": 0, "versao": "—",
     }
@@ -113,6 +115,7 @@ def _estado_adguard(cfg: ConfigSistema) -> dict:
         return {
             **base,
             "ativo": ativo,
+            "configurado": True,
             "saudavel": operacional,
             "status": "operacional" if operacional else "atencao",
             "status_label": "Operacional" if operacional else "Requer atenção",
@@ -133,6 +136,7 @@ def _estado_adguard(cfg: ConfigSistema) -> dict:
 def _estado_suricata(topologia: dict) -> dict:
     base = {
         "tipo": "suricata", "nome": "Suricata IDS", "fonte": "local", "ativo": False,
+        "configurado": False,
         "saudavel": False, "status": "indisponivel", "status_label": "Indisponível",
         "eve_ativo": False, "monitor_ativo": False, "worker_ativo": False, "versao": "—",
         "interfaces": [], "home_net": list(topologia.get("home_net") or []), "drift": "Nenhum",
@@ -155,6 +159,7 @@ def _estado_suricata(topologia: dict) -> dict:
         operacional = bool(ativo and eve_ativo and monitor_ativo and worker_ativo)
         return {
             **base,
+            "configurado": bool(configuracao),
             "ativo": ativo, "saudavel": operacional,
             "status": "operacional" if operacional else "atencao",
             "status_label": "Operacional" if operacional else "Requer atenção",
@@ -171,6 +176,7 @@ def _estado_suricata(topologia: dict) -> dict:
 def _estado_firewall() -> dict:
     base = {
         "tipo": "firewall", "nome": "Firewall MoonShield", "fonte": "local", "ativo": False,
+        "configurado": False,
         "saudavel": False, "status": "indisponivel", "status_label": "Indisponível",
         "engine": "nftables", "agent_online": False, "drift": "Nenhum",
     }
@@ -181,6 +187,7 @@ def _estado_firewall() -> dict:
         operacional = bool(estado.get("operacional"))
         return {
             **base,
+            "configurado": bool(estado.get("configurado") or estado.get("instalado")),
             "ativo": bool(estado.get("ativo")), "saudavel": operacional,
             "status": estado.get("status") or ("operacional" if operacional else "atencao"),
             "status_label": estado.get("status_label") or ("Operacional" if operacional else "Requer atenção"),
@@ -211,17 +218,20 @@ def _servicos(cfg: ConfigSistema, topologia: dict) -> dict:
     }
 
 
+@login_required(login_url="autenticacao:login")
 def configuracoes_view(request):
     return render(request, "configuracoes/configuracoes.html", {"titulo_pagina": "Configurações da MoonShield Appliance"})
 
 
 @require_GET
+@login_required(login_url="autenticacao:login")
 def api_get_config(request):
     cfg = ConfigSistema.get_solo()
     return JsonResponse({"ok": True, "config": _config_editavel(cfg, _topologia())})
 
 
 @require_POST
+@login_required(login_url="autenticacao:login")
 def api_salvar_config(request):
     try:
         data = json.loads(request.body.decode("utf-8"))
@@ -260,6 +270,7 @@ def api_salvar_config(request):
 
 
 @require_GET
+@login_required(login_url="autenticacao:login")
 def api_servicos(request):
     cfg = ConfigSistema.get_solo()
     dados = _servicos(cfg, _topologia())
@@ -272,12 +283,14 @@ def api_servicos(request):
 
 
 @require_GET
+@login_required(login_url="autenticacao:login")
 def api_sysinfo(request):
     topologia = _topologia()
     return JsonResponse({"ok": True, "sysinfo": get_sysinfo_real(_ip_de_gerenciamento(topologia))})
 
 
 @require_GET
+@login_required(login_url="autenticacao:login")
 def api_quick_test(request):
     test = request.GET.get("test", "")
     if test == "ping":

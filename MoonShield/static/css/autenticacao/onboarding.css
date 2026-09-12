@@ -1531,3 +1531,151 @@ body {
     }
 }
 
+/* Primeiro boot da appliance */
+.ob-observed,
+.ob-review,
+.ob-safe-apply,
+.ob-interface-grid,
+.ob-service-grid {
+    display: grid;
+    gap: 12px;
+    margin-top: 22px;
+}
+
+.ob-observed,
+.ob-safe-apply,
+.ob-review,
+.ob-interface-card,
+.ob-service-card {
+    border: 1px solid var(--ob-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .025);
+}
+
+.ob-observed {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 14px;
+}
+
+.ob-observed span,
+.ob-review > div,
+.ob-interface-card,
+.ob-service-card {
+    padding: 14px;
+}
+
+.ob-observed span,
+.ob-review > div {
+    display: grid;
+    gap: 5px;
+}
+
+.ob-observed small,
+.ob-review span,
+.ob-service-card p,
+.ob-interface-card p {
+    color: var(--ob-dim);
+    font-size: 11px;
+}
+
+.ob-observed strong,
+.ob-review strong,
+.ob-service-card strong,
+.ob-interface-card strong {
+    color: var(--ob-text);
+}
+
+.ob-interface-grid,
+.ob-service-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ob-interface-card header,
+.ob-service-card header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.ob-interface-card label {
+    display: grid;
+    gap: 6px;
+    margin-top: 14px;
+    color: var(--ob-dim);
+    font-size: 11px;
+}
+
+.ob-ipv4-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--ob-border);
+}
+
+.ob-ipv4-fields[hidden] { display: none; }
+
+.ob-ipv4-fields input,
+.ob-ipv4-fields select {
+    width: 100%;
+    padding: 8px 9px;
+    border: 1px solid var(--ob-border);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, .18);
+    color: var(--ob-text);
+}
+
+.ob-interface-card select {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--ob-border);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, .18);
+    color: var(--ob-text);
+}
+
+.ob-status-pill,
+.ob-service-card header span {
+    padding: 4px 7px;
+    border: 1px solid rgba(34, 197, 94, .3);
+    border-radius: 999px;
+    color: #86efac;
+    font: 10px var(--ob-mono);
+    white-space: nowrap;
+}
+
+.ob-review {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ob-review-status {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--ob-dim);
+}
+
+.ob-safe-apply {
+    padding: 16px;
+    color: var(--ob-text);
+}
+
+.ob-safe-apply p {
+    color: var(--ob-dim);
+}
+
+.ob-service-card {
+    display: grid;
+    gap: 10px;
+}
+
+@media (max-width: 760px) {
+    .ob-observed,
+    .ob-interface-grid,
+    .ob-service-grid,
+    .ob-review { grid-template-columns: 1fr; }
+    .ob-review-status { grid-column: auto; }
+    .ob-ipv4-fields { grid-template-columns: 1fr; }
+}
+

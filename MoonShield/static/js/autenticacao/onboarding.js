@@ -1,546 +1,193 @@
-/**
- * MOONSHIELD — ONBOARDING.JS  v14
- * 5 steps: Boas-vindas · Credenciais · Identidade · Avatar · Tema
- *
- * v13 — overlay final reformulado:
- *   - Removido "SEJA BEM-VINDO, [nome]" em estilo de login
- *   - Substituído por "Bem-vindo ao MoonShield" com escudo + nome do usuário
- *     como subtítulo discreto — visual próprio, distinto do welcome pós-login
- */
-
-document.addEventListener('DOMContentLoaded', () => {
-
+/* Primeiro boot da MoonShield Appliance. O navegador coordena APIs existentes;
+ * estado desejado, Safe Apply e rollback continuam pertencendo aos módulos oficiais. */
+document.addEventListener("DOMContentLoaded", () => {
   const OB = window.OB || {};
-  const TOTAL_STEPS = 5;
-
-  /* ══ 1. CANVAS DE ESTRELAS (fundo do onboarding) ═══════ */
-  const canvas = document.getElementById('starsCanvas');
-  const ctx = canvas ? canvas.getContext('2d') : null;
-  let stars = [];
-
-  function resizeCanvas() {
-    if (!canvas) return;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    buildStars();
-  }
-  function buildStars() {
-    stars = [];
-    const n = Math.floor((canvas.width * canvas.height) / 4200);
-    for (let i = 0; i < n; i++) {
-      stars.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        r: Math.random() * 1.1 + 0.2,
-        phase: Math.random() * Math.PI * 2,
-        speed: Math.random() * 0.005 + 0.002,
-      });
-    }
-  }
-  function drawStars(ts) {
-    if (!ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (const s of stars) {
-      const a = 0.2 + 0.6 * Math.abs(Math.sin(s.phase + ts * s.speed));
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(200,220,255,${a.toFixed(2)})`;
-      ctx.fill();
-    }
-    requestAnimationFrame(drawStars);
-  }
-  resizeCanvas();
-  requestAnimationFrame(drawStars);
-  window.addEventListener('resize', resizeCanvas);
-
-
-  /* ══ 2. ESTADO GLOBAL ══════════════════════════════════ */
+  const TOTAL_STEPS = 10;
   let currentStep = 1;
   let avatarFile = null;
-  let avatarColor = '#3b82f6';
-  let chosenTheme = 'dark';
+  let avatarColor = "#3b82f6";
+  let chosenTheme = OB.tema === "light" ? "light" : "dark";
+  let interfaces = [];
+  let topology = {};
+  let safeApplyPoll = null;
 
-  const initials = OB.initials || (OB.username ? OB.username.slice(0, 2).toUpperCase() : 'OP');
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (value) => String(value ?? "—").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char]));
+  const csrfHeaders = () => ({ "Content-Type": "application/json", "X-CSRFToken": OB.csrfToken, Accept: "application/json" });
 
-  /* Greet */
-  const greetEl = document.getElementById('greetName');
-  if (greetEl) greetEl.textContent = OB.fullName || OB.username || 'operador';
-
-  /* Avatar */
-  const avatarPreview = document.getElementById('avatarPreview');
-  const avatarInitials = document.getElementById('avatarInitials');
-  const avatarImg = document.getElementById('avatarImg');
-  if (avatarInitials) avatarInitials.textContent = initials;
-
-  if (OB.avatarUrl && avatarImg) {
-    avatarImg.src = OB.avatarUrl;
-    avatarImg.style.display = 'block';
-    if (avatarInitials) avatarInitials.style.display = 'none';
-  }
-
-  /* Tema salvo anteriormente */
-  if (OB.tema === 'light') {
-    const r = document.querySelector('input[name="obTheme"][value="light"]');
-    if (r) r.checked = true;
-    chosenTheme = 'light';
-  }
-
-  /* Aplica cor inicial do avatar */
-  applyAvatarColor(avatarColor);
-
-
-  /* ══ 3. NAVEGAÇÃO ══════════════════════════════════════ */
-  function goToStep(n) {
-    const prev = document.getElementById('step' + currentStep);
-    const next = document.getElementById('step' + n);
-    if (!prev || !next) return;
-
-    prev.classList.remove('active');
-    next.classList.add('active');
-
-    updateSidebar(n);
-    updateMobileBar(n);
-    currentStep = n;
-
-    const firstInput = next.querySelector('input:not([type="radio"]):not([type="hidden"])');
-    if (firstInput) setTimeout(() => firstInput.focus(), 80);
-  }
-
-  function updateSidebar(n) {
-    document.querySelectorAll('.ob-nav-step').forEach(el => {
-      const s = parseInt(el.dataset.step);
-      el.classList.remove('ob-nav-step--active', 'ob-nav-step--done');
-      if (s < n) el.classList.add('ob-nav-step--done');
-      else if (s === n) el.classList.add('ob-nav-step--active');
-    });
-  }
-
-  function updateMobileBar(n) {
-    const bar = document.getElementById('mobileBar');
-    if (bar) bar.style.width = ((n / TOTAL_STEPS) * 100) + '%';
-  }
-
-  /* Botões avançar */
-  document.getElementById('btnStep1Next')?.addEventListener('click', () => goToStep(2));
-  document.getElementById('btnStep3Next')?.addEventListener('click', () => goToStep(4));
-  document.getElementById('btnStep4Next')?.addEventListener('click', () => goToStep(5));
-
-  /* Botões voltar */
-  document.querySelectorAll('.ob-btn--back').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const back = parseInt(btn.dataset.back);
-      goToStep(back);
-    });
-  });
-
-  /* Pular onboarding */
-document.getElementById('btnSkip')?.addEventListener('click', () => {
-    markComplete().finally(() => { window.location.href = OB.urls.dashboard; });
-});
-
-
-  /* ══ 4. STEP 2 — CREDENCIAIS ═══════════════════════════ */
-  const fieldUsername = document.getElementById('fieldUsername');
-  const fieldSenha = document.getElementById('fieldSenha');
-  const fieldSenhaConfirm = document.getElementById('fieldSenhaConfirm');
-  const confirmStatus = document.getElementById('confirmStatus');
-  const usernameHint = document.getElementById('usernameHint');
-  const confirmHint = document.getElementById('confirmHint');
-  const strengthLabel = document.getElementById('strengthLabel');
-
-  if (fieldUsername) fieldUsername.value = OB.username || '';
-
-  document.getElementById('eyeSenha')?.addEventListener('click', () => {
-    if (!fieldSenha) return;
-    const isHidden = fieldSenha.type === 'password';
-    fieldSenha.type = isHidden ? 'text' : 'password';
-    document.getElementById('eyeIconHide').style.display = isHidden ? 'none' : 'block';
-    document.getElementById('eyeIconShow').style.display = isHidden ? 'block' : 'none';
-  });
-
-  fieldSenha?.addEventListener('input', () => {
-    const score = calcStrength(fieldSenha.value);
-    const labels = ['', 'Fraca', 'Razoável', 'Boa', 'Forte'];
-    const colors = ['', '#ef4444', '#f97316', '#eab308', '#22c55e'];
-    for (let i = 1; i <= 4; i++) {
-      const bar = document.getElementById('sbar' + i);
-      if (!bar) continue;
-      bar.className = 'ob-strength__bar' + (i <= score ? ' on-' + score : '');
+  async function requestJSON(url, options = {}) {
+    const response = await fetch(url, { credentials: "same-origin", ...options });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      const error = new Error(data.msg || data.erro?.mensagem || "Não foi possível concluir esta etapa.");
+      error.payload = data;
+      error.status = response.status;
+      throw error;
     }
-    if (strengthLabel) {
-      strengthLabel.textContent = labels[score] || '';
-      strengthLabel.style.color = colors[score] || 'var(--ob-dim)';
-    }
-    checkConfirm();
-  });
-
-  fieldSenhaConfirm?.addEventListener('input', checkConfirm);
-
-  function calcStrength(p) {
-    if (!p) return 0;
-    let s = 0;
-    if (p.length >= 8) s++;
-    if (p.length >= 12) s++;
-    if (/[A-Z]/.test(p) && /[a-z]/.test(p)) s++;
-    if (/[0-9]/.test(p)) s++;
-    if (/[^a-zA-Z0-9]/.test(p)) s++;
-    return Math.min(4, Math.ceil(s * 0.8));
+    return data;
   }
 
-  function checkConfirm() {
-    if (!fieldSenha || !fieldSenhaConfirm) return;
-    const s = fieldSenha.value;
-    const c = fieldSenhaConfirm.value;
-    if (!c) {
-      setInputState(fieldSenhaConfirm, '');
-      if (confirmStatus) confirmStatus.textContent = '';
-      if (confirmHint) confirmHint.textContent = '';
-      return;
-    }
-    if (s === c) {
-      setInputState(fieldSenhaConfirm, 'ok');
-      if (confirmStatus) { confirmStatus.textContent = '✓'; confirmStatus.style.color = '#22c55e'; }
-      if (confirmHint) { confirmHint.textContent = 'Senhas conferem.'; confirmHint.style.color = '#22c55e'; }
-    } else {
-      setInputState(fieldSenhaConfirm, 'error');
-      if (confirmStatus) { confirmStatus.textContent = '✕'; confirmStatus.style.color = '#ef4444'; }
-      if (confirmHint) { confirmHint.textContent = 'Senhas não coincidem.'; confirmHint.style.color = '#ef4444'; }
-    }
+  const getJSON = (url) => requestJSON(url, { headers: { Accept: "application/json" } });
+  const postJSON = (url, body) => requestJSON(url, { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body || {}) });
+
+  function setHint(id, message, color = "") { const element = $(id); if (element) { element.textContent = message; element.style.color = color; } }
+  function setBusy(button, busy) { if (button) { button.disabled = busy; button.classList.toggle("loading", busy); } }
+
+  function initVisuals() {
+    const canvas = $("starsCanvas"); const context = canvas?.getContext("2d"); let stars = [];
+    const resize = () => { if (!canvas) return; canvas.width = window.innerWidth; canvas.height = window.innerHeight; stars = Array.from({ length: Math.floor((canvas.width * canvas.height) / 4200) }, () => ({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: Math.random() * 1.1 + 0.2, phase: Math.random() * Math.PI * 2, speed: Math.random() * 0.005 + 0.002 })); };
+    const draw = (time) => { if (!context || !canvas) return; context.clearRect(0, 0, canvas.width, canvas.height); stars.forEach((star) => { context.beginPath(); context.arc(star.x, star.y, star.r, 0, Math.PI * 2); context.fillStyle = `rgba(200,220,255,${(0.2 + 0.6 * Math.abs(Math.sin(star.phase + time * star.speed))).toFixed(2)})`; context.fill(); }); requestAnimationFrame(draw); };
+    resize(); if (context) requestAnimationFrame(draw); window.addEventListener("resize", resize);
+
+    const initials = OB.initials || (OB.username || "OP").slice(0, 2).toUpperCase(); const initialsEl = $("avatarInitials"); const imageEl = $("avatarImg"); const preview = $("avatarPreview");
+    if (initialsEl) initialsEl.textContent = initials;
+    if (OB.avatarUrl && imageEl) { imageEl.src = OB.avatarUrl; imageEl.style.display = "block"; if (initialsEl) initialsEl.style.display = "none"; }
+    const applyColor = (color) => { if (preview) { preview.style.background = `${color}18`; preview.style.outline = `2px solid ${color}40`; preview.style.outlineOffset = "3px"; } if (initialsEl) initialsEl.style.color = color; };
+    applyColor(avatarColor);
+    $("eyeSenha")?.addEventListener("click", () => { const password = $("fieldSenha"); if (!password) return; const visible = password.type === "password"; password.type = visible ? "text" : "password"; if ($("eyeIconHide")) $("eyeIconHide").style.display = visible ? "none" : "block"; if ($("eyeIconShow")) $("eyeIconShow").style.display = visible ? "block" : "none"; });
+    document.querySelectorAll(".ob-color-dot").forEach((dot) => dot.addEventListener("click", () => { document.querySelectorAll(".ob-color-dot").forEach((item) => item.classList.remove("active")); dot.classList.add("active"); avatarColor = dot.dataset.color || avatarColor; applyColor(avatarColor); }));
+    $("avatarInput")?.addEventListener("change", (event) => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 2 * 1024 * 1024) { setHint("avatarHint", "Arquivo muito grande. Máximo 2MB.", "#ef4444"); return; } avatarFile = file; const reader = new FileReader(); reader.onload = (loadEvent) => { if (imageEl) { imageEl.src = loadEvent.target.result; imageEl.style.display = "block"; if (initialsEl) initialsEl.style.display = "none"; } setHint("avatarHint", "Foto selecionada.", "#22c55e"); }; reader.readAsDataURL(file); });
+    if (OB.tema === "light") { const light = document.querySelector("input[name=obTheme][value=light]"); if (light) light.checked = true; }
   }
 
-  function setInputState(el, state) {
-    el.classList.remove('is-error', 'is-ok');
-    if (state === 'error') el.classList.add('is-error');
-    if (state === 'ok') el.classList.add('is-ok');
+  function goToStep(step) {
+    const current = $("step" + currentStep);
+    const next = $("step" + step);
+    if (!next) return;
+    current?.classList.remove("active"); next.classList.add("active"); currentStep = step;
+    document.querySelectorAll(".ob-nav-step").forEach((item) => { const number = Number(item.dataset.step); item.classList.toggle("ob-nav-step--active", number === step); item.classList.toggle("ob-nav-step--done", number < step); });
+    const bar = $("mobileBar"); if (bar) bar.style.width = `${(step / TOTAL_STEPS) * 100}%`;
+    next.querySelector("input:not([type=hidden]):not([type=radio]), select")?.focus();
+    if (step === 6) loadApplianceIdentity();
+    if (step === 7) loadInterfaces();
+    if (step === 8) renderNetworkReview();
+    if (step === 9) loadServices();
   }
 
-  document.getElementById('btnStep2Next')?.addEventListener('click', async () => {
-    const username = fieldUsername?.value.trim() || '';
-    const senha = fieldSenha?.value || '';
-    const confirma = fieldSenhaConfirm?.value || '';
+  function backButtons() { document.querySelectorAll(".ob-btn--back").forEach((button) => button.addEventListener("click", () => goToStep(Number(button.dataset.back)))); }
 
-    if (!username) {
-      shakeField(fieldUsername);
-      if (usernameHint) { usernameHint.textContent = '⚠ Informe um nome de usuário.'; usernameHint.style.color = '#ef4444'; }
-      return;
-    }
-    if (!/^[\w.@+\-]+$/.test(username)) {
-      shakeField(fieldUsername);
-      if (usernameHint) { usernameHint.textContent = '⚠ Apenas letras, números, @, ., +, -, _'; usernameHint.style.color = '#ef4444'; }
-      return;
-    }
-    if (senha.length < 8) { shakeField(fieldSenha); return; }
-    if (senha !== confirma) { shakeField(fieldSenhaConfirm); return; }
+  function calcStrength(password) {
+    if (!password) return 0;
+    let score = 0; if (password.length >= 8) score++; if (password.length >= 12) score++; if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++; if (/\d/.test(password)) score++; if (/[^a-zA-Z0-9]/.test(password)) score++;
+    return Math.min(4, Math.ceil(score * 0.8));
+  }
 
-    const btn = document.getElementById('btnStep2Next');
-    btn.classList.add('loading');
-    btn.disabled = true;
+  function updatePasswordFeedback() {
+    const password = $("fieldSenha")?.value || ""; const score = calcStrength(password); const labels = ["", "Fraca", "Razoável", "Boa", "Forte"]; const colors = ["", "#ef4444", "#f97316", "#eab308", "#22c55e"];
+    for (let index = 1; index <= 4; index++) { const bar = $("sbar" + index); if (bar) bar.className = `ob-strength__bar${index <= score ? ` on-${score}` : ""}`; }
+    const label = $("strengthLabel"); if (label) { label.textContent = labels[score]; label.style.color = colors[score] || ""; }
+    const confirm = $("fieldSenhaConfirm")?.value || ""; const hint = $("confirmHint");
+    if (!confirm) { if (hint) hint.textContent = ""; return; }
+    if (password === confirm) { if (hint) { hint.textContent = "Senhas conferem."; hint.style.color = "#22c55e"; } $("fieldSenhaConfirm")?.classList.remove("is-error"); }
+    else { if (hint) { hint.textContent = "Senhas não coincidem."; hint.style.color = "#ef4444"; } $("fieldSenhaConfirm")?.classList.add("is-error"); }
+  }
 
+  async function saveCredentials() {
+    const username = $("fieldUsername")?.value.trim() || ""; const password = $("fieldSenha")?.value || ""; const confirmation = $("fieldSenhaConfirm")?.value || "";
+    if (!username || !/^[\w.@+\-]+$/.test(username)) { setHint("usernameHint", "Informe um nome de usuário válido.", "#ef4444"); return; }
+    if (password.length < 8 || password !== confirmation) { setHint("confirmHint", password.length < 8 ? "A senha deve atender à política de segurança." : "Senhas não coincidem.", "#ef4444"); return; }
+    const button = $("btnStep2Next"); setBusy(button, true);
+    try { await postJSON(OB.urls.salvarCredenciais, { username, senha: password }); goToStep(3); } catch (error) { setHint("usernameHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
+  }
+
+  async function saveProfile() {
+    const button = $("btnStep3Next"); setBusy(button, true);
+    try { await postJSON(OB.urls.salvarPerfil, { display_name: $("fieldDisplayName")?.value.trim() || "", cargo: $("fieldCargo")?.value.trim() || "" }); goToStep(4); }
+    catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
+  }
+
+  async function saveProfilePreferences() {
+    const button = $("btnStep5Next"); setBusy(button, true);
     try {
-      const res = await postJSON(OB.urls.salvarCredenciais, { username, senha });
-      if (res.ok) {
-        goToStep(3);
-      } else {
-        if (usernameHint) { usernameHint.textContent = '⚠ ' + (res.msg || 'Erro ao salvar.'); usernameHint.style.color = '#ef4444'; }
-        shakeField(fieldUsername);
-      }
-    } catch (e) {
-      if (usernameHint) { usernameHint.textContent = '⚠ Erro de conexão.'; usernameHint.style.color = '#ef4444'; }
-    } finally {
-      btn.classList.remove('loading');
-      btn.disabled = false;
-    }
-  });
-
-  function shakeField(el) {
-    if (!el) return;
-    const wrap = el.closest('.ob-input-wrap') || el;
-    wrap.classList.add('ob-shake');
-    wrap.addEventListener('animationend', () => wrap.classList.remove('ob-shake'), { once: true });
+      if (avatarFile) { const form = new FormData(); form.append("avatar", avatarFile); const response = await fetch(OB.urls.uploadAvatar, { method: "POST", headers: { "X-CSRFToken": OB.csrfToken }, body: form }); if (!response.ok) throw new Error("Não foi possível salvar o avatar."); }
+      await postJSON(OB.urls.salvarPerfil, { avatar_color: avatarColor }); await postJSON(OB.urls.salvarPrefs, { tema: chosenTheme }); localStorage.setItem("moonshield_theme", chosenTheme); goToStep(6);
+    } catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
-
-  /* ══ 5. AVATAR ═════════════════════════════════════════ */
-  document.querySelectorAll('.ob-color-dot').forEach(dot => {
-    dot.addEventListener('click', () => {
-      document.querySelectorAll('.ob-color-dot').forEach(d => d.classList.remove('active'));
-      dot.classList.add('active');
-      avatarColor = dot.dataset.color;
-      applyAvatarColor(avatarColor);
-    });
-  });
-
-  function applyAvatarColor(color) {
-    if (!avatarPreview) return;
-    avatarPreview.style.background = color + '18';
-    avatarPreview.style.outline = `2px solid ${color}40`;
-    avatarPreview.style.outlineOffset = '3px';
-    if (avatarInitials) avatarInitials.style.color = color;
-  }
-
-  const avatarInput = document.getElementById('avatarInput');
-  document.getElementById('btnUploadAvatar')?.addEventListener('click', () => {
-    avatarInput?.click();
-  });
-  avatarInput?.addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setHint('avatarHint', '⚠ Arquivo muito grande. Máx 2MB.', '#ef4444');
-      return;
-    }
-    avatarFile = file;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      if (avatarImg) {
-        avatarImg.src = ev.target.result;
-        avatarImg.style.display = 'block';
-        if (avatarInitials) avatarInitials.style.display = 'none';
-      }
-      setHint('avatarHint', '✓ Foto selecionada.', '#22c55e');
-    };
-    reader.readAsDataURL(file);
-  });
-
-
-  /* ══ 6. TEMA ═══════════════════════════════════════════ */
-  document.querySelectorAll('input[name="obTheme"]').forEach(radio => {
-    radio.addEventListener('change', () => { chosenTheme = radio.value; });
-  });
-
-
-  /* ══ 7. LAUNCH ═════════════════════════════════════════ */
-document.getElementById('btnLaunch')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btnLaunch');
-    btn.classList.add('loading');
-
+  async function loadApplianceIdentity() {
     try {
-        const displayName = document.getElementById('fieldDisplayName')?.value.trim() || '';
-        const cargo = document.getElementById('fieldCargo')?.value.trim() || '';
-        if (displayName || cargo) {
-            await postJSON(OB.urls.salvarPerfil, { display_name: displayName, cargo });
-        }
-        if (avatarFile) {
-            const fd = new FormData();
-            fd.append('avatar', avatarFile);
-            await fetch(OB.urls.uploadAvatar, {
-                method: 'POST',
-                headers: { 'X-CSRFToken': OB.csrfToken },
-                body: fd,
-            });
-        }
-        await postJSON(OB.urls.salvarPerfil, { avatar_color: avatarColor });
-        await postJSON(OB.urls.salvarPrefs, { tema: chosenTheme });
-        localStorage.setItem('jg_theme', chosenTheme);
-        await markComplete();
-
-        // SEM launchWelcome() aqui — o dashboard cuida disso
-        window.location.href = OB.urls.dashboard;
-
-    } catch (err) {
-        console.error('Onboarding launch error:', err);
-        window.location.href = OB.urls.dashboard;
-    }
-});
-
-  /* ══ 8. LAUNCH WELCOME ══════════════════════════════════
-   *
-   * Overlay de transição entre o onboarding e o dashboard.
-   * Intencionalmente DIFERENTE do welcome pós-login (welcome.js):
-   *   - Foco em "Bem-vindo ao MoonShield" (produto), não no nome do usuário
-   *   - Nome aparece só como subtítulo discreto ("Olá, Pedro")
-   *   - Escudo SVG animado em vez do nome em tamanho de display
-   *
-   * ══════════════════════════════════════════════════════ */
-  function launchWelcome(name, callback) {
-    if (!document.getElementById('ms-welcome-inline-css')) {
-      const style = document.createElement('style');
-      style.id = 'ms-welcome-inline-css';
-      style.textContent = `
-        #msWelcomeOverlay{position:fixed;inset:0;z-index:9999;background:#06080f;display:flex;align-items:center;justify-content:center;overflow:hidden;animation:msOvIn .4s ease forwards;}
-        @keyframes msOvIn{from{opacity:0}to{opacity:1}}
-        #msWelcomeOverlay.ms-exit{animation:msWarpOut .7s cubic-bezier(.4,0,1,1) forwards;}
-        @keyframes msWarpOut{0%{transform:scale(1);opacity:1;filter:blur(0)}35%{transform:scale(1.04);opacity:1;filter:blur(0)}100%{transform:scale(4.2);opacity:0;filter:blur(24px)}}
-        #msStarsCanvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
-        .ms-ov-glow{position:absolute;border-radius:50%;pointer-events:none;}
-        .ms-ov-glow--blue{width:800px;height:800px;top:50%;left:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(59,130,246,.09) 0%,transparent 65%);animation:msGlowPulse 2.4s ease-in-out infinite alternate;}
-        .ms-ov-glow--purple{width:500px;height:500px;top:50%;left:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(168,85,247,.06) 0%,transparent 65%);animation:msGlowPulse 3s ease-in-out infinite alternate-reverse;}
-        @keyframes msGlowPulse{from{opacity:.4}to{opacity:1}}
-
-        .ms-ov-body{position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;text-align:center;gap:0;animation:msBodyIn .8s cubic-bezier(.16,1,.3,1) .2s both;}
-        @keyframes msBodyIn{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
-
-        /* Escudo */
-        .ms-ov-shield{margin-bottom:20px;animation:msShieldIn .7s cubic-bezier(.16,1,.3,1) .3s both;}
-        @keyframes msShieldIn{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}
-        .ms-ov-shield svg{filter:drop-shadow(0 0 18px rgba(147,197,253,.35));width:52px;height:52px;}
-
-        /* "Bem-vindo ao" */
-        .ms-ov-welcome-label{font-family:'Space Grotesk',sans-serif;font-size:clamp(13px,2vw,18px);font-weight:300;color:rgba(238,242,255,.45);margin:0 0 6px;letter-spacing:.01em;animation:msGreetIn .6s ease .55s both;}
-        @keyframes msGreetIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
-
-        /* "MoonShield" — destaque principal */
-        .ms-ov-brand{font-family:'Space Grotesk','DM Sans',sans-serif;font-size:clamp(36px,7vw,80px);font-weight:800;letter-spacing:-.04em;line-height:1;margin:0 0 22px;background:linear-gradient(135deg,#e0eaff 0%,#93c5fd 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:msNameIn .8s cubic-bezier(.16,1,.3,1) .65s both;}
-        @keyframes msNameIn{from{opacity:0;transform:translateY(14px) scale(.97);filter:blur(6px)}to{opacity:1;transform:none;filter:blur(0)}}
-
-        .ms-ov-divider{width:40px;height:1px;background:linear-gradient(90deg,transparent,rgba(148,163,184,.3),transparent);margin:0 auto 16px;animation:msSubIn .5s ease 1s both;}
-
-        /* "Olá, Nome — conta pronta" */
-        .ms-ov-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(100,116,139,.85);letter-spacing:.06em;margin:0;animation:msSubIn .5s ease 1.1s both;}
-        @keyframes msSubIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-
-        .ms-ov-progress{position:absolute;bottom:0;left:0;height:1px;width:0%;background:linear-gradient(90deg,transparent,#3b82f6,#a855f7,transparent);animation:msProgress 5s linear .3s forwards;}
-        @keyframes msProgress{from{width:0%}to{width:100%}}
-        .ms-ov-status{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:7px;animation:msSubIn .5s ease 1.3s both;}
-        .ms-ov-status-dot{width:5px;height:5px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;animation:msStatusPulse 2s ease-in-out infinite;}
-        @keyframes msStatusPulse{0%,100%{opacity:1}50%{opacity:.25}}
-        .ms-ov-status-txt{font-family:'JetBrains Mono',monospace;font-size:9px;color:rgba(34,197,94,.55);letter-spacing:.06em;white-space:nowrap;}
-      `;
-      document.head.appendChild(style);
-    }
-
-    const shell = document.querySelector('.ob-shell');
-    if (shell) shell.style.opacity = '0';
-
-    const ov = document.createElement('div');
-    ov.id = 'msWelcomeOverlay';
-    ov.innerHTML = `
-      <canvas id="msStarsCanvas"></canvas>
-      <div class="ms-ov-glow ms-ov-glow--blue"></div>
-      <div class="ms-ov-glow ms-ov-glow--purple"></div>
-      <div class="ms-ov-body">
-        <div class="ms-ov-shield">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" style="color:rgba(147,197,253,.8)">
-            <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7L12 2z"/>
-          </svg>
-        </div>
-        <p class="ms-ov-welcome-label">Bem-vindo ao</p>
-        <p class="ms-ov-brand">MoonShield</p>
-        <div class="ms-ov-divider"></div>
-        <p class="ms-ov-sub">Olá, ${escapeHtml(name)} &nbsp;·&nbsp; sua conta está pronta.</p>
-      </div>
-      <div class="ms-ov-status">
-        <span class="ms-ov-status-dot"></span>
-        <span class="ms-ov-status-txt">SISTEMAS OPERACIONAIS</span>
-      </div>
-      <div class="ms-ov-progress"></div>
-    `;
-    document.body.appendChild(ov);
-
-    /* ── Warp Stars (idêntico ao original) ── */
-    const wc = document.getElementById('msStarsCanvas');
-    const wCtx = wc.getContext('2d');
-    const N = 280;
-    let W, H, wStars;
-
-    function wResize() {
-      W = wc.width = window.innerWidth;
-      H = wc.height = window.innerHeight;
-    }
-    function wMakeStars() {
-      wStars = Array.from({ length: N }, () => ({
-        x: (Math.random() - .5) * (W || 1200),
-        y: (Math.random() - .5) * (H || 800),
-        z: Math.random() * (W || 1200),
-        pz: W || 1200,
-      }));
-    }
-    function wResetStar(s) {
-      s.x = (Math.random() - .5) * W;
-      s.y = (Math.random() - .5) * H;
-      s.z = W;
-      s.pz = W;
-    }
-
-    const DUR = 5000;
-    let t0 = null;
-    let rafId = null;
-
-    function wDraw(ts) {
-      if (!t0) t0 = ts;
-      const p = Math.min((ts - t0) / DUR, 1);
-      const speed = p < .4
-        ? 0.3 + 5 * (p / .4)
-        : 0.3 + 25 * ((p - .4) / .6);
-
-      wCtx.fillStyle = 'rgba(6,8,15,0.2)';
-      wCtx.fillRect(0, 0, W, H);
-
-      const cx = W / 2, cy = H / 2;
-      for (const s of wStars) {
-        s.pz = s.z;
-        s.z = Math.max(s.z - speed, 0.1);
-        const sx = (s.x / s.z) * W + cx;
-        const sy = (s.y / s.z) * H + cy;
-        const spx = (s.x / s.pz) * W + cx;
-        const spy = (s.y / s.pz) * H + cy;
-        if (sx < 0 || sx > W || sy < 0 || sy > H) { wResetStar(s); continue; }
-        const sz = Math.max((1 - s.z / W) * 3.2, 0.3);
-        const sa = Math.min((1 - s.z / W) * 1.5, 1);
-        wCtx.beginPath();
-        wCtx.moveTo(spx, spy);
-        wCtx.lineTo(sx, sy);
-        wCtx.strokeStyle = `rgba(180,210,255,${sa.toFixed(2)})`;
-        wCtx.lineWidth = sz;
-        wCtx.stroke();
-        wCtx.beginPath();
-        wCtx.arc(sx, sy, sz * .5, 0, Math.PI * 2);
-        wCtx.fillStyle = `rgba(220,235,255,${Math.min(sa * 1.3, 1).toFixed(2)})`;
-        wCtx.fill();
-      }
-
-      if (p < 1) {
-        rafId = requestAnimationFrame(wDraw);
-      }
-    }
-
-    wResize();
-    wMakeStars();
-    const wResizeHandler = () => { wResize(); wMakeStars(); };
-    window.addEventListener('resize', wResizeHandler);
-    rafId = requestAnimationFrame(wDraw);
-
-    setTimeout(() => {
-      if (rafId) cancelAnimationFrame(rafId);
-      window.removeEventListener('resize', wResizeHandler);
-      ov.classList.add('ms-exit');
-      setTimeout(() => {
-        ov.remove();
-        callback?.();
-      }, 800);
-    }, 5000);
+      const [config, sysinfo] = await Promise.all([getJSON(OB.urls.config), getJSON(OB.urls.sysinfo)]); const node = config.config?.node || {};
+      if ($("fieldApplianceName")) $("fieldApplianceName").value = node.name || ""; if ($("fieldApplianceEnvironment")) $("fieldApplianceEnvironment").value = node.ambiente || "lab"; if ($("fieldApplianceTag")) $("fieldApplianceTag").value = node.tag || ""; if ($("fieldApplianceDesc")) $("fieldApplianceDesc").value = node.desc || "";
+      const info = sysinfo.sysinfo || {}; $("applianceObserved").innerHTML = [["Hostname real", info.hostname], ["Sistema operacional", info.so], ["Timezone", info.timezone], ["IP", info.ip_local], ["MoonShield", info.moonshield_version || info.versao || info.version]].map(([label, value]) => `<span><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span>`).join("");
+    } catch (error) { setHint("applianceObserved", error.message, "#ef4444"); }
   }
 
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  async function saveApplianceIdentity() {
+    const name = $("fieldApplianceName")?.value.trim() || ""; if (!name) { setHint("applianceObserved", "Informe o nome administrativo da appliance.", "#ef4444"); return; }
+    const button = $("btnStep6Next"); setBusy(button, true);
+    try { await postJSON(OB.urls.salvarConfig, { node: { name, ambiente: $("fieldApplianceEnvironment")?.value || "lab", tag: $("fieldApplianceTag")?.value.trim() || "", desc: $("fieldApplianceDesc")?.value.trim() || "" } }); goToStep(7); }
+    catch (error) { setHint("applianceObserved", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
+  function interfaceRoleOptions(selected) { return [["unassigned", "Não atribuída"], ["wan", "WAN"], ["lan", "LAN"], ["mgmt", "MGMT"], ["dmz", "DMZ"], ["custom", "CUSTOM"]].map(([value, label]) => `<option value="${value}"${selected === value ? " selected" : ""}>${label}</option>`).join(""); }
 
-  /* ══ 9. HELPERS ════════════════════════════════════════ */
-  async function postJSON(url, data) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': OB.csrfToken },
-      body: JSON.stringify(data),
-    });
-    return res.json();
+  function renderInterfaces() {
+    const container = $("onboardingInterfaces"); if (!container) return;
+    if (!interfaces.length) { container.textContent = "Nenhuma interface foi detectada pelo módulo Rede."; return; }
+    container.innerHTML = interfaces.map((item) => { const real = item.real || {}; const desired = item.desejado || {}; const role = desired.papel || "unassigned"; const status = real.estado_link === "up" || real.carrier === true ? "UP" : (real.estado_link || "Desconhecido"); return `<article class="ob-interface-card" data-interface-id="${item.id}"><header><strong>${escapeHtml(item.nome)}</strong><span class="ob-status-pill">${escapeHtml(status)}</span></header><p>Carrier ${real.carrier === true ? "Sim" : "Não"} · Rota default ${desired.rota_padrao ? "Sim" : "Não"}<br>MAC ${escapeHtml(item.mac_address || "—")} · IPv4 observado ${escapeHtml(real.ipv4 || "—")}</p><label>Função<select data-interface-role>${interfaceRoleOptions(role)}</select></label><div class="ob-ipv4-fields" data-ipv4-fields><label>Modo IPv4<select data-ipv4-mode><option value="dhcp">DHCP</option><option value="static">Estático</option></select></label><label>Endereço IPv4<input data-ipv4-address inputmode="decimal" placeholder="Endereço definido pelo operador" value="${escapeHtml(desired.ipv4_endereco || "")}"></label><label>Prefixo<input data-ipv4-prefix inputmode="numeric" placeholder="Prefixo" value="${escapeHtml(desired.ipv4_prefixo ?? "")}"></label><label>Gateway (opcional)<input data-ipv4-gateway inputmode="decimal" value="${escapeHtml(desired.gateway || "")}"></label></div></article>`; }).join("");
+    container.querySelectorAll("[data-interface-id]").forEach((card) => { const current = interfaces.find((item) => String(item.id) === card.dataset.interfaceId); const desired = current?.desejado || {}; const mode = card.querySelector("[data-ipv4-mode]"); if (mode) mode.value = desired.ipv4_modo || (card.querySelector("[data-interface-role]")?.value === "lan" ? "static" : "dhcp"); card.querySelector("[data-interface-role]")?.addEventListener("change", () => { if (mode && !mode.value) mode.value = "dhcp"; refreshIpv4Fields(card); }); mode?.addEventListener("change", () => refreshIpv4Fields(card)); refreshIpv4Fields(card); });
   }
 
-  async function markComplete() {
-    return postJSON(OB.urls.completar, {});
+  function refreshIpv4Fields(card) { const role = card.querySelector("[data-interface-role]")?.value || "unassigned"; const fields = card.querySelector("[data-ipv4-fields]"); if (!fields) return; fields.hidden = role === "unassigned"; }
+
+  async function loadInterfaces() { try { const response = await getJSON(OB.urls.redeInterfaces); interfaces = response.dados?.interfaces || []; renderInterfaces(); } catch (error) { setHint("interfacesHint", error.message, "#ef4444"); } }
+
+  async function saveInterfaceRoles() {
+    const selected = [...document.querySelectorAll("[data-interface-id]")].map((card) => ({ id: Number(card.dataset.interfaceId), role: card.querySelector("[data-interface-role]")?.value || "unassigned", mode: card.querySelector("[data-ipv4-mode]")?.value || "dhcp", address: card.querySelector("[data-ipv4-address]")?.value.trim() || "", prefix: card.querySelector("[data-ipv4-prefix]")?.value.trim() || "", gateway: card.querySelector("[data-ipv4-gateway]")?.value.trim() || "" })); const wan = selected.filter((item) => item.role === "wan"); const lan = selected.filter((item) => item.role === "lan");
+    if (wan.length !== 1 || lan.length !== 1) { setHint("interfacesHint", "Defina exatamente uma WAN e uma LAN. MGMT é opcional.", "#ef4444"); return; }
+    const invalidStatic = selected.find((item) => ["wan", "lan", "mgmt"].includes(item.role) && item.mode === "static" && (!item.address || !item.prefix)); if (invalidStatic) { setHint("interfacesHint", `Informe endereço e prefixo para a interface ${invalidStatic.role.toUpperCase()} estática.`, "#ef4444"); return; }
+    const button = $("btnStep7Next"); setBusy(button, true);
+    try {
+      const hasMgmt = selected.some((item) => item.role === "mgmt");
+      for (const item of selected) { const current = interfaces.find((candidate) => candidate.id === item.id) || {}; const desired = current.desejado || {}; const mode = item.mode === "static" ? "static" : "dhcp"; await postJSON(OB.urls.redeConfigurar.replace("/0/", `/${item.id}/`), { papel: item.role, principal: ["wan", "lan", "mgmt"].includes(item.role), acesso_gerenciamento: item.role === "mgmt" || (!hasMgmt && item.role === "lan"), ipv4_modo: mode, ipv4_endereco: mode === "static" ? item.address : null, ipv4_prefixo: mode === "static" ? Number(item.prefix) : null, gateway: mode === "static" ? (item.gateway || null) : null, rota_padrao: item.role === "wan" ? (desired.rota_padrao ?? true) : false, metrica: desired.metrica || 100, mtu: desired.mtu || 1500, habilitada: desired.habilitada !== false }); }
+      topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {}; goToStep(8);
+    } catch (error) { setHint("interfacesHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
-  function setHint(id, msg, color) {
-    const el = document.getElementById(id);
-    if (el) { el.textContent = msg; el.style.color = color || ''; }
+  function principal(role) { return topology[role]?.principal || null; }
+  function renderNetworkReview() {
+    const container = $("networkReview"); if (!container) return; const rows = [["WAN", principal("wan")], ["LAN", principal("lan")], ["MGMT", principal("mgmt")]];
+    container.innerHTML = rows.map(([label, item]) => { const desired = item?.desejado || {}; return `<div><span>${label}</span><strong>${escapeHtml(item?.nome || "Não configurada")}</strong><small>${escapeHtml(desired.ipv4_modo || "—")} ${escapeHtml(desired.ipv4_endereco || "")}</small></div>`; }).join("") + `<p class="ob-review-status">Topologia: <strong>${topology.valida ? "Válida" : "Requer atenção"}</strong></p>`;
   }
 
-  /* Init */
-  updateSidebar(1);
-  updateMobileBar(1);
+  function alterationUrl(template, id) { return (template || "").replace("00000000-0000-0000-0000-000000000000", id); }
+  function renderSafeApply(alteration) {
+    const box = $("safeApplyState"); if (!box || !alteration) return; box.hidden = false; const waiting = ["waiting_confirmation", "applying"].includes(alteration.status);
+    box.innerHTML = `<strong>${escapeHtml(alteration.status_label || alteration.status)}</strong><p>${waiting ? "Confirme que você ainda consegue acessar esta appliance." : escapeHtml(alteration.erro || alteration.descricao || "")}</p>${alteration.status === "waiting_confirmation" ? '<button type="button" class="ob-btn ob-btn--primary" id="btnConfirmConnectivity">Confirmar conectividade</button>' : ""}`;
+    $("btnConfirmConnectivity")?.addEventListener("click", () => confirmNetwork(alteration.id));
+  }
 
+  async function pollAlteration(id) {
+    clearTimeout(safeApplyPoll);
+    try { const response = await getJSON(alterationUrl(OB.urls.redeAlteracao, id)); const alteration = response.dados?.alteracao || response.dados; renderSafeApply(alteration); if (["waiting_confirmation", "validating", "applying", "created", "rollback"].includes(alteration.status)) safeApplyPoll = setTimeout(() => pollAlteration(id), 2000); else if (alteration.status === "confirmed") { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || topology; setHint("safeApplyState", "Rede confirmada com sucesso.", "#22c55e"); $("btnApplyNetwork").disabled = true; } else setHint("safeApplyState", alteration.status === "reverted" ? "As alterações de rede foram revertidas para preservar o acesso." : "As alterações de rede falharam. Revise e tente novamente.", "#ef4444"); }
+    catch (error) { setHint("safeApplyState", error.message, "#ef4444"); }
+  }
+
+  async function applyNetwork() { const button = $("btnApplyNetwork"); setBusy(button, true); try { const response = await postJSON(OB.urls.redeAplicarTudo, {}); const alteration = response.dados?.alteracao || response.alteracao; renderSafeApply(alteration); if (alteration?.id) pollAlteration(alteration.id); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } finally { setBusy(button, false); } }
+  async function confirmNetwork(id) { try { const response = await postJSON(alterationUrl(OB.urls.redeConfirmar, id), {}); renderSafeApply(response.dados?.alteracao || response.alteracao); goToStep(9); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } }
+
+  function serviceState(service) { return service?.status_label || (service?.saudavel ? "Operacional" : "Requer atenção"); }
+  async function loadServices() {
+    const container = $("onboardingServices"); try { const response = await getJSON(OB.urls.servicos); const services = response.servicos || {}; container.innerHTML = [["DNS / AdGuard", services.adguard, OB.urls.dns, "Abrir DNS"], ["IDS / Suricata", services.suricata, OB.urls.suricata, "Abrir IDS"], ["Firewall / nftables", services.firewall, OB.urls.firewall, "Abrir Firewall"]].map(([name, service, url, label]) => `<article class="ob-service-card"><header><strong>${name}</strong><span>${escapeHtml(serviceState(service))}</span></header><p>Configuração: ${service?.configurado ? "Configurado" : "Estado consultado"}<br>Saúde: ${escapeHtml(serviceState(service))}</p>${url ? `<a class="ob-btn ob-btn--ghost" href="${escapeHtml(url)}">${label}</a>` : ""}</article>`).join(""); } catch (error) { if (container) container.textContent = error.message; }
+  }
+
+  async function completeOnboarding() { const button = $("btnCompleteOnboarding"); setBusy(button, true); try { await loadServices(); await postJSON(OB.urls.completar, {}); goToStep(10); } catch (error) { const pending = error.payload?.pendencias; setHint("completionHint", pending?.length ? `Ainda falta: ${pending.join(", ")}.` : error.message, "#ef4444"); } finally { setBusy(button, false); } }
+
+  function bindProfileControls() {
+    $("fieldSenha")?.addEventListener("input", updatePasswordFeedback); $("fieldSenhaConfirm")?.addEventListener("input", updatePasswordFeedback); $("btnStep2Next")?.addEventListener("click", saveCredentials); $("btnStep3Next")?.addEventListener("click", saveProfile); $("btnStep5Next")?.addEventListener("click", saveProfilePreferences);
+    document.querySelectorAll("input[name=obTheme]").forEach((input) => input.addEventListener("change", () => { chosenTheme = input.value; }));
+    document.querySelectorAll(".ob-color-dot").forEach((dot) => dot.addEventListener("click", () => { document.querySelectorAll(".ob-color-dot").forEach((item) => item.classList.remove("active")); dot.classList.add("active"); avatarColor = dot.dataset.color || avatarColor; }));
+    $("avatarInput")?.addEventListener("change", (event) => { avatarFile = event.target.files?.[0] || null; if (avatarFile) setHint("avatarHint", "Foto selecionada.", "#22c55e"); }); $("btnUploadAvatar")?.addEventListener("click", () => $("avatarInput")?.click());
+  }
+
+  function chooseResumeStep() { if (OB.passwordChanged !== true) return 2; const identityName = $("fieldApplianceName")?.value?.trim() || ""; const identityTag = $("fieldApplianceTag")?.value?.trim() || ""; const identityDesc = $("fieldApplianceDesc")?.value?.trim() || ""; if (!identityName || (identityName === "MS-NODE-01" && !identityTag && !identityDesc)) return 6; if (!topology.wan?.principal || !topology.lan?.principal) return 7; return 8; }
+
+  async function init() {
+    if ($("greetName")) $("greetName").textContent = OB.fullName || OB.username || "operador"; if ($("fieldUsername")) $("fieldUsername").value = OB.username || "";
+    initVisuals(); bindProfileControls(); backButtons(); $("btnStep1Next")?.addEventListener("click", () => goToStep(2)); $("btnStep4Next")?.addEventListener("click", () => goToStep(5)); $("btnStep6Next")?.addEventListener("click", saveApplianceIdentity); $("btnStep7Next")?.addEventListener("click", saveInterfaceRoles); $("btnApplyNetwork")?.addEventListener("click", applyNetwork); $("btnCompleteOnboarding")?.addEventListener("click", completeOnboarding);
+    try { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {}; } catch (_) { topology = {}; }
+    await loadApplianceIdentity();
+    goToStep(chooseResumeStep());
+  }
+  init();
 });

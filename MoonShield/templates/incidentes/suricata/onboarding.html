@@ -21,12 +21,6 @@
         })();
     </script>
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-        rel="stylesheet" />
-
     <link rel="stylesheet" href="{% static 'css/incidentes/suricata/onboarding.css' %}" />
 
     <!-- Garante que elementos controlados pelo atributo `hidden` realmente
@@ -61,6 +55,7 @@
             planoInstalacao: planoInstalacaoEl ? JSON.parse(planoInstalacaoEl.textContent) : {},
             urls: {
                 painel: "{% url 'incidentes:suricata_painel' %}",
+                onboardingAppliance: "{% url 'autenticacao:onboarding' %}",
                 status: "{% url 'incidentes:api_suricata_status' %}",
                 onboardingStatus: "{% url 'incidentes:api_suricata_onboarding_status' %}",
                 detectarInterfaces: "{% url 'incidentes:api_suricata_detectar_interfaces' %}",
@@ -73,7 +68,8 @@
                 detalheTarefaTemplate: "{% url 'incidentes:api_suricata_detalhe_tarefa' tarefa_id='__ID__' %}",
                 executarTarefaTemplate: "{% url 'incidentes:api_suricata_executar_tarefa' tarefa_id='__ID__' %}",
                 cancelarTarefaTemplate: "{% url 'incidentes:api_suricata_cancelar_tarefa' tarefa_id='__ID__' %}",
-                logsTarefaTemplate: "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}"
+                logsTarefaTemplate: "{% url 'incidentes:api_suricata_logs_tarefa' tarefa_id='__ID__' %}",
+                redeTopologia: "{% url 'rede_api:topologia' %}"
             }
         };
     </script>
@@ -357,7 +353,7 @@
                             <div class="card__body">
                                 <div class="form-group">
                                     <label class="form-label" for="fieldWan">Interface WAN</label>
-                                    <select class="form-select" id="fieldWan" name="interface_wan">
+                                    <select class="form-select" id="fieldWan" name="interface_wan" disabled>
                                         <option value="">Selecione...</option>
                                     </select>
                                     <span class="form-hint">Saída para a rede externa. A WAN não entra no
@@ -365,7 +361,7 @@
                                 </div>
                                 <div class="form-group" style="margin-bottom: 0;">
                                     <label class="form-label" for="fieldLan">Interface LAN</label>
-                                    <select class="form-select" id="fieldLan" name="interface_lan">
+                                    <select class="form-select" id="fieldLan" name="interface_lan" disabled>
                                         <option value="">Selecione...</option>
                                     </select>
                                     <span class="form-hint">Rede interna protegida. Esta rede vira o HOME_NET
@@ -380,7 +376,7 @@
                                 <div class="form-group">
                                     <label class="form-label" for="fieldMgmt">Interface de gerenciamento
                                         (opcional)</label>
-                                    <select class="form-select" id="fieldMgmt" name="interface_mgmt">
+                                    <select class="form-select" id="fieldMgmt" name="interface_mgmt" disabled>
                                         <option value="">Nenhuma</option>
                                     </select>
                                     <span class="form-hint">Usada para administração. Não será monitorada pelo
@@ -389,7 +385,7 @@
                                 <div class="form-group" style="margin-bottom: 0;">
                                     <label class="form-label" for="fieldDns">DNS interno (opcional)</label>
                                     <input class="form-input" id="fieldDns" name="dns_interno" type="text"
-                                        placeholder="Ex: 192.168.1.1" autocomplete="off" />
+                                        placeholder="IPv4 do DNS interno" autocomplete="off" />
                                 </div>
                             </div>
                         </div>
@@ -399,16 +395,16 @@
                     <div class="card" style="margin-bottom: 24px;">
                         <div class="card__body">
                             <div class="form-group" id="homeNetInputWrap" style="margin-bottom: 0;">
-                                <label class="form-label" for="fieldHomeNet">HOME_NET Adicional</label>
+                                <label class="form-label" for="fieldHomeNet">HOME_NET derivada da Rede</label>
 
                                 <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;"
                                     id="homeNetTokens"></div>
 
                                 <div style="display: flex; gap: 8px;">
                                     <input class="form-input" id="fieldHomeNet" type="text"
-                                        placeholder="Ex.: 192.168.1.0/24" autocomplete="off" />
+                                        placeholder="Derivada da topologia oficial" autocomplete="off" disabled />
                                     <button type="button" class="btn btn--secondary"
-                                        id="btnAddHomeNet">Adicionar</button>
+                                        id="btnAddHomeNet" disabled>Adicionar</button>
                                 </div>
                                 <span class="form-hint" id="homeNetHint">A rede da LAN é adicionada automaticamente.
                                     Adicione aqui somente outras redes internas.</span>

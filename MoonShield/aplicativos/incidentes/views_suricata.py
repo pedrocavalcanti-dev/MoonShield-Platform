@@ -59,6 +59,7 @@ from .services.suricata.interfaces import (
     montar_configuracao_sugerida,
     validar_topologia,
 )
+from rede.services.topologia import obter_topologia
 
 logger = logging.getLogger(__name__)
 
@@ -1270,6 +1271,25 @@ def api_salvar_configuracao(request):
     }
 
     dados_limpos = {k: v for k, v in payload.items() if k in chaves_aceitas}
+
+    # WAN, LAN, MGMT e HOME_NET pertencem exclusivamente ao mÃ³dulo Rede.
+    try:
+        topologia_oficial = obter_topologia()
+    except Exception:
+        return _json_erro("A topologia oficial da Rede estÃ¡ indisponÃ­vel.", status_http=409)
+
+    wan = topologia_oficial.get("wan", {}).get("principal") or {}
+    lan = topologia_oficial.get("lan", {}).get("principal") or {}
+    mgmt = topologia_oficial.get("mgmt", {}).get("principal") or {}
+    if not wan or not lan:
+        return _json_erro("Configure WAN e LAN no onboarding principal da Rede antes do Suricata.", status_http=409)
+    if not topologia_oficial.get("valida"):
+        return _json_erro("Corrija a topologia oficial da Rede antes do Suricata.", status_http=409)
+
+    dados_limpos["interface_wan"] = wan.get("nome", "")
+    dados_limpos["interface_lan"] = lan.get("nome", "")
+    dados_limpos["interface_mgmt"] = mgmt.get("nome", "") if mgmt else ""
+    dados_limpos["home_net"] = list(topologia_oficial.get("home_net") or [])
     
     # 1. Validação de Topologia Strict Local
     try:

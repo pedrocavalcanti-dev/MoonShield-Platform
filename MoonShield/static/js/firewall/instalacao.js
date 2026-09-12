@@ -29,6 +29,10 @@
         bindEvents();
         setOperator();
         hydrateFromPrecheck(INITIAL_PRECHECK);
+        if (new URLSearchParams(window.location.search).get("origem") === "onboarding_appliance" && els.successTarget) {
+            els.successTarget.href = APP.urls.onboardingAppliance;
+            els.successTarget.textContent = "Voltar ao onboarding";
+        }
         refreshEnvironment({ silent: true });
     }
 
@@ -80,6 +84,9 @@
         els.btnNetworkNext = $("#btnNetworkNext");
         els.networkValidationNotice = $("#networkValidationNotice");
         els.networkValidationText = $("#networkValidationText");
+        els.wanHelp = $("#wanHelp");
+        els.mgmtHelp = $("#mgmtHelp");
+        els.lanHelp = $("#lanHelp");
 
         els.reviewWan = $("#reviewWan");
         els.reviewMgmt = $("#reviewMgmt");
@@ -95,6 +102,7 @@
         els.successState = $("#successState");
         els.successMessage = $("#successMessage");
         els.resultNftVersion = $("#resultNftVersion");
+        els.successTarget = $("#btnFirewallSuccessTarget");
         els.errorState = $("#errorState");
         els.errorMessage = $("#errorMessage");
         els.errorDetails = $("#errorDetails");
@@ -117,7 +125,7 @@
 
         if (els.inputHomeNet) {
             els.inputHomeNet.setAttribute("aria-label", "Rede interna");
-            els.inputHomeNet.placeholder = "Ex.: 10.10.0.0/24";
+            els.inputHomeNet.placeholder = "Derivada da Rede oficial";
         }
 
         const replaceNearbyText = (field, replacements) => {
@@ -150,7 +158,7 @@
 
         replaceNearbyText(els.inputHomeNet, {
             "HOME_NET": "Rede interna",
-            "Informe a rede interna em CIDR.": "Informe a faixa de IP usada pela sua rede interna. Ex.: 10.10.0.0/24",
+            "Informe a rede interna em CIDR.": "Configure a rede interna no modulo Rede oficial.",
         });
     }
 
@@ -410,9 +418,10 @@
         }
 
         try {
-            const [statusResult, interfaceResult] = await Promise.allSettled([
+            const [statusResult, interfaceResult, topologyResult] = await Promise.allSettled([
                 api(URLS.status),
                 api(URLS.interfaces),
+                api(URLS.redeTopologia),
             ]);
 
             let status = {};
@@ -444,6 +453,10 @@
                 renderInterfaces();
             }
 
+            if (topologyResult.status === "fulfilled") {
+                applyOfficialTopology(topologyResult.value?.dados?.topologia || topologyResult.value?.topologia || {});
+            }
+
             if (status.agent_disponivel || status.agent_ativo) {
                 state.maxStep = Math.max(state.maxStep, 3);
                 enableStep(3);
@@ -458,6 +471,34 @@
         }
     }
 
+    function applyOfficialTopology(topology) {
+        const principal = (role) => topology?.[role]?.principal || null;
+        const wan = principal("wan");
+        const lan = principal("lan");
+        const mgmt = principal("mgmt");
+        state.mapping = {
+            WAN: wan?.nome || "",
+            LAN: lan?.nome || "",
+            MGMT: mgmt?.nome || "",
+        };
+        setSelectValue(els.selectWan, state.mapping.WAN);
+        setSelectValue(els.selectLan, state.mapping.LAN);
+        setSelectValue(els.selectMgmt, state.mapping.MGMT);
+        [els.selectWan, els.selectLan, els.selectMgmt].forEach((select) => { if (select) select.disabled = true; });
+        const homeNet = Array.isArray(topology?.home_net) ? topology.home_net : [];
+        if (els.inputHomeNet) {
+            els.inputHomeNet.value = homeNet.join(", ");
+            els.inputHomeNet.disabled = true;
+        }
+        setInterfaceMessage("A topologia vem da Rede oficial. WAN, LAN, MGMT e HOME_NET são somente leitura neste assistente.");
+        updateReview();
+    }
+
+    function setInterfaceMessage(message) {
+        if (els.lanHelp) els.lanHelp.textContent = message;
+        if (els.wanHelp) els.wanHelp.textContent = "Papel definido pelo módulo Rede.";
+        if (els.mgmtHelp) els.mgmtHelp.textContent = "Papel definido pelo módulo Rede.";
+    }
     function renderEnvironment(status) {
         const agentOk = Boolean(status.agent_disponivel || status.agent_ativo);
         const nftOk = Boolean(status.nftables_instalado);
@@ -953,7 +994,7 @@
         if (!homeNet) {
             return {
                 ok: false,
-                message: "Informe a rede interna. Ex.: 10.10.0.0/24.",
+                message: "Configure a rede interna no modulo Rede oficial.",
             };
         }
 

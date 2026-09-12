@@ -9,9 +9,16 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
+
+from configuracoes.models import ConfigSistema
+from rede.models import AlteracaoRede
+from rede.services.topologia import obter_topologia
 
 from .models import UserProfile
 
@@ -33,7 +40,7 @@ def login_view(request):
             login(request, user)
             profile, criado = UserProfile.objects.get_or_create(user=user)
 
-            if not profile.onboarding_completo:
+            if not ConfigSistema.get_solo().appliance_onboarding_completo:
                 return redirect("autenticacao:onboarding")
 
             # ← SÓ chega aqui se onboarding já foi feito (2ª vez+)
@@ -52,20 +59,59 @@ def logout_view(request):
 
 @login_required(login_url="autenticacao:login")
 def onboarding_view(request):
-    """Mostra o onboarding. Se já completou, manda pro dashboard."""
+    """Mostra o primeiro boot global enquanto a appliance não foi concluída."""
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    configuracao = ConfigSistema.get_solo()
 
-    if profile.onboarding_completo:
+    if configuracao.appliance_onboarding_completo:
         return redirect("painel:index")
 
-    return render(request, "autenticacao/onboarding.html", {"profile": profile})
+    return render(request, "autenticacao/onboarding.html", {"profile": profile, "configuracao": configuracao})
 
 
+@require_POST
+@login_required(login_url="autenticacao:login")
 def api_completar_onboarding(request):
+    """Conclui somente o primeiro boot global validado pelo backend."""
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    configuracao = ConfigSistema.get_solo()
+    pendencias = []
+
+    try:
+        topologia = obter_topologia() or {}
+    except Exception:
+        topologia = {}
+        pendencias.append("topologia_indisponivel")
+
+    if not profile.last_password_change:
+        pendencias.append("credenciais_nao_confirmadas")
+    identidade_padrao = (
+        configuracao.node_name.strip() == "MS-NODE-01"
+        and not configuracao.node_tag.strip()
+        and not configuracao.node_desc.strip()
+    )
+    if not configuracao.node_name.strip() or identidade_padrao:
+        pendencias.append("identidade_appliance_ausente")
+    if configuracao.node_ambiente not in {"lab", "prod"}:
+        pendencias.append("ambiente_appliance_invalido")
+    if not topologia.get("wan", {}).get("principal"):
+        pendencias.append("wan_ausente")
+    if not topologia.get("lan", {}).get("principal"):
+        pendencias.append("lan_ausente")
+    if not topologia.get("valida"):
+        pendencias.append("topologia_invalida")
+    if not AlteracaoRede.objects.filter(status=AlteracaoRede.Status.CONFIRMADA).exists():
+        pendencias.append("rede_nao_confirmada")
+
+    if pendencias:
+        return JsonResponse({"ok": False, "pendencias": pendencias}, status=409)
+
+    configuracao.appliance_onboarding_completo = True
+    configuracao.appliance_onboarding_concluido_em = timezone.now()
+    configuracao.save(update_fields=["appliance_onboarding_completo", "appliance_onboarding_concluido_em", "updated_at"])
     profile.onboarding_completo = True
     profile.save(update_fields=["onboarding_completo"])
-    request.session["mostrar_boasvindas"] = "onboarding"  # flag diferente
+    request.session["mostrar_boasvindas"] = "onboarding"
     return JsonResponse({"ok": True})
 
 @require_POST
@@ -93,8 +139,13 @@ def api_salvar_credenciais(request):
         if len(username) > 150:
             return JsonResponse({"ok": False, "msg": "Nome de usuário muito longo (máx. 150)."}, status=400)
 
-        if len(senha) < 8:
-            return JsonResponse({"ok": False, "msg": "A senha deve ter pelo menos 8 caracteres."}, status=400)
+        try:
+            validate_password(senha, user=request.user)
+        except ValidationError as exc:
+            return JsonResponse({"ok": False, "msg": " ".join(exc.messages)}, status=400)
+
+        if request.user.check_password(senha):
+            return JsonResponse({"ok": False, "msg": "Escolha uma senha diferente da senha atual."}, status=400)
 
         # ── Verifica conflito de username ──────────────────────────────────────
         if User.objects.filter(username=username).exclude(pk=request.user.pk).exists():
@@ -105,6 +156,10 @@ def api_salvar_credenciais(request):
         user.username = username
         user.set_password(senha)
         user.save(update_fields=["username", "password"])
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.last_password_change = timezone.now()
+        profile.save(update_fields=["last_password_change"])
 
         # Mantém a sessão ativa após a troca de senha
         update_session_auth_hash(request, user)

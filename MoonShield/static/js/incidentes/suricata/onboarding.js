@@ -340,9 +340,17 @@ document.addEventListener('DOMContentLoaded', () => {
         renderInterfacesLoading();
 
         try {
-            const payload = await requestJSON(CFG.urls.detectarInterfaces, { method: 'GET' });
+            const payload = await requestJSON(CFG.urls.redeTopologia, { method: 'GET' });
             const data = unwrapData(payload);
-            const candidates = data.topologia?.interfaces || data.interfaces || [];
+            const topologia = data.topologia || {};
+            const candidates = [
+                ...(topologia.wan?.interfaces || []),
+                ...(topologia.lan?.interfaces || []),
+                ...(topologia.mgmt?.interfaces || []),
+                ...(topologia.dmz || []),
+                ...(topologia.custom || []),
+                ...(topologia.unassigned || []),
+            ];
 
             const seen = new Set();
             state.interfaces = [];
@@ -354,22 +362,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!nome || seen.has(nome) || nome === 'lo') continue;
                 seen.add(nome);
 
-                const ipv4 = firstText(obj.ipv4, obj.ip);
-                const cidr = firstText(obj.cidr, obj.ipv4_cidr);
+                const real = obj.real || {};
+                const ipv4 = firstText(real.ipv4, obj.ipv4, obj.ip);
+                const cidr = firstText(real.cidr, obj.cidr, obj.ipv4_cidr);
                 
                 state.interfaces.push({
                     nome,
                     ipv4: ipv4.includes('/') ? ipv4.split('/')[0] : ipv4,
                     cidr,
-                    mac: firstText(obj.mac),
-                    estado: firstText(obj.estado, obj.state, 'detectada'),
+                    mac: firstText(obj.mac_address, obj.mac),
+                    estado: firstText(real.estado_link, obj.estado, obj.state, 'detectada'),
                 });
             }
 
             if (!state.interfaces.length) throw new Error('Nenhuma interface de rede útil detectada.');
 
             populateInterfaceSelects(state.interfaces);
-            initialiseHomeNetBaseFromCurrentSelection();
+            const principalNome = (role) => topologia[role]?.principal?.nome || '';
+            setOfficialSelect('fieldWan', principalNome('wan'));
+            setOfficialSelect('fieldLan', principalNome('lan'));
+            setOfficialSelect('fieldMgmt', principalNome('mgmt'));
+            state.homeNet = Array.isArray(topologia.home_net) ? topologia.home_net.filter(Boolean) : [];
+            setOfficialTopologyControls();
             syncMonitoredInterfacesForMode({ preservePersonalized: true });
             renderHomeNetTokens();
             renderMonitoredInterfaces(state.interfaces);
@@ -382,6 +396,22 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             setButtonLoading(button, false);
         }
+    }
+
+    function setOfficialSelect(id, value) {
+        const select = el(id);
+        if (!select || !value) return;
+        select.value = value;
+        select.disabled = true;
+    }
+
+    function setOfficialTopologyControls() {
+        const input = el('fieldHomeNet');
+        const button = el('btnAddHomeNet');
+        if (input) { input.disabled = true; input.placeholder = 'Derivada da Rede oficial'; }
+        if (button) button.disabled = true;
+        const hint = el('homeNetHint');
+        if (hint) hint.textContent = 'HOME_NET é derivada da topologia oficial da Rede.';
     }
 
     function populateInterfaceSelects(interfaces) {
@@ -964,7 +994,8 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await requestJSON(CFG.urls.concluirOnboarding, { method: 'POST', body: {} });
             state.leavingAllowed = true;
-            window.location.assign(CFG.urls.painel);
+            const origem = new URLSearchParams(window.location.search).get('origem');
+            window.location.assign(origem === 'onboarding_appliance' ? CFG.urls.onboardingAppliance : CFG.urls.painel);
         } catch (error) {
             showToast(error.message, 'error');
             setButtonLoading(el('btnFinishOnboarding'), false);

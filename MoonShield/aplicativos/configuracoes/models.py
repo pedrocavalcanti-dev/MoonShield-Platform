@@ -76,6 +76,17 @@ class ConfigSistema(models.Model):
         default="",
     )
 
+    # Primeiro boot da appliance. Este estado é global e não substitui o
+    # onboarding individual mantido em UserProfile.
+    appliance_onboarding_completo = models.BooleanField(
+        default=False,
+    )
+
+    appliance_onboarding_concluido_em = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
     # ──────────────────────────────────────────────────────────────────────
     # REDE MONITORADA
     # ──────────────────────────────────────────────────────────────────────

@@ -124,9 +124,8 @@ def normalizar_interface(
     if not nome:
         return None
 
-    enderecos_ipv4 = _normalizar_enderecos_ipv4(
-        item.get("ipv4") or item.get("enderecos_ipv4") or item.get("addresses")
-    )
+    ipv4_bruto = item.get("ipv4") or item.get("enderecos_ipv4") or item.get("addresses")
+    enderecos_ipv4 = _normalizar_enderecos_ipv4(ipv4_bruto)
     ipv4_atual = _normalizar_ipv4(
         item.get("ipv4_atual") or item.get("ipv4_address") or item.get("address")
     )
@@ -151,6 +150,11 @@ def normalizar_interface(
     metrica_atual = _inteiro_ou_none(item.get("metrica_atual", item.get("metric")))
     mtu_atual = _inteiro_ou_none(item.get("mtu_atual", item.get("mtu")))
     mac_address = _texto_ou_none(item.get("mac_address") or item.get("mac"))
+    rota_padrao_atual = None
+    for chave in ("rota_padrao", "rota_default", "default_route"):
+        if chave in item:
+            rota_padrao_atual = _bool_ou_none(item.get(chave))
+            break
 
     return {
         "nome": nome,
@@ -162,6 +166,7 @@ def normalizar_interface(
         "carrier": _bool_ou_none(item.get("carrier")),
         "ipv4": enderecos_ipv4,
         "enderecos_ipv4": enderecos_ipv4,
+        "ipv4_dinamico": _ipv4_dinamico_observado(ipv4_bruto),
         "ipv4_atual": ipv4_atual,
         "prefixo_atual": prefixo_atual,
         "prefix": prefixo_atual,
@@ -169,6 +174,7 @@ def normalizar_interface(
         "gateway": gateway_atual,
         "metrica_atual": metrica_atual,
         "metric": metrica_atual,
+        "rota_padrao_atual": rota_padrao_atual,
         "mtu_atual": mtu_atual,
         "mtu": mtu_atual,
         "backend": _normalizar_backend(item.get("backend", backend)),
@@ -243,6 +249,27 @@ def _normalizar_enderecos_ipv4(valor: Any) -> list[str]:
         if cidr not in resultado:
             resultado.append(cidr)
     return resultado
+
+
+def _ipv4_dinamico_observado(valor: Any) -> bool | None:
+    """Indica se o inventário identificou endereço IPv4 dinâmico."""
+    if valor is None:
+        return None
+
+    itens = valor if isinstance(valor, list) else [valor]
+    indicadores = []
+
+    for item in itens:
+        if not isinstance(item, dict) or "dinamico" not in item:
+            continue
+        indicador = _bool_ou_none(item.get("dinamico"))
+        if indicador is not None:
+            indicadores.append(indicador)
+
+    if not indicadores:
+        return None
+
+    return any(indicadores)
 
 
 def _normalizar_ipv4(valor: Any) -> str | None:

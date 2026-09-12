@@ -12,6 +12,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let applianceConfig = {};
   let networkConfirmed = false;
   let safeApplyPoll = null;
+  let safeApplyElapsed = null;
+  let activeNetworkAlteration = null;
+  let networkApplyInFlight = false;
+  let progressCursor = Number(OB.onboardingStep) || 1;
+  let preservedIpv4InterfaceIds = new Set();
 
   const $ = (id) => document.getElementById(id);
   const escapeHtml = (value) => String(value ?? "—").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char]));
@@ -33,7 +38,30 @@ document.addEventListener("DOMContentLoaded", () => {
   const postJSON = (url, body) => requestJSON(url, { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body || {}) });
 
   function setHint(id, message, color = "") { const element = $(id); if (element) { element.textContent = message; element.style.color = color; } }
-  function setBusy(button, busy) { if (button) { button.disabled = busy; button.classList.toggle("loading", busy); } }
+  function setBusy(button, busy, message = "") {
+    if (!button) return;
+    if (busy) {
+      if (!button.dataset.obOriginalContent) button.dataset.obOriginalContent = button.innerHTML;
+      button.disabled = true;
+      button.classList.add("loading");
+      button.setAttribute("aria-busy", "true");
+      button.innerHTML = `<span class="ob-btn-loader" aria-hidden="true"></span><span>${escapeHtml(message || "Processando…")}</span>`;
+      return;
+    }
+    button.classList.remove("loading");
+    button.removeAttribute("aria-busy");
+    if (button.dataset.obOriginalContent) {
+      button.innerHTML = button.dataset.obOriginalContent;
+      delete button.dataset.obOriginalContent;
+    }
+    button.disabled = false;
+  }
+
+  async function saveProgress(step) {
+    const response = await postJSON(OB.urls.salvarProgresso, { etapa: step });
+    progressCursor = Number(response.etapa || step);
+    return progressCursor;
+  }
 
   function initVisuals() {
     const canvas = $("starsCanvas"); const context = canvas?.getContext("2d"); let stars = [];
@@ -62,7 +90,7 @@ document.addEventListener("DOMContentLoaded", () => {
     next.querySelector("input:not([type=hidden]):not([type=radio]), select")?.focus();
     if (step === 6) loadApplianceIdentity();
     if (step === 7) loadInterfaces();
-    if (step === 8) renderNetworkReview();
+    if (step === 8) { renderNetworkReview(); void restoreSafeApplyState(); }
     if (step === 9) loadServices();
   }
 
@@ -88,22 +116,28 @@ document.addEventListener("DOMContentLoaded", () => {
     const username = $("fieldUsername")?.value.trim() || ""; const password = $("fieldSenha")?.value || ""; const confirmation = $("fieldSenhaConfirm")?.value || "";
     if (!username || !/^[\w.@+\-]+$/.test(username)) { setHint("usernameHint", "Informe um nome de usuário válido.", "#ef4444"); return; }
     if (password.length < 8 || password !== confirmation) { setHint("confirmHint", password.length < 8 ? "A senha deve atender à política de segurança." : "Senhas não coincidem.", "#ef4444"); return; }
-    const button = $("btnStep2Next"); setBusy(button, true);
-    try { await postJSON(OB.urls.salvarCredenciais, { username, senha: password }); goToStep(3); } catch (error) { setHint("usernameHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
+    const button = $("btnStep2Next"); setBusy(button, true, "Salvando credenciais…");
+    try { await postJSON(OB.urls.salvarCredenciais, { username, senha: password }); await saveProgress(3); goToStep(3); } catch (error) { setHint("usernameHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
   async function saveProfile() {
-    const button = $("btnStep3Next"); setBusy(button, true);
-    try { await postJSON(OB.urls.salvarPerfil, { display_name: $("fieldDisplayName")?.value.trim() || "", cargo: $("fieldCargo")?.value.trim() || "" }); goToStep(4); }
+    const button = $("btnStep3Next"); setBusy(button, true, "Salvando identidade…");
+    try { await postJSON(OB.urls.salvarPerfil, { display_name: $("fieldDisplayName")?.value.trim() || "", cargo: $("fieldCargo")?.value.trim() || "" }); await saveProgress(4); goToStep(4); }
     catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
-  async function saveProfilePreferences() {
-    const button = $("btnStep5Next"); setBusy(button, true);
+  async function saveAvatar() {
+    const button = $("btnStep4Next"); setBusy(button, true, "Salvando avatar…");
     try {
       if (avatarFile) { const form = new FormData(); form.append("avatar", avatarFile); const response = await fetch(OB.urls.uploadAvatar, { method: "POST", headers: { "X-CSRFToken": OB.csrfToken }, body: form }); if (!response.ok) throw new Error("Não foi possível salvar o avatar."); }
-      await postJSON(OB.urls.salvarPerfil, { avatar_color: avatarColor }); await postJSON(OB.urls.salvarPrefs, { tema: chosenTheme }); localStorage.setItem("moonshield_theme", chosenTheme); goToStep(6);
+      await postJSON(OB.urls.salvarPerfil, { avatar_color: avatarColor }); await saveProgress(5); goToStep(5);
     } catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
+  }
+
+  async function saveProfilePreferences() {
+    const button = $("btnStep5Next"); setBusy(button, true, "Salvando preferências…");
+    try { await postJSON(OB.urls.salvarPrefs, { tema: chosenTheme }); await saveProgress(6); localStorage.setItem("moonshield_theme", chosenTheme); goToStep(6); }
+    catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
   function displayValue(value, fallback = "Não informado") {
@@ -154,8 +188,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function saveApplianceIdentity() {
     const name = $("fieldApplianceName")?.value.trim() || ""; if (!name) { setHint("applianceObserved", "Informe o nome administrativo da appliance.", "#ef4444"); return; }
-    const button = $("btnStep6Next"); setBusy(button, true);
-    try { await postJSON(OB.urls.salvarConfig, { node: { name, ambiente: $("fieldApplianceEnvironment")?.value || "lab", tag: $("fieldApplianceTag")?.value.trim() || "", desc: $("fieldApplianceDesc")?.value.trim() || "" } }); goToStep(7); }
+    const button = $("btnStep6Next"); setBusy(button, true, "Salvando configuração…");
+    try { await postJSON(OB.urls.salvarConfig, { node: { name, ambiente: $("fieldApplianceEnvironment")?.value || "lab", tag: $("fieldApplianceTag")?.value.trim() || "", desc: $("fieldApplianceDesc")?.value.trim() || "" } }); await saveProgress(7); goToStep(7); }
     catch (error) { setHint("applianceObserved", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 
@@ -257,6 +291,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function loadInterfaces() {
+    const container = $("onboardingInterfaces");
+    if (container) container.textContent = "Carregando interfaces…";
     try {
       const response = await getJSON(OB.urls.redeInterfaces);
       interfaces = response.dados?.interfaces || [];
@@ -300,6 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
       papel: item.role,
       principal: ["wan", "lan", "mgmt"].includes(item.role),
       acesso_gerenciamento: item.role === "mgmt" || (!hasMgmt && item.role === "lan"),
+      preservar_ipv4_atual: preserveCurrent,
       ...(preserveCurrent ? preservedIpv4Payload(desired) : { ...preservedIpv4Payload(desired), ...explicitIpv4 }),
     };
   }
@@ -332,7 +369,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const button = $("btnStep7Next");
-    setBusy(button, true);
+    setBusy(button, true, "Salvando configuração…");
     try {
       const hasMgmt = selected.some((item) => item.role === "mgmt");
       for (const item of selected) {
@@ -341,7 +378,9 @@ document.addEventListener("DOMContentLoaded", () => {
           interfacePayload(item, hasMgmt),
         );
       }
+      preservedIpv4InterfaceIds = new Set(selected.filter((item) => item.ipv4Choice === "keep").map((item) => item.id));
       topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {};
+      await saveProgress(8);
       goToStep(8);
     } catch (error) {
       setHint("interfacesHint", error.message, "#ef4444");
@@ -351,26 +390,253 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function principal(role) { return topology[role]?.principal || null; }
+
+  function observedIpv4Summary(item) {
+    const real = item?.real || {};
+    const address = real.ipv4 ? `${real.ipv4}${real.prefixo !== null && real.prefixo !== undefined ? `/${real.prefixo}` : ""}` : "Não informado";
+    return `${address}${real.gateway ? ` · GW ${real.gateway}` : ""}`;
+  }
+
+  function plannedIpv4Summary(item) {
+    const desired = item?.desejado || {};
+    if (preservedIpv4InterfaceIds.has(Number(item?.id))) return "Manter configuração atual";
+    if (desired.ipv4_modo === "static") return `Estático${desired.ipv4_endereco ? ` · ${desired.ipv4_endereco}/${desired.ipv4_prefixo}` : ""}`;
+    return ipv4ModeLabel(desired.ipv4_modo);
+  }
+
   function renderNetworkReview() {
-    const container = $("networkReview"); if (!container) return; const rows = [["WAN", principal("wan")], ["LAN", principal("lan")], ["MGMT", principal("mgmt")]];
-    container.innerHTML = rows.map(([label, item]) => { const desired = item?.desejado || {}; return `<div><span>${label}</span><strong>${escapeHtml(item?.nome || "Não configurada")}</strong><small>${escapeHtml(desired.ipv4_modo || "—")} ${escapeHtml(desired.ipv4_endereco || "")}</small></div>`; }).join("") + `<p class="ob-review-status">Topologia: <strong>${topology.valida ? "Válida" : "Requer atenção"}</strong></p>`;
+    const container = $("networkReview");
+    const status = $("networkTopologyStatus");
+    if (!container) return;
+
+    if (status) {
+      status.className = `ob-network-topology-status ${topology.valida ? "is-valid" : "is-warning"}`;
+      status.textContent = topology.valida ? "Topologia válida" : "Topologia requer atenção";
+    }
+
+    const rows = [["WAN", principal("wan")], ["LAN", principal("lan")], ["MGMT", principal("mgmt")]];
+    container.innerHTML = rows.map(([label, item]) => `
+      <article class="ob-network-review__card ob-network-review__card--${label.toLowerCase()}">
+        <small>${label}</small>
+        <strong>${escapeHtml(item?.nome || "Não configurada")}</strong>
+        <span>Configuração a aplicar</span>
+        <p>${escapeHtml(item ? plannedIpv4Summary(item) : "—")}</p>
+        <span>Estado observado</span>
+        <p>${escapeHtml(item ? observedIpv4Summary(item) : "—")}</p>
+      </article>
+    `).join("");
   }
 
   function alterationUrl(template, id) { return (template || "").replace("00000000-0000-0000-0000-000000000000", id); }
+  function isSafeApplyActive(alteration) { return ["created", "validating", "applying", "waiting_confirmation", "rollback"].includes(alteration?.status); }
+  function formatElapsed(seconds) { return `${Math.max(0, Math.floor(seconds))}s`; }
+
+  function stopSafeApplyElapsed() {
+    clearInterval(safeApplyElapsed);
+    safeApplyElapsed = null;
+  }
+
+  function startSafeApplyElapsed(startedAt) {
+    stopSafeApplyElapsed();
+    const started = Date.parse(startedAt || "");
+    const startedMs = Number.isNaN(started) ? Date.now() : started;
+    const update = () => { const target = $("safeApplyElapsed"); if (target) target.textContent = formatElapsed((Date.now() - startedMs) / 1000); };
+    update();
+    safeApplyElapsed = window.setInterval(update, 1000);
+  }
+
+  function setNetworkAction(mode) {
+    const button = $("btnApplyNetwork");
+    if (!button) return;
+    const canApply = mode === "apply" && !networkApplyInFlight;
+    button.hidden = !canApply;
+    button.disabled = !canApply;
+  }
+
+  function renderSafeApplyProcessing(alteration = {}) {
+    const box = $("safeApplyState");
+    if (!box) return;
+    box.hidden = false;
+    box.dataset.state = "processing";
+    box.innerHTML = `
+      <div class="ob-safe-apply__heading"><span class="ob-inline-spinner" aria-hidden="true"></span><div><small>SAFE APPLY</small><strong>Processando configuração de rede…</strong></div></div>
+      <p>O MoonShield está validando a configuração e preparando o Safe Apply. Isso pode levar alguns segundos. Não feche esta página.</p>
+      <p class="ob-safe-apply__elapsed">Tempo decorrido: <strong id="safeApplyElapsed">0s</strong></p>
+    `;
+    startSafeApplyElapsed(alteration.iniciada_em);
+    setNetworkAction("locked");
+  }
+
+  function rollbackSucceeded(details, alteration) {
+    const rollback = details?.rollback || details?.resultado_rollback || alteration?.resultado_agent?.falha_aplicacao?.rollback || alteration?.resultado_agent?.rollback || {};
+    return alteration?.status === "reverted" || rollback?.status === "reverted" || rollback?.ok === true || rollback?.resultado_rollback?.ok === true;
+  }
+
+  function applyFailureReason(details, fallback) {
+    const original = details?.erro_original || details?.erro || {};
+    if (original?.codigo === "comando_timeout") return "Comando de rede excedeu o tempo limite.";
+    return original?.mensagem || original?.message || fallback || "A aplicação de rede não foi concluída.";
+  }
+
+  function renderSafeApplyFailure(alteration = {}, details = {}, fallback = "") {
+    const box = $("safeApplyState");
+    if (!box) return;
+    stopSafeApplyElapsed();
+    const rollbackOk = rollbackSucceeded(details, alteration);
+    box.hidden = false;
+    box.dataset.state = rollbackOk ? "reverted" : "critical";
+    box.innerHTML = `
+      <div class="ob-safe-apply__heading"><div><small>ALTERAÇÃO NÃO APLICADA</small><strong>${rollbackOk ? "A configuração anterior foi restaurada com sucesso." : "A operação requer atenção."}</strong></div></div>
+      <p><strong>Motivo:</strong> ${escapeHtml(applyFailureReason(details, alteration.erro || fallback))}</p>
+      <p class="${rollbackOk ? "ob-safe-apply__rollback-ok" : "ob-safe-apply__rollback-critical"}"><strong>Status:</strong> ${rollbackOk ? "Rollback concluído" : "Não foi possível confirmar o rollback"}</p>
+      <button type="button" class="ob-btn ob-btn--primary" id="btnRetryNetwork">Tentar novamente</button>
+    `;
+    $("btnRetryNetwork")?.addEventListener("click", applyNetwork);
+    setNetworkAction("locked");
+  }
+
+  async function markNetworkConfirmed() {
+    networkConfirmed = true;
+    try { await saveProgress(9); } catch (error) { setHint("completionHint", error.message, "#ef4444"); }
+    try { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || topology; renderNetworkReview(); } catch (_) { /* Mantém o último resumo persistido. */ }
+  }
+
   function renderSafeApply(alteration) {
-    const box = $("safeApplyState"); if (!box || !alteration) return; box.hidden = false; const waiting = ["waiting_confirmation", "applying"].includes(alteration.status);
-    box.innerHTML = `<strong>${escapeHtml(alteration.status_label || alteration.status)}</strong><p>${waiting ? "Confirme que você ainda consegue acessar esta appliance." : escapeHtml(alteration.erro || alteration.descricao || "")}</p>${alteration.status === "waiting_confirmation" ? '<button type="button" class="ob-btn ob-btn--primary" id="btnConfirmConnectivity">Confirmar conectividade</button>' : ""}`;
-    $("btnConfirmConnectivity")?.addEventListener("click", () => confirmNetwork(alteration.id));
+    const box = $("safeApplyState");
+    if (!box || !alteration) return;
+    activeNetworkAlteration = alteration;
+
+    if (["created", "validating", "applying", "rollback"].includes(alteration.status)) {
+      renderSafeApplyProcessing(alteration);
+      return;
+    }
+
+    if (alteration.status === "waiting_confirmation") {
+      stopSafeApplyElapsed();
+      box.hidden = false;
+      box.dataset.state = "waiting";
+      box.innerHTML = `
+        <div class="ob-safe-apply__heading"><div><small>SAFE APPLY ARMADO</small><strong>Confirmar conectividade</strong></div></div>
+        <p>A configuração foi aplicada. Confirme que você ainda consegue acessar esta appliance para desarmar o rollback automático.</p>
+        <p class="ob-safe-apply__elapsed">Tempo restante: <strong>${escapeHtml(String(alteration.segundos_restantes ?? "—"))}s</strong></p>
+        <button type="button" class="ob-btn ob-btn--primary" id="btnConfirmConnectivity">Confirmar conectividade</button>
+      `;
+      $("btnConfirmConnectivity")?.addEventListener("click", () => confirmNetwork(alteration.id));
+      setNetworkAction("locked");
+      return;
+    }
+
+    if (alteration.status === "confirmed") {
+      stopSafeApplyElapsed();
+      box.hidden = false;
+      box.dataset.state = "confirmed";
+      box.innerHTML = `
+        <div class="ob-safe-apply__heading"><div><small>REDE CONFIRMADA</small><strong>Conectividade confirmada com sucesso.</strong></div></div>
+        <p>O rollback automático foi desarmado. Você pode continuar para a validação dos serviços locais.</p>
+        <button type="button" class="ob-btn ob-btn--primary" id="btnContinueProtection">Continuar para proteção</button>
+      `;
+      $("btnContinueProtection")?.addEventListener("click", () => goToStep(9));
+      setNetworkAction("locked");
+      return;
+    }
+
+    renderSafeApplyFailure(alteration, alteration.resultado_agent?.falha_aplicacao || {}, alteration.erro);
   }
 
   async function pollAlteration(id) {
     clearTimeout(safeApplyPoll);
-    try { const response = await getJSON(alterationUrl(OB.urls.redeAlteracao, id)); const alteration = response.dados?.alteracao || response.dados; renderSafeApply(alteration); if (["waiting_confirmation", "validating", "applying", "created", "rollback"].includes(alteration.status)) safeApplyPoll = setTimeout(() => pollAlteration(id), 2000); else if (alteration.status === "confirmed") { networkConfirmed = true; topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || topology; setHint("safeApplyState", "Rede confirmada com sucesso.", "#22c55e"); $("btnApplyNetwork").disabled = true; } else setHint("safeApplyState", alteration.status === "reverted" ? "As alterações de rede foram revertidas para preservar o acesso." : "As alterações de rede falharam. Revise e tente novamente.", "#ef4444"); }
-    catch (error) { setHint("safeApplyState", error.message, "#ef4444"); }
+    try {
+      const response = await getJSON(alterationUrl(OB.urls.redeAlteracao, id));
+      const alteration = response.dados?.alteracao || response.dados;
+      if (!alteration?.id) throw new Error("A alteração de Rede não retornou identificador.");
+      renderSafeApply(alteration);
+
+      if (isSafeApplyActive(alteration)) {
+        safeApplyPoll = setTimeout(() => pollAlteration(id), 2000);
+      } else if (alteration.status === "confirmed") {
+        await markNetworkConfirmed();
+      }
+    } catch (error) {
+      const box = $("safeApplyState");
+      if (box) { box.hidden = false; box.dataset.state = "critical"; box.textContent = error.message; }
+    }
   }
 
-  async function applyNetwork() { const button = $("btnApplyNetwork"); setBusy(button, true); try { const response = await postJSON(OB.urls.redeAplicarTudo, {}); const alteration = response.dados?.alteracao || response.alteracao; renderSafeApply(alteration); if (alteration?.id) pollAlteration(alteration.id); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } finally { setBusy(button, false); } }
-  async function confirmNetwork(id) { try { const response = await postJSON(alterationUrl(OB.urls.redeConfirmar, id), {}); networkConfirmed = true; renderSafeApply(response.dados?.alteracao || response.alteracao); goToStep(9); } catch (error) { setHint("safeApplyState", error.message, "#ef4444"); } }
+  async function applyNetwork() {
+    if (networkApplyInFlight || isSafeApplyActive(activeNetworkAlteration) || activeNetworkAlteration?.status === "confirmed") return;
+    const button = $("btnApplyNetwork");
+    networkApplyInFlight = true;
+    setBusy(button, true, "Aplicando configuração de rede…");
+    renderSafeApplyProcessing();
+
+    try {
+      const response = await postJSON(OB.urls.redeAplicarTudo, {});
+      const alteration = response.dados?.alteracao || response.alteracao;
+      if (!alteration?.id) throw new Error("A aplicação de Rede não retornou uma alteração válida.");
+      activeNetworkAlteration = alteration;
+      renderSafeApply(alteration);
+      await pollAlteration(alteration.id);
+    } catch (error) {
+      const details = error.payload?.erro?.detalhes || {};
+      const alteration = details.alteracao || activeNetworkAlteration || {};
+      if (isSafeApplyActive(alteration)) {
+        activeNetworkAlteration = alteration;
+        renderSafeApply(alteration);
+        void pollAlteration(alteration.id);
+      } else {
+        renderSafeApplyFailure(alteration, details, error.message);
+      }
+    } finally {
+      networkApplyInFlight = false;
+      setBusy(button, false);
+      if (activeNetworkAlteration?.status === "confirmed" || isSafeApplyActive(activeNetworkAlteration) || activeNetworkAlteration?.status === "failed" || activeNetworkAlteration?.status === "reverted") setNetworkAction("locked");
+      else setNetworkAction("apply");
+    }
+  }
+
+  async function confirmNetwork(id) {
+    const button = $("btnConfirmConnectivity");
+    setBusy(button, true, "Confirmando conectividade…");
+    try {
+      const response = await postJSON(alterationUrl(OB.urls.redeConfirmar, id), {});
+      const alteration = response.dados?.alteracao || response.alteracao;
+      activeNetworkAlteration = alteration;
+      renderSafeApply(alteration);
+      await markNetworkConfirmed();
+      goToStep(9);
+    } catch (error) {
+      const box = $("safeApplyState");
+      if (box) { box.hidden = false; box.dataset.state = "critical"; box.textContent = error.message; }
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
+  async function loadLatestNetworkAlteration() {
+    try {
+      const response = await getJSON(`${OB.urls.redeAlteracoes}?tipo=general&limite=1`);
+      const alteration = response.dados?.alteracoes?.[0] || null;
+      activeNetworkAlteration = alteration;
+      networkConfirmed = alteration?.status === "confirmed";
+      return alteration;
+    } catch (_) {
+      activeNetworkAlteration = null;
+      networkConfirmed = false;
+      return null;
+    }
+  }
+
+  async function restoreSafeApplyState() {
+    const alteration = await loadLatestNetworkAlteration();
+    if (!alteration) {
+      $("safeApplyState").hidden = true;
+      setNetworkAction("apply");
+      return;
+    }
+    renderSafeApply(alteration);
+    if (isSafeApplyActive(alteration)) void pollAlteration(alteration.id);
+    if (alteration.status === "confirmed") await markNetworkConfirmed();
+  }
 
   function servicePresentation(service) {
     if (!service?.configurado) {
@@ -451,22 +717,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function completeOnboarding() { const button = $("btnCompleteOnboarding"); setBusy(button, true); try { await loadServices(); await postJSON(OB.urls.completar, {}); goToStep(10); } catch (error) { const pending = error.payload?.pendencias; setHint("completionHint", pending?.length ? `Ainda falta: ${pending.join(", ")}.` : error.message, "#ef4444"); } finally { setBusy(button, false); } }
+  async function completeOnboarding() { const button = $("btnCompleteOnboarding"); setBusy(button, true, "Validando serviços…"); try { await loadServices(); await postJSON(OB.urls.completar, {}); progressCursor = 10; goToStep(10); } catch (error) { const pending = error.payload?.pendencias; setHint("completionHint", pending?.length ? `Ainda falta: ${pending.join(", ")}.` : error.message, "#ef4444"); } finally { setBusy(button, false); } }
 
   function bindProfileControls() {
-    $("fieldSenha")?.addEventListener("input", updatePasswordFeedback); $("fieldSenhaConfirm")?.addEventListener("input", updatePasswordFeedback); $("btnStep2Next")?.addEventListener("click", saveCredentials); $("btnStep3Next")?.addEventListener("click", saveProfile); $("btnStep5Next")?.addEventListener("click", saveProfilePreferences);
+    $("fieldSenha")?.addEventListener("input", updatePasswordFeedback); $("fieldSenhaConfirm")?.addEventListener("input", updatePasswordFeedback); $("btnStep2Next")?.addEventListener("click", saveCredentials); $("btnStep3Next")?.addEventListener("click", saveProfile); $("btnStep4Next")?.addEventListener("click", saveAvatar); $("btnStep5Next")?.addEventListener("click", saveProfilePreferences);
     document.querySelectorAll("input[name=obTheme]").forEach((input) => input.addEventListener("change", () => { chosenTheme = input.value; }));
     document.querySelectorAll(".ob-color-dot").forEach((dot) => dot.addEventListener("click", () => { document.querySelectorAll(".ob-color-dot").forEach((item) => item.classList.remove("active")); dot.classList.add("active"); avatarColor = dot.dataset.color || avatarColor; }));
     $("avatarInput")?.addEventListener("change", (event) => { avatarFile = event.target.files?.[0] || null; if (avatarFile) setHint("avatarHint", "Foto selecionada.", "#22c55e"); }); $("btnUploadAvatar")?.addEventListener("click", () => $("avatarInput")?.click());
-  }
-
-  async function loadNetworkConfirmation() {
-    try {
-      const response = await getJSON(`${OB.urls.redeAlteracoes}?status=confirmed&limite=1`);
-      networkConfirmed = (response.dados?.alteracoes || []).some((alteracao) => alteracao.status === "confirmed");
-    } catch (_) {
-      networkConfirmed = false;
-    }
   }
 
   function applianceIdentityIncomplete() {
@@ -482,6 +739,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function chooseResumeStep() {
     if (OB.passwordChanged !== true) return 2;
+    if (progressCursor < 3) return 3;
+    if (progressCursor < 6) return progressCursor;
     if (applianceIdentityIncomplete()) return 6;
     if (!topology.wan?.principal || !topology.lan?.principal) return 7;
     if (!networkConfirmed) return 8;
@@ -490,9 +749,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function init() {
     if ($("greetName")) $("greetName").textContent = OB.fullName || OB.username || "operador"; if ($("fieldUsername")) $("fieldUsername").value = OB.username || "";
-    initVisuals(); bindProfileControls(); backButtons(); $("btnStep1Next")?.addEventListener("click", () => goToStep(2)); $("btnStep4Next")?.addEventListener("click", () => goToStep(5)); $("btnStep6Next")?.addEventListener("click", saveApplianceIdentity); $("btnStep7Next")?.addEventListener("click", saveInterfaceRoles); $("btnApplyNetwork")?.addEventListener("click", applyNetwork); $("btnCompleteOnboarding")?.addEventListener("click", completeOnboarding);
+    initVisuals(); bindProfileControls(); backButtons(); $("btnStep1Next")?.addEventListener("click", () => goToStep(2)); $("btnStep6Next")?.addEventListener("click", saveApplianceIdentity); $("btnStep7Next")?.addEventListener("click", saveInterfaceRoles); $("btnApplyNetwork")?.addEventListener("click", applyNetwork); $("btnCompleteOnboarding")?.addEventListener("click", completeOnboarding);
     try { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {}; } catch (_) { topology = {}; }
-    await Promise.all([loadApplianceIdentity(), loadNetworkConfirmation()]);
+    await Promise.all([loadApplianceIdentity(), loadLatestNetworkAlteration()]);
     goToStep(chooseResumeStep());
   }
   init();

@@ -20,9 +20,11 @@
         initials:   "{{ profile.get_initials|escapejs }}",
         avatarUrl:  "{% if profile.avatar %}{{ profile.avatar.url }}{% endif %}",
         tema:       "{{ profile.tema|escapejs }}",
+        onboardingStep: {{ configuracao.appliance_onboarding_etapa }},
         csrfToken:  "{{ csrf_token }}",
         urls: {
             salvarCredenciais: "{% url 'autenticacao:api_salvar_credenciais' %}",
+            salvarProgresso:   "{% url 'autenticacao:api_salvar_progresso_onboarding' %}",
             salvarPerfil:      "{% url 'autenticacao:api_salvar_perfil' %}",
             uploadAvatar:      "{% url 'autenticacao:api_upload_avatar' %}",
             salvarPrefs:       "{% url 'autenticacao:api_salvar_prefs' %}",
@@ -481,7 +483,20 @@
             <div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="5">Voltar</button><button class="ob-btn ob-btn--primary" id="btnStep6Next">Salvar identidade</button></div>
         </div>
         <div class="ob-step" id="step7"><div class="ob-step__eyebrow"><span class="ob-step__num">04</span><span class="ob-step__sep">/</span><span>Interfaces</span></div><h2 class="ob-step__title">Defina os papéis<br><em>da rede.</em></h2><p class="ob-step__desc">WAN e LAN são obrigatórias; MGMT é opcional. Nenhuma interface é selecionada automaticamente.</p><div class="ob-interface-grid" id="onboardingInterfaces">Carregando interfaces reais…</div><p class="ob-field__hint" id="interfacesHint"></p><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="6">Voltar</button><button class="ob-btn ob-btn--primary" id="btnStep7Next">Continuar para revisão</button></div></div>
-        <div class="ob-step" id="step8"><div class="ob-step__eyebrow"><span class="ob-step__num">05</span><span class="ob-step__sep">/</span><span>Rede</span></div><h2 class="ob-step__title">Revise e aplique<br><em>com segurança.</em></h2><p class="ob-step__desc">A aplicação usa o Safe Apply da Rede. O rollback real pertence ao Agent.</p><div class="ob-review" id="networkReview">Carregando estado desejado…</div><div class="ob-safe-apply" id="safeApplyState" hidden></div><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="7">Voltar</button><button class="ob-btn ob-btn--primary" id="btnApplyNetwork">Aplicar configuração de rede</button></div></div>
+        <div class="ob-step" id="step8">
+            <div class="ob-step__eyebrow"><span class="ob-step__num">05</span><span class="ob-step__sep">/</span><span>Rede</span></div>
+            <h2 class="ob-step__title">Revise e aplique<br><em>com segurança.</em></h2>
+            <p class="ob-step__desc">A aplicação usa o Safe Apply da Rede. O rollback real pertence ao Agent.</p>
+            <div class="ob-network-topology-status" id="networkTopologyStatus" aria-live="polite"></div>
+            <div class="ob-review ob-network-review" id="networkReview">Carregando estado desejado…</div>
+            <section class="ob-safe-flow" aria-label="Etapas do Safe Apply">
+                <div><small>SAFE APPLY</small><strong>Proteção de conectividade</strong></div>
+                <ol class="ob-safe-flow__steps"><li>Snapshot</li><li>Aplicação</li><li>Confirmação</li></ol>
+                <p>O MoonShield mantém um rollback automático enquanto a nova configuração aguarda confirmação.</p>
+            </section>
+            <div class="ob-safe-apply" id="safeApplyState" role="status" aria-live="polite" hidden></div>
+            <div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="7">Voltar</button><button class="ob-btn ob-btn--primary" id="btnApplyNetwork">Aplicar configuração de rede</button></div>
+        </div>
         <div class="ob-step" id="step9"><div class="ob-step__eyebrow"><span class="ob-step__num">06</span><span class="ob-step__sep">/</span><span>Proteção e validação</span></div><h2 class="ob-step__title">Confirme a<br><em>proteção local.</em></h2><p class="ob-step__desc">Estados reais. Configure IDS e Firewall nos assistentes especializados quando necessário.</p><div class="ob-service-grid" id="onboardingServices">Consultando componentes locais…</div><div class="ob-step__actions ob-step__actions--nav"><button class="ob-btn ob-btn--ghost ob-btn--back" data-back="8">Voltar</button><button class="ob-btn ob-btn--primary" id="btnCompleteOnboarding">Validar e concluir</button></div><p class="ob-field__hint" id="completionHint"></p></div>
         <div class="ob-step" id="step10"><div class="ob-step__eyebrow"><span class="ob-step__num">07</span><span class="ob-step__sep">/</span><span>Concluído</span></div><h2 class="ob-step__title">MoonShield<br><em>está pronto.</em></h2><p class="ob-step__desc">A configuração inicial da appliance foi registrada. Estados que requerem atenção continuam visíveis no painel.</p><div class="ob-step__actions"><a class="ob-btn ob-btn--primary" href="{% url 'painel:index' %}">Entrar no MoonShield</a></div></div>
 

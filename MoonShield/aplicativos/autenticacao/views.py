@@ -23,6 +23,67 @@ from rede.services.topologia import obter_topologia
 from .models import UserProfile
 
 
+ONBOARDING_ETAPA_MINIMA = 1
+ONBOARDING_ETAPA_MAXIMA = 10
+
+
+def _identidade_appliance_incompleta(configuracao: ConfigSistema) -> bool:
+    identidade_padrao = (
+        configuracao.node_name.strip() == "MS-NODE-01"
+        and not configuracao.node_tag.strip()
+        and not configuracao.node_desc.strip()
+    )
+    return (
+        not configuracao.node_name.strip()
+        or identidade_padrao
+    )
+
+
+def _etapa_maxima_onboarding(profile: UserProfile, configuracao: ConfigSistema) -> int:
+    """Limita o cursor UX pela verdade persistida do First Boot."""
+    if configuracao.appliance_onboarding_completo:
+        return ONBOARDING_ETAPA_MAXIMA
+
+    if not profile.last_password_change:
+        return 2
+
+    etapa_atual = max(
+        ONBOARDING_ETAPA_MINIMA,
+        min(ONBOARDING_ETAPA_MAXIMA, configuracao.appliance_onboarding_etapa),
+    )
+    if etapa_atual < 3:
+        return 3
+    if etapa_atual < 4:
+        return 4
+    if etapa_atual < 5:
+        return 5
+    if etapa_atual < 6:
+        return 6
+
+    if (
+        _identidade_appliance_incompleta(configuracao)
+        or configuracao.node_ambiente not in {"lab", "prod"}
+    ):
+        return 6
+
+    try:
+        topologia = obter_topologia() or {}
+    except Exception:
+        return 7
+
+    if (
+        not topologia.get("valida")
+        or not topologia.get("wan", {}).get("principal")
+        or not topologia.get("lan", {}).get("principal")
+    ):
+        return 7
+
+    if not AlteracaoRede.objects.filter(status=AlteracaoRede.Status.CONFIRMADA).exists():
+        return 8
+
+    return 9
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AUTH & ONBOARDING
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,12 +146,7 @@ def api_completar_onboarding(request):
 
     if not profile.last_password_change:
         pendencias.append("credenciais_nao_confirmadas")
-    identidade_padrao = (
-        configuracao.node_name.strip() == "MS-NODE-01"
-        and not configuracao.node_tag.strip()
-        and not configuracao.node_desc.strip()
-    )
-    if not configuracao.node_name.strip() or identidade_padrao:
+    if _identidade_appliance_incompleta(configuracao):
         pendencias.append("identidade_appliance_ausente")
     if configuracao.node_ambiente not in {"lab", "prod"}:
         pendencias.append("ambiente_appliance_invalido")
@@ -108,11 +164,58 @@ def api_completar_onboarding(request):
 
     configuracao.appliance_onboarding_completo = True
     configuracao.appliance_onboarding_concluido_em = timezone.now()
-    configuracao.save(update_fields=["appliance_onboarding_completo", "appliance_onboarding_concluido_em", "updated_at"])
+    configuracao.appliance_onboarding_etapa = ONBOARDING_ETAPA_MAXIMA
+    configuracao.save(update_fields=[
+        "appliance_onboarding_completo",
+        "appliance_onboarding_concluido_em",
+        "appliance_onboarding_etapa",
+        "updated_at",
+    ])
     profile.onboarding_completo = True
     profile.save(update_fields=["onboarding_completo"])
     request.session["mostrar_boasvindas"] = "onboarding"
     return JsonResponse({"ok": True})
+
+
+@require_POST
+@login_required(login_url="autenticacao:login")
+def api_salvar_progresso_onboarding(request):
+    """Persiste apenas o cursor global da experiência de First Boot."""
+    try:
+        dados = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"ok": False, "msg": "JSON inválido."}, status=400)
+
+    etapa = dados.get("etapa") if isinstance(dados, dict) else None
+    if isinstance(etapa, bool):
+        etapa = None
+
+    try:
+        etapa = int(etapa)
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "msg": "Etapa inválida."}, status=400)
+
+    if not ONBOARDING_ETAPA_MINIMA <= etapa <= ONBOARDING_ETAPA_MAXIMA:
+        return JsonResponse({"ok": False, "msg": "Etapa fora da faixa permitida."}, status=400)
+
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    configuracao = ConfigSistema.get_solo()
+
+    if configuracao.appliance_onboarding_completo:
+        return JsonResponse({"ok": False, "msg": "O First Boot já foi concluído."}, status=409)
+
+    etapa_maxima = _etapa_maxima_onboarding(profile, configuracao)
+    if etapa > etapa_maxima:
+        return JsonResponse({
+            "ok": False,
+            "msg": "Conclua os requisitos anteriores antes de avançar.",
+            "etapa_maxima": etapa_maxima,
+        }, status=409)
+
+    configuracao.appliance_onboarding_etapa = etapa
+    configuracao.save(update_fields=["appliance_onboarding_etapa", "updated_at"])
+    return JsonResponse({"ok": True, "etapa": etapa, "etapa_maxima": etapa_maxima})
+
 
 @require_POST
 @login_required(login_url="autenticacao:login")

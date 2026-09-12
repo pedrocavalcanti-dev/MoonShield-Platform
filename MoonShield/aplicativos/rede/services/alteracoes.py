@@ -508,11 +508,10 @@ def criar_alteracao_geral(
     """Cria alteração contendo todo o estado desejado da Rede."""
     nat = montar_payload_nat(somente_ativas=False)
 
-    # montar_payload_interfaces() também executa a reconciliação interna da
-    # rota default automática. Portanto, capturamos as revisões somente depois
-    # de montar o payload, garantindo que o mapa represente exatamente o
-    # desired state enviado ao Agent.
-    interfaces = montar_payload_interfaces().get("interfaces", [])
+    # A reconciliação da rota default ocorre antes da filtragem. Enviamos
+    # somente revisões operacionais pendentes para não reativar uma interface
+    # cuja mudança foi apenas de papel/topologia.
+    interfaces = montar_payload_interfaces(somente_pendentes=True).get("interfaces", [])
 
     ids_interfaces = [
         item.get("id")
@@ -1438,18 +1437,27 @@ def _registrar_falha_aplicacao(
     exc: Exception,
 ) -> None:
     """Persiste erro real ocorrido antes da conclusão da aplicação."""
+    detalhes = getattr(exc, "detalhes", {}) or {}
+    if not isinstance(detalhes, dict):
+        detalhes = {}
+
     with transaction.atomic():
         alteracao = obter_alteracao(
             alteracao_id,
             bloquear=True,
         )
         alteracao.marcar_falha(str(exc))
+        alteracao.resultado_agent = {
+            **(alteracao.resultado_agent or {}),
+            "falha_aplicacao": detalhes,
+        }
         alteracao.save(
             update_fields=[
                 "status",
                 "erro",
                 "finalizada_em",
                 "expira_em",
+                "resultado_agent",
                 "log",
                 "atualizado_em",
             ]

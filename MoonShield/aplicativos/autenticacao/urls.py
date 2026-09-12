@@ -28,5 +28,6 @@ urlpatterns = [
     # ── Onboarding ────────────────────────────────────────────────────────────
     path("onboarding/",                     views.onboarding_view,          name="onboarding"),
     path("api/onboarding/completar/",       views.api_completar_onboarding, name="api_completar_onboarding"),
+    path("api/onboarding/progresso/",       views.api_salvar_progresso_onboarding, name="api_salvar_progresso_onboarding"),
     path("api/onboarding/credenciais/",     views.api_salvar_credenciais,   name="api_salvar_credenciais"),
 ]

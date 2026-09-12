@@ -420,6 +420,13 @@ def sincronizar_inventario(
         interface.metrica_atual = item.get("metrica_atual", item.get("metric"))
         interface.mtu_atual = item.get("mtu_atual", item.get("mtu"))
 
+        # Em um banco novo ainda não existe intenção persistida. Nesse único
+        # momento, inicializamos o desired a partir do inventário para que a
+        # primeira classificação de papel não transforme uma configuração
+        # operacional existente em DHCP por causa dos defaults do model.
+        if criada:
+            _inicializar_desejado_da_observacao(interface, item)
+
         # ---------------------------------------------------------------------
         # BACKEND
         # ---------------------------------------------------------------------
@@ -727,6 +734,36 @@ def _prefixo_ipv4(endereco: str | None) -> int | None:
         return None
 
 
+def _inicializar_desejado_da_observacao(
+    interface: InterfaceRede,
+    item: dict,
+) -> None:
+    """Inicializa desired somente para uma InterfaceRede recém-descoberta."""
+    if not interface.ipv4_atual or interface.prefixo_atual is None:
+        return
+
+    if item.get("ipv4_dinamico") is True:
+        interface.ipv4_modo = ModoIPv4.DHCP.value
+        interface.ipv4_endereco = None
+        interface.ipv4_prefixo = None
+        interface.gateway = None
+    else:
+        interface.ipv4_modo = ModoIPv4.STATIC.value
+        interface.ipv4_endereco = interface.ipv4_atual
+        interface.ipv4_prefixo = interface.prefixo_atual
+        interface.gateway = interface.gateway_atual
+
+    rota_padrao_atual = item.get("rota_padrao_atual")
+    if rota_padrao_atual is not None:
+        interface.rota_padrao = bool(rota_padrao_atual)
+
+    if interface.metrica_atual is not None:
+        interface.metrica = interface.metrica_atual
+
+    if interface.mtu_atual is not None:
+        interface.mtu = interface.mtu_atual
+
+
 # =============================================================================
 # SALVAR ESTADO DESEJADO
 # =============================================================================
@@ -769,9 +806,31 @@ def salvar_configuracao_interface(
         nome
     )
 
-    payload = dict(
-        dados
+    interface, criada = (
+        InterfaceRede.objects
+        .select_for_update()
+        .get_or_create(
+            nome=nome
+        )
     )
+
+    payload = dict(dados)
+    preservar_ipv4_atual = payload.get("preservar_ipv4_atual") is True
+
+    if preservar_ipv4_atual and not criada:
+        # "Manter configuração atual" é uma alteração exclusivamente de
+        # metadata/topologia: nenhum campo operacional é sobrescrito pelo
+        # browser nem pelo estado observado.
+        payload.update({
+            "habilitada": interface.habilitada,
+            "ipv4_modo": interface.ipv4_modo,
+            "ipv4_endereco": interface.ipv4_endereco,
+            "ipv4_prefixo": interface.ipv4_prefixo,
+            "gateway": interface.gateway,
+            "rota_padrao": interface.rota_padrao,
+            "metrica": interface.metrica,
+            "mtu": interface.mtu,
+        })
 
     payload[
         "interface"
@@ -793,14 +852,6 @@ def salvar_configuracao_interface(
             inventario=(
                 inventario_validacao
             ),
-        )
-    )
-
-    interface, criada = (
-        InterfaceRede.objects
-        .select_for_update()
-        .get_or_create(
-            nome=nome
         )
     )
 
@@ -858,6 +909,7 @@ def salvar_configuracao_interface(
         gerenciamento_auto
         and novo_papel == PapelInterface.WAN.value
         and principal
+        and not preservar_ipv4_atual
         and normalizado.get("ipv4_modo") == ModoIPv4.DHCP.value
     ):
         normalizado["rota_padrao"] = True
@@ -1117,11 +1169,13 @@ def _sincronizar_rota_padrao_automatica() -> None:
         outra.save()
 
 
-def montar_payload_interfaces() -> dict:
+def montar_payload_interfaces(*, somente_pendentes: bool = False) -> dict:
     """
-    Retorna todas as interfaces administradas pelo MoonShield.
+    Retorna as interfaces administradas pelo MoonShield.
 
-    Interfaces UNASSIGNED não são enviadas para aplicação.
+    Interfaces UNASSIGNED não são enviadas para aplicação. Quando
+    ``somente_pendentes`` é usado, o payload respeita as revisões
+    operacionais e ignora mudanças exclusivamente de metadata.
     """
 
     _sincronizar_rota_padrao_automatica()
@@ -1141,6 +1195,13 @@ def montar_payload_interfaces() -> dict:
             "nome",
         )
     )
+
+    if somente_pendentes:
+        queryset = [
+            interface
+            for interface in queryset
+            if interface.revisao_desejada > interface.revisao_aplicada
+        ]
 
     return {
         "interfaces": [

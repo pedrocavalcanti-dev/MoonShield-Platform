@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -85,6 +86,16 @@ class ConfigSistema(models.Model):
     appliance_onboarding_concluido_em = models.DateTimeField(
         null=True,
         blank=True,
+    )
+
+    # Cursor global da experiência de First Boot. Os requisitos continuam
+    # validados pelos estados persistidos dos módulos responsáveis.
+    appliance_onboarding_etapa = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[
+            MinValueValidator(1),
+            MaxValueValidator(10),
+        ],
     )
 
     # ──────────────────────────────────────────────────────────────────────

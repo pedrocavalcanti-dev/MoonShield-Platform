@@ -49,12 +49,10 @@
   }
 
   function renderDiagnostics() {
-    const presentation = n().getPresentationState();
-    const services = presentation.servicos || {};
+    const services = n().STATE.servicos || {};
     const topology = n().STATE.rede || {};
-    const demonstracao = n().getViewMode() === "demonstracao";
     const entries = [
-      ["Rede", demonstracao || topology.valida ? "Operacional" : "Requer atenção", demonstracao || Boolean(topology.valida)],
+      ["Rede", topology.valida ? "Operacional" : "Requer atenção", Boolean(topology.valida)],
       ["Agent", services.firewall?.agent_online ? "Online" : "Indisponível", Boolean(services.firewall?.agent_online)],
       ["DNS / AdGuard", services.adguard?.status_label, Boolean(services.adguard?.saudavel)],
       ["IDS / Suricata", services.suricata?.status_label, Boolean(services.suricata?.saudavel)],
@@ -105,11 +103,6 @@
       const result = $(button.dataset.result);
       button.disabled = true;
       try {
-        if (n().getViewMode() === "demonstracao") {
-          const demoResults = { ping: 2, dns: 4, latency: 1, internet: 5 };
-          if (result) result.textContent = `OK · ${demoResults[button.dataset.quickTest]}ms · Demonstrativo`;
-          return;
-        }
         const data = await n().apiFetch(`${n().endpoint("quickTestUrl")}?test=${button.dataset.quickTest}`);
         if (result) result.textContent = data.ok ? `OK${data.ms != null ? ` · ${data.ms}ms` : ""}` : data.msg || "Falha";
       } catch (error) {
@@ -120,20 +113,10 @@
     }));
   }
 
-  function resetQuickTests() {
-    const demonstracao = n().getViewMode() === "demonstracao";
-    document.querySelectorAll("[data-quick-test]").forEach((button) => {
-      const result = $(button.dataset.result);
-      if (result) result.textContent = demonstracao ? "— demonstrativo" : "—";
-    });
-  }
-
   document.addEventListener("DOMContentLoaded", async () => {
     initTabs();
-    n().initViewMode();
     initSave();
     initQuickTests();
-    resetQuickTests();
     $("btnRefreshDiag")?.addEventListener("click", async () => {
       try {
         await n().loadConfig();
@@ -158,5 +141,5 @@
     }
   });
 
-  window.CfgInfraestrutura = { loadSysInfo, renderNetworkSummary, renderDiagnostics, resetQuickTests };
+  window.CfgInfraestrutura = { loadSysInfo, renderNetworkSummary, renderDiagnostics };
 })();

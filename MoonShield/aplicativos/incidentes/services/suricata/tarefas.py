@@ -26,21 +26,19 @@ from .tipos import (
     ModoCaptura,
 )
 
-from .instalador import (
-    executar_instalacao,
-    executar_configuracao,
-    executar_atualizacao_regras,
-    executar_validacao,
-)
-
-from .diagnostico import (
-    executar_diagnostico,
-)
-
 from .servicos import (
     reiniciar_servico,
-    SERVICO_SURICATA,
     SERVICO_MONITOR,
+)
+
+from .agent import (
+    aplicar_configuracao as aplicar_configuracao_agent,
+    validar_configuracao as validar_configuracao_agent,
+    reiniciar_servico as reiniciar_suricata_agent,
+    obter_diagnostico as obter_diagnostico_agent,
+    obter_status as obter_status_agent,
+    ErroSuricataAgent,
+    TopologiaSuricataInvalida,
 )
 
 logger = logging.getLogger(__name__)
@@ -543,154 +541,124 @@ def _verificar_cancelamento(progresso: ProgressoTarefa, etapa: str) -> Resultado
 # DELEGATES E EXECUTORES ESPECIALISTAS (WORKFLOWS)
 # ==============================================================================
 
+def _resumir_diagnostico_agent(resposta: dict[str, object]) -> dict[str, object]:
+    """Converte o diagnóstico devolvido pelo Agent para o formato consumido pelas Views/Painel."""
+    checks = resposta.get("checks", {})
+    if not isinstance(checks, dict):
+        checks = {}
+
+    total_checks = len(checks)
+    total_saudaveis = sum(1 for v in checks.values() if v is True)
+    total_criticos = sum(1 for v in checks.values() if v is False)
+    
+    total_avisos = 0
+    total_falhas = total_criticos
+
+    score = round((total_saudaveis / total_checks) * 100) if total_checks > 0 else 0
+    pronto = (total_falhas == 0) and bool(resposta.get("ok", False))
+    
+    if pronto:
+        mensagem = "Infraestrutura pronta e sem falhas críticas."
+    else:
+        mensagem = "Existem falhas críticas que exigem correção."
+
+    grupos_resumo = {
+        "Geral": {
+            "total": total_checks,
+            "ok": total_saudaveis,
+            "saudaveis": total_saudaveis,
+            "avisos": 0,
+            "criticos": total_criticos,
+            "falhas": total_criticos,
+            "score": score,
+        }
+    }
+
+    agora = _agora()
+    return {
+        "pronto": pronto,
+        "total_checks": total_checks,
+        "total_ok": total_saudaveis,
+        "total_saudaveis": total_saudaveis,
+        "total_avisos": total_avisos,
+        "total_falhas": total_falhas,
+        "total_criticos": total_criticos,
+        "score_integridade": score,
+        "score": score,
+        "grupos": grupos_resumo,
+        "duracao_segundos": float(resposta.get("duracao_segundos", 0.0) or 0.0),
+        "executado_em": agora.isoformat(),
+        "mensagem": mensagem,
+    }
+
+
 def executar_tarefa_diagnostico(
     progresso: ProgressoTarefa,
     parametros: dict[str, object],
 ) -> ResultadoEtapa:
     """
-    Executa o diagnóstico profundo do Suricata UMA ÚNICA VEZ.
-
-    O resultado completo e o resumo são derivados do mesmo snapshot para:
-    - evitar repetir `suricata -T`;
-    - reduzir significativamente o tempo da tarefa;
-    - impedir divergência entre cards, grupos e resultado completo;
-    - permitir persistência confiável em TarefaSuricata.resultado.
+    Executa o diagnóstico profundo do Suricata usando o MoonShield-Agent.
     """
     etapa_id = "tarefa_diagnostico_full"
     iniciado_em = _agora()
 
-    chk_cancel = _verificar_cancelamento(
-        progresso,
-        etapa_id,
-    )
-    if chk_cancel:
-        return chk_cancel
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
+    if chk_cancel: return chk_cancel
 
     progresso.progresso = 5
-    _adicionar_log_progresso(
-        progresso,
-        "Preparando diagnóstico profundo do Suricata.",
-        NivelLog.INFO,
-        "preparando_diagnostico",
-    )
+    _adicionar_log_progresso(progresso, "Preparando diagnóstico profundo do Suricata.", NivelLog.INFO, "preparando_diagnostico")
 
-    cfg = parametros.get("configuracao")
-
-    inc_val_suri = bool(
-        parametros.get(
-            "incluir_validacao_suricata",
-            True,
-        )
-    )
-    inc_chk_eve = bool(
-        parametros.get(
-            "incluir_checks_eve",
-            True,
-        )
-    )
-    inc_chk_svc = bool(
-        parametros.get(
-            "incluir_checks_servicos",
-            True,
-        )
-    )
+    # Parâmetros de compatibilidade
+    inc_val_suri = bool(parametros.get("incluir_validacao_suricata", True))
+    inc_chk_eve = bool(parametros.get("incluir_checks_eve", True))
+    inc_chk_svc = bool(parametros.get("incluir_checks_servicos", True))
 
     progresso.progresso = 15
-    _adicionar_log_progresso(
-        progresso,
-        (
-            "Executando verificações de saúde. "
-            "A validação das regras pode levar alguns segundos."
-        ),
-        NivelLog.INFO,
-        "executando_diagnostico",
-    )
+    _adicionar_log_progresso(progresso, "Consultando MoonShield-Agent para diagnóstico...", NivelLog.INFO, "executando_diagnostico")
 
     try:
-        diag_bruto = executar_diagnostico(
-            configuracao=cfg,
-            incluir_validacao_suricata=inc_val_suri,
-            incluir_checks_eve=inc_chk_eve,
-            incluir_checks_servicos=inc_chk_svc,
-        )
+        diag_bruto = obter_diagnostico_agent()
+        
+    except TopologiaSuricataInvalida as exc:
+        progresso.progresso = max(int(getattr(progresso, "progresso", 0) or 0), 15)
+        _adicionar_log_progresso(progresso, "Topologia atual inválida.", NivelLog.ERRO, "diagnostico")
+        res_fail = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Falha ao executar diagnóstico profundo.", erro=str(exc.problemas), iniciado_em=iniciado_em)
+        res_fail.finalizar_erro("Topologia atual inválida.", erro=str(exc.problemas))
+        return res_fail
+        
+    except ErroSuricataAgent as exc:
+        progresso.progresso = max(int(getattr(progresso, "progresso", 0) or 0), 15)
+        _adicionar_log_progresso(progresso, "O diagnóstico falhou ao se comunicar com o Agent.", NivelLog.ERRO, "diagnostico")
+        res_fail = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Falha ao executar diagnóstico profundo.", erro=str(exc), iniciado_em=iniciado_em)
+        res_fail.finalizar_erro("Erro na comunicação com o Agent.", erro=str(exc))
+        return res_fail
+        
     except Exception as exc:
-        logger.exception(
-            "Crash interno do pacote diagnóstico."
-        )
-
-        progresso.progresso = max(
-            int(getattr(progresso, "progresso", 0) or 0),
-            15,
-        )
-
-        _adicionar_log_progresso(
-            progresso,
-            "O diagnóstico não pôde ser concluído.",
-            NivelLog.ERRO,
-            "diagnostico",
-        )
-
-        res_fail = ResultadoEtapa(
-            etapa=etapa_id,
-            status=StatusEtapa.ERRO,
-            sucesso=False,
-            mensagem="Falha ao executar diagnóstico profundo.",
-            erro=str(exc),
-            iniciado_em=iniciado_em,
-        )
-
-        res_fail.finalizar_erro(
-            "Falha ao executar diagnóstico profundo.",
-            erro=str(exc),
-        )
-
+        logger.exception("Crash interno do pacote diagnóstico via Agent.")
+        progresso.progresso = max(int(getattr(progresso, "progresso", 0) or 0), 15)
+        _adicionar_log_progresso(progresso, "O diagnóstico não pôde ser concluído.", NivelLog.ERRO, "diagnostico")
+        res_fail = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Falha ao executar diagnóstico profundo.", erro=str(exc), iniciado_em=iniciado_em)
+        res_fail.finalizar_erro("Falha ao executar diagnóstico profundo.", erro=str(exc))
         return res_fail
 
-    chk_cancel = _verificar_cancelamento(
-        progresso,
-        etapa_id,
-    )
-    if chk_cancel:
-        return chk_cancel
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
+    if chk_cancel: return chk_cancel
 
     progresso.progresso = 90
-    _adicionar_log_progresso(
-        progresso,
-        "Consolidando o relatório do diagnóstico.",
-        NivelLog.INFO,
-        "consolidando_diagnostico",
-    )
+    _adicionar_log_progresso(progresso, "Consolidando o relatório do diagnóstico.", NivelLog.INFO, "consolidando_diagnostico")
 
-    diagnostico_completo = _serializar_resultado(
-        diag_bruto
-    )
-
-    resumo_rapido = _resumir_diagnostico_existente(
-        diag_bruto
-    )
-
-    diagnostico_pronto = bool(
-        getattr(
-            diag_bruto,
-            "pronto",
-            False,
-        )
-    )
+    diagnostico_completo = diag_bruto
+    resumo_rapido = _resumir_diagnostico_agent(diag_bruto)
+    diagnostico_pronto = bool(resumo_rapido.get("pronto", False))
 
     res = ResultadoEtapa(
         etapa=etapa_id,
-        status=(
-            StatusEtapa.SUCESSO
-            if diagnostico_pronto
-            else StatusEtapa.ERRO
-        ),
+        status=StatusEtapa.SUCESSO if diagnostico_pronto else StatusEtapa.ERRO,
         sucesso=diagnostico_pronto,
         mensagem="Checkup operacional completo.",
         iniciado_em=iniciado_em,
     )
 
-    # Mantém o contrato atual consumido pela API/frontend.
-    # Tanto o relatório quanto o resumo pertencem à MESMA execução.
     res.dados = {
         "diagnostico_completo": diagnostico_completo,
         "resumo_rapido": resumo_rapido,
@@ -700,104 +668,196 @@ def executar_tarefa_diagnostico(
             "incluiu_validacao_suricata": inc_val_suri,
             "incluiu_checks_eve": inc_chk_eve,
             "incluiu_checks_servicos": inc_chk_svc,
+            "origem": "moonshield-agent",
         },
     }
 
     if diagnostico_pronto:
-        res.finalizar_sucesso(
-            "Diagnóstico concluído sem falhas críticas."
-        )
-
+        res.finalizar_sucesso("Diagnóstico concluído sem falhas críticas.")
         _adicionar_log_progresso(
             progresso,
-            (
-                f"Diagnóstico aprovado: "
-                f"{resumo_rapido['total_saudaveis']}/"
-                f"{resumo_rapido['total_checks']} verificações saudáveis."
-            ),
+            f"Diagnóstico aprovado: {resumo_rapido['total_saudaveis']}/{resumo_rapido['total_checks']} verificações saudáveis.",
             NivelLog.SUCESSO,
-            "diagnostico_concluido",
+            "diagnostico_concluido"
         )
     else:
-        total_criticos = int(
-            resumo_rapido.get(
-                "total_criticos",
-                0,
-            )
-            or 0
-        )
-
-        res.finalizar_erro(
-            (
-                "O diagnóstico identificou falhas críticas "
-                "que exigem correção."
-            ),
-            erro=(
-                f"{total_criticos} falha(s) crítica(s) identificada(s)."
-            ),
-        )
-
+        total_criticos = int(resumo_rapido.get("total_criticos", 0) or 0)
+        res.finalizar_erro("O diagnóstico identificou falhas críticas que exigem correção.", erro=f"{total_criticos} falha(s) crítica(s) identificada(s).")
         _adicionar_log_progresso(
             progresso,
-            (
-                f"Diagnóstico finalizado com "
-                f"{total_criticos} falha(s) crítica(s)."
-            ),
+            f"Diagnóstico finalizado com {total_criticos} falha(s) crítica(s).",
             NivelLog.ERRO,
-            "diagnostico_concluido",
+            "diagnostico_concluido"
         )
 
     progresso.progresso = 100
-
     return res
 
 
 def executar_tarefa_instalacao(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
-    """Aciona a master-routine transacional (A a Z) provisionando do APT até as Regras MS."""
+    """Verifica e ativa uma instalação Suricata já provisionada pela ISO."""
+    etapa_id = "tarefa_instalacao"
+    iniciado_em = _agora()
+
+    # Preservar params legados
     cfg = parametros.get("configuracao")
-    # Usa triplo get default para garantir compatibilidade pass-thru e permitir bools nativos de cfg
     inst_et = parametros.get("instalar_et_open")
     bounce = parametros.get("reiniciar_servicos")
     diag_fin = parametros.get("executar_diagnostico_final", True)
 
-    chk_cancel = _verificar_cancelamento(progresso, "tarefa_instalacao")
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
     if chk_cancel: return chk_cancel
 
-    # Delega pro serviço do módulo "instalador.py" o pass-through, honrando o progresso
-    res_raw = executar_instalacao(
-        configuracao=cfg,
-        progresso=progresso,
-        instalar_et_open=inst_et,
-        reiniciar_servicos=bounce,
-        executar_diagnostico_final=diag_fin
-    )
+    progresso.progresso = 5
+    _adicionar_log_progresso(progresso, "Verificando se o appliance possui Suricata provisionado.", NivelLog.INFO, "verificando_appliance")
+
+    progresso.progresso = 20
+    _adicionar_log_progresso(progresso, "Consultando Agent...", NivelLog.INFO, "consultando_agent")
     
-    if tarefa_cancelada(progresso):
-        return _verificar_cancelamento(progresso, "tarefa_instalacao")
-
-    return res_raw
-
-
-def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
-    """Dispara alteração topológica sem interferir nos scripts e binários debian instalados."""
-    etapa_id = "tarefa_configuracao_topologia"
-    cfg = parametros.get("configuracao")
-    
-    if not cfg:
-        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Configuração nula", iniciado_em=_agora())
-        res.finalizar_erro("A configuração da topologia IDS foi submetida em branco.")
+    try:
+        st_agent = obter_status_agent()
+    except ErroSuricataAgent as exc:
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro na comunicação com Agent.", erro=str(exc), iniciado_em=iniciado_em)
+        res.finalizar_erro("Erro na comunicação com Agent.", erro=str(exc))
+        return res
+    except Exception as exc:
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Crash interno ao validar provisionamento.", erro=str(exc), iniciado_em=iniciado_em)
+        res.finalizar_erro("Crash interno ao validar provisionamento.", erro=str(exc))
         return res
         
     chk_cancel = _verificar_cancelamento(progresso, etapa_id)
     if chk_cancel: return chk_cancel
 
-    bounce = parametros.get("reiniciar_servicos")
+    progresso.progresso = 40
+    _adicionar_log_progresso(progresso, "Validando provisionamento...", NivelLog.INFO, "validando_provisionamento")
+
+    suricata_node = st_agent.get("suricata", {})
+    rules_node = st_agent.get("rules_ms", {})
     
-    res_raw = executar_configuracao(
-        configuracao=cfg,
-        progresso=progresso,
-        reiniciar_servicos=bounce
+    if not suricata_node.get("instalado", False):
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "O Suricata não está provisionado no appliance.", iniciado_em=iniciado_em)
+        res.finalizar_erro("O Suricata não está provisionado no appliance. A instalação de pacotes pertence à imagem/ISO MoonShield.")
+        res.dados = {"codigo": "suricata_nao_provisionado"}
+        return res
+        
+    if not rules_node.get("existe", False):
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "As regras MoonShield não estão provisionadas no appliance.", iniciado_em=iniciado_em)
+        res.finalizar_erro("As regras MoonShield não estão provisionadas no appliance.")
+        res.dados = {"codigo": "rules_ms_nao_provisionadas"}
+        return res
+
+    progresso.progresso = 55
+    _adicionar_log_progresso(progresso, "Aplicando configuração via Agent...", NivelLog.INFO, "aplicando_configuracao")
+    
+    try:
+        apply_agent = aplicar_configuracao_agent()
+    except TopologiaSuricataInvalida as exc:
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Topologia atual inválida.", erro=str(exc.problemas), iniciado_em=iniciado_em)
+        res.finalizar_erro("Topologia atual inválida.", erro=str(exc.problemas))
+        return res
+    except ErroSuricataAgent as exc:
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro na comunicação com Agent.", erro=str(exc), iniciado_em=iniciado_em)
+        res.finalizar_erro("Erro na comunicação com Agent ao aplicar config.", erro=str(exc))
+        return res
+    except Exception as exc:
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro interno durante aplicação de configuração.", erro=str(exc), iniciado_em=iniciado_em)
+        res.finalizar_erro("Erro interno durante aplicação de configuração.", erro=str(exc))
+        return res
+        
+    if not apply_agent.get("ok"):
+        res = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Falha ao aplicar configuração via Agent.", iniciado_em=iniciado_em)
+        res.finalizar_erro("Falha ao aplicar configuração via Agent.", erro=str(apply_agent.get("erro")))
+        res.dados = apply_agent
+        return res
+        
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
+    if chk_cancel: return chk_cancel
+
+    progresso.progresso = 85
+    diag_bruto = None
+    if diag_fin:
+        _adicionar_log_progresso(progresso, "Executando diagnóstico final...", NivelLog.INFO, "diagnostico_final")
+        try:
+            diag_bruto = obter_diagnostico_agent()
+        except Exception as exc:
+            logger.warning("Falha ao rodar diagnóstico final na instalação, ignorando: %s", exc)
+
+    progresso.progresso = 100
+    res = ResultadoEtapa(etapa_id, StatusEtapa.SUCESSO, True, "Appliance provisionado e ativado com sucesso.", iniciado_em=iniciado_em)
+    res.finalizar_sucesso("Appliance provisionado e ativado com sucesso.")
+    
+    res.dados = {
+        "status_inicial": st_agent,
+        "apply": apply_agent,
+        "diagnostico_final": diag_bruto,
+        "meta": {
+            "origem": "moonshield-agent",
+            "modo": "appliance_preprovisionado",
+            "instalar_et_open_solicitado": inst_et,
+            "reiniciar_servicos_solicitado": bounce,
+            "diagnostico_final_solicitado": diag_fin,
+        }
+    }
+    
+    return res
+
+
+def _resultado_agent_para_etapa(
+    etapa_id: str,
+    resposta: dict[str, object],
+    mensagem_sucesso: str,
+) -> ResultadoEtapa:
+    """Converte a resposta do MoonShield-Agent para ResultadoEtapa."""
+    sucesso = bool(resposta.get("ok", False))
+    status = StatusEtapa.SUCESSO if sucesso else StatusEtapa.ERRO
+
+    res = ResultadoEtapa(
+        etapa=etapa_id,
+        status=status,
+        sucesso=sucesso,
+        mensagem=mensagem_sucesso if sucesso else str(resposta.get("mensagem") or "Falha no Agent."),
+        iniciado_em=_agora()
     )
+
+    if not sucesso:
+        res.erro = str(resposta.get("erro") or "Erro desconhecido retornado pelo Agent.")
+    
+    # Preservar dados
+    res.dados = resposta
+    
+    if sucesso:
+        res.finalizar_sucesso(mensagem_sucesso)
+    else:
+        res.finalizar_erro(res.mensagem, erro=res.erro)
+
+    return res
+
+
+def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
+    """Dispara alteração topológica sem interferir nos scripts e binários debian instalados."""
+    etapa_id = "tarefa_configuracao_topologia"
+    
+    # Preservado para compatibilidade, topologia agora vem nativamente do adapter
+    cfg = parametros.get("configuracao")
+    
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
+    if chk_cancel: return chk_cancel
+
+    _adicionar_log_progresso(progresso, "Aplicando configuração topológica via Agent...", NivelLog.INFO, etapa_id)
+    progresso.progresso = 15
+    
+    try:
+        resposta = aplicar_configuracao_agent()
+        res_raw = _resultado_agent_para_etapa(etapa_id, resposta, "Configuração aplicada via Agent.")
+    except TopologiaSuricataInvalida as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Topologia atual inválida.", erro=str(exc.problemas), iniciado_em=_agora())
+        res_raw.finalizar_erro("Topologia atual inválida.", erro=str(exc.problemas))
+    except ErroSuricataAgent as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro na comunicação com Agent.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro na comunicação com Agent.", erro=str(exc))
+    except Exception as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro interno durante aplicação de configuração.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro interno durante aplicação de configuração.", erro=str(exc))
     
     if tarefa_cancelada(progresso):
         return _verificar_cancelamento(progresso, etapa_id)
@@ -806,36 +866,66 @@ def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[st
 
 
 def executar_tarefa_atualizacao_regras(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
-    """Garante sincronia e flush unificado do Intelligence Pack (ET + MS)."""
+    """Bloqueia a atualização dinâmica de regras local, aguardando suporte no Agent."""
     chk_cancel = _verificar_cancelamento(progresso, "tarefa_atualizar_regras")
     if chk_cancel: return chk_cancel
 
-    res_raw = executar_atualizacao_regras(
-        atualizar_et=bool(parametros.get("atualizar_et", True)),
-        atualizar_moonshield=bool(parametros.get("atualizar_moonshield", True)),
-        origem_moonshield=parametros.get("origem_moonshield"),
-        validar_depois=bool(parametros.get("validar_depois", True)),
-        yaml_path=parametros.get("yaml_path"),
-        reiniciar_depois=bool(parametros.get("reiniciar_depois", False)),
-        progresso=progresso
-    )
+    _adicionar_log_progresso(progresso, "Atualização de rulesets interceptada.", NivelLog.ERRO, "tarefa_atualizar_regras")
     
-    if tarefa_cancelada(progresso):
-        return _verificar_cancelamento(progresso, "tarefa_atualizar_regras")
-        
-    return res_raw
+    res = ResultadoEtapa(
+        etapa="tarefa_atualizar_regras", 
+        status=StatusEtapa.ERRO, 
+        sucesso=False, 
+        mensagem="Atualização de rulesets não disponível pelo Agent nesta versão.", 
+        iniciado_em=_agora()
+    )
+    res.finalizar_erro("Atualização de rulesets não disponível pelo Agent nesta versão.")
+    
+    res.dados = {
+        "codigo": "rules_update_agent_nao_disponivel",
+        "executado": False,
+        "origem": "moonshield-agent",
+        "mensagem": "Atualização de rulesets não disponível pelo Agent nesta versão.",
+        "solicitado": {
+            "atualizar_et": bool(parametros.get("atualizar_et", True)),
+            "atualizar_moonshield": bool(parametros.get("atualizar_moonshield", True)),
+            "origem_moonshield": parametros.get("origem_moonshield"),
+            "validar_depois": bool(parametros.get("validar_depois", True)),
+            "yaml_path": parametros.get("yaml_path"),
+            "reiniciar_depois": bool(parametros.get("reiniciar_depois", False)),
+        }
+    }
+    
+    return res
 
 
 def executar_tarefa_validacao(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
     """Dispara Healthcheck + YAML syntax verifier para certificar o estado atual."""
-    chk_cancel = _verificar_cancelamento(progresso, "tarefa_validar")
+    etapa_id = "tarefa_validar"
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
     if chk_cancel: return chk_cancel
 
+    # Preservado para compatibilidade
     cfg = parametros.get("configuracao")
-    res_raw = executar_validacao(configuracao=cfg, progresso=progresso)
+    
+    _adicionar_log_progresso(progresso, "Solicitando validação de configuração via Agent...", NivelLog.INFO, etapa_id)
+    progresso.progresso = 15
+
+    try:
+        resposta = validar_configuracao_agent()
+        res_raw = _resultado_agent_para_etapa(etapa_id, resposta, "Configuração validada com sucesso pelo Agent.")
+    except TopologiaSuricataInvalida as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Topologia atual inválida.", erro=str(exc.problemas), iniciado_em=_agora())
+        res_raw.finalizar_erro("Topologia atual inválida.", erro=str(exc.problemas))
+    except ErroSuricataAgent as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro na comunicação com Agent.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro na comunicação com Agent.", erro=str(exc))
+    except Exception as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro interno durante validação.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro interno durante validação.", erro=str(exc))
     
     if tarefa_cancelada(progresso):
-        return _verificar_cancelamento(progresso, "tarefa_validar")
+        return _verificar_cancelamento(progresso, etapa_id)
         
     return res_raw
 
@@ -846,10 +936,18 @@ def executar_tarefa_reinicio_suricata(progresso: ProgressoTarefa, parametros: di
     chk_cancel = _verificar_cancelamento(progresso, etapa_id)
     if chk_cancel: return chk_cancel
     
-    _adicionar_log_progresso(progresso, "Bounce motor ativo C.", NivelLog.INFO, etapa_id)
+    _adicionar_log_progresso(progresso, "Solicitando reinício do Suricata via Agent...", NivelLog.INFO, etapa_id)
     progresso.progresso = 20
     
-    res_raw = reiniciar_servico(SERVICO_SURICATA)
+    try:
+        resposta = reiniciar_suricata_agent()
+        res_raw = _resultado_agent_para_etapa(etapa_id, resposta, "Suricata reiniciado com sucesso via Agent.")
+    except ErroSuricataAgent as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro na comunicação com Agent.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro na comunicação com Agent.", erro=str(exc))
+    except Exception as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro interno durante reinício.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro interno durante reinício.", erro=str(exc))
     
     if tarefa_cancelada(progresso):
         return _verificar_cancelamento(progresso, etapa_id)

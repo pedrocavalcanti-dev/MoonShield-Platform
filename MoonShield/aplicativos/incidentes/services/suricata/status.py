@@ -24,23 +24,23 @@ from .tipos import (
 from .ambiente import (
     detectar_ambiente_completo,
     obter_versao_suricata,
-    localizar_suricata_yaml,
     localizar_eve_json,
-    verificar_caminhos_suricata,
 )
-from .interfaces import (
-    obter_topologia_detectada,
-    obter_interface_por_nome,
-)
+
 from .regras import (
     obter_status_regras_completo,
 )
-from .configurador import (
-    obter_status_configuracao,
-)
+
 from .servicos import (
     obter_status_stack,
     obter_status_servicos,
+)
+
+from .agent import (
+    obter_status as obter_status_agent,
+    obter_status_servico as obter_status_servico_agent,
+    ErroSuricataAgent,
+    TopologiaSuricataInvalida,
 )
 
 logger = logging.getLogger(__name__)
@@ -537,133 +537,136 @@ def _normalizar_regras_para_painel(status_regras: object) -> dict[str, object]:
     return regras
 
 
+def _obter_snapshot_agent() -> tuple[dict[str, object], dict[str, object]]:
+    """Tenta obter o status operacional e de serviço do Suricata no Agent."""
+    try:
+        status_suri = obter_status_agent()
+        status_svc = obter_status_servico_agent()
+        return status_suri, status_svc
+    except TopologiaSuricataInvalida as exc:
+        logger.error(f"Agent reportou topologia inválida ao obter status: {exc}")
+        return {"ok": False, "erro": "Topologia inválida", "mensagem": str(exc.problemas)}, {}
+    except ErroSuricataAgent as exc:
+        logger.error(f"Agent indisponível ou erro IPC: {exc}")
+        return {"ok": False, "erro": "Erro IPC", "mensagem": "Problema de comunicação com MoonShield-Agent."}, {}
+    except Exception as exc:
+        logger.exception("Crash interno ao tentar comunicar com MoonShield-Agent no status.")
+        return {"ok": False, "erro": "Crash interno", "mensagem": str(exc)}, {}
+
+
 def obter_status_suricata_local(
     configuracao: ConfiguracaoSuricataDados | None = None,
 ) -> dict[str, object]:
-    """Consolida binário, YAML, regras, serviço, EVE e topologia do Suricata."""
-    ambiente = detectar_ambiente_completo()
-    if not isinstance(ambiente, dict):
-        ambiente = {}
+    """
+    Consolida binário, YAML, regras, serviço, EVE e topologia do Suricata.
+    O nome é mantido para compatibilidade pública, mas os dados vêm do Agent IPC.
+    """
+    st_agent, svc_agent = _obter_snapshot_agent()
 
-    sistema = ambiente.get("sistema") if isinstance(ambiente.get("sistema"), dict) else {}
-    suri_amb = ambiente.get("suricata") if isinstance(ambiente.get("suricata"), dict) else {}
+    agent_ok = st_agent.get("ok", False)
+    if not agent_ok:
+        mensagem_erro = st_agent.get("mensagem") or "Problema de comunicação com MoonShield-Agent."
+        return {
+            "instalado": False,
+            "versao": None,
+            "binario": None,
+            "yaml": {"existe": False},
+            "configuracao": {},
+            "regras": {},
+            "topologia": {},
+            "servico": {"ativo": False, "estado": "desconhecido"},
+            "eve": {"existe": False, "legivel": False},
+            "ativo": False,
+            "configurado": False,
+            "pronto": False,
+            "operacional": False,
+            "componentes": {
+                "binario": {"instalado": False, "versao": None},
+                "yaml": {"existe": False, "configurado": False},
+                "eve": {"disponivel": False, "atualizando": False},
+                "moonshield_rules": {"instaladas": False, "referenciadas": False, "total": 0},
+                "et_open": {"instalado": False, "referenciado": False, "total": 0},
+            },
+            "status": STATUS_ERRO,
+            "mensagem": mensagem_erro,
+            "agent_indisponivel": True,
+        }
 
-    path_yaml = getattr(configuracao, "yaml_path", None) if configuracao else None
-    path_eve = getattr(configuracao, "eve_path", None) if configuracao else None
+    suricata_node = st_agent.get("suricata", {})
+    yaml_node = st_agent.get("yaml", {})
+    obs_node = st_agent.get("observado", {})
+    eve_node = st_agent.get("eve", {})
+    rules_ms_node = st_agent.get("rules_ms", {})
+    drift_node = st_agent.get("drift", {})
 
-    st_config = obter_status_configuracao(path_yaml)
-    if not isinstance(st_config, dict):
-        st_config = {}
+    is_instalado = bool(suricata_node.get("instalado", False))
+    versao = suricata_node.get("versao")
+    binario = suricata_node.get("binario")
 
-    st_regras = _normalizar_regras_para_painel(obter_status_regras_completo())
+    is_yaml_existe = bool(yaml_node.get("existe", False))
+    
+    is_regras_ms_instaladas = bool(rules_ms_node.get("existe", False))
+    is_regras_ms_referenciadas = bool(obs_node.get("rules_ms_carregada", False))
 
-    try:
-        topologia_obj = obter_topologia_detectada(incluir_virtuais=True)
-        st_topologia = (
-            topologia_obj.to_dict()
-            if hasattr(topologia_obj, "to_dict")
-            else dict(topologia_obj)
-            if isinstance(topologia_obj, dict)
-            else {}
-        )
-    except Exception:
-        logger.exception("Falha ao detectar topologia para status Suricata.")
-        st_topologia = {}
+    if svc_agent and svc_agent.get("ok"):
+        is_ativo = bool(svc_agent.get("active", False))
+        svc_dict = {
+            "ativo": is_ativo,
+            "estado": svc_agent.get("estado", "unknown"),
+            "subestado": svc_agent.get("subestado", "unknown"),
+            "main_pid": svc_agent.get("main_pid"),
+            "habilitado": bool(svc_agent.get("habilitado", False))
+        }
+    else:
+        svc_node = st_agent.get("servico", {})
+        is_ativo = bool(svc_node.get("active", False))
+        svc_dict = {
+            "ativo": is_ativo,
+            "estado": svc_node.get("estado", "unknown")
+        }
 
-    servicos = obter_status_servicos()
-    svc_status = servicos.get("suricata") if isinstance(servicos, dict) else None
-    svc_dict = _validar_serializacao_status({"s": svc_status})["s"] if svc_status else {}
-    if not isinstance(svc_dict, dict):
-        svc_dict = {}
+    eve_disponivel = bool(eve_node.get("existe", False))
 
-    st_eve = obter_status_eve(path_eve)
-    versao = _normalizar_versao_suricata(ambiente)
+    st_regras_locais = _normalizar_regras_para_painel(obter_status_regras_completo())
+    et_rules = st_regras_locais.get("et_open", {})
+    is_et_open_instalado = bool(et_rules.get("instalada", False))
+    is_et_open_referenciado = bool(et_rules.get("referenciado", False))
 
-    is_linux = bool(sistema.get("linux", False))
-    is_instalado = bool(suri_amb.get("instalado", False) or versao)
-    is_yaml_ok = bool(st_config.get("moonshield_configurado", False))
-    is_ativo = bool(svc_dict.get("ativo", False))
-
-    moon_rules = (
-        st_regras.get("moonshield", {})
-        if isinstance(st_regras, dict)
-        else {}
-    )
-    et_rules = (
-        st_regras.get("et_open", {})
-        if isinstance(st_regras, dict)
-        else {}
-    )
-
-    is_regras_ms_instaladas = bool(
-        moon_rules.get(
-            "instaladas",
-            moon_rules.get("instalado", False),
-        )
-    )
-    is_regras_ms_referenciadas = bool(
-        moon_rules.get(
-            "referenciado",
-            moon_rules.get("referenciadas", False),
-        )
-    )
-
-    is_et_open_instalado = bool(
-        et_rules.get(
-            "instalada",
-            et_rules.get("instalado", False),
-        )
-    )
-    is_et_open_referenciado = bool(
-        et_rules.get(
-            "referenciado",
-            et_rules.get("referenciadas", is_et_open_instalado),
-        )
-    )
-
-    eve_disponivel = bool(
-        st_eve.get("existe", False)
-        and st_eve.get("legivel", False)
-    )
+    st_topologia = {
+        "home_net": obs_node.get("home_net", []),
+        "interfaces_monitoradas": obs_node.get("interfaces_monitoradas", []),
+    }
+    
+    tem_drift = bool(drift_node.get("tem_drift", False))
+    is_yaml_ok = is_yaml_existe and not tem_drift
 
     pronto = bool(
-        is_linux
-        and is_instalado
-        and st_config.get("existe", False)
-        and is_yaml_ok
+        is_instalado
+        and is_yaml_existe
         and is_regras_ms_instaladas
         and is_regras_ms_referenciadas
         and is_ativo
         and eve_disponivel
     )
 
-    if not is_linux:
+    if not is_instalado:
         status_final = STATUS_ERRO
-        mensagem = "O host atual não oferece o ambiente Linux exigido pelo Suricata local."
-    elif not is_instalado:
+        mensagem = "Binário do Suricata não foi localizado pelo Agent."
+    elif not is_yaml_existe:
         status_final = STATUS_ERRO
-        mensagem = "Binário do Suricata não foi localizado."
-    elif not st_config.get("existe", False):
-        status_final = STATUS_ERRO
-        mensagem = "O arquivo suricata.yaml não foi localizado."
-    elif not is_yaml_ok:
-        status_final = STATUS_ERRO
-        mensagem = "O suricata.yaml existe, mas a configuração MoonShield não está completa."
+        mensagem = "O arquivo suricata.yaml não foi localizado pelo Agent."
     elif not is_regras_ms_instaladas:
         status_final = STATUS_ERRO
         mensagem = "As regras MoonShield não estão instaladas."
     elif not is_regras_ms_referenciadas:
         status_final = STATUS_ERRO
-        mensagem = "As regras MoonShield existem, mas não estão referenciadas pelo Suricata."
+        mensagem = "As regras MoonShield existem, mas não estão ativas no motor."
     elif not is_ativo:
         status_final = STATUS_ERRO
         mensagem = "O serviço Suricata está parado."
-    elif st_eve.get("status") == STATUS_ERRO:
-        status_final = STATUS_ERRO
-        mensagem = st_eve.get("mensagem") or "O EVE apresenta erro."
-    elif st_eve.get("status") == STATUS_AVISO:
+    elif tem_drift:
         status_final = STATUS_AVISO
-        mensagem = st_eve.get("mensagem") or "Suricata ativo com aviso no EVE."
+        mensagem = "Suricata ativo, mas existem pendências de configuração (drift)."
     else:
         status_final = STATUS_OK
         mensagem = "Motor Suricata parametrizado, validado e em execução."
@@ -671,46 +674,52 @@ def obter_status_suricata_local(
     return {
         "instalado": is_instalado,
         "versao": versao,
-        "binario": suri_amb.get("binario"),
-        "yaml": st_config,
-        "configuracao": st_config.get("analise", {}),
-        "regras": st_regras,
+        "binario": binario,
+        "yaml": {
+            "existe": is_yaml_existe,
+            "path": yaml_node.get("path")
+        },
+        "configuracao": {},
+        "regras": st_regras_locais,
         "topologia": st_topologia,
         "servico": svc_dict,
-        "eve": st_eve,
+        "eve": {
+            "existe": eve_disponivel,
+            "legivel": eve_disponivel,
+            "path": eve_node.get("path"),
+            "bytes": eve_node.get("bytes")
+        },
         "ativo": is_ativo,
         "configurado": is_yaml_ok,
         "pronto": pronto,
-        "operacional": bool(
-            pronto
-            and status_final == STATUS_OK
-        ),
+        "operacional": bool(pronto and status_final in (STATUS_OK, STATUS_AVISO)),
         "componentes": {
             "binario": {
                 "instalado": is_instalado,
                 "versao": versao,
             },
             "yaml": {
-                "existe": bool(st_config.get("existe", False)),
+                "existe": is_yaml_existe,
                 "configurado": is_yaml_ok,
             },
             "eve": {
                 "disponivel": eve_disponivel,
-                "atualizando": bool(st_eve.get("atualizando", False)),
+                "atualizando": eve_disponivel,
             },
             "moonshield_rules": {
                 "instaladas": is_regras_ms_instaladas,
                 "referenciadas": is_regras_ms_referenciadas,
-                "total": moon_rules.get("total"),
+                "total": rules_ms_node.get("bytes", 0),
             },
             "et_open": {
                 "instalado": is_et_open_instalado,
                 "referenciado": is_et_open_referenciado,
-                "total": et_rules.get("total"),
+                "total": et_rules.get("total", 0),
             },
         },
         "status": status_final,
         "mensagem": mensagem,
+        "drift": drift_node,
     }
 
 

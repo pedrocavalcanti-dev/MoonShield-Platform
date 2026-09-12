@@ -15,7 +15,7 @@
   }
 
   function renderServiceCards() {
-    const services = n().STATE.servicos || {};
+    const services = n().getPresentationState().servicos || {};
     const container = n().$("servicesCards");
     if (!container) return;
     const adguard = services.adguard || {};
@@ -49,9 +49,9 @@
     const container = n().$("systemServicesSummary");
     if (!container) return;
     const cards = [
-      ["AdGuard Home", "DNS e proteção", n().STATE.servicos?.adguard],
-      ["Suricata IDS", "Detecção de ameaças", n().STATE.servicos?.suricata],
-      ["Firewall MoonShield", "nftables", n().STATE.servicos?.firewall],
+      ["AdGuard Home", "DNS e proteção", n().getPresentationState().servicos?.adguard],
+      ["Suricata IDS", "Detecção de ameaças", n().getPresentationState().servicos?.suricata],
+      ["Firewall MoonShield", "nftables", n().getPresentationState().servicos?.firewall],
     ];
     container.innerHTML = cards.map(([name, subtitle, service]) => `
       <div class="cfg-service-summary-card"><p>${name}</p><span>${subtitle}</span>

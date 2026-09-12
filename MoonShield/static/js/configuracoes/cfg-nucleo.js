@@ -5,6 +5,8 @@
   const $ = (id) => document.getElementById(id);
   const app = () => $("cfgApp");
   let STATE = { node: {}, scanner: {}, retencao: {}, seguranca: {}, rede: {}, servicos: {} };
+  const viewModeKey = "moonshield_cfg_view_mode";
+  let viewMode = sessionStorage.getItem(viewModeKey) === "demonstracao" ? "demonstracao" : "producao";
 
   function endpoint(name) {
     return app()?.dataset[name] || "";
@@ -115,18 +117,75 @@
     return service?.saudavel ? "ok" : service?.status === "atencao" ? "warn" : "erro";
   }
 
+  function getPresentationState() {
+    if (viewMode === "producao") return STATE;
+    const services = STATE.servicos || {};
+    const operational = (service) => ({
+      ...service,
+      saudavel: true,
+      ativo: true,
+      agent_online: true,
+      api: true,
+      dns_resolver: true,
+      protecao: true,
+      eve_ativo: true,
+      drift: "Nenhum",
+      status_label: "Operacional",
+    });
+    return {
+      ...STATE,
+      servicos: {
+        ...services,
+        adguard: operational(services.adguard),
+        suricata: operational(services.suricata),
+        firewall: operational(services.firewall),
+      },
+    };
+  }
+
+  function getViewMode() {
+    return viewMode;
+  }
+
+  function refreshPresentation() {
+    renderStatusBar();
+    window.CfgConexoes?.refreshFromState();
+    window.CfgInfraestrutura?.renderNetworkSummary();
+    window.CfgInfraestrutura?.renderDiagnostics();
+    window.CfgInfraestrutura?.resetQuickTests();
+  }
+
+  function setViewMode(mode) {
+    viewMode = mode === "demonstracao" ? "demonstracao" : "producao";
+    sessionStorage.setItem(viewModeKey, viewMode);
+    const selector = $("cfgViewMode");
+    const notice = $("cfgDemoNotice");
+    if (selector) selector.value = viewMode;
+    if (notice) notice.hidden = viewMode !== "demonstracao";
+    refreshPresentation();
+  }
+
+  function initViewMode() {
+    const selector = $("cfgViewMode");
+    if (!selector) return;
+    selector.value = viewMode;
+    $("cfgDemoNotice").hidden = viewMode !== "demonstracao";
+    selector.addEventListener("change", () => setViewMode(selector.value));
+  }
+
   function renderStatusBar() {
-    const topologia = STATE.rede || {};
+    const presentation = getPresentationState();
+    const topologia = presentation.rede || {};
     const gerenciamento = topologia.gerenciamento?.principal;
     const interfaceGerenciamento = gerenciamento?.nome || "—";
     const setText = (id, text) => { if ($(id)) $(id).textContent = text; };
-    setText("cfgNodeName", STATE.node?.name || "MoonShield Appliance");
-    setText("cfgNodeSub", "MoonShield Appliance");
+    setText("cfgNodeName", presentation.node?.name || "MoonShield Appliance");
+    setText("cfgNodeSub", `MoonShield Appliance · ${viewMode === "demonstracao" ? "Demonstração" : "Produção"}`);
     setText("pillInterfaceLabel", `Interface: ${interfaceGerenciamento}`);
     setText("pillRedeLabel", `Rede: ${topologia.valida ? "Válida" : "Requer atenção"}`);
     [["dotDNS", "adguard"], ["dotIDS", "suricata"], ["dotFW", "firewall"]].forEach(([id, key]) => {
       const dot = $(id);
-      if (dot) dot.className = `cfg-service-status-dot cfg-service-status-dot--${serviceClass(STATE.servicos?.[key])}`;
+      if (dot) dot.className = `cfg-service-status-dot cfg-service-status-dot--${serviceClass(presentation.servicos?.[key])}`;
     });
   }
 
@@ -158,7 +217,7 @@
 
   window.CfgNucleo = {
     $, endpoint, apiFetch, loadConfig, loadServicosStatus, fillFormFromState, collectStateFromForm,
-    renderStatusBar, serviceClass, showToast,
+    getPresentationState, getViewMode, initViewMode, renderStatusBar, serviceClass, showToast,
     get STATE() { return STATE; },
     set STATE(value) { STATE = value; },
   };

@@ -34,6 +34,29 @@
   gap: 10px;
 }
 
+.cfg-view-mode {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+  font: 10px var(--font-mono);
+}
+
+.cfg-view-mode select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.cfg-demo-notice {
+  max-width: 245px;
+  color: #eab308;
+  line-height: 1.35;
+}
+
 .cfg-status-pills,
 .cfg-tabs {
   flex-wrap: wrap;
@@ -512,6 +535,8 @@
   .cfg-info-grid,
   .cfg-diag-grid { grid-template-columns: 1fr; }
   .cfg-status-bar { align-items: flex-start; }
+  .cfg-view-mode { flex-wrap: wrap; }
+  .cfg-demo-notice { flex-basis: 100%; max-width: none; }
   .cfg-network-row { grid-template-columns: 70px 1fr; }
   .cfg-network-row small { grid-column: 2; }
   .cfg-quick-test { align-items: flex-start; flex-wrap: wrap; }

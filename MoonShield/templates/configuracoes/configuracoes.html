@@ -36,6 +36,11 @@
       <span class="cfg-status-pill"><i class="cfg-service-status-dot" id="dotIDS"></i> IDS</span>
       <span class="cfg-status-pill"><i class="cfg-service-status-dot" id="dotFW"></i> Firewall</span>
     </div>
+    <div class="cfg-view-mode" aria-label="Modo de visualização">
+      <label for="cfgViewMode">Visualização</label>
+      <select id="cfgViewMode"><option value="producao">Produção</option><option value="demonstracao">Demonstração</option></select>
+      <span class="cfg-demo-notice" id="cfgDemoNotice" hidden>Estados demonstrativos nesta sessão. Nenhuma alteração é aplicada à appliance.</span>
+    </div>
     <button class="cfg-save-all-btn" id="cfgSaveAllBtn"><i class="bi bi-floppy-fill"></i> Salvar alterações</button>
   </div>
 

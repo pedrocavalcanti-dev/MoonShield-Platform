@@ -1291,20 +1291,29 @@ def api_salvar_configuracao(request):
     dados_limpos["interface_mgmt"] = mgmt.get("nome", "") if mgmt else ""
     dados_limpos["home_net"] = list(topologia_oficial.get("home_net") or [])
     
-    # Derivar interfaces_monitoradas da topologia (LAN, DMZ, CUSTOM habilitadas)
+    # Derivar interfaces monitoradas de forma coerente com o modo
+    modo_captura = dados_limpos.get("modo_captura", "lan_wan")
+    nome_lan = dados_limpos.get("interface_lan", "")
+    nome_wan = dados_limpos.get("interface_wan", "")
+    
     monitoradas = []
-    lan_interfaces = topologia_oficial.get("lan", {}).get("interfaces", [])
-    dmz_interfaces = topologia_oficial.get("dmz", [])
-    custom_interfaces = topologia_oficial.get("custom", [])
+    if modo_captura == "lan_wan":
+        if nome_lan: monitoradas.append(nome_lan)
+        if nome_wan: monitoradas.append(nome_wan)
+    elif modo_captura == "somente_lan":
+        if nome_lan: monitoradas.append(nome_lan)
+    else:
+        # Modo Personalizado: respeitar seleção explícita enviada pelo frontend
+        # Fallback de segurança na payload bruta, pois pode ter sido limpa indevidamente
+        monitoradas = payload.get("interfaces_monitoradas", [])
     
-    for lista in [lan_interfaces, dmz_interfaces, custom_interfaces]:
-        for iface in lista:
-            if iface.get("desejado", {}).get("habilitada", True):
-                nome = iface.get("nome")
-                if nome and nome not in monitoradas:
-                    monitoradas.append(nome)
-    
-    dados_limpos["interfaces_monitoradas"] = monitoradas
+    # Remover duplicatas e manter ordem
+    monitoradas_limpas = []
+    for m in monitoradas:
+        if m and m not in monitoradas_limpas:
+            monitoradas_limpas.append(m)
+            
+    dados_limpos["interfaces_monitoradas"] = monitoradas_limpas
 
     
     # 1. Validação de Topologia Strict Local

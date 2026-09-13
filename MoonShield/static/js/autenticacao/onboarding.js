@@ -63,6 +63,12 @@ document.addEventListener("DOMContentLoaded", () => {
     return progressCursor;
   }
 
+  async function startOnboarding() {
+    const button = $("btnStep1Next"); setBusy(button, true, "Iniciando configuração…");
+    try { await saveProgress(2); goToStep(2); }
+    catch (error) { setHint("welcomeHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
+  }
+
   function initVisuals() {
     const canvas = $("starsCanvas"); const context = canvas?.getContext("2d"); let stars = [];
     const resize = () => { if (!canvas) return; canvas.width = window.innerWidth; canvas.height = window.innerHeight; stars = Array.from({ length: Math.floor((canvas.width * canvas.height) / 4200) }, () => ({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, r: Math.random() * 1.1 + 0.2, phase: Math.random() * Math.PI * 2, speed: Math.random() * 0.005 + 0.002 })); };
@@ -740,7 +746,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function chooseResumeStep() {
-    if (OB.passwordChanged !== true) return 2;
+    if (OB.passwordChanged !== true) return progressCursor < 2 ? 1 : 2;
     if (progressCursor < 3) return 3;
     if (progressCursor < 6) return progressCursor;
     if (applianceIdentityIncomplete()) return 6;
@@ -751,7 +757,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function init() {
     if ($("greetName")) $("greetName").textContent = OB.fullName || OB.username || "operador"; if ($("fieldUsername")) $("fieldUsername").value = OB.username || "";
-    initVisuals(); bindProfileControls(); backButtons(); $("btnStep1Next")?.addEventListener("click", () => goToStep(2)); $("btnStep6Next")?.addEventListener("click", saveApplianceIdentity); $("btnStep7Next")?.addEventListener("click", saveInterfaceRoles); $("btnApplyNetwork")?.addEventListener("click", applyNetwork); $("btnCompleteOnboarding")?.addEventListener("click", completeOnboarding);
+    initVisuals(); bindProfileControls(); backButtons(); $("btnStep1Next")?.addEventListener("click", startOnboarding); $("btnStep6Next")?.addEventListener("click", saveApplianceIdentity); $("btnStep7Next")?.addEventListener("click", saveInterfaceRoles); $("btnApplyNetwork")?.addEventListener("click", applyNetwork); $("btnCompleteOnboarding")?.addEventListener("click", completeOnboarding);
     try { topology = (await getJSON(OB.urls.redeTopologia)).dados?.topologia || {}; } catch (_) { topology = {}; }
     await Promise.all([loadApplianceIdentity(), loadLatestNetworkAlteration()]);
     goToStep(chooseResumeStep());

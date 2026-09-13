@@ -29,7 +29,6 @@
             uploadAvatar:      "{% url 'autenticacao:api_upload_avatar' %}",
             salvarPrefs:       "{% url 'autenticacao:api_salvar_prefs' %}",
             completar:         "{% url 'autenticacao:api_completar_onboarding' %}",
-            dashboard:         "{% url 'painel:index' %}",
             config:            "{% url 'configuracoes:api_config' %}",
             salvarConfig:      "{% url 'configuracoes:api_salvar' %}",
             servicos:          "{% url 'configuracoes:api_servicos' %}",
@@ -158,42 +157,51 @@
                 <span>Primeiro acesso</span>
             </div>
             <h1 class="ob-step__title">Bem-vindo ao<br><em>MoonShield.</em></h1>
-            <p class="ob-step__desc">Olá, <strong id="greetName">operador</strong> — vamos preparar sua MoonShield Appliance.</p>
+            <p class="ob-step__desc">Vamos preparar sua appliance para operar com segurança.<br>A configuração leva apenas alguns minutos.</p>
 
             <div class="ob-welcome-list">
                 <div class="ob-witem">
                     <div class="ob-witem__num">01</div>
                     <div class="ob-witem__body">
-                        <strong>Credenciais</strong>
-                        <span>Defina seu usuário e senha pessoal</span>
+                        <strong>Conta administrativa</strong>
+                        <span>Usuário, senha e identidade do operador.</span>
                     </div>
                 </div>
                 <div class="ob-witem">
                     <div class="ob-witem__num">02</div>
                     <div class="ob-witem__body">
-                        <strong>Identidade</strong>
-                        <span>Nome de exibição e cargo</span>
+                        <strong>Identidade da appliance</strong>
+                        <span>Nome, ambiente e identificação do equipamento.</span>
                     </div>
                 </div>
                 <div class="ob-witem">
                     <div class="ob-witem__num">03</div>
                     <div class="ob-witem__body">
-                        <strong>Avatar</strong>
-                        <span>Foto ou iniciais coloridas</span>
+                        <strong>Rede</strong>
+                        <span>Definição de WAN, LAN e interfaces disponíveis.</span>
                     </div>
                 </div>
                 <div class="ob-witem">
                     <div class="ob-witem__num">04</div>
                     <div class="ob-witem__body">
-                        <strong>Aparência</strong>
-                        <span>Tema escuro ou claro</span>
+                        <strong>Safe Apply</strong>
+                        <span>Snapshot e rollback automático para aplicar a rede.</span>
+                    </div>
+                </div>
+                <div class="ob-witem">
+                    <div class="ob-witem__num">05</div>
+                    <div class="ob-witem__body">
+                        <strong>Proteção</strong>
+                        <span>Validação de DNS, IDS e Firewall locais.</span>
                     </div>
                 </div>
             </div>
 
+            <p class="ob-field__hint" id="welcomeHint">As configurações poderão ser revisadas depois no painel, exceto os requisitos obrigatórios deste primeiro acesso.</p>
+
             <div class="ob-step__actions">
                 <button class="ob-btn ob-btn--primary" id="btnStep1Next">
-                    Começar
+                    Começar configuração
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
             </div>

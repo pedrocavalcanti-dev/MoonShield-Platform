@@ -95,13 +95,13 @@ def _etapa_resume_onboarding(profile: UserProfile, configuracao: ConfigSistema) 
     if configuracao.appliance_onboarding_completo:
         return ONBOARDING_ETAPA_MAXIMA
 
+    etapa_atual = _cursor_onboarding(configuracao)
     if not profile.last_password_change:
-        return 2
+        return 1 if etapa_atual < 2 else 2
 
     if _identidade_usuario_incompleta(profile):
         return 3
 
-    etapa_atual = _cursor_onboarding(configuracao)
     if (
         _identidade_appliance_incompleta(configuracao)
         or configuracao.node_ambiente not in {"lab", "prod"}
@@ -336,29 +336,44 @@ def perfil_view(request):
 @require_POST
 @login_required(login_url="autenticacao:login")
 def api_salvar_perfil(request):
-    """Salva informações pessoais e preferências."""
+    """Atualiza apenas os campos de perfil presentes no payload JSON."""
     try:
         data       = json.loads(request.body)
+        if not isinstance(data, dict):
+            return JsonResponse({"ok": False, "msg": "JSON inválido."}, status=400)
+
         profile, _ = UserProfile.objects.get_or_create(user=request.user)
         user       = request.user
 
-        first_name   = data.get("first_name",   "").strip()
-        last_name    = data.get("last_name",    "").strip()
-        display_name = data.get("display_name", "").strip()
-        email        = data.get("email",        "").strip()
+        campos_usuario = ("first_name", "last_name", "email")
+        campos_perfil = (
+            "display_name",
+            "cargo",
+            "departamento",
+            "ramal",
+            "bio",
+            "telefone",
+        )
 
-        if first_name: user.first_name = first_name
-        if last_name:  user.last_name  = last_name
-        if email:      user.email      = email
-        user.save(update_fields=["first_name", "last_name", "email"])
+        for campo in (*campos_usuario, *campos_perfil):
+            if campo in data and not isinstance(data[campo], str):
+                return JsonResponse({"ok": False, "msg": f"Campo inválido: {campo}."}, status=400)
 
-        profile.display_name = display_name
-        profile.cargo        = data.get("cargo",        profile.cargo)
-        profile.departamento = data.get("departamento", profile.departamento)
-        profile.ramal        = data.get("ramal",        profile.ramal)
-        profile.bio          = data.get("bio",          profile.bio)
-        profile.telefone     = data.get("telefone",     profile.telefone)
-        profile.save()
+        campos_usuario_atualizados = []
+        for campo in campos_usuario:
+            if campo in data:
+                setattr(user, campo, data[campo].strip())
+                campos_usuario_atualizados.append(campo)
+        if campos_usuario_atualizados:
+            user.save(update_fields=campos_usuario_atualizados)
+
+        campos_perfil_atualizados = []
+        for campo in campos_perfil:
+            if campo in data:
+                setattr(profile, campo, data[campo].strip())
+                campos_perfil_atualizados.append(campo)
+        if campos_perfil_atualizados:
+            profile.save(update_fields=[*campos_perfil_atualizados, "atualizado_em"])
 
         return JsonResponse({"ok": True, "msg": "Perfil atualizado com sucesso."})
 

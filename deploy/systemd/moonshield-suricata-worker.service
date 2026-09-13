@@ -1,0 +1,27 @@
+[Unit]
+Description=MoonShield Suricata Background Worker
+After=network.target moonshield-agent.service postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=moonshield
+Group=moonshield
+
+WorkingDirectory=/opt/moonshield/source/MoonShield
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/moonshield/venv/bin/python /opt/moonshield/source/MoonShield/gerenciar.py processar_tarefas_suricata --lock-file=/run/moonshield-suricata-worker/worker.lock
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+RuntimeDirectory=moonshield-suricata-worker
+RuntimeDirectoryMode=0750
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

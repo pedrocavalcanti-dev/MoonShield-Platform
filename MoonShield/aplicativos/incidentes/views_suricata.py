@@ -117,7 +117,7 @@ def _ler_json_request(request: HttpRequest) -> dict:
     """Parseia e defende a view contra bodies JSON corrompidos ou maliciosos."""
     if request.content_type != "application/json":
         raise ValueError("O Content-Type da requisição deve ser application/json.")
-        
+
     try:
         body = request.body
     except Exception:
@@ -195,13 +195,13 @@ def _normalizar_ip_opcional(valor: Any) -> str | None:
 def _obter_configuracao_ativa(criar: bool = False) -> ConfiguracaoSuricata | None:
     """Retorna o modelo de config da base Django (Singleton Mode Virtual)."""
     cfg = ConfiguracaoSuricata.objects.filter(ativo=True).order_by("-atualizado_em").first()
-    
+
     if not cfg and criar:
         cfg = ConfiguracaoSuricata.objects.create(
             nome="Suricata Local",
             ativo=True
         )
-        
+
     return cfg
 
 
@@ -209,7 +209,7 @@ def _configuracao_service(configuracao: ConfiguracaoSuricata | None) -> Configur
     """Faz a ponte entre a ORM do Django e o DTO read-only exigido pela camada Service (Suricata)."""
     if not configuracao:
         return None
-        
+
     dic_cfg = configuracao.to_service_dict()
     return configuracao_de_dict(dic_cfg)
 
@@ -222,19 +222,19 @@ def _salvar_logs_progresso(tarefa: TarefaSuricata, progresso) -> None:
 
     # Acha onde parou pra não dar dupe de UniqueConstraint (tarefa+sequencia)
     seq_atual = tarefa.logs.count()
-    
+
     logs_para_inserir = []
-    
+
     # Adiciona só o que veio depois do que ja ta no BD
     for i, mem_log in enumerate(logs_memoria):
         if i < seq_atual:
             continue
-            
+
         # O serializer interno proibe chaves perigosas
         detalhes_seguros = {}
         if hasattr(mem_log, "to_dict"):
             detalhes_seguros = mem_log.to_dict().get("detalhes", {})
-            
+
         # Transpõe o Enum do Core p/ o Enum do Model
         nivel_core = getattr(mem_log, "nivel", NivelLog.INFO)
         nivel_model = NivelLogSuricata.INFO
@@ -263,7 +263,7 @@ def _sincronizar_tarefa(tarefa: TarefaSuricata, progresso, resultado=None) -> No
     tarefa.etapa_atual = progresso.etapa_atual
     tarefa.mensagem = progresso.mensagem
     tarefa.erro = progresso.erro
-    
+
     if progresso.iniciado_em:
         tarefa.iniciado_em = progresso.iniciado_em
     if progresso.finalizado_em:
@@ -281,7 +281,7 @@ def _sincronizar_tarefa(tarefa: TarefaSuricata, progresso, resultado=None) -> No
         if s.value == progresso.status.value:
             novo_status = s
             break
-            
+
     tarefa.status = novo_status
     tarefa.save()
 
@@ -781,7 +781,7 @@ def _serializar_configuracao(configuracao: ConfiguracaoSuricata | None) -> dict 
     """Expõe a matriz da configuração do Suricata pro View context."""
     if not configuracao:
         return None
-        
+
     return {
         "id": configuracao.id,
         "nome": configuracao.nome,
@@ -1062,12 +1062,12 @@ def api_onboarding_status(request):
     """Fornece state-machine realtime sobre que fase do assistente o cliente está."""
     cfg = _obter_configuracao_ativa(criar=False)
     dto_cfg = _configuracao_service(cfg)
-    
+
     try:
         onb = _tornar_json_serializavel(obter_status_onboarding(dto_cfg))
         plano = _tornar_json_serializavel(obter_plano_instalacao(dto_cfg))
         tipos_disp = _tornar_json_serializavel(obter_tipos_tarefa_disponiveis())
-        
+
         urls_nav = _urls_navegacao_suricata()
         painel_disponivel = _configuracao_pode_abrir_painel(cfg)
 
@@ -1093,7 +1093,7 @@ def api_detectar_interfaces(request):
     try:
         topo = obter_topologia_detectada(incluir_virtuais=False)
         cfg_sug = montar_configuracao_sugerida(topo)
-        
+
         return _json_sucesso("Topologia inspecionada.", {
             "topologia": topo.to_dict(),
             "configuracao_sugerida": cfg_sug.to_dict()
@@ -1181,27 +1181,27 @@ def api_listar_tarefas(request):
     """Extrator de histórico de orquestrações do Model."""
     status_f = request.GET.get("status")
     tipo_f = request.GET.get("tipo")
-    
+
     try:
         limite = int(request.GET.get("limite", 50))
         offset = int(request.GET.get("offset", 0))
     except ValueError:
         return _json_erro("Paginação requer inteiros.", 400)
-        
+
     limite = max(1, min(limite, 100))
     offset = max(0, offset)
 
     qs = TarefaSuricata.objects.all().order_by("-criado_em")
-    
+
     if status_f and status_f in StatusTarefaSuricata.values:
         qs = qs.filter(status=status_f)
-        
+
     if tipo_f and tipo_f in TipoTarefaSuricataModel.values:
         qs = qs.filter(tipo=tipo_f)
 
     total = qs.count()
     tarefas = qs[offset:offset + limite]
-    
+
     return _json_sucesso("Extrato lido.", {
         "total": total,
         "offset": offset,
@@ -1214,7 +1214,20 @@ def api_listar_tarefas(request):
 @require_GET
 def api_detalhe_tarefa(request, tarefa_id: str):
     """Lupa isolada sobre task que roda no backend."""
+    from django.utils import timezone as django_timezone
+
     tarefa = get_object_or_404(TarefaSuricata, pk=tarefa_id)
+
+    # UX: Evitar polling infinito se o worker não estiver rodando (timeout de 20s)
+    if tarefa.status == StatusTarefaSuricata.PENDENTE:
+        idade_segundos = (django_timezone.now() - tarefa.criado_em).total_seconds()
+        if idade_segundos > 20:
+            tarefa.status = StatusTarefaSuricata.ERRO
+            tarefa.erro = "Executor de configuração indisponível. O serviço systemd do worker pode estar inativo."
+            tarefa.etapa_atual = "falha_timeout_worker"
+            tarefa.finalizado_em = django_timezone.now()
+            tarefa.save(update_fields=["status", "erro", "etapa_atual", "finalizado_em"])
+
     return _json_sucesso("Tarefa carregada.", tarefa.to_dict(incluir_logs=True))
 
 
@@ -1223,22 +1236,22 @@ def api_detalhe_tarefa(request, tarefa_id: str):
 def api_logs_tarefa(request, tarefa_id: str):
     """Paging para logs verbosos do Suricata Helper."""
     tarefa = get_object_or_404(TarefaSuricata, pk=tarefa_id)
-    
+
     try:
         limite = int(request.GET.get("limite", 200))
         offset = int(request.GET.get("offset", 0))
     except ValueError:
         return _json_erro("Limites mal formatados.", 400)
-        
+
     limite = max(1, min(limite, 500))
     offset = max(0, offset)
 
     logs_qs = tarefa.logs.order_by("sequencia", "id")
     total = logs_qs.count()
-    
+
     pedaco = logs_qs[offset:offset + limite]
     prox_off = offset + len(pedaco)
-    
+
     return _json_sucesso("Logs descarregados.", {
         "total": total,
         "offset": offset,
@@ -1290,12 +1303,12 @@ def api_salvar_configuracao(request):
     dados_limpos["interface_lan"] = lan.get("nome", "")
     dados_limpos["interface_mgmt"] = mgmt.get("nome", "") if mgmt else ""
     dados_limpos["home_net"] = list(topologia_oficial.get("home_net") or [])
-    
+
     # Derivar interfaces monitoradas de forma coerente com o modo
     modo_captura = dados_limpos.get("modo_captura", "lan_wan")
     nome_lan = dados_limpos.get("interface_lan", "")
     nome_wan = dados_limpos.get("interface_wan", "")
-    
+
     monitoradas = []
     if modo_captura == "lan_wan":
         if nome_lan: monitoradas.append(nome_lan)
@@ -1306,25 +1319,25 @@ def api_salvar_configuracao(request):
         # Modo Personalizado: respeitar seleção explícita enviada pelo frontend
         # Fallback de segurança na payload bruta, pois pode ter sido limpa indevidamente
         monitoradas = payload.get("interfaces_monitoradas", [])
-    
+
     # Remover duplicatas e manter ordem
     monitoradas_limpas = []
     for m in monitoradas:
         if m and m not in monitoradas_limpas:
             monitoradas_limpas.append(m)
-            
+
     dados_limpos["interfaces_monitoradas"] = monitoradas_limpas
 
-    
+
     # 1. Validação de Topologia Strict Local
     try:
         cfg_dto = configuracao_de_dict(dados_limpos)
     except ValueError as e:
          return _json_erro("Formatação dos parâmetros inválida.", erros=[str(e)])
-         
+
     if not cfg_dto:
         return _json_erro("Payload sem os dados mínimos da arquitetura.")
-        
+
     erros_topo = validar_topologia(cfg_dto)
     if erros_topo:
         return _json_erro("A topologia de rede foi rejeitada nas validações primárias.", erros=erros_topo)
@@ -1333,7 +1346,7 @@ def api_salvar_configuracao(request):
     try:
         with transaction.atomic():
             cfg_model = _obter_configuracao_ativa(criar=True)
-            
+
             if "nome" in dados_limpos: cfg_model.nome = str(dados_limpos["nome"])
             if "interface_wan" in dados_limpos: cfg_model.interface_wan = cfg_dto.interface_wan
             if "interface_lan" in dados_limpos: cfg_model.interface_lan = cfg_dto.interface_lan
@@ -1342,19 +1355,19 @@ def api_salvar_configuracao(request):
             if "home_net" in dados_limpos: cfg_model.home_net = cfg_dto.home_net
             if "dns_interno" in dados_limpos:
                 cfg_model.dns_interno = _normalizar_ip_opcional(cfg_dto.dns_interno)
-            
+
             if "yaml_path" in dados_limpos: cfg_model.yaml_path = cfg_dto.yaml_path
             if "eve_path" in dados_limpos: cfg_model.eve_path = cfg_dto.eve_path
             if "cursor_path" in dados_limpos: cfg_model.cursor_path = str(dados_limpos["cursor_path"]).strip()
-            
+
             if "modo_captura" in dados_limpos: cfg_model.modo_captura = cfg_dto.modo_captura.value
-            
+
             if "instalar_et_open" in dados_limpos: cfg_model.instalar_et_open = cfg_dto.instalar_et_open
             if "instalar_regras_moonshield" in dados_limpos: cfg_model.instalar_regras_moonshield = cfg_dto.instalar_regras_moonshield
             if "reiniciar_servicos" in dados_limpos: cfg_model.reiniciar_servicos = cfg_dto.reiniciar_servicos
-            
+
             cfg_model.save()
-            
+
         return _json_sucesso("Topologia arquivada com sucesso.", _serializar_configuracao(cfg_model))
     except Exception as e:
         logger.exception("Crash no banco ao salvar configuracao do Suricata.")
@@ -1531,17 +1544,17 @@ def api_executar_tarefa_sincrona(request, tarefa_id: str):
         TipoTarefaSuricataModel.DIAGNOSTICO,
         TipoTarefaSuricataModel.VALIDACAO,
     }
-    
+
     if tarefa.tipo not in tipos_inofensivos:
         return _json_erro("Negado. Requisição HTTP é restrita a auditorias (read-only) como Validação e Checkup. Mutações como INSTALL são executadas exclusivamente pelo worker automático.", 403)
 
     try:
         # Apenas operações read-only leves podem usar esta rota síncrona.
         from .services.suricata.tarefas import criar_progresso_tarefa
-        
+
         prg = criar_progresso_tarefa(tarefa.tipo, str(tarefa.pk))
         _sincronizar_tarefa(tarefa, prg)
-        
+
         # Execução síncrona restrita a diagnóstico e validação.
         prg_fim, res_fim = executar_tarefa(
             tipo=tarefa.tipo,
@@ -1549,13 +1562,13 @@ def api_executar_tarefa_sincrona(request, tarefa_id: str):
             tarefa_id=tarefa.id,
             progresso=prg
         )
-        
+
         # Atualiza a espinha dorsal ORM
         _sincronizar_tarefa(tarefa, prg_fim, res_fim)
         _salvar_logs_progresso(tarefa, prg_fim)
 
         return _json_sucesso("Tarefa de leitura processada.", tarefa.to_dict(incluir_logs=False))
-        
+
     except Exception as e:
         logger.exception("Falha na execução síncrona da tarefa %s.", tarefa_id)
         return _json_erro("Crash interno.", 500, [str(e)])
@@ -1567,7 +1580,7 @@ def api_executar_tarefa_sincrona(request, tarefa_id: str):
 def api_solicitar_cancelamento(request, tarefa_id: str):
     """Pede ao executor via Flag booleana na table TarefaSuricata que engatilhe um Soft-Kill."""
     tarefa = get_object_or_404(TarefaSuricata, pk=tarefa_id)
-    
+
     if tarefa.finalizada:
         return _json_erro("A tarefa já esgotou a sua execução natural.", 409)
 

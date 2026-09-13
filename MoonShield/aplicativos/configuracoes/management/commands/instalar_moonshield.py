@@ -42,6 +42,9 @@ class Command(BaseCommand):
     SERVICE_NAME = "moonshield-agent.service"
     SERVICE_PATH = Path("/etc/systemd/system/moonshield-agent.service")
 
+    WORKER_SERVICE_NAME = "moonshield-suricata-worker.service"
+    WORKER_SERVICE_PATH = Path("/etc/systemd/system/moonshield-suricata-worker.service")
+
     SOCKET_DIR = Path("/run/moonshield")
     SOCKET_PATH = SOCKET_DIR / "agent.sock"
 
@@ -144,6 +147,11 @@ class Command(BaseCommand):
             forcar=forcar_service,
         )
 
+        worker_changed = self._garantir_worker_service(
+            paths=paths,
+            forcar=forcar_service,
+        )
+
         self._systemctl(["daemon-reload"], obrigatorio=True)
 
         if service_changed:
@@ -152,8 +160,19 @@ class Command(BaseCommand):
                 automatico,
             )
 
+        if worker_changed:
+            self._info(
+                "Arquivo moonshield-suricata-worker.service atualizado.",
+                automatico,
+            )
+
         self._systemctl(
             ["enable", self.SERVICE_NAME],
+            obrigatorio=True,
+        )
+
+        self._systemctl(
+            ["enable", self.WORKER_SERVICE_NAME],
             obrigatorio=True,
         )
 
@@ -182,6 +201,10 @@ class Command(BaseCommand):
                 "MoonShield-Agent já estava ativo.",
                 automatico,
             )
+
+        self._systemctl(["start", self.WORKER_SERVICE_NAME], obrigatorio=False)
+        if worker_changed:
+            self._systemctl(["restart", self.WORKER_SERVICE_NAME], obrigatorio=False)
 
         socket_ok = self._aguardar_socket(timeout=6.0)
 
@@ -431,7 +454,69 @@ WantedBy=multi-user.target
 
         return True
 
+
+    def _worker_service_content(self, paths: dict) -> str:
+        python_exec = paths["python"]
+        agent_dir = paths["agent_dir"]
+        gerenciar = agent_dir.parent / "MoonShield" / "gerenciar.py"
+        work_dir = gerenciar.parent
+
+        return f"""[Unit]
+Description=MoonShield Suricata Background Worker
+After=network.target moonshield-agent.service postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User={self.GROUP_NAME}
+Group={self.GROUP_NAME}
+
+WorkingDirectory={work_dir}
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart={python_exec} {gerenciar} processar_tarefas_suricata --lock-file=/run/moonshield-suricata-worker/worker.lock
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+RuntimeDirectory=moonshield-suricata-worker
+RuntimeDirectoryMode=0750
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+    def _garantir_worker_service(
+        self,
+        *,
+        paths: dict,
+        forcar: bool,
+    ) -> bool:
+        desired = self._worker_service_content(paths)
+        current = ""
+
+        if self.WORKER_SERVICE_PATH.exists():
+            try:
+                current = self.WORKER_SERVICE_PATH.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
+        if not forcar and current == desired:
+            return False
+
+        tmp = self.WORKER_SERVICE_PATH.with_suffix(".service.tmp")
+        tmp.write_text(desired, encoding="utf-8")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, self.WORKER_SERVICE_PATH)
+
+        return True
+
     def _systemctl(
+
         self,
         args: list[str],
         *,

@@ -535,6 +535,7 @@ def verificar_linux() -> ResultadoEtapa:
         return ResultadoEtapa(
             etapa=etapa_id,
             status=StatusEtapa.SUCESSO,
+            sucesso=True,
             mensagem="Sistema Linux detectado com suporte POSIX nativo.",
             dados={"sistema": sistema_atual}
         )
@@ -542,6 +543,7 @@ def verificar_linux() -> ResultadoEtapa:
     return ResultadoEtapa(
         etapa=etapa_id,
         status=StatusEtapa.ERRO,
+        sucesso=False,
         mensagem=f"O serviço Suricata requer Linux para gerenciamento nativo. Sistema atual: {sistema_atual}",
         dados={"sistema": sistema_atual}
     )

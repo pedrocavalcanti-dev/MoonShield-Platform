@@ -28,15 +28,13 @@ ONBOARDING_ETAPA_MAXIMA = 10
 
 
 def _identidade_appliance_incompleta(configuracao: ConfigSistema) -> bool:
-    identidade_padrao = (
-        configuracao.node_name.strip() == "MS-NODE-01"
-        and not configuracao.node_tag.strip()
-        and not configuracao.node_desc.strip()
-    )
-    return (
-        not configuracao.node_name.strip()
-        or identidade_padrao
-    )
+    """A identidade mínima exige nome; tag e descrição são opcionais."""
+    return not (configuracao.node_name or "").strip()
+
+
+def _ambiente_appliance_valido(configuracao: ConfigSistema) -> bool:
+    valores_validos = {valor for valor, _ in ConfigSistema.AMBIENTE_CHOICES}
+    return configuracao.node_ambiente in valores_validos
 
 
 def _identidade_usuario_incompleta(profile: UserProfile) -> bool:
@@ -66,7 +64,7 @@ def _etapa_maxima_onboarding(profile: UserProfile, configuracao: ConfigSistema) 
 
     if (
         _identidade_appliance_incompleta(configuracao)
-        or configuracao.node_ambiente not in {"lab", "prod"}
+        or not _ambiente_appliance_valido(configuracao)
     ):
         # Avatar e aparência são opcionais. O cursor só controla a navegação
         # entre essas etapas; ele nunca substitui os requisitos persistidos.
@@ -104,7 +102,7 @@ def _etapa_resume_onboarding(profile: UserProfile, configuracao: ConfigSistema) 
 
     if (
         _identidade_appliance_incompleta(configuracao)
-        or configuracao.node_ambiente not in {"lab", "prod"}
+        or not _ambiente_appliance_valido(configuracao)
     ):
         return max(4, min(6, etapa_atual))
 
@@ -194,7 +192,7 @@ def api_completar_onboarding(request):
         pendencias.append("credenciais_nao_confirmadas")
     if _identidade_appliance_incompleta(configuracao):
         pendencias.append("identidade_appliance_ausente")
-    if configuracao.node_ambiente not in {"lab", "prod"}:
+    if not _ambiente_appliance_valido(configuracao):
         pendencias.append("ambiente_appliance_invalido")
     if not topologia.get("wan", {}).get("principal"):
         pendencias.append("wan_ausente")

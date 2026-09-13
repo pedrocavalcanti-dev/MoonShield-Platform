@@ -45,6 +45,8 @@ class ConfiguracaoSuricata:
     yaml_path: str
     eve_path: str
     rules_ms_path: str
+    instalar_regras_moonshield: bool = True
+    instalar_et_open: bool = True
 
     def para_dict(self) -> dict[str, Any]:
         return {
@@ -56,6 +58,8 @@ class ConfiguracaoSuricata:
             "yaml_path": self.yaml_path,
             "eve_path": self.eve_path,
             "rules_ms_path": self.rules_ms_path,
+            "instalar_regras_moonshield": self.instalar_regras_moonshield,
+            "instalar_et_open": self.instalar_et_open,
             "modo": "ids_passivo",
         }
 
@@ -124,6 +128,10 @@ def normalizar_config(dados: dict[str, Any] | None) -> ConfiguracaoSuricata:
     eve_path = str(dados.get("eve_path") or EVE_PADRAO)
     rules_path = str(dados.get("rules_ms_path") or RULES_MS_PADRAO)
 
+    # Regras MoonShield são obrigatórias na arquitetura moderna da appliance
+    inst_ms = True
+    inst_et = bool(dados.get("instalar_et_open", True))
+
     return ConfiguracaoSuricata(
         interface_wan=wan,
         interface_lan=lan,
@@ -133,6 +141,8 @@ def normalizar_config(dados: dict[str, Any] | None) -> ConfiguracaoSuricata:
         yaml_path=yaml_path,
         eve_path=eve_path,
         rules_ms_path=rules_path,
+        instalar_regras_moonshield=inst_ms,
+        instalar_et_open=inst_et,
     )
 
 
@@ -169,7 +179,7 @@ def renderizar_yaml(base_yaml: str, cfg: ConfiguracaoSuricata) -> str:
     """
     conteudo = str(base_yaml)
     conteudo = _patch_home_net(conteudo, cfg.home_net)
-    conteudo = _patch_rule_files(conteudo)
+    conteudo = _patch_rule_files(conteudo, cfg.instalar_regras_moonshield)
     conteudo = _patch_eve_filename(conteudo, cfg.eve_path)
     conteudo = _patch_af_packet(conteudo, cfg.interfaces_monitoradas)
     return conteudo
@@ -204,8 +214,17 @@ def _patch_home_net(conteudo: str, home_net: tuple[str, ...]) -> str:
     return "\n".join(saida) + "\n"
 
 
-def _patch_rule_files(conteudo: str) -> str:
+def _patch_rule_files(conteudo: str, instalar: bool) -> str:
     marcador = "moonshield/ms.rules"
+
+    if not instalar:
+        # Se presente, remover para o suricata -T não falhar
+        if marcador in conteudo:
+            linhas = conteudo.splitlines()
+            saida = [l for l in linhas if marcador not in l]
+            return "\n".join(saida) + "\n"
+        return conteudo
+
     if marcador in conteudo:
         return conteudo
 

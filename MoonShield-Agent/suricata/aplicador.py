@@ -32,6 +32,7 @@ from typing import Any
 
 from suricata.configuracao import (
     BACKUP_DIR,
+    RULES_MS_PADRAO,
     normalizar_config,
     renderizar_yaml,
     validar_config_host,
@@ -193,11 +194,50 @@ def aplicar(dados: dict[str, Any]) -> dict[str, Any]:
         )
 
 
+RULES_MS_BUNDLED = Path(__file__).parent / "regras_ms.rules"
+
+
+def _garantir_regras_moonshield(config: dict[str, Any]) -> None:
+    instalar = config.get("instalar_regras_moonshield", True)
+    if not instalar:
+        return
+
+    destino = RULES_MS_PADRAO
+    destino.parent.mkdir(parents=True, exist_ok=True)
+
+    # Se existe e possui conteúdo (validação simples), preserva
+    if destino.exists() and destino.stat().st_size > 50:
+        return
+
+    if not RULES_MS_BUNDLED.exists() or RULES_MS_BUNDLED.stat().st_size == 0:
+        raise ValueError("Asset interno da appliance ausente ou vazio: regras_ms.rules")
+
+    # Provisiona atômicamente no mesmo filesystem
+    tmp = tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=str(destino.parent),
+        delete=False,
+    )
+    tmp_path = Path(tmp.name)
+    try:
+        tmp.write(RULES_MS_BUNDLED.read_bytes())
+        tmp.flush()
+        tmp.close()
+        os.chmod(tmp_path, 0o644)
+        os.replace(tmp_path, destino)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
+
+
 def _validar_candidato(
     conteudo: str,
     yaml_original: str,
     config: dict[str, Any],
 ) -> dict[str, Any]:
+    _garantir_regras_moonshield(config)
+
     suricata = shutil.which("suricata")
     if not suricata:
         return {

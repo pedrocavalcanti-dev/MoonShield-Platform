@@ -910,18 +910,15 @@ def api_install(request):
         "interface_lan": interface_lan,
         "interface_mgmt": interface_mgmt,
         "home_net": home_net,
-        "instalar_pacote": _bool(
-            dados.get(
-                "instalar_pacote"
-            ),
-            default=True,
-        ),
+        # nftables faz parte da appliance. Este assistente apenas configura
+        # o namespace MoonShield e nunca solicita instalação de pacote.
+        "instalar_pacote": False,
     }
 
     tarefa, resultado = _executar_tarefa_sincrona(
         tipo=TarefaFirewall.Tipo.INSTALAR,
         payload=payload,
-        etapa="Instalando Firewall",
+        etapa="Configurando Firewall",
         funcao=lambda: instalar_firewall(
             **payload
         ),

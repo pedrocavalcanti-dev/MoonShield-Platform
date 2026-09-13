@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark light">
-    <title>MoonShield — Instalação do Firewall</title>
+    <title>MoonShield — Configuração do Firewall</title>
 
     <script>
         (function () {
@@ -69,7 +69,7 @@
                     </div>
                 </a>
 
-                <nav class="steps" aria-label="Etapas da instalação">
+                <nav class="steps" aria-label="Etapas da configuração">
                     <div class="steps__eyebrow">ETAPAS</div>
 
                     <button class="step active" type="button" data-step-nav="1">
@@ -110,7 +110,7 @@
                             <span class="step__dot">4</span>
                         </span>
                         <span class="step__copy">
-                            <strong>Instalação</strong>
+                            <strong>Aplicação</strong>
                             <small>Revisar e aplicar</small>
                         </span>
                     </button>
@@ -183,7 +183,7 @@
                             <span class="feature-card__number">02</span>
                             <div>
                                 <h3>Topologia explícita</h3>
-                                <p>Você define WAN, gerenciamento, LAN e HOME_NET antes da instalação.</p>
+                                <p>A topologia oficial define WAN, gerenciamento, LAN e HOME_NET antes da aplicação.</p>
                             </div>
                         </article>
 
@@ -200,7 +200,7 @@
                         <div class="notice__icon">i</div>
                         <div>
                             <strong>Nenhuma regra será aplicada nesta primeira etapa.</strong>
-                            <p>Primeiro verificamos o Agent e o ambiente. A instalação só começa após sua confirmação final.</p>
+                            <p>Primeiro verificamos o Agent e o ambiente. A configuração só é aplicada após sua confirmação final.</p>
                         </div>
                     </div>
 
@@ -223,7 +223,7 @@
                         <h1>Verifique o ambiente local.</h1>
                         <p>
                             O Firewall depende do MoonShield-Agent para todas as operações privilegiadas.
-                            O nftables pode ser instalado pelo próprio Agent durante o processo.
+                            O nftables é um componente local da appliance e é apenas verificado neste fluxo.
                         </p>
                     </header>
 
@@ -298,7 +298,7 @@
                         <div>
                             <strong>MoonShield-Agent indisponível.</strong>
                             <p>
-                                A instalação não pode continuar enquanto o Django não conseguir acessar
+                                A configuração não pode continuar enquanto o Django não conseguir acessar
                                 <code>/run/moonshield/agent.sock</code>.
                             </p>
                         </div>
@@ -345,10 +345,10 @@
                 <section class="step-page" data-step-panel="3">
                     <header class="page-header">
                         <span class="page-header__eyebrow">ETAPA 03 / TOPOLOGIA</span>
-                        <h1>Defina as interfaces do Firewall.</h1>
+                        <h1>Revise as interfaces oficiais do Firewall.</h1>
                         <p>
                             O MoonShield não adivinha a topologia pela ordem das interfaces.
-                            Revise cada função antes de continuar.
+                            O módulo Rede é a fonte de verdade; esta tela é somente leitura.
                         </p>
                     </header>
 
@@ -417,7 +417,7 @@
                                     spellcheck="false"
                                     placeholder="Derivada da Rede oficial"
                                 >
-                                <small class="field__help">Informe a rede interna em CIDR.</small>
+                                <small class="field__help">Derivada da topologia oficial da Rede.</small>
                             </div>
                         </div>
 
@@ -438,10 +438,9 @@
                     <div class="notice notice--warning">
                         <div class="notice__icon">!</div>
                         <div>
-                            <strong>Confirme a interface de gerenciamento.</strong>
+                            <strong>Topologia oficial da Rede.</strong>
                             <p>
-                                A MGMT é tratada como interface crítica. O Agent fará uma nova validação
-                                antes de aceitar uma configuração que possa causar perda de acesso.
+                                WAN, LAN, MGMT e HOME_NET são definidos no módulo Rede e validados pelo Agent antes da aplicação.
                             </p>
                         </div>
                     </div>
@@ -457,7 +456,7 @@
                     <div class="page-actions">
                         <button class="btn btn--secondary" type="button" data-go-step="2">Voltar</button>
                         <button class="btn btn--primary" type="button" id="btnNetworkNext">
-                            Revisar instalação
+                            Revisar configuração
                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="m9 18 6-6-6-6"></path>
                             </svg>
@@ -466,12 +465,12 @@
                 </section>
 
                 <!-- =========================================================
-                     ETAPA 4 — INSTALAÇÃO
+                     ETAPA 4 — CONFIGURAÇÃO
                 ========================================================== -->
                 <section class="step-page" data-step-panel="4">
                     <header class="page-header">
-                        <span class="page-header__eyebrow">ETAPA 04 / INSTALAÇÃO</span>
-                        <h1 id="installPageTitle">Revise e instale.</h1>
+                        <span class="page-header__eyebrow">ETAPA 04 / CONFIGURAÇÃO</span>
+                        <h1 id="installPageTitle">Revise e aplique.</h1>
                         <p id="installPageIntro">
                             Confira a topologia. Depois da confirmação, o Agent valida, prepara a configuração e aplica o Firewall.
                         </p>
@@ -481,7 +480,7 @@
                         <div class="review-card">
                             <div class="review-card__header">
                                 <div>
-                                    <small>PLANO DE INSTALAÇÃO</small>
+                                    <small>PLANO DE CONFIGURAÇÃO</small>
                                     <h2>Configuração selecionada</h2>
                                 </div>
                                 <span class="review-card__badge">LOCAL IPC</span>
@@ -517,8 +516,8 @@
                                 <div class="review-check">
                                     <span>02</span>
                                     <div>
-                                        <strong>Preparar nftables</strong>
-                                        <p>Se necessário, o Agent instala o pacote e cria somente a estrutura MoonShield.</p>
+                                        <strong>Validar componentes locais</strong>
+                                        <p>O Agent confirma o nftables da appliance e prepara somente a estrutura MoonShield.</p>
                                     </div>
                                 </div>
                                 <div class="review-check">
@@ -543,7 +542,7 @@
                         <div class="page-actions">
                             <button class="btn btn--secondary" type="button" data-go-step="3">Voltar</button>
                             <button class="btn btn--primary btn--install" type="button" id="btnInstall" disabled>
-                                <span>Instalar Firewall</span>
+                                <span>Aplicar configuração</span>
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 3v12"></path>
                                     <path d="m7 10 5 5 5-5"></path>
@@ -587,7 +586,7 @@
                                 <path d="M20 6 9 17l-5-5"></path>
                             </svg>
                         </div>
-                        <small>INSTALAÇÃO CONCLUÍDA</small>
+                        <small>CONFIGURAÇÃO CONCLUÍDA</small>
                         <h2>Firewall operacional.</h2>
                         <p id="successMessage">
                             A tabela MoonShield foi configurada e validada pelo Agent.
@@ -617,9 +616,9 @@
                                 <path d="M10.3 4.5 2.8 18a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.5a2 2 0 0 0-3.4 0Z"></path>
                             </svg>
                         </div>
-                        <small>INSTALAÇÃO NÃO CONCLUÍDA</small>
+                        <small>CONFIGURAÇÃO NÃO CONCLUÍDA</small>
                         <h2>O Agent interrompeu a operação.</h2>
-                        <p id="errorMessage">A instalação retornou um erro.</p>
+                        <p id="errorMessage">A configuração retornou um erro.</p>
 
                         <div class="error-details" id="errorDetails" hidden></div>
 

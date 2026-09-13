@@ -556,7 +556,7 @@
 
         setBadge(
             els.badgeNft,
-            nftOk ? "INSTALADO" : agentOk ? "SERÁ PREPARADO" : "AGUARDANDO",
+            nftOk ? "DISPONÍVEL" : agentOk ? "REQUER ATENÇÃO" : "AGUARDANDO",
             nftOk ? "success" : agentOk ? "warning" : "error"
         );
 
@@ -564,7 +564,7 @@
             els.textNft.textContent = nftOk
                 ? "nftables disponível no host Linux."
                 : agentOk
-                    ? "O pacote poderá ser preparado pelo Agent durante a instalação."
+                    ? "O componente da appliance não foi confirmado pelo Agent."
                     : "A verificação depende do Agent.";
         }
 
@@ -574,7 +574,7 @@
 
         setBadge(
             els.badgeFirewall,
-            operational ? "OPERACIONAL" : installed ? "INSTALADO" : "NÃO INSTALADO",
+            operational ? "OPERACIONAL" : installed ? "REQUER ATENÇÃO" : "NÃO CONFIGURADO",
             operational ? "success" : installed ? "warning" : agentOk ? "warning" : "error"
         );
 
@@ -583,7 +583,7 @@
                 ? "Tabela e chains MoonShield estão operacionais."
                 : installed
                     ? "Estrutura encontrada, mas ainda não está totalmente operacional."
-                    : "Nenhuma instalação ativa foi confirmada.";
+                    : "A configuração MoonShield ainda não foi aplicada.";
         }
 
         if (els.valueFirewall) {
@@ -609,7 +609,7 @@
         if (els.environmentSummaryText) {
             els.environmentSummaryText.textContent = agentOk
                 ? operational
-                    ? "A instalação atual está operacional. Você pode revisar a topologia ou abrir o painel."
+                    ? "A configuração atual está operacional. Você pode revisar a topologia ou abrir o painel."
                     : "O Django consegue delegar operações privilegiadas ao MoonShield-Agent."
                 : getErrorMessage(status) || "Verifique o serviço e as permissões do socket local.";
         }
@@ -1078,7 +1078,7 @@
         }
 
         if (!els.confirmInstall?.checked) {
-            toast("Confirmação necessária", "Confirme a topologia antes de instalar.", "warning");
+            toast("Confirmação necessária", "Confirme a topologia antes de aplicar a configuração.", "warning");
             return;
         }
 
@@ -1141,7 +1141,6 @@
             interface_lan: els.selectLan?.value || "",
             interface_mgmt: els.selectMgmt?.value || "",
             home_net: (els.inputHomeNet?.value || "").trim(),
-            instalar_pacote: true,
         };
     }
 
@@ -1152,7 +1151,7 @@
         if (els.errorState) els.errorState.hidden = true;
 
         if (els.installPageTitle) {
-            els.installPageTitle.textContent = "Instalando o Firewall.";
+            els.installPageTitle.textContent = "Configurando o Firewall.";
         }
 
         if (els.installPageIntro) {
@@ -1168,7 +1167,7 @@
         if (els.successState) els.successState.hidden = false;
 
         if (els.installPageTitle) {
-            els.installPageTitle.textContent = "Instalação concluída.";
+            els.installPageTitle.textContent = "Configuração concluída.";
         }
 
         if (els.installPageIntro) {
@@ -1198,7 +1197,7 @@
         state.maxStep = 4;
         markAllComplete();
 
-        toast("Firewall instalado", "A configuração foi concluída pelo MoonShield-Agent.", "success");
+        toast("Configuração concluída", "O MoonShield-Agent aplicou a configuração do Firewall.", "success");
     }
 
     function showErrorState(message, details) {
@@ -1208,7 +1207,7 @@
         if (els.errorState) els.errorState.hidden = false;
 
         if (els.installPageTitle) {
-            els.installPageTitle.textContent = "A instalação precisa de atenção.";
+            els.installPageTitle.textContent = "A configuração precisa de atenção.";
         }
 
         if (els.installPageIntro) {
@@ -1217,7 +1216,7 @@
         }
 
         if (els.errorMessage) {
-            els.errorMessage.textContent = message || "A instalação não foi concluída.";
+            els.errorMessage.textContent = message || "A configuração não foi concluída.";
         }
 
         const printable = sanitizeDetails(details);
@@ -1230,7 +1229,7 @@
             els.errorDetails.textContent = "";
         }
 
-        toast("Instalação não concluída", message || "Verifique o retorno do Agent.", "error");
+        toast("Configuração não concluída", message || "Verifique o retorno do Agent.", "error");
     }
 
     function resetInstallStates() {
@@ -1245,7 +1244,7 @@
         }
 
         if (els.installPageTitle) {
-            els.installPageTitle.textContent = "Revise e instale.";
+            els.installPageTitle.textContent = "Revise e aplique.";
         }
 
         if (els.installPageIntro) {
@@ -1279,8 +1278,6 @@
 
         try {
             const payload = buildInstallPayload();
-            delete payload.instalar_pacote;
-
             const result = await api(URLS.reparar, {
                 method: "POST",
                 body: JSON.stringify(payload),

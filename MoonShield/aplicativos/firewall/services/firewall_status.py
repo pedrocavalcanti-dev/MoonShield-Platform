@@ -1153,8 +1153,8 @@ def _resolver_status(
 
     if not tabela_instalada:
         return (
-            "nao_instalado",
-            "Firewall não instalado",
+            "aguardando_configuracao",
+            "Aguardando configuração",
         )
 
     if not configurado:

@@ -213,14 +213,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 suricata: {
                     ok: true,
                     warning: false,
-                    value: installed ? (version ? `Suricata ${version}` : 'Suricata instalado') : 'Será instalado automaticamente'
+                    value: installed ? (version ? `Suricata ${version}` : 'Suricata instalado') : 'Componente ausente'
                 },
             };
 
             Object.entries(checks).forEach(([name, check]) => setEnvironmentCheck(name, check));
 
             const errors = [];
-            if (!linux) errors.push('A instalação precisa ser executada em um servidor Linux.');
+            if (!linux) errors.push('A configuração precisa ser executada em um servidor Linux.');
             if (linux && !root) errors.push('A execução deve possuir privilégios administrativos.');
 
             state.environmentReady = errors.length === 0;
@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (state.environmentReady) {
                 const summary = installed
                     ? (version ? `Suricata ${version} detectado. O ambiente está pronto para continuar.` : 'Suricata detectado. O ambiente está pronto para continuar.')
-                    : 'Os pré-requisitos foram validados. O Suricata será instalado durante a execução.';
+                    : 'O Suricata provisionado pela appliance não foi confirmado. Corrija o componente antes de configurar o IDS.';
                 setEnvironmentSummary('success', 'Ambiente pronto para continuar', summary);
                 updateSidebarSystem('ok', installed ? (version ? `Suricata ${version}` : 'Suricata detectado') : 'Ambiente compatível');
             } else {
@@ -692,11 +692,11 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('reviewWan', cfg.interface_wan || 'Não definida');
         setText('reviewLan', cfg.interface_lan || 'Não definida');
         setText('reviewEtOpen', cfg.instalar_et_open ? 'Ativado' : 'Desativado');
-        setText('reviewRestart', cfg.reiniciar_servicos ? 'Reiniciar após instalar' : 'Não reiniciar automaticamente');
+        setText('reviewRestart', cfg.reiniciar_servicos ? 'Reiniciar após aplicar' : 'Não reiniciar automaticamente');
     }
 
     // ═══════════════════════════════════════════════════════════
-    // INSTALAÇÃO E TAREFAS
+    // CONFIGURAÇÃO E TAREFAS
     // ═══════════════════════════════════════════════════════════
     function bindInstallationActions() {
         el('btnCancelInstall')?.addEventListener('click', cancelActiveTask);
@@ -730,12 +730,10 @@ document.addEventListener('DOMContentLoaded', () => {
             await saveConfiguration({ quiet: true });
             const params = {
                 configuracao: collectConfiguration(),
-                instalar_et_open: Boolean(el('fieldEtOpen')?.checked),
                 reiniciar_servicos: Boolean(el('fieldRestartServices')?.checked),
-                executar_diagnostico_final: true,
             };
 
-            const payload = await requestJSON(CFG.urls.criarTarefa, { method: 'POST', body: { tipo: 'instalacao', parametros: params } });
+            const payload = await requestJSON(CFG.urls.criarTarefa, { method: 'POST', body: { tipo: 'configuracao', parametros: params } });
             const data = unwrapData(payload);
             const task = data.tarefa || data.task || data;
             
@@ -757,7 +755,7 @@ document.addEventListener('DOMContentLoaded', () => {
             startLogPolling(task.id);
 
             appendLocalLog('info', 'Tarefa criada. Aguardando o executor seguro.');
-            showToast('Tarefa de instalação iniciada.', 'success');
+            showToast('Aplicação da configuração iniciada.', 'success');
         } catch (error) {
             showReviewError(error.message);
             showToast(error.message, 'error');
@@ -856,7 +854,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Força a UI de progresso para 100% visualmente
             setText('installPercent', '100%');
             if (el('installProgressBar')) el('installProgressBar').style.width = '100%';
-            setText('currentStageTitle', 'Instalação Concluída');
+            setText('currentStageTitle', 'Configuração concluída');
             setText('currentStageMessage', 'Todos os processos foram finalizados.');
 
             // Arruma a visibilidade dos botões
@@ -867,14 +865,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el('installResult')) {
                 el('installResult').hidden = false;
                 el('installResult').className = 'alert alert--success';
-                setText('resultTitle', 'Instalação concluída');
+                setText('resultTitle', 'Configuração do IDS concluída');
                 setText('resultMessage', 'O sensor foi configurado com sucesso e já está protegendo a rede.');
             }
-            showToast('Instalação concluída com sucesso.', 'success');
+            showToast('Configuração do IDS concluída.', 'success');
             updateSidebarSystem('ok', 'Suricata ativo');
         } else {
             const cancelled = String(task.status).toLowerCase() === 'cancelado';
-            setText('installTitle', cancelled ? 'Instalação cancelada.' : 'Falha na instalação.');
+            setText('installTitle', cancelled ? 'Configuração cancelada.' : 'Falha na configuração.');
             
             // Arruma a visibilidade dos botões no caso de erro
             if (el('btnFinishOnboarding')) el('btnFinishOnboarding').hidden = true;
@@ -888,8 +886,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const erroMsg = firstText(task.erro, task.mensagem, 'Verifique o terminal acima para mais detalhes.');
                 setText('resultMessage', erroMsg);
             }
-            showToast(cancelled ? 'Instalação cancelada.' : 'Instalação falhou.', 'error');
-            updateSidebarSystem('error', 'Erro na instalação');
+            showToast(cancelled ? 'Configuração cancelada.' : 'Configuração falhou.', 'error');
+            updateSidebarSystem('error', 'Erro na configuração');
         }
     }
 

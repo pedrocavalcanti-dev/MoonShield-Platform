@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MoonShield — Instalação do Suricata</title>
+    <title>MoonShield — Configuração do Suricata</title>
 
     <!-- SCRIPT DE TEMA (Previne FOUC - Flash de Tela Branca) -->
     <script>
@@ -88,7 +88,7 @@
                 </div>
             </div>
 
-            <nav class="steps-navigation" aria-label="Etapas da instalação">
+            <nav class="steps-navigation" aria-label="Etapas da configuração">
                 <div class="steps-navigation__title">Etapas</div>
 
                 <div class="step-item active" data-step="1">
@@ -142,7 +142,7 @@
                     </div>
                     <div class="step-item__info">
                         <div class="step-item__label">Revisão</div>
-                        <div class="step-item__desc">Plano de instalação</div>
+                        <div class="step-item__desc">Plano de configuração</div>
                     </div>
                 </div>
 
@@ -151,7 +151,7 @@
                         <div class="step-item__dot">6</div>
                     </div>
                     <div class="step-item__info">
-                        <div class="step-item__label">Instalação</div>
+                        <div class="step-item__label">Aplicação</div>
                         <div class="step-item__desc">Execução e validação</div>
                     </div>
                 </div>
@@ -186,7 +186,7 @@
                 <!-- STEP 1 — VISÃO GERAL -->
                 <section class="step-page active" id="step1" data-step-panel="1" data-step="1">
                     <div class="step-header">
-                        <div class="step-header__badge">Etapa 00 / Instalação do sensor</div>
+                        <div class="step-header__badge">Etapa 00 / Configuração do sensor</div>
                         <h1>Prepare sua rede para detectar ameaças.</h1>
                         <p class="step-intro">
                             Olá, <strong id="greetName">operador</strong>. Este assistente vai preparar o Suricata,
@@ -204,7 +204,7 @@
                                     <div class="info-card__icon">1</div>
                                     <div class="info-card__content">
                                         <div class="info-card__label">Verificação segura</div>
-                                        <div class="info-card__value">Linux, privilégios, pacotes e caminhos</div>
+                                        <div class="info-card__value">Linux, privilégios, serviço e caminhos</div>
                                     </div>
                                 </div>
                                 <div class="info-card__item">
@@ -246,7 +246,7 @@
                         <div class="step-header__badge">Etapa 01 / Pré-requisitos do servidor</div>
                         <h1>Vamos verificar o ambiente local.</h1>
                         <p class="step-intro">A análise é somente leitura e identifica o que já está pronto antes da
-                            instalação.</p>
+                            configuração.</p>
                     </div>
 
                     <div class="card" style="margin-bottom: 24px;">
@@ -275,7 +275,7 @@
                                 <div class="info-card__icon"><span class="spinner"></span></div>
                                 <div class="info-card__content">
                                     <div class="info-card__label">Privilégios administrativos</div>
-                                    <div class="info-card__value">Necessários para instalar e configurar serviços</div>
+                                    <div class="info-card__value">Necessários para configurar o componente</div>
                                 </div>
                                 <div style="font-weight: 600;" id="checkPrivilegesValue">Aguardando</div>
                             </div>
@@ -283,7 +283,7 @@
                                 <div class="info-card__icon"><span class="spinner"></span></div>
                                 <div class="info-card__content">
                                     <div class="info-card__label">Suricata</div>
-                                    <div class="info-card__value">Detecta instalação e versão existente</div>
+                                    <div class="info-card__value">Confirma o componente provisionado e sua versão</div>
                                 </div>
                                 <div style="font-weight: 600;" id="checkSuricataValue">Aguardando</div>
                             </div>
@@ -482,7 +482,7 @@
                         <label class="selectable-card" style="grid-column: 1 / -1;">
                             <input type="checkbox" id="fieldRestartServices" checked />
                             <div class="selectable-card__content">
-                                <span class="selectable-card__title">Ativar após instalar</span>
+                                <span class="selectable-card__title">Ativar após aplicar</span>
                                 <span class="selectable-card__desc">Recarrega o systemd e inicia o Suricata e o monitor
                                     MoonShield automaticamente.</span>
                             </div>
@@ -506,14 +506,14 @@
                         <div class="alert__icon">!</div>
                         <div class="alert__content">
                             <div class="alert__title">O arquivo YAML existente será preservado.</div>
-                            <div class="alert__message">O instalador cria backup antes de aplicar mudanças e reverte em
+                            <div class="alert__message">O Agent cria backup antes de aplicar mudanças e reverte em
                                 caso de validação inválida.</div>
                         </div>
                     </div>
 
                     <div class="btn-group justify-between">
                         <button class="btn btn--secondary" type="button" data-back="3">Voltar</button>
-                        <button class="btn btn--primary" id="btnStep4Next" type="button">Revisar instalação</button>
+                        <button class="btn btn--primary" id="btnStep4Next" type="button">Revisar configuração</button>
                     </div>
                 </section>
 
@@ -521,7 +521,7 @@
                 <section class="step-page" id="step5" data-step-panel="5" data-step="5">
                     <div class="step-header">
                         <div class="step-header__badge">Etapa 04 / Confirmação final</div>
-                        <h1>Revise antes de iniciar a instalação.</h1>
+                        <h1>Revise antes de aplicar a configuração.</h1>
                         <p class="step-intro">Confira o que será aplicado no servidor. Você ainda pode voltar e ajustar
                             qualquer opção.</p>
                     </div>
@@ -578,7 +578,7 @@
                                     <div class="info-card__content">
                                         <div class="info-card__label">Serviços</div>
                                     </div>
-                                    <div class="info-card__value" id="reviewRestart">Reiniciar após instalar</div>
+                                    <div class="info-card__value" id="reviewRestart">Reiniciar após aplicar</div>
                                 </div>
                             </div>
                         </div>
@@ -587,7 +587,7 @@
                     <label class="selectable-card" style="margin-bottom: 24px;">
                         <input type="checkbox" id="confirmInstall" style="width: 18px; height: 18px;" />
                         <div class="selectable-card__content">
-                            <span class="selectable-card__title">Autorização de Instalação</span>
+                            <span class="selectable-card__title">Autorização de configuração</span>
                             <span class="selectable-card__desc">Revisei as interfaces acima e autorizo a configuração do
                                 Suricata neste servidor. Compreendo que as regras serão aplicadas.</span>
                         </div>
@@ -596,22 +596,22 @@
                     <div class="alert alert--error" id="reviewError" hidden>
                         <div class="alert__icon">!</div>
                         <div class="alert__content">
-                            <div class="alert__title">Não foi possível preparar a instalação.</div>
+                            <div class="alert__title">Não foi possível preparar a configuração.</div>
                             <div class="alert__message" id="reviewErrorText"></div>
                         </div>
                     </div>
 
                     <div class="btn-group justify-between">
                         <button class="btn btn--secondary" type="button" data-back="4">Voltar</button>
-                        <button class="btn btn--primary" id="btnStartInstall" type="button" disabled>Iniciar
-                            Instalação</button>
+                        <button class="btn btn--primary" id="btnStartInstall" type="button" disabled>Aplicar
+                            configuração</button>
                     </div>
                 </section>
 
-                <!-- STEP 6 — INSTALAÇÃO E TERMINAL -->
+                <!-- STEP 6 — APLICAÇÃO E TERMINAL -->
                 <section class="step-page" id="step6" data-step-panel="6" data-step="6">
                     <div class="step-header">
-                        <div class="step-header__badge">Etapa 05 / <span id="installEyebrow">Instalação em
+                        <div class="step-header__badge">Etapa 05 / <span id="installEyebrow">Configuração em
                                 andamento</span></div>
                         <h1 id="installTitle">Preparando o sensor MoonShield.</h1>
                         <p class="step-intro" id="installDescription">Não feche esta página enquanto a configuração
@@ -625,7 +625,7 @@
                                     <strong id="currentStageTitle" style="display: block; font-size: 16px;">Iniciando...</strong>
                                     <span id="currentStageMessage"
                                         style="font-size: 14px; color: var(--text-muted);">Criando tarefa de
-                                        instalação</span>
+                                        configuração</span>
                                 </div>
                                 <div style="font-weight: 600; font-size: 24px; color: var(--ok);"
                                     id="installPercent">0%</div>
@@ -667,8 +667,8 @@
                         <button class="btn btn--secondary" id="btnCancelInstall" type="button">Cancelar tarefa</button>
                         <button class="btn btn--secondary" id="btnRetryInstall" type="button" hidden>Tentar
                             novamente</button>
-                        <button class="btn btn--primary" id="btnFinishOnboarding" type="button" hidden>Abrir painel do
-                            Suricata</button>
+                        <button class="btn btn--primary" id="btnFinishOnboarding" type="button" hidden>{% if request.GET.origem == 'onboarding_appliance' %}Voltar ao onboarding{% else %}Abrir painel do
+                            Suricata{% endif %}</button>
                     </div>
                 </section>
 
@@ -680,7 +680,7 @@
     <div class="modal" id="leaveModal">
         <div class="modal__content">
             <div class="modal__header">
-                <h2 class="modal__title" id="leaveModalTitle">Sair da instalação?</h2>
+                <h2 class="modal__title" id="leaveModalTitle">Sair da configuração?</h2>
                 <p class="modal__description">As configurações salvas serão mantidas. Uma tarefa em execução não deve
                     ser interrompida fechando a página.</p>
             </div>
@@ -696,7 +696,7 @@
             <div class="alert__icon">!</div>
             <div class="alert__content">
                 <div class="alert__title">JavaScript é necessário.</div>
-                <div class="alert__message">Ative o JavaScript para usar o assistente de instalação do Suricata.</div>
+                <div class="alert__message">Ative o JavaScript para usar o assistente de configuração do Suricata.</div>
             </div>
         </div>
     </noscript>

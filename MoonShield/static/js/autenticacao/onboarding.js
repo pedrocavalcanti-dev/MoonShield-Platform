@@ -647,14 +647,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function servicePresentation(service) {
+    if (
+      service?.erro ||
+      ["erro", "falha", "agent_indisponivel", "nftables_nao_instalado"].includes(service?.status) ||
+      (service?.instalado === false && service?.status === "indisponivel")
+    ) {
+      return { label: "Indisponível", level: "error", configuration: service?.configurado ? "Configurado" : "Não configurado", health: service?.status_label || "Falha na verificação" };
+    }
     if (!service?.configurado) {
-      return { label: "Ainda não configurado", level: "neutral", configuration: "Não configurado", health: "Ainda não validada" };
+      return { label: "Aguardando configuração", level: "neutral", configuration: "Não configurado", health: "Ainda não validada" };
     }
     if (service.saudavel) {
       return { label: "Operacional", level: "ok", configuration: "Configurado", health: "Operacional" };
-    }
-    if (service.status === "erro" || service.status === "falha") {
-      return { label: "Falha", level: "error", configuration: "Configurado", health: "Falha na verificação" };
     }
     return { label: "Requer atenção", level: "warning", configuration: "Configurado", health: service.status_label || "Requer atenção" };
   }
@@ -699,8 +703,9 @@ document.addEventListener("DOMContentLoaded", () => {
           name: "AdGuard Home",
           service: adguard,
           details: [
-            ["Serviço local", adguard.ativo ? "Detectado" : "Não detectado"],
-            ["Proteção", adguard.protecao ? "Ativa" : "Não informada"],
+            ["Serviço local", adguard.ativo ? "Ativo" : adguard.instalado === false ? "Componente indisponível" : "Não confirmado"],
+            ["API", adguard.api ? "Disponível" : "Indisponível"],
+            ["Proteção", adguard.protecao ? "Ativa" : "Estado não informado"],
             ["Filtros", Number.isFinite(Number(adguard.filtros_ativos)) ? `${Number(adguard.filtros_ativos)} ativos` : "Não informado"],
           ],
           note: "Configurações avançadas ficam disponíveis em DNS & Rede após concluir.",
@@ -746,6 +751,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function chooseResumeStep() {
+    const serverResume = Number(OB.onboardingStep);
+    if (Number.isInteger(serverResume) && serverResume >= 1 && serverResume <= 9) return serverResume;
     if (OB.passwordChanged !== true) return progressCursor < 2 ? 1 : 2;
     if (progressCursor < 3) return 3;
     if (progressCursor < 6) return progressCursor;

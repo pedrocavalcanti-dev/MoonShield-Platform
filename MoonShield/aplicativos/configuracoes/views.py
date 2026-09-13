@@ -101,11 +101,12 @@ def _estado_adguard(cfg: ConfigSistema) -> dict:
     base = {
         "tipo": "adguard", "nome": "AdGuard Home", "fonte": "local", "ativo": False,
         "configurado": bool(AdGuardClient),
-        "saudavel": False, "status": "indisponivel", "status_label": "Indisponível",
+        "instalado": True,
+        "saudavel": False, "status": "atencao", "status_label": "Requer atenção",
         "dns_resolver": False, "api": False, "protecao": False, "filtros_ativos": 0, "versao": "—",
     }
     if not AdGuardClient:
-        return {**base, "erro": "Integração DNS indisponível."}
+        return {**base, "status": "erro", "status_label": "Integração indisponível", "erro": "Integração DNS indisponível."}
     try:
         dados = AdGuardClient(_url_adguard_local(cfg), cfg.adguard_user, cfg.adguard_pass, cfg.adguard_https).fetch_all()
         health = dados.get("health") or {}
@@ -114,6 +115,7 @@ def _estado_adguard(cfg: ConfigSistema) -> dict:
         operacional = bool(ativo and api_ok)
         return {
             **base,
+            "instalado": True,
             "ativo": ativo,
             "configurado": True,
             "saudavel": operacional,
@@ -127,16 +129,16 @@ def _estado_adguard(cfg: ConfigSistema) -> dict:
         }
     except (AdGuardError, OSError, ValueError) as exc:
         logger.info("AdGuard local indisponível: %s", exc)
-        return {**base, "erro": str(exc)}
+        return {**base, "ativo": True, "configurado": True, "status": "atencao", "status_label": "Requer atenção", "erro": str(exc)}
     except Exception as exc:
         logger.exception("Falha ao consultar AdGuard local: %s", exc)
-        return {**base, "erro": "Não foi possível consultar o serviço DNS."}
+        return {**base, "ativo": True, "configurado": True, "status": "atencao", "status_label": "Requer atenção", "erro": "Não foi possível consultar o serviço DNS."}
 
 
 def _estado_suricata(topologia: dict) -> dict:
     base = {
         "tipo": "suricata", "nome": "Suricata IDS", "fonte": "local", "ativo": False,
-        "configurado": False,
+        "instalado": False, "configurado": False,
         "saudavel": False, "status": "indisponivel", "status_label": "Indisponível",
         "eve_ativo": False, "monitor_ativo": False, "worker_ativo": False, "versao": "—",
         "interfaces": [], "home_net": list(topologia.get("home_net") or []), "drift": "Nenhum",
@@ -157,12 +159,14 @@ def _estado_suricata(topologia: dict) -> dict:
         monitor_ativo = bool(monitor.get("ativo"))
         worker_ativo = bool(worker.get("ativo"))
         operacional = bool(ativo and eve_ativo and monitor_ativo and worker_ativo)
+        instalado = bool(suricata.get("instalado"))
         return {
             **base,
+            "instalado": instalado,
             "configurado": bool(configuracao),
             "ativo": ativo, "saudavel": operacional,
-            "status": "operacional" if operacional else "atencao",
-            "status_label": "Operacional" if operacional else "Requer atenção",
+            "status": "operacional" if operacional else ("atencao" if instalado else "indisponivel"),
+            "status_label": "Operacional" if operacional else ("Requer atenção" if instalado else "Componente indisponível"),
             "eve_ativo": eve_ativo, "monitor_ativo": monitor_ativo, "worker_ativo": worker_ativo,
             "versao": str(suricata.get("versao") or getattr(configuracao, "versao_suricata", "") or "—"),
             "interfaces": interfaces, "home_net": home_net,
@@ -176,7 +180,7 @@ def _estado_suricata(topologia: dict) -> dict:
 def _estado_firewall() -> dict:
     base = {
         "tipo": "firewall", "nome": "Firewall MoonShield", "fonte": "local", "ativo": False,
-        "configurado": False,
+        "instalado": False, "configurado": False,
         "saudavel": False, "status": "indisponivel", "status_label": "Indisponível",
         "engine": "nftables", "agent_online": False, "drift": "Nenhum",
     }
@@ -187,7 +191,8 @@ def _estado_firewall() -> dict:
         operacional = bool(estado.get("operacional"))
         return {
             **base,
-            "configurado": bool(estado.get("configurado") or estado.get("instalado")),
+            "instalado": bool(estado.get("instalado")),
+            "configurado": bool(estado.get("configurado")),
             "ativo": bool(estado.get("ativo")), "saudavel": operacional,
             "status": estado.get("status") or ("operacional" if operacional else "atencao"),
             "status_label": estado.get("status_label") or ("Operacional" if operacional else "Requer atenção"),

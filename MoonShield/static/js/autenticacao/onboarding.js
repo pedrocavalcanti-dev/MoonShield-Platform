@@ -121,8 +121,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function saveProfile() {
+    const displayName = $("fieldDisplayName")?.value.trim() || "";
+    if (!displayName) { setHint("profileHint", "Informe seu nome de exibição.", "#ef4444"); return; }
     const button = $("btnStep3Next"); setBusy(button, true, "Salvando identidade…");
-    try { await postJSON(OB.urls.salvarPerfil, { display_name: $("fieldDisplayName")?.value.trim() || "", cargo: $("fieldCargo")?.value.trim() || "" }); await saveProgress(4); goToStep(4); }
+    try { await postJSON(OB.urls.salvarPerfil, { display_name: displayName, cargo: $("fieldCargo")?.value.trim() || "" }); await saveProgress(4); goToStep(4); }
     catch (error) { setHint("profileHint", error.message, "#ef4444"); } finally { setBusy(button, false); }
   }
 

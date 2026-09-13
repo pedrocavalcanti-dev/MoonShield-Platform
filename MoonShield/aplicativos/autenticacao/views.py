@@ -39,6 +39,18 @@ def _identidade_appliance_incompleta(configuracao: ConfigSistema) -> bool:
     )
 
 
+def _identidade_usuario_incompleta(profile: UserProfile) -> bool:
+    """A etapa Identidade exige somente o nome de exibição do administrador."""
+    return not (profile.display_name or "").strip()
+
+
+def _cursor_onboarding(configuracao: ConfigSistema) -> int:
+    return max(
+        ONBOARDING_ETAPA_MINIMA,
+        min(ONBOARDING_ETAPA_MAXIMA, configuracao.appliance_onboarding_etapa),
+    )
+
+
 def _etapa_maxima_onboarding(profile: UserProfile, configuracao: ConfigSistema) -> int:
     """Limita o cursor UX pela verdade persistida do First Boot."""
     if configuracao.appliance_onboarding_completo:
@@ -47,24 +59,54 @@ def _etapa_maxima_onboarding(profile: UserProfile, configuracao: ConfigSistema) 
     if not profile.last_password_change:
         return 2
 
-    etapa_atual = max(
-        ONBOARDING_ETAPA_MINIMA,
-        min(ONBOARDING_ETAPA_MAXIMA, configuracao.appliance_onboarding_etapa),
-    )
-    if etapa_atual < 3:
+    if _identidade_usuario_incompleta(profile):
         return 3
-    if etapa_atual < 4:
-        return 4
-    if etapa_atual < 5:
-        return 5
-    if etapa_atual < 6:
-        return 6
+
+    etapa_atual = _cursor_onboarding(configuracao)
 
     if (
         _identidade_appliance_incompleta(configuracao)
         or configuracao.node_ambiente not in {"lab", "prod"}
     ):
-        return 6
+        # Avatar e aparência são opcionais. O cursor só controla a navegação
+        # entre essas etapas; ele nunca substitui os requisitos persistidos.
+        return max(4, min(6, etapa_atual + 1))
+
+    try:
+        topologia = obter_topologia() or {}
+    except Exception:
+        return 7
+
+    if (
+        not topologia.get("valida")
+        or not topologia.get("wan", {}).get("principal")
+        or not topologia.get("lan", {}).get("principal")
+    ):
+        return 7
+
+    if not AlteracaoRede.objects.filter(status=AlteracaoRede.Status.CONFIRMADA).exists():
+        return 8
+
+    return 9
+
+
+def _etapa_resume_onboarding(profile: UserProfile, configuracao: ConfigSistema) -> int:
+    """Retorna a etapa segura a ser exibida ao retomar o First Boot."""
+    if configuracao.appliance_onboarding_completo:
+        return ONBOARDING_ETAPA_MAXIMA
+
+    if not profile.last_password_change:
+        return 2
+
+    if _identidade_usuario_incompleta(profile):
+        return 3
+
+    etapa_atual = _cursor_onboarding(configuracao)
+    if (
+        _identidade_appliance_incompleta(configuracao)
+        or configuracao.node_ambiente not in {"lab", "prod"}
+    ):
+        return max(4, min(6, etapa_atual))
 
     try:
         topologia = obter_topologia() or {}
@@ -127,7 +169,11 @@ def onboarding_view(request):
     if configuracao.appliance_onboarding_completo:
         return redirect("painel:index")
 
-    return render(request, "autenticacao/onboarding.html", {"profile": profile, "configuracao": configuracao})
+    return render(request, "autenticacao/onboarding.html", {
+        "profile": profile,
+        "configuracao": configuracao,
+        "etapa_resume": _etapa_resume_onboarding(profile, configuracao),
+    })
 
 
 @require_POST

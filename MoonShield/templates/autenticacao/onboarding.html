@@ -20,7 +20,7 @@
         initials:   "{{ profile.get_initials|escapejs }}",
         avatarUrl:  "{% if profile.avatar %}{{ profile.avatar.url }}{% endif %}",
         tema:       "{{ profile.tema|escapejs }}",
-        onboardingStep: {{ configuracao.appliance_onboarding_etapa }},
+        onboardingStep: {{ etapa_resume }},
         csrfToken:  "{{ csrf_token }}",
         urls: {
             salvarCredenciais: "{% url 'autenticacao:api_salvar_credenciais' %}",

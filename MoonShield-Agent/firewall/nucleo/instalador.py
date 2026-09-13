@@ -65,6 +65,9 @@ from firewall.nucleo.seguranca import (
     CHAIN_INPUT,
     CHAIN_OUTPUT,
     CHAIN_RULES,
+    CHAIN_RULES_INPUT,
+    CHAIN_RULES_FORWARD,
+    CHAIN_RULES_OUTPUT,
     CHAIN_SYSTEM,
     TABELA_FAMILIA,
     TABELA_NOME,
@@ -855,11 +858,21 @@ def _gerar_base(
             f"    chain {CHAIN_RULES} {{",
             "    }",
 
+            f"    chain {CHAIN_RULES_INPUT} {{",
+            "    }",
+
+            f"    chain {CHAIN_RULES_FORWARD} {{",
+            "    }",
+
+            f"    chain {CHAIN_RULES_OUTPUT} {{",
+            "    }",
+
             f"    chain {CHAIN_INPUT} {{",
             "        type filter hook input priority 0; policy accept;",
             f"        jump {CHAIN_SYSTEM}",
             f"        jump {CHAIN_EMERGENCY}",
             f"        jump {CHAIN_RULES}",
+            f"        jump {CHAIN_RULES_INPUT}",
             "    }",
 
             f"    chain {CHAIN_FORWARD} {{",
@@ -867,6 +880,7 @@ def _gerar_base(
             f"        jump {CHAIN_SYSTEM}",
             f"        jump {CHAIN_EMERGENCY}",
             f"        jump {CHAIN_RULES}",
+            f"        jump {CHAIN_RULES_FORWARD}",
             "    }",
 
             f"    chain {CHAIN_OUTPUT} {{",
@@ -874,6 +888,7 @@ def _gerar_base(
             f"        jump {CHAIN_SYSTEM}",
             f"        jump {CHAIN_EMERGENCY}",
             f"        jump {CHAIN_RULES}",
+            f"        jump {CHAIN_RULES_OUTPUT}",
             "    }",
 
             "}",

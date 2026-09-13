@@ -143,17 +143,38 @@ def _servico() -> dict[str, Any]:
         return {"disponivel": False, "active": False, "estado": "systemd_ausente"}
 
     r = subprocess.run(
-        [systemctl, "is-active", "suricata"],
+        [systemctl, "show", "suricata.service", "--property=ActiveState,SubState,Result"],
         capture_output=True,
         text=True,
         timeout=TIMEOUT,
         check=False,
     )
-    estado = (r.stdout or "").strip() or "unknown"
+    
+    props = {}
+    for line in (r.stdout or "").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            props[k.strip()] = v.strip()
+            
+    active_state = props.get("ActiveState", "unknown")
+    sub_state = props.get("SubState", "unknown")
+    result = props.get("Result", "unknown")
+    
+    # Se está auto-restartando ou falhou recentemente, consideramos erro
+    falhando = (sub_state == "auto-restart") or (result not in {"success", "unknown"})
+    
+    active = (active_state == "active") and not falhando
+    
+    estado_texto = active_state
+    if falhando:
+        estado_texto = "falha/reboot_loop"
+    elif sub_state != "running":
+        estado_texto = sub_state
+
     return {
         "disponivel": True,
-        "active": r.returncode == 0 and estado == "active",
-        "estado": estado,
+        "active": active,
+        "estado": estado_texto,
     }
 
 

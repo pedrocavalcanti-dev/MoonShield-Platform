@@ -90,42 +90,42 @@ def _config_editavel(cfg: ConfigSistema, topologia: dict) -> dict:
     }
 
 
-def _url_adguard_local(cfg: ConfigSistema) -> str:
-    """Reutiliza a integração DNS existente, limitada ao host local."""
-    url = (cfg.adguard_url or "").strip()
-    host = (urlparse(url).hostname or "").lower() if url else ""
-    return url if host in {"127.0.0.1", "::1", "localhost"} else "http://127.0.0.1"
-
-
 def _estado_adguard(cfg: ConfigSistema) -> dict:
+    from dns.views import _get_adguard_client
+
     base = {
         "tipo": "adguard", "nome": "AdGuard Home", "fonte": "local", "ativo": False,
-        "configurado": bool(AdGuardClient),
+        "configurado": bool(cfg.adguard_url),
         "instalado": True,
         "saudavel": False, "status": "atencao", "status_label": "Requer atenção",
-        "dns_resolver": False, "api": False, "protecao": False, "filtros_ativos": 0, "versao": "—",
+        "dns_resolver": False, "api": False, "protecao": False, "filtros_ativos": 0, "versao": "?",
     }
-    if not AdGuardClient:
+
+    client = _get_adguard_client(cfg)
+    if not client:
         return {**base, "status": "erro", "status_label": "Integração indisponível", "erro": "Integração DNS indisponível."}
+
     try:
-        dados = AdGuardClient(_url_adguard_local(cfg), cfg.adguard_user, cfg.adguard_pass, cfg.adguard_https).fetch_all()
+        dados = client.fetch_all()
         health = dados.get("health") or {}
         ativo = bool(health.get("running"))
         api_ok = health.get("api") == "ok"
-        operacional = bool(ativo and api_ok)
+        protecao = bool(health.get("protection_enabled"))
+
+        status = "operacional" if ativo and api_ok and protecao else "atencao"
+        label = "Operacional" if status == "operacional" else "Requer atenção"
+
         return {
             **base,
-            "instalado": True,
             "ativo": ativo,
-            "configurado": True,
-            "saudavel": operacional,
-            "status": "operacional" if operacional else "atencao",
-            "status_label": "Operacional" if operacional else "Requer atenção",
-            "dns_resolver": bool(health.get("dns_addresses")),
+            "saudavel": status == "operacional",
+            "status": status,
+            "status_label": label,
             "api": api_ok,
-            "protecao": bool(health.get("protection_enabled")),
-            "filtros_ativos": int(health.get("filters_enabled") or 0),
-            "versao": str(health.get("version") or "—"),
+            "protecao": protecao,
+            "dns_resolver": ativo,
+            "filtros_ativos": dados.get("filters", {}).get("active", 0),
+            "versao": health.get("version", "?"),
         }
     except (AdGuardError, OSError, ValueError) as exc:
         logger.info("AdGuard local indisponível: %s", exc)

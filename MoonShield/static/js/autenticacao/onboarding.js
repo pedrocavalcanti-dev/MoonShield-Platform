@@ -457,7 +457,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const button = $("btnApplyNetwork");
     if (!button) return;
     const canApply = mode === "apply" && !networkApplyInFlight;
-    button.hidden = !canApply;
+    button.style.display = canApply ? "inline-flex" : "none";
     button.disabled = !canApply;
   }
 
@@ -752,7 +752,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function chooseResumeStep() {
     const serverResume = Number(OB.onboardingStep);
-    if (Number.isInteger(serverResume) && serverResume >= 1 && serverResume <= 9) return serverResume;
+    if (Number.isInteger(serverResume) && serverResume >= 1 && serverResume <= 10) return serverResume;
     if (OB.passwordChanged !== true) return progressCursor < 2 ? 1 : 2;
     if (progressCursor < 3) return 3;
     if (progressCursor < 6) return progressCursor;

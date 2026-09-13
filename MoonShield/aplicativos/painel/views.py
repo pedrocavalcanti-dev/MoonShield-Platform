@@ -60,12 +60,8 @@ def api_overview(request):
     sev    = request.GET.get("sev",    "all")
 
     cfg  = _get_cfg()
-    modo = getattr(cfg, "modo", "demo") if cfg else "demo"
 
-    if modo == "demo":
-        return JsonResponse(_demo_overview(cfg, period, sev))
-
-    # ── PROD ──────────────────────────────────────────────────────────────────
+    # ━━ PROD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     return JsonResponse({
         "ok":   True,
         "mode": "prod",
@@ -116,34 +112,21 @@ def api_sensores(request):
     cfg  = _get_cfg()
     modo = getattr(cfg, "modo", "demo") if cfg else "demo"
 
-    if modo == "demo":
-        return JsonResponse({"ids": "ok", "dns": "ok", "firewall": "warn"})
-
-    return JsonResponse({
-        "ids":      "ok" if (cfg and getattr(cfg, "ids_enabled", False)) else "off",
-        "dns":      "ok" if (cfg and getattr(cfg, "dns_enabled", False)) else "off",
-        "firewall": "ok" if (cfg and getattr(cfg, "fw_enabled",  False)) else "off",
-    })
+    return JsonResponse({"ids": "ok", "dns": "ok", "firewall": "ok"})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GET /api/badges/   ← sidebar.js
 # ─────────────────────────────────────────────────────────────────────────────
 
-@require_GET
 @login_required(login_url="autenticacao:login")
+@require_GET
 def api_badges(request):
-    cfg  = _get_cfg()
-    modo = getattr(cfg, "modo", "demo") if cfg else "demo"
-
-    if modo == "demo":
-        return JsonResponse({
-            "incidentes": random.randint(0, 5),
-            "mapa":       random.randint(0, 12),
-            "firewall":   random.randint(0, 3),
-        })
-
-    return JsonResponse({"incidentes": 0, "mapa": 0, "firewall": 0})
+    return JsonResponse({
+        "incidentes": 0,
+        "alertas":    0,
+        "mensagens":  0
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────

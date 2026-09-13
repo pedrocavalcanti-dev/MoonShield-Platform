@@ -1291,6 +1291,22 @@ def api_salvar_configuracao(request):
     dados_limpos["interface_mgmt"] = mgmt.get("nome", "") if mgmt else ""
     dados_limpos["home_net"] = list(topologia_oficial.get("home_net") or [])
     
+    # Derivar interfaces_monitoradas da topologia (LAN, DMZ, CUSTOM habilitadas)
+    monitoradas = []
+    lan_interfaces = topologia_oficial.get("lan", {}).get("interfaces", [])
+    dmz_interfaces = topologia_oficial.get("dmz", [])
+    custom_interfaces = topologia_oficial.get("custom", [])
+    
+    for lista in [lan_interfaces, dmz_interfaces, custom_interfaces]:
+        for iface in lista:
+            if iface.get("desejado", {}).get("habilitada", True):
+                nome = iface.get("nome")
+                if nome and nome not in monitoradas:
+                    monitoradas.append(nome)
+    
+    dados_limpos["interfaces_monitoradas"] = monitoradas
+
+    
     # 1. Validação de Topologia Strict Local
     try:
         cfg_dto = configuracao_de_dict(dados_limpos)

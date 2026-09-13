@@ -209,11 +209,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const checks = {
                 linux: { ok: linux, warning: !linux, value: linux ? 'Linux detectado' : 'Linux necessário' },
-                privilegios: { ok: root, warning: !root, value: root ? 'Privilégios disponíveis' : 'Execução privilegiada necessária' },
+                privilegios: { ok: root, warning: !root, value: root ? 'Disponível via MoonShield Agent' : 'Execução privilegiada necessária' },
                 suricata: {
                     ok: true,
                     warning: false,
-                    value: installed ? (version ? `Suricata ${version}` : 'Suricata instalado') : 'Componente ausente'
+                    value: installed ? (version ? `${version} detectado` : 'Detectado, versão desconhecida') : 'Não detectado'
                 },
             };
 
@@ -221,7 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const errors = [];
             if (!linux) errors.push('A configuração precisa ser executada em um servidor Linux.');
-            if (linux && !root) errors.push('A execução deve possuir privilégios administrativos.');
+            if (linux && !root) errors.push('MoonShield Agent indisponível. Não foi possível continuar porque a execução privilegiada da appliance não está disponível.');
 
             state.environmentReady = errors.length === 0;
             if (el('btnStep2Next')) el('btnStep2Next').disabled = !state.environmentReady;

@@ -491,6 +491,62 @@ def verificar_caminhos_suricata(
     return stats
 
 
+def usuario_e_root() -> dict[str, object]:
+    """Retorna um mapeamento da identidade do processo e privilégios base."""
+    uid = obter_uid()
+    
+    # Tentativa hierárquica de determinar o nome do usuário logado
+    usuario = "desconhecido"
+    try:
+        usuario = getpass.getuser()
+    except Exception:
+        usuario = os.environ.get("USER") or os.environ.get("USERNAME") or "desconhecido"
+
+    agent_online = False
+    try:
+        from rede.services.agent_client import agent_disponivel
+        agent_online = agent_disponivel()
+    except Exception:
+        pass
+
+    # Define privilégio
+    is_root = False
+    if eh_linux():
+        if uid == 0 or agent_online:
+            is_root = True
+    elif eh_windows():
+        is_root = False
+
+    return {
+        "usuario": usuario,
+        "uid": uid,
+        "root": is_root,
+        "agent_online": agent_online,
+        "sistema": sistema_operacional(),
+    }
+
+
+def verificar_linux() -> ResultadoEtapa:
+    """ResultWrapper para garantir que as ferramentas que requerem POSIX não executem cegamente."""
+    etapa_id = "verificar_linux"
+    sistema_atual = sistema_operacional()
+    
+    if eh_linux():
+        return ResultadoEtapa(
+            etapa=etapa_id,
+            status=StatusEtapa.SUCESSO,
+            mensagem="Sistema Linux detectado com suporte POSIX nativo.",
+            dados={"sistema": sistema_atual}
+        )
+
+    return ResultadoEtapa(
+        etapa=etapa_id,
+        status=StatusEtapa.ERRO,
+        mensagem=f"O serviço Suricata requer Linux para gerenciamento nativo. Sistema atual: {sistema_atual}",
+        dados={"sistema": sistema_atual}
+    )
+
+
 def detectar_ambiente_completo(
     yaml_path: str | Path | None = None,
     eve_path: str | Path | None = None,
@@ -513,7 +569,10 @@ def detectar_ambiente_completo(
     if not eh_linux():
         avisos.append("Servidor não é Linux.")
     if not identidade.get("root"):
-        avisos.append("Usuário sem permissão de root (UID 0).")
+        if not identidade.get("agent_online"):
+            avisos.append("MoonShield Agent indisponível.")
+        else:
+            avisos.append("Usuário sem permissão de root (UID 0) e Agent falhou.")
     if eh_linux() and not gerenciador:
         avisos.append("Gerenciador de pacotes compatível não foi detectado no PATH.")
     if not suricata_ok:

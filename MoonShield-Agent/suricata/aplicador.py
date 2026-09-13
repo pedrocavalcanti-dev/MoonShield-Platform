@@ -204,31 +204,42 @@ def _garantir_regras_moonshield(config: dict[str, Any]) -> None:
 
     destino = RULES_MS_PADRAO
     destino.parent.mkdir(parents=True, exist_ok=True)
+    bom_utf8 = b"\xef\xbb\xbf"
+
+    def _escrever_atomico(path_dest: Path, conteudo_bytes: bytes) -> None:
+        tmp = tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path_dest.parent),
+            delete=False,
+        )
+        tmp_path = Path(tmp.name)
+        try:
+            tmp.write(conteudo_bytes)
+            tmp.flush()
+            tmp.close()
+            os.chmod(tmp_path, 0o644)
+            os.replace(tmp_path, path_dest)
+        except Exception:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
     # Se existe e possui conteúdo (validação simples), preserva
     if destino.exists() and destino.stat().st_size > 50:
+        data = destino.read_bytes()
+        if data.startswith(bom_utf8):
+            _escrever_atomico(destino, data[3:])
         return
 
     if not RULES_MS_BUNDLED.exists() or RULES_MS_BUNDLED.stat().st_size == 0:
         raise ValueError("Asset interno da appliance ausente ou vazio: regras_ms.rules")
 
     # Provisiona atômicamente no mesmo filesystem
-    tmp = tempfile.NamedTemporaryFile(
-        mode="wb",
-        dir=str(destino.parent),
-        delete=False,
-    )
-    tmp_path = Path(tmp.name)
-    try:
-        tmp.write(RULES_MS_BUNDLED.read_bytes())
-        tmp.flush()
-        tmp.close()
-        os.chmod(tmp_path, 0o644)
-        os.replace(tmp_path, destino)
-    except Exception:
-        if tmp_path.exists():
-            tmp_path.unlink()
-        raise
+    bundled_data = RULES_MS_BUNDLED.read_bytes()
+    if bundled_data.startswith(bom_utf8):
+        bundled_data = bundled_data[3:]
+
+    _escrever_atomico(destino, bundled_data)
 
 
 def _validar_candidato(

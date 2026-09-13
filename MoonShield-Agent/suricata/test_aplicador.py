@@ -1,23 +1,21 @@
 import unittest
 from pathlib import Path
 import tempfile
-import shutil
 import os
 from unittest.mock import patch, MagicMock
 
 from suricata.aplicador import _garantir_regras_moonshield, _validar_candidato
-from suricata.configuracao import RULES_MS_PADRAO, _patch_rule_files
+from suricata.configuracao import _patch_rule_files
 
 class TestProvisionamentoRegras(unittest.TestCase):
     def setUp(self):
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.rules_ms_path = Path(self.tmp_dir.name) / "ms.rules"
-
-        # Arquivo fake isolado no tempdir (NUNCA sobrescreve o real)
         self.fake_bundled = Path(self.tmp_dir.name) / "regras_ms.rules"
-        self.fake_bundled.write_bytes(b"regras fake bundled com mais de 50 bytes de tamanho para teste.\n"*2)
 
-        # Mock RULES_MS_PADRAO (destino) e RULES_MS_BUNDLED (origem) para nossos tmp files
+        self.conteudo_base = b"# MoonShield Rules\nregras operacionais fake...\n"
+        self.fake_bundled.write_bytes(self.conteudo_base)
+
         self.dest_patcher = patch('suricata.aplicador.RULES_MS_PADRAO', self.rules_ms_path)
         self.src_patcher = patch('suricata.aplicador.RULES_MS_BUNDLED', self.fake_bundled)
 
@@ -29,25 +27,77 @@ class TestProvisionamentoRegras(unittest.TestCase):
         self.src_patcher.stop()
         self.tmp_dir.cleanup()
 
-    def test_rules_ausente_provisiona_bundled(self):
+    def test_bundled_com_bom_runtime_produzido_sem_bom(self):
+        self.fake_bundled.write_bytes(b"\xef\xbb\xbf" + self.conteudo_base)
         config = {"instalar_regras_moonshield": True}
-        self.assertFalse(self.rules_ms_path.exists())
 
         _garantir_regras_moonshield(config)
 
-        self.assertTrue(self.rules_ms_path.exists())
-        self.assertTrue(self.rules_ms_path.stat().st_size > 50)
-        self.assertIn(b"regras fake bundled", self.rules_ms_path.read_bytes())
+        runtime_data = self.rules_ms_path.read_bytes()
+        self.assertFalse(runtime_data.startswith(b"\xef\xbb\xbf"))
+        self.assertEqual(runtime_data, self.conteudo_base)
 
-    def test_rules_nao_sobrescreve_se_existir_operacional(self):
-        self.rules_ms_path.parent.mkdir(parents=True, exist_ok=True)
-        self.rules_ms_path.write_bytes(b"existente e operacional com mais de 50 bytes de conteudo\n"*2)
+    def test_bundled_sem_bom_conteudo_permanece_identico(self):
+        self.fake_bundled.write_bytes(self.conteudo_base)
+        config = {"instalar_regras_moonshield": True}
+
+        _garantir_regras_moonshield(config)
+
+        runtime_data = self.rules_ms_path.read_bytes()
+        self.assertEqual(runtime_data, self.conteudo_base)
+
+    def test_destino_existente_com_bom_bom_removido_restante_igual(self):
+        conteudo_custom = b"regras customizadas do admin\n" * 2
+        self.rules_ms_path.write_bytes(b"\xef\xbb\xbf" + conteudo_custom)
+        config = {"instalar_regras_moonshield": True}
+
+        _garantir_regras_moonshield(config)
+
+        runtime_data = self.rules_ms_path.read_bytes()
+        self.assertFalse(runtime_data.startswith(b"\xef\xbb\xbf"))
+        self.assertEqual(runtime_data, conteudo_custom)
+
+    def test_destino_existente_sem_bom_nao_e_sobrescrito(self):
+        conteudo_custom = b"regras customizadas do admin\n" * 2
+        self.rules_ms_path.write_bytes(conteudo_custom)
+
+        # Altera timestamps ou algo para verificar que nao foi sobrescrito
+        mtime = self.rules_ms_path.stat().st_mtime
 
         config = {"instalar_regras_moonshield": True}
         _garantir_regras_moonshield(config)
 
-        self.assertIn(b"existente e operacional", self.rules_ms_path.read_bytes())
-        self.assertNotIn(b"regras fake bundled", self.rules_ms_path.read_bytes())
+        self.assertEqual(self.rules_ms_path.stat().st_mtime, mtime)
+        self.assertEqual(self.rules_ms_path.read_bytes(), conteudo_custom)
+
+    def test_regras_customizadas_existentes_com_bom_remove_somente_bom(self):
+        conteudo_custom = b"regras customizadas do admin 2\n" * 2
+        self.rules_ms_path.write_bytes(b"\xef\xbb\xbf" + conteudo_custom)
+        config = {"instalar_regras_moonshield": True}
+
+        _garantir_regras_moonshield(config)
+
+        runtime_data = self.rules_ms_path.read_bytes()
+        self.assertNotIn(b"regras operacionais fake", runtime_data) # Nao usa o bundle
+        self.assertEqual(runtime_data, conteudo_custom)
+
+    @patch('suricata.aplicador.os.replace')
+    def test_temp_continua_sendo_limpo_em_falha(self, mock_replace):
+        mock_replace.side_effect = PermissionError("Acesso negado simulado")
+        config = {"instalar_regras_moonshield": True}
+
+        with self.assertRaises(PermissionError):
+            _garantir_regras_moonshield(config)
+
+        arquivos = list(self.rules_ms_path.parent.glob("tmp*")) + list(self.rules_ms_path.parent.glob("*.tmp"))
+        self.assertEqual(len(arquivos), 0)
+
+    def test_asset_bundled_real_nunca_e_modificado_pelos_testes(self):
+        # Como iteramos tudo sobre tmp_dir e mockamos a constante,
+        # basta validar que o arquivo real não foi adulterado/não possui os mocks
+        asset_real = Path(__file__).parent / "regras_ms.rules"
+        data = asset_real.read_bytes()
+        self.assertNotIn(b"regras operacionais fake", data)
 
     def test_flag_falsa_nao_instala_e_remove_referencia(self):
         config = {"instalar_regras_moonshield": False}
@@ -67,13 +117,11 @@ class TestProvisionamentoRegras(unittest.TestCase):
 
         _garantir_regras_moonshield(config)
 
-        # O payload tenta injetar arbitrario.rules, mas o agent
-        # deve escrever no destino fixo mockado (self.rules_ms_path)
         self.assertTrue(self.rules_ms_path.exists())
         self.assertFalse(arbitrario_path.exists())
 
     def test_asset_bundled_ausente(self):
-        self.fake_bundled.unlink() # Forca ausencia
+        self.fake_bundled.unlink()
         config = {"instalar_regras_moonshield": True}
 
         with self.assertRaisesRegex(ValueError, "ausente ou vazio"):
@@ -89,22 +137,8 @@ class TestProvisionamentoRegras(unittest.TestCase):
         self.assertFalse(self.rules_ms_path.exists())
 
         res = _validar_candidato("yaml", "original.yaml", config)
-
-        # Como o subprocess e mockado, se provisionou antes, o arquivo deve existir agora
         self.assertTrue(self.rules_ms_path.exists())
         self.assertTrue(res.get("ok", True))
-
-    @patch('suricata.aplicador.os.replace')
-    def test_temp_file_limpo_em_falha(self, mock_replace):
-        mock_replace.side_effect = PermissionError("Acesso negado simulado")
-        config = {"instalar_regras_moonshield": True}
-
-        with self.assertRaises(PermissionError):
-            _garantir_regras_moonshield(config)
-
-        # Nao deve haver lixo .tmp no diretorio
-        arquivos = list(self.rules_ms_path.parent.glob("tmp*")) + list(self.rules_ms_path.parent.glob("*.tmp"))
-        self.assertEqual(len(arquivos), 0)
 
 if __name__ == "__main__":
     unittest.main()

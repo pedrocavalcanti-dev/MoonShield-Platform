@@ -957,20 +957,21 @@ def executar_tarefa_reinicio_suricata(progresso: ProgressoTarefa, parametros: di
 
 
 def executar_tarefa_reinicio_monitor(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
-    """Bounce do Ingress Worker."""
+    """Bloqueia o reinício do monitor, aguardando suporte no Agent."""
     etapa_id = "bounce_monitor"
     chk_cancel = _verificar_cancelamento(progresso, etapa_id)
     if chk_cancel: return chk_cancel
     
-    _adicionar_log_progresso(progresso, "Bounce pipeline ingress Python.", NivelLog.INFO, etapa_id)
-    progresso.progresso = 20
+    _adicionar_log_progresso(progresso, "Reinício do monitor interceptado.", NivelLog.ERRO, etapa_id)
     
-    res_raw = reiniciar_servico(SERVICO_MONITOR)
-    
-    if tarefa_cancelada(progresso):
-        return _verificar_cancelamento(progresso, etapa_id)
-        
-    progresso.progresso = 100
+    res_raw = ResultadoEtapa(
+        etapa=etapa_id,
+        status=StatusEtapa.ERRO,
+        sucesso=False,
+        mensagem="Reinício do monitor não disponível pelo Agent nesta versão.",
+        iniciado_em=_agora()
+    )
+    res_raw.finalizar_erro("Reinício do monitor não disponível pelo Agent nesta versão.")
     return res_raw
 
 

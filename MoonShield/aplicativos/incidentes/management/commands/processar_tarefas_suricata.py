@@ -186,12 +186,6 @@ class Command(BaseCommand):
                 "O worker automático do Suricata exige um sistema Linux/Unix."
             )
 
-        if hasattr(os, "geteuid") and os.geteuid() != 0:
-            raise CommandError(
-                "O worker precisa ser executado como root para instalar pacotes, "
-                "alterar o Suricata e controlar serviços systemd."
-            )
-
         gerenciar = self._caminho_gerenciar()
         if not gerenciar.exists():
             raise CommandError(

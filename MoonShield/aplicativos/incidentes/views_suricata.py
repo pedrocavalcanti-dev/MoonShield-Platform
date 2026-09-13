@@ -1214,20 +1214,7 @@ def api_listar_tarefas(request):
 @require_GET
 def api_detalhe_tarefa(request, tarefa_id: str):
     """Lupa isolada sobre task que roda no backend."""
-    from django.utils import timezone as django_timezone
-
     tarefa = get_object_or_404(TarefaSuricata, pk=tarefa_id)
-
-    # UX: Evitar polling infinito se o worker não estiver rodando (timeout de 20s)
-    if tarefa.status == StatusTarefaSuricata.PENDENTE:
-        idade_segundos = (django_timezone.now() - tarefa.criado_em).total_seconds()
-        if idade_segundos > 20:
-            tarefa.status = StatusTarefaSuricata.ERRO
-            tarefa.erro = "Executor de configuração indisponível. O serviço systemd do worker pode estar inativo."
-            tarefa.etapa_atual = "falha_timeout_worker"
-            tarefa.finalizado_em = django_timezone.now()
-            tarefa.save(update_fields=["status", "erro", "etapa_atual", "finalizado_em"])
-
     return _json_sucesso("Tarefa carregada.", tarefa.to_dict(incluir_logs=True))
 
 

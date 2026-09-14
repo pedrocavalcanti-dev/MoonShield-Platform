@@ -156,6 +156,7 @@ def obter_status_eve(eve_path: str | Path | None = None) -> dict[str, object]:
     info = {
         "caminho": str(caminho_real),
         "existe": fs_info["existe"],
+        "arquivo": fs_info["arquivo"],
         "legivel": fs_info["legivel"],
         "tamanho": fs_info["tamanho"],
         "idade_segundos": fs_info["idade_segundos"],
@@ -168,6 +169,16 @@ def obter_status_eve(eve_path: str | Path | None = None) -> dict[str, object]:
     if not info["existe"]:
         info["status"] = STATUS_ERRO
         info["mensagem"] = "O arquivo EVE JSON não foi encontrado no sistema."
+        return info
+
+    if not info["arquivo"]:
+        info["status"] = STATUS_ERRO
+        info["mensagem"] = "O caminho do EVE não é um arquivo regular."
+        return info
+
+    if not info["legivel"]:
+        info["status"] = STATUS_ERRO
+        info["mensagem"] = "O processo MoonShield não possui leitura do EVE JSON."
         return info
         
     if info["tamanho"] == 0:

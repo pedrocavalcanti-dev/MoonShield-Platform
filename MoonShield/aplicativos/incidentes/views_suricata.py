@@ -1300,7 +1300,7 @@ def api_salvar_configuracao(request):
     if modo_captura == "lan_wan":
         if nome_lan: monitoradas.append(nome_lan)
         if nome_wan: monitoradas.append(nome_wan)
-    elif modo_captura == "somente_lan":
+    elif modo_captura in {"lan", "somente_lan"}:
         if nome_lan: monitoradas.append(nome_lan)
     else:
         # Modo Personalizado: respeitar seleção explícita enviada pelo frontend

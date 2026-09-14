@@ -34,12 +34,14 @@ from .servicos import (
 from .agent import (
     aplicar_configuracao as aplicar_configuracao_agent,
     validar_configuracao as validar_configuracao_agent,
+    montar_payload_topologia,
     reiniciar_servico as reiniciar_suricata_agent,
     obter_diagnostico as obter_diagnostico_agent,
     obter_status as obter_status_agent,
     ErroSuricataAgent,
     TopologiaSuricataInvalida,
 )
+from .status import obter_status_stack_completo
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +397,8 @@ def configuracao_de_dict(dados: dict[str, object] | ConfiguracaoSuricataDados | 
         
     if "modo_captura" in dados:
         v_modo = str(dados["modo_captura"]).strip().lower()
+        if v_modo == "somente_lan":
+            v_modo = ModoCaptura.SOMENTE_LAN.value
         modo_resolvido = None
         for m in ModoCaptura:
             if m.value.lower() == v_modo:
@@ -837,17 +841,44 @@ def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[st
     """Dispara alteração topológica sem interferir nos scripts e binários debian instalados."""
     etapa_id = "tarefa_configuracao_topologia"
     
-    # Preservado para compatibilidade, topologia agora vem nativamente do adapter
     cfg = parametros.get("configuracao")
     
     chk_cancel = _verificar_cancelamento(progresso, etapa_id)
     if chk_cancel: return chk_cancel
 
-    _adicionar_log_progresso(progresso, "Aplicando configuração topológica via Agent...", NivelLog.INFO, etapa_id)
-    progresso.progresso = 15
+    try:
+        progresso.atualizar(15, "preparando_topologia", "Preparando topologia LAN/WAN.")
+        montar_payload_topologia(cfg)
+        progresso.atualizar(30, "topologia_validada", "Topologia oficial validada para o sensor.")
+    except TopologiaSuricataInvalida as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Topologia atual inválida.", erro=str(exc.problemas), iniciado_em=_agora())
+        res_raw.finalizar_erro("Topologia atual inválida.", erro=str(exc.problemas))
+        return res_raw
+
+    progresso.atualizar(40, "validando_configuracao", "Validando regras e configuração candidata via Agent.")
+
+    try:
+        validacao = validar_configuracao_agent(cfg)
+    except ErroSuricataAgent as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro na comunicação com Agent.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro na comunicação com Agent ao validar configuração.", erro=str(exc))
+        return res_raw
+    except Exception as exc:
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro interno durante validação da configuração.", erro=str(exc), iniciado_em=_agora())
+        res_raw.finalizar_erro("Erro interno durante validação da configuração.", erro=str(exc))
+        return res_raw
+
+    if not validacao.get("ok"):
+        res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "A validação do Suricata falhou.", iniciado_em=_agora())
+        res_raw.finalizar_erro("A validação do Suricata falhou.", erro=str(validacao.get("erro") or "Falha não detalhada."))
+        res_raw.dados = validacao
+        return res_raw
+
+    progresso.atualizar(60, "configuracao_validada", "Ruleset MoonShield e configuração candidata validados.")
+    progresso.atualizar(70, "aplicando_configuracao", "Aplicando configuração validada via Agent.")
     
     try:
-        resposta = aplicar_configuracao_agent()
+        resposta = aplicar_configuracao_agent(cfg)
         res_raw = _resultado_agent_para_etapa(etapa_id, resposta, "Configuração aplicada via Agent.")
     except TopologiaSuricataInvalida as exc:
         res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Topologia atual inválida.", erro=str(exc.problemas), iniciado_em=_agora())
@@ -859,6 +890,30 @@ def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[st
         res_raw = ResultadoEtapa(etapa_id, StatusEtapa.ERRO, False, "Erro interno durante aplicação de configuração.", erro=str(exc), iniciado_em=_agora())
         res_raw.finalizar_erro("Erro interno durante aplicação de configuração.", erro=str(exc))
     
+    if res_raw.sucesso:
+        progresso.atualizar(85, "servico_validado", "Configuração aplicada e serviço Suricata validado.")
+
+        progresso.atualizar(92, "validando_sensor", "Validando monitor e disponibilidade do EVE.")
+        try:
+            snapshot = obter_status_stack_completo(cfg, incluir_diagnostico=False)
+            monitor = snapshot.get("monitor") or {}
+            worker = (snapshot.get("servicos") or {}).get("worker_tarefas") or {}
+            eve = monitor.get("eve") or {}
+            sensor_pronto = bool(
+                monitor.get("ativo")
+                and worker.get("ativo")
+                and eve.get("existe")
+                and eve.get("arquivo")
+                and eve.get("legivel")
+            )
+            if sensor_pronto:
+                progresso.atualizar(95, "sensor_validado", "Monitor, worker e EVE validados.")
+            else:
+                progresso.atualizar(95, "sensor_com_atencao", "Configuração aplicada; monitor ou EVE requer validação adicional.", NivelLog.AVISO)
+        except Exception:
+            logger.warning("Falha ao consultar sensor e EVE após aplicar configuração.", exc_info=True)
+            progresso.atualizar(95, "sensor_com_atencao", "Configuração aplicada; status final do sensor ficará disponível na próxima consulta.", NivelLog.AVISO)
+
     if tarefa_cancelada(progresso):
         return _verificar_cancelamento(progresso, etapa_id)
         

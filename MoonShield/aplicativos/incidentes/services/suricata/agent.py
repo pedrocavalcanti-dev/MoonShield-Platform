@@ -21,8 +21,66 @@ class TopologiaSuricataInvalida(ErroSuricataAgent):
         super().__init__(f"Topologia inválida: {problemas}")
 
 
-def montar_payload_topologia() -> dict:
-    """Monta o payload de topologia a partir do módulo rede."""
+def _obter_preferencias_captura(configuracao: object | None) -> tuple[str, list[str]]:
+    """Lê a preferência de captura definida pelo Control Plane."""
+    if configuracao is None:
+        try:
+            from incidentes.models import ConfiguracaoSuricata
+
+            configuracao = (
+                ConfiguracaoSuricata.objects.filter(ativo=True)
+                .order_by("-atualizado_em", "-pk")
+                .first()
+            )
+        except Exception:
+            configuracao = None
+
+    if isinstance(configuracao, dict):
+        modo = configuracao.get("modo_captura", "lan_wan")
+        monitoradas = configuracao.get("interfaces_monitoradas", [])
+    else:
+        modo = getattr(configuracao, "modo_captura", "lan_wan")
+        monitoradas = getattr(configuracao, "interfaces_monitoradas", [])
+
+    modo = getattr(modo, "value", modo)
+    modo = str(modo or "lan_wan").strip().lower()
+    if modo == "somente_lan":
+        modo = "lan"
+    if modo not in {"lan", "lan_wan", "personalizado"}:
+        raise TopologiaSuricataInvalida([
+            {"codigo": "modo_captura_invalido", "mensagem": "Modo de captura inválido."}
+        ])
+
+    if not isinstance(monitoradas, (list, tuple)):
+        monitoradas = []
+
+    return modo, [str(interface).strip() for interface in monitoradas if interface]
+
+
+def _selecionar_interfaces_monitoradas(
+    *,
+    modo: str,
+    nome_lan: str,
+    nome_wan: str,
+    explicitamente_selecionadas: list[str],
+) -> list[str]:
+    """Aplica a preferência de captura sem atribuir papéis de rede no Agent."""
+    if modo == "lan":
+        candidatas = [nome_lan]
+    elif modo == "lan_wan":
+        candidatas = [nome_lan, nome_wan]
+    else:
+        candidatas = explicitamente_selecionadas
+
+    monitoradas: list[str] = []
+    for nome in candidatas:
+        if nome and nome not in monitoradas:
+            monitoradas.append(nome)
+    return monitoradas
+
+
+def montar_payload_topologia(configuracao: object | None = None) -> dict:
+    """Monta o payload do Agent a partir da topologia e preferência do Control Plane."""
     topologia = obter_topologia()
 
     if not topologia.get("valida"):
@@ -36,18 +94,15 @@ def montar_payload_topologia() -> dict:
     nome_lan = lan_principal.get("nome") if lan_principal else ""
     nome_mgmt = mgmt_principal.get("nome") if mgmt_principal else ""
 
-    lan_interfaces = topologia.get("lan", {}).get("interfaces", [])
-    dmz_interfaces = topologia.get("dmz", [])
-    custom_interfaces = topologia.get("custom", [])
-
-    monitoradas = []
-    for lista in [lan_interfaces, dmz_interfaces, custom_interfaces]:
-        for interface in lista:
-            habilitada = interface.get("desejado", {}).get("habilitada", True)
-            if habilitada:
-                nome = interface.get("nome")
-                if nome and nome not in monitoradas:
-                    monitoradas.append(nome)
+    modo_captura, explicitamente_selecionadas = _obter_preferencias_captura(
+        configuracao
+    )
+    monitoradas = _selecionar_interfaces_monitoradas(
+        modo=modo_captura,
+        nome_lan=nome_lan,
+        nome_wan=nome_wan,
+        explicitamente_selecionadas=explicitamente_selecionadas,
+    )
 
     home_net = topologia.get("home_net", [])
 
@@ -55,6 +110,7 @@ def montar_payload_topologia() -> dict:
         "interface_wan": nome_wan,
         "interface_lan": nome_lan,
         "interface_mgmt": nome_mgmt,
+        "modo_captura": modo_captura,
         "interfaces_monitoradas": monitoradas,
         "home_net": home_net,
         "suricata_yaml": "/etc/suricata/suricata.yaml",
@@ -63,9 +119,9 @@ def montar_payload_topologia() -> dict:
     }
 
 
-def obter_status() -> dict:
+def obter_status(configuracao: object | None = None) -> dict:
     """Obtém o status geral do Suricata via Agent."""
-    payload = montar_payload_topologia()
+    payload = montar_payload_topologia(configuracao)
     return requisitar_agent(
         "suricata.status", 
         {"config": payload}, 
@@ -73,21 +129,21 @@ def obter_status() -> dict:
     )
 
 
-def obter_diagnostico() -> dict:
+def obter_diagnostico(configuracao: object | None = None) -> dict:
     """Obtém diagnósticos avançados do Suricata via Agent."""
-    payload = montar_payload_topologia()
+    payload = montar_payload_topologia(configuracao)
     return requisitar_agent("suricata.diagnostics", payload, timeout=180)
 
 
-def validar_configuracao() -> dict:
+def validar_configuracao(configuracao: object | None = None) -> dict:
     """Valida a configuração desejada do Suricata sem aplicá-la."""
-    payload = montar_payload_topologia()
+    payload = montar_payload_topologia(configuracao)
     return requisitar_agent("suricata.config.validate", payload, timeout=180)
 
 
-def aplicar_configuracao() -> dict:
+def aplicar_configuracao(configuracao: object | None = None) -> dict:
     """Aplica a configuração ao Suricata via Agent e recarrega o serviço."""
-    payload = montar_payload_topologia()
+    payload = montar_payload_topologia(configuracao)
     return requisitar_agent("suricata.config.apply", payload, timeout=180)
 
 
@@ -109,4 +165,3 @@ def parar_servico() -> dict:
 def reiniciar_servico() -> dict:
     """Reinicia o serviço do Suricata."""
     return requisitar_agent("suricata.service.restart", {}, timeout=120)
-

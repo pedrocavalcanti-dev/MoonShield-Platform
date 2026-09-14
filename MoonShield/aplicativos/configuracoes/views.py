@@ -150,27 +150,48 @@ def _estado_suricata(topologia: dict) -> dict:
         suricata = stack.get("suricata") or {}
         monitor = stack.get("monitor") or {}
         worker = (stack.get("servicos") or {}).get("worker_tarefas") or {}
-        eve = suricata.get("eve") or {}
+        eve = monitor.get("eve") or {}
+        cursor = monitor.get("cursor") or {}
         configuracao = ConfiguracaoSuricata.objects.filter(ativo=True).order_by("-atualizado_em").first() if ConfiguracaoSuricata else None
         interfaces = list(getattr(configuracao, "interfaces_monitoradas", []) or [])
         home_net = base["home_net"]
         ativo = bool(suricata.get("ativo"))
-        eve_ativo = bool(eve.get("existe") and eve.get("legivel") and eve.get("atualizando"))
+        eve_disponivel = bool(
+            eve.get("existe")
+            and eve.get("arquivo")
+            and eve.get("legivel")
+        )
         monitor_ativo = bool(monitor.get("ativo"))
         worker_ativo = bool(worker.get("ativo"))
-        operacional = bool(ativo and eve_ativo and monitor_ativo and worker_ativo)
+        cursor_invalido = bool(cursor.get("existe") and not cursor.get("valido"))
+        eve_ativo = bool(eve_disponivel and monitor_ativo and not cursor_invalido)
         instalado = bool(suricata.get("instalado"))
+        configurado = bool(configuracao and suricata.get("configurado"))
+        drift_raw = suricata.get("drift")
+        drift = (
+            bool(drift_raw.get("tem_drift"))
+            if isinstance(drift_raw, dict)
+            else bool(drift_raw)
+        )
+        operacional = bool(
+            ativo
+            and configurado
+            and eve_ativo
+            and monitor_ativo
+            and worker_ativo
+            and not drift
+        )
         return {
             **base,
             "instalado": instalado,
-            "configurado": bool(configuracao),
+            "configurado": configurado,
             "ativo": ativo, "saudavel": operacional,
             "status": "operacional" if operacional else ("atencao" if instalado else "indisponivel"),
             "status_label": "Operacional" if operacional else ("Requer atenção" if instalado else "Componente indisponível"),
             "eve_ativo": eve_ativo, "monitor_ativo": monitor_ativo, "worker_ativo": worker_ativo,
             "versao": str(suricata.get("versao") or getattr(configuracao, "versao_suricata", "") or "—"),
             "interfaces": interfaces, "home_net": home_net,
-            "drift": "Detectado" if stack.get("drift") else "Nenhum",
+            "drift": "Detectado" if drift else "Nenhum",
         }
     except Exception as exc:
         logger.exception("Falha ao consultar Suricata: %s", exc)

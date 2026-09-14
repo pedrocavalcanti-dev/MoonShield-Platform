@@ -45,6 +45,9 @@ class Command(BaseCommand):
     WORKER_SERVICE_NAME = "moonshield-suricata-worker.service"
     WORKER_SERVICE_PATH = Path("/etc/systemd/system/moonshield-suricata-worker.service")
 
+    MONITOR_SERVICE_NAME = "moonshield-suricata-monitor.service"
+    MONITOR_SERVICE_PATH = Path("/etc/systemd/system/moonshield-suricata-monitor.service")
+
     SOCKET_DIR = Path("/run/moonshield")
     SOCKET_PATH = SOCKET_DIR / "agent.sock"
 
@@ -142,6 +145,13 @@ class Command(BaseCommand):
         self._garantir_grupo()
         self._garantir_diretorios()
 
+        # A appliance precisa provisionar o monitor tanto no bootstrap
+        # automático quanto na execução explícita do instalador.
+        monitor_content = self._preparar_monitor(paths)
+        monitor_changed = self._garantir_monitor_service(
+            monitor_content, forcar=forcar_service,
+        )
+
         service_changed = self._garantir_service(
             paths=paths,
             forcar=forcar_service,
@@ -205,6 +215,8 @@ class Command(BaseCommand):
         self._systemctl(["start", self.WORKER_SERVICE_NAME], obrigatorio=False)
         if worker_changed:
             self._systemctl(["restart", self.WORKER_SERVICE_NAME], obrigatorio=False)
+
+        self._ativar_monitor(alterado=monitor_changed)
 
         socket_ok = self._aguardar_socket(timeout=6.0)
 
@@ -514,6 +526,87 @@ WantedBy=multi-user.target
         os.replace(tmp, self.WORKER_SERVICE_PATH)
 
         return True
+
+    def _preparar_monitor(self, paths: dict) -> str:
+        """Prepara o monitor na instalação explícita e no bootstrap automático."""
+        if (
+            paths["django_dir"] != Path("/opt/moonshield/source/MoonShield")
+            or paths["python"] != Path("/opt/moonshield/venv/bin/python")
+        ):
+            raise RuntimeError("O monitor requer os paths oficiais da appliance.")
+
+        source = paths["repo_root"] / "deploy/systemd" / self.MONITOR_SERVICE_NAME
+        desired = source.read_text(encoding="utf-8")
+        setfacl = shutil.which("setfacl")
+        if not setfacl:
+            raise RuntimeError(
+                "A imagem da appliance precisa incluir o pacote acl (setfacl). "
+                "Nenhum pacote será baixado pelo instalador."
+            )
+
+        try:
+            usuario = pwd.getpwnam(self.GROUP_NAME)
+        except KeyError:
+            subprocess.run(
+                ["useradd", "--system", "--gid", self.GROUP_NAME,
+                 "--home-dir", str(self.DATA_DIR), "--no-create-home",
+                 "--shell", "/usr/sbin/nologin", self.GROUP_NAME],
+                check=True, capture_output=True, text=True,
+            )
+            usuario = pwd.getpwnam(self.GROUP_NAME)
+        gid = grp.getgrnam(self.GROUP_NAME).gr_gid
+        if usuario.pw_uid == 0:
+            raise RuntimeError("O usuário moonshield não pode ter UID 0.")
+
+        # Preserva os caminhos consumidos pelo status/diagnóstico existentes.
+        for directory, filename in (
+            (paths["django_dir"] / "var/cursors", "suricata_eve.cursor"),
+            (paths["django_dir"] / "logs", "moonshield.log"),
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
+            os.chown(directory, usuario.pw_uid, gid)
+            os.chmod(directory, 0o750)
+            existing = directory / filename
+            if existing.exists():
+                os.chown(existing, usuario.pw_uid, gid)
+                os.chmod(existing, 0o640)
+
+        # Não cria EVE vazio nem muda o owner/group dos logs do Suricata.
+        # A ACL default cobre arquivos recriados no diretório após rotação.
+        eve = Path("/var/log/suricata/eve.json")
+        eve.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+        subprocess.run(
+            [setfacl, "-m", "u:moonshield:--x,d:u:moonshield:r--", str(eve.parent)],
+            check=True, capture_output=True, text=True,
+        )
+        if eve.exists():
+            subprocess.run(
+                [setfacl, "-m", "u:moonshield:r--", str(eve)],
+                check=True, capture_output=True, text=True,
+            )
+        return desired
+
+    def _garantir_monitor_service(self, desired: str, *, forcar: bool) -> bool:
+        current = (
+            self.MONITOR_SERVICE_PATH.read_text(encoding="utf-8")
+            if self.MONITOR_SERVICE_PATH.exists() else ""
+        )
+        if not forcar and current == desired:
+            return False
+        tmp = self.MONITOR_SERVICE_PATH.with_suffix(".service.tmp")
+        tmp.write_text(desired, encoding="utf-8")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, self.MONITOR_SERVICE_PATH)
+        return True
+
+    def _ativar_monitor(self, *, alterado: bool) -> None:
+        self._systemctl(["enable", self.MONITOR_SERVICE_NAME], obrigatorio=True)
+        ativo = self._systemctl(
+            ["is-active", "--quiet", self.MONITOR_SERVICE_NAME], obrigatorio=False,
+        ).returncode == 0
+        if not ativo or alterado:
+            acao = "restart" if ativo else "start"
+            self._systemctl([acao, self.MONITOR_SERVICE_NAME], obrigatorio=True)
 
     def _systemctl(
 

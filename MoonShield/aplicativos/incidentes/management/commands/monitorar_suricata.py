@@ -80,8 +80,14 @@ class Command(BaseCommand):
         if flush_intervalo < 0.5:
             raise CommandError("--flush-intervalo deve ser no mínimo 0.5.")
 
-        if not os.path.isfile(arquivo):
+        if uma_vez and not os.path.isfile(arquivo):
             raise CommandError(f"Arquivo EVE não encontrado: {arquivo}")
+
+        if not uma_vez and not os.path.isfile(arquivo):
+            logger.warning(
+                "Arquivo EVE ainda não existe; o monitor aguardará sua criação: %s",
+                arquivo,
+            )
 
         # 2. Configuração do caminho do cursor e garantia da estrutura de pastas
         if cursor_param:
@@ -137,6 +143,11 @@ class Command(BaseCommand):
                 callback_status=self._processar_evento_status,
                 run_once=uma_vez
             )
+            if not uma_vez and not stop_event.is_set():
+                raise CommandError(
+                    "O monitor contínuo encerrou sem sinal de parada. "
+                    "Consulte o journal para identificar a falha."
+                )
         except KeyboardInterrupt:
             self.stdout.write(self.style.WARNING("\nInterrupção forçada (KeyboardInterrupt)."))
             logger.info("Execução abortada via KeyboardInterrupt.")
@@ -144,7 +155,7 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"\n[ERRO] Ocorreu um erro inesperado: {str(e)}"))
             logger.exception("Erro crítico não tratado durante a execução do MonitorSuricata.")
-            estatisticas = None
+            raise CommandError(f"Monitor Suricata interrompido por falha: {e}") from e
 
         # 6. Exibição do Resumo Final
         self._exibir_resumo(estatisticas)

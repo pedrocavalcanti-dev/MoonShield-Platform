@@ -1,0 +1,24 @@
+[Unit]
+Description=MoonShield Suricata Local Monitor
+After=network.target suricata.service postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=moonshield
+Group=moonshield
+
+WorkingDirectory=/opt/moonshield/source/MoonShield
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/moonshield/venv/bin/python /opt/moonshield/source/MoonShield/gerenciar.py monitorar_suricata --arquivo /var/log/suricata/eve.json
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0027
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

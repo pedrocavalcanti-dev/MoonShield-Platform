@@ -2,10 +2,10 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from aplicativos.configuracoes import views as configuracoes_views
-from aplicativos.incidentes.services.suricata.agent import montar_payload_topologia
-from aplicativos.incidentes.services.suricata.tarefas import executar_tarefa
-from aplicativos.incidentes.services.suricata.tipos import (
+from configuracoes import views as configuracoes_views
+from incidentes.services.suricata.agent import montar_payload_topologia
+from incidentes.services.suricata.tarefas import executar_tarefa
+from incidentes.services.suricata.tipos import (
     ConfiguracaoSuricataDados,
     ModoCaptura,
     ProgressoTarefa,
@@ -36,28 +36,28 @@ class ProgressoAuditado(ProgressoTarefa):
 
 
 class TestContratoCapturaSuricata(unittest.TestCase):
-    @patch("aplicativos.incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
     def test_somente_lan_monitora_apenas_lan(self, _topologia):
         payload = montar_payload_topologia({"modo_captura": "somente_lan"})
         self.assertEqual(payload["interfaces_monitoradas"], ["lan0"])
 
-    @patch("aplicativos.incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
     def test_lan_wan_preserva_lan_e_wan(self, _topologia):
         payload = montar_payload_topologia({"modo_captura": "lan_wan"})
         self.assertEqual(payload["interfaces_monitoradas"], ["lan0", "wan0"])
 
-    @patch("aplicativos.incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
     def test_wan_nao_entra_no_home_net(self, _topologia):
         payload = montar_payload_topologia({"modo_captura": "lan_wan"})
         self.assertEqual(payload["home_net"], ["192.168.52.0/24"])
         self.assertNotIn("wan0", payload["home_net"])
 
-    @patch("aplicativos.incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
     def test_mgmt_nao_e_incluida_automaticamente(self, _topologia):
         payload = montar_payload_topologia({"modo_captura": "lan_wan"})
         self.assertNotIn("mgmt0", payload["interfaces_monitoradas"])
 
-    @patch("aplicativos.incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.agent.obter_topologia", return_value=TOPOLOGIA)
     def test_personalizado_preserva_selecao_explicita(self, _topologia):
         payload = montar_payload_topologia({
             "modo_captura": "personalizado",
@@ -134,10 +134,10 @@ class TestProgressoConfiguracao(unittest.TestCase):
             "servicos": {"worker_tarefas": {"ativo": True}},
         }
 
-    @patch("aplicativos.incidentes.services.suricata.tarefas.obter_status_stack_completo")
-    @patch("aplicativos.incidentes.services.suricata.tarefas.aplicar_configuracao_agent", return_value={"ok": True, "restart": {"ok": True}})
-    @patch("aplicativos.incidentes.services.suricata.tarefas.validar_configuracao_agent", return_value={"ok": True})
-    @patch("aplicativos.incidentes.services.suricata.tarefas.montar_payload_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.tarefas.obter_status_stack_completo")
+    @patch("incidentes.services.suricata.tarefas.aplicar_configuracao_agent", return_value={"ok": True, "restart": {"ok": True}})
+    @patch("incidentes.services.suricata.tarefas.validar_configuracao_agent", return_value={"ok": True})
+    @patch("incidentes.services.suricata.tarefas.montar_payload_topologia", return_value=TOPOLOGIA)
     def test_progresso_monotono_e_sucesso_em_100(self, _payload, _validar, _aplicar, status):
         status.return_value = self._stack_sensor_pronto()
         progresso = ProgressoAuditado("progresso-ok", TipoTarefaSuricata.CONFIGURACAO)
@@ -151,8 +151,8 @@ class TestProgressoConfiguracao(unittest.TestCase):
         self.assertEqual(progresso.historico_percentuais, sorted(progresso.historico_percentuais))
         self.assertTrue(all(0 <= valor <= 100 for valor in progresso.historico_percentuais))
 
-    @patch("aplicativos.incidentes.services.suricata.tarefas.validar_configuracao_agent", return_value={"ok": False, "erro": "yaml inválido"})
-    @patch("aplicativos.incidentes.services.suricata.tarefas.montar_payload_topologia", return_value=TOPOLOGIA)
+    @patch("incidentes.services.suricata.tarefas.validar_configuracao_agent", return_value={"ok": False, "erro": "yaml inválido"})
+    @patch("incidentes.services.suricata.tarefas.montar_payload_topologia", return_value=TOPOLOGIA)
     def test_falha_preserva_ultima_etapa_real(self, _payload, _validar):
         progresso = ProgressoAuditado("progresso-erro", TipoTarefaSuricata.CONFIGURACAO)
         progresso, resultado = executar_tarefa(

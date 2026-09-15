@@ -1,4 +1,4 @@
-
+"""Bootstrap local e idempotente do AdGuard Home da appliance MoonShield."""
 
 from __future__ import annotations
 
@@ -232,7 +232,7 @@ def _enderecos_ipv4(interface: dict) -> list[str]:
 
 
 def inventariar_interfaces_dns(topologia: dict) -> dict[str, list[dict]]:
-    """Expõe todos os papéis da Rede e seleciona somente LAN por padrão."""
+    """Expõe todos os papéis e ativa por padrão toda interface habilitada com IPv4."""
     disponiveis: list[dict] = []
     ativas: list[dict] = []
     for papel in _PAPEIS_REDE:
@@ -249,7 +249,7 @@ def inventariar_interfaces_dns(topologia: dict) -> dict[str, list[dict]]:
                 "enderecos_ipv4": _enderecos_ipv4(interface),
             }
             disponiveis.append(registro)
-            if papel == "lan" and registro["habilitada"] and registro["enderecos_ipv4"]:
+            if registro["habilitada"] and registro["enderecos_ipv4"]:
                 ativas.append(registro)
     return {
         "interfaces_disponiveis": disponiveis,
@@ -309,8 +309,9 @@ def _validar_preflight_dns(inventario: dict[str, list[dict]]) -> str:
         raise AdGuardBootstrapError(
             "Conflito na porta 53 detectado: " + "; ".join(conflitos)
         )
-    # Enquanto o onboarding ainda não observou uma LAN, somente localhost é
-    # seguro. Nunca substituímos esse fallback por WAN ou MGMT.
+    # Sem nenhuma interface ativa observada pela topologia, somente localhost
+    # é seguro. Com interfaces ativas, o bootstrap usa a primeira apenas para
+    # o check_config inicial; o reconcile final aplica todas em bind_hosts.
     return ativas[0]["enderecos_ipv4"][0] if ativas else "127.0.0.1"
 
 
@@ -507,18 +508,67 @@ def validar_resolucao_dns(*, host: str = "127.0.0.1", porta: int = 53, timeout: 
     return {"resolver_ok": rcode == 0 and respostas > 0}
 
 
+def _normalizar_endpoint_upstream(valor: object) -> str:
+    """Normaliza endpoints para comparar a forma configurada com a forma canônica do AdGuard."""
+    texto = str(valor or "").strip()
+    if not texto:
+        return ""
+
+    try:
+        parsed = urlparse(texto)
+    except ValueError:
+        return texto
+
+    if not parsed.scheme or not parsed.hostname:
+        return texto
+
+    esquema = parsed.scheme.lower()
+    host = parsed.hostname.lower()
+
+    try:
+        porta = parsed.port
+    except ValueError:
+        return texto
+
+    portas_padrao = {
+        "http": 80,
+        "https": 443,
+        "tls": 853,
+        "quic": 853,
+    }
+    porta = porta or portas_padrao.get(esquema)
+
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+
+    autoridade = host if porta is None else f"{host}:{porta}"
+    caminho = parsed.path or ""
+    consulta = f"?{parsed.query}" if parsed.query else ""
+
+    return f"{esquema}://{autoridade}{caminho}{consulta}"
+
+
 def upstreams_aprovados(dns_info: dict, resultado: dict) -> bool:
-    """Exige confirmação explícita de cada upstream configurado pela API."""
-    esperados = [
-        *list(dns_info.get("upstream_dns") or []),
-        *list(dns_info.get("bootstrap_dns") or []),
-    ]
+    """Exige OK para cada upstream DNS configurado, sem exigir bootstrap DNS."""
+    esperados = list(dns_info.get("upstream_dns") or [])
     if not esperados:
         return False
+
     respostas = resultado.get("upstream_dns", resultado)
-    if not isinstance(respostas, dict):
+    if not isinstance(respostas, dict) or not respostas:
         return False
-    return all(str(respostas.get(upstream, "")).strip().upper() == "OK" for upstream in esperados)
+
+    respostas_normalizadas = {
+        _normalizar_endpoint_upstream(upstream): str(estado).strip().upper()
+        for upstream, estado in respostas.items()
+    }
+
+    for upstream in esperados:
+        chave = _normalizar_endpoint_upstream(upstream)
+        if not chave or respostas_normalizadas.get(chave) != "OK":
+            return False
+
+    return True
 
 
 def _hosts_dns_iniciais(inventario: dict[str, list[dict]]) -> list[str]:
@@ -615,27 +665,11 @@ def provisionar_adguard(
             raise AdGuardBootstrapError("API local do AdGuard não respondeu ao contrato esperado.") from exc
 
     def validar_api_reconciliada() -> None:
-        """Aguarda a API local após restart antes de considerar o reconcile inválido."""
-        client_validacao = AdGuardClient(
+        AdGuardClient(
             obter_url_admin_local(paths),
             secret["username"],
             secret["password"],
-        )
-        ultimo_erro: AdGuardError | None = None
-
-        for tentativa in range(20):
-            try:
-                client_validacao.get_status()
-                return
-            except AdGuardError as exc:
-                ultimo_erro = exc
-                if tentativa == 19:
-                    break
-                time.sleep(0.25)
-
-        raise AdGuardBootstrapError(
-            "API do AdGuard não ficou disponível após o restart."
-        ) from ultimo_erro
+        ).get_status()
 
     reconciliado = _reconciliar_yaml(
         paths=paths,

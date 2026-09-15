@@ -1,4 +1,4 @@
-"""Bootstrap local e idempotente do AdGuard Home da appliance MoonShield."""
+
 
 from __future__ import annotations
 
@@ -615,11 +615,27 @@ def provisionar_adguard(
             raise AdGuardBootstrapError("API local do AdGuard não respondeu ao contrato esperado.") from exc
 
     def validar_api_reconciliada() -> None:
-        AdGuardClient(
+        """Aguarda a API local após restart antes de considerar o reconcile inválido."""
+        client_validacao = AdGuardClient(
             obter_url_admin_local(paths),
             secret["username"],
             secret["password"],
-        ).get_status()
+        )
+        ultimo_erro: AdGuardError | None = None
+
+        for tentativa in range(20):
+            try:
+                client_validacao.get_status()
+                return
+            except AdGuardError as exc:
+                ultimo_erro = exc
+                if tentativa == 19:
+                    break
+                time.sleep(0.25)
+
+        raise AdGuardBootstrapError(
+            "API do AdGuard não ficou disponível após o restart."
+        ) from ultimo_erro
 
     reconciliado = _reconciliar_yaml(
         paths=paths,

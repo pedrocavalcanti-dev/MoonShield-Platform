@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
      STATE PRINCIPAL
   ═══════════════════════════════════════════════════════ */
   let state = {
-    mode: 'demo', period: '24h',
+    mode: 'real', period: '24h',
     metrics: {}, charts: {}, health: {},
     top_consultados: [], top_bloqueados: [],
     filter_count: 0, warning: null,
@@ -238,32 +238,12 @@ document.addEventListener('DOMContentLoaded', () => {
   ═══════════════════════════════════════════════════════ */
   function updateModeBadge(mode, warning) {
     const badge = $('nocModeBadge'); if (!badge) return;
-    badge.style.display = 'inline-block';
+    badge.style.display = 'none';
 
-    const BADGE_CFG = {
-      demo:         { label: 'DEMO', color: '#eab308', bg: 'rgba(234,179,8,.1)',  border: 'rgba(234,179,8,.3)'  },
-      prod:         { label: 'PROD', color: '#22c55e', bg: 'rgba(34,197,94,.1)',  border: 'rgba(34,197,94,.3)'  },
-      prod_offline: { label: 'PROD', color: '#ef4444', bg: 'rgba(239,68,68,.1)',  border: 'rgba(239,68,68,.3)'  },
-    };
-    const cfg = BADGE_CFG[mode] || {
-      label: (mode || '?').toUpperCase(),
-      color: '#888', bg: 'rgba(255,255,255,.05)', border: 'rgba(255,255,255,.1)',
-    };
-    badge.textContent      = cfg.label;
-    badge.style.color      = cfg.color;
-    badge.style.background = cfg.bg;
-    badge.style.border     = `1px solid ${cfg.border}`;
-
-    // Banners: vermelho para prod_offline, amarelo para aviso genérico, nenhum para prod ok / demo
-    if (mode === 'prod_offline') {
-      showProdOfflineBanner(warning);
-      hideWarningBanner();
-    } else if (warning) {
+    if (warning) {
       showWarningBanner(warning);
-      hideProdOfflineBanner();
     } else {
       hideWarningBanner();
-      hideProdOfflineBanner();
     }
 
     // Linha de health da API
@@ -271,14 +251,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (apiRow) {
       const valEl = apiRow.querySelector('.noc-health-row__val');
       if (valEl) {
-        if (mode === 'prod') {
+        if (mode === 'real') {
           valEl.textContent = 'OK';
           valEl.className   = 'noc-health-row__val noc-health-row__val--ok';
-        } else if (mode === 'prod_offline') {
-          valEl.textContent = 'Offline';
-          valEl.className   = 'noc-health-row__val noc-health-row__val--error';
         } else {
-          valEl.textContent = 'Demo';
+          valEl.textContent = 'Indisponível';
           valEl.className   = 'noc-health-row__val noc-health-row__val--warn';
         }
       }
@@ -299,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      state.mode            = data.mode || 'demo';
+      state.mode            = data.mode || 'real';
       state.metrics         = data.metrics || {};
       state.charts          = data.charts  || {};
       state.health          = data.health  || {};
@@ -474,7 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const versionEl = document.querySelector('[data-health="adguard-version"]');
     if (versionEl) versionEl.textContent = h.version || '—';
 
-    if (state.mode === 'prod') {
+    if (state.mode === 'real') {
       setHealthValue('dns-resolver', h.running === false ? 'Parado' : 'Online', h.running === false ? 'error' : 'ok');
       setHealthValue('adguard-api', h.api === 'offline' ? 'Offline' : 'OK', h.api === 'offline' ? 'error' : 'ok');
       setHealthValue('last-sync', 'agora', 'ok');
@@ -485,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         setHealthValue('safe-browsing', '—', 'warn');
       }
-    } else if (state.mode === 'prod_offline') {
+    } else if (h.running === false || h.api === 'offline') {
       setHealthValue('dns-resolver', 'Offline', 'error');
       setHealthValue('adguard-api', 'Offline', 'error');
       setHealthValue('last-sync', 'Falhou', 'error');
@@ -499,18 +476,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const ov = $('healthOverall');
     if (ov) {
-      if (state.mode === 'prod' && h.running !== false) {
+      if (state.mode === 'real' && h.running !== false) {
         ov.textContent = 'ONLINE';
         ov.style.color = '#22c55e';
         ov.style.background = 'rgba(34,197,94,.1)';
         ov.style.borderColor = 'rgba(34,197,94,.25)';
-      } else if (state.mode === 'prod_offline' || h.running === false) {
+      } else if (h.running === false) {
         ov.textContent = 'OFFLINE';
         ov.style.color = '#ef4444';
         ov.style.background = 'rgba(239,68,68,.1)';
         ov.style.borderColor = 'rgba(239,68,68,.25)';
       } else {
-        ov.textContent = state.mode === 'demo' ? 'DEMO' : 'DEGRADADO';
+        ov.textContent = 'DEGRADADO';
         ov.style.color = '#f97316';
         ov.style.background = 'rgba(249,115,22,.1)';
         ov.style.borderColor = 'rgba(249,115,22,.25)';
@@ -519,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // CPU/RAM antigos eram randômicos. Em PROD, não exibimos dado fake.
     // Quando houver endpoint real de recursos, estes mesmos elementos podem ser alimentados.
-    if (state.mode === 'prod') {
+    if (state.mode === 'real') {
       if ($('resCpu')) $('resCpu').textContent = '—';
       if ($('resRam')) $('resRam').textContent = '—';
       if ($('resCpuBar')) $('resCpuBar').style.width = '0%';
@@ -543,7 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const qTrend = $('kpiQueriesTrend');
     const bTrend = $('kpiBloqueiosTrend');
-    if (state.mode === 'prod') {
+    if (state.mode === 'real') {
       if (qTrend) {
         qTrend.textContent = 'dados reais do período';
         qTrend.className = 'noc-kpi__trend';
@@ -731,18 +708,6 @@ document.addEventListener('DOMContentLoaded', () => {
      RECURSOS — somente DEMO
      Em PROD não mostramos valores randômicos como se fossem reais.
   ═══════════════════════════════════════════════════════ */
-  let demoCpu = 12, demoRam = 41;
-  function updateDemoResources() {
-    if (state.mode !== 'demo') return;
-    demoCpu = Math.max(5, Math.min(85, demoCpu + (Math.floor(Math.random() * 9) - 4)));
-    demoRam = Math.max(30, Math.min(75, demoRam + (Math.floor(Math.random() * 6) - 2)));
-    if ($('resCpu')) $('resCpu').textContent = demoCpu + '%';
-    if ($('resRam')) $('resRam').textContent = demoRam + '%';
-    if ($('resCpuBar')) $('resCpuBar').style.width = demoCpu + '%';
-    if ($('resRamBar')) $('resRamBar').style.width = demoRam + '%';
-  }
-  setInterval(updateDemoResources, 4000);
-
   /* ═══════════════════════════════════════════════════════
      TABELA CLIENTES
   ═══════════════════════════════════════════════════════ */
@@ -1261,7 +1226,7 @@ document.addEventListener('DOMContentLoaded', () => {
          quando o AdGuard voltar a ficar disponível
   ═══════════════════════════════════════════════════════ */
   setInterval(() => {
-    if (state.mode === 'prod' || state.mode === 'prod_offline') loadNocData();
+    loadNocData();
   }, 30_000);
   setInterval(pollQuerylog, 4_000);
 

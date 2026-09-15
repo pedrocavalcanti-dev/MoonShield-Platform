@@ -1,12 +1,84 @@
-import random
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET
 from autenticacao.models import UserProfile
+
+
+def _overview_real(cfg):
+    """Agrega somente contratos operacionais locais da appliance."""
+    from configuracoes.views import _servicos, _topologia
+    from dns.views import _get_adguard_client
+    from incidentes.models import Incidente
+
+    servicos = _servicos(cfg, _topologia())
+    adguard = servicos["adguard"]
+    suricata = servicos["suricata"]
+    firewall = servicos["firewall"]
+    dns = {"metrics": {}, "charts": {}}
+    try:
+        client = _get_adguard_client(cfg)
+        if client:
+            dns = client.fetch_all()
+    except Exception:
+        pass
+
+    metrics = dns.get("metrics") or {}
+    dns_charts = dns.get("charts") or {}
+    agora = datetime.now()
+    desde = agora - timedelta(hours=24)
+    incidentes = Incidente.objects.filter(last_seen__gte=desde).order_by("-last_seen")
+    ameaças = incidentes.count()
+    severidades = {
+        "crit": incidentes.filter(severidade_jg="critico").count(),
+        "high": incidentes.filter(severidade_jg="alto").count(),
+        "med": incidentes.filter(severidade_jg="medio").count(),
+    }
+    hours = list(dns_charts.get("hours") or _hour_labels())
+    zeros = [0] * len(hours)
+    feed = [
+        {
+            "ts": item.last_seen.isoformat(), "type": "IDS", "sev": {
+                "critico": "crit", "alto": "high", "medio": "warn",
+            }.get(item.severidade_jg, "info"),
+            "src": getattr(item, "src_ip", None) or "—",
+            "msg": getattr(item, "titulo_jg", None) or getattr(item, "signature", None) or "Incidente",
+        }
+        for item in incidentes[:20]
+    ]
+    sensores = (adguard, suricata, firewall)
+    return {
+        "ok": True,
+        "mode": "real",
+        "fonte": "local",
+        "kpis": {
+            "ameacas_hoje": ameaças,
+            "dns_queries": int(metrics.get("queries", 0) or 0),
+            "dns_bloqueios": int(metrics.get("bloqueios", 0) or 0),
+            "sensores_online": sum(bool(item.get("saudavel")) for item in sensores),
+            "sensores_total": 3,
+            "bloqueio_pct": float(metrics.get("pctBloq", 0) or 0),
+        },
+        "charts": {
+            "hours": hours,
+            "attacks": {key: [value if index == len(hours) - 1 else 0 for index in range(len(hours))] for key, value in severidades.items()},
+            "dns": {"queries": list(dns_charts.get("queries") or zeros), "blocked": list(dns_charts.get("bloqueios") or zeros)},
+        },
+        "feed": feed,
+        "map": {"active": 0, "events": []},
+        "intel": {"origens": [], "ataques": []},
+        "infra": {
+            "dispositivos": {"online": 0, "offline": 0, "novo_hoje": 0, "pct": 0},
+            "firewall": {"drops": 0, "top_porta": "—", "blocks": 0, "pct": 0},
+            "dns_infra": {"bloqueio_pct": float(metrics.get("pctBloq", 0) or 0), "clientes": int(metrics.get("clientes", 0) or 0), "ameacas": ameaças, "bloqueios": int(metrics.get("bloqueios", 0) or 0), "permitidos": max(0, int(metrics.get("queries", 0) or 0) - int(metrics.get("bloqueios", 0) or 0))},
+        },
+        "saude": {"dns": adguard, "ids": suricata, "firewall": firewall},
+        "node": {"name": getattr(cfg, "node_name", "—") if cfg else "—", "cidr": "—", "iface": "—"},
+        "last_update": agora.isoformat(),
+    }
 
 try:
     from configuracoes.models import ConfigSistema
@@ -56,52 +128,7 @@ def index(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_overview(request):
-    period = request.GET.get("period", "24h")
-    sev    = request.GET.get("sev",    "all")
-
-    cfg  = _get_cfg()
-
-    # ━━ PROD ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    return JsonResponse({
-        "ok":   True,
-        "mode": "prod",
-        "providers": {
-            "dns": bool(cfg and getattr(cfg, "dns_enabled", False) and getattr(cfg, "adguard_mode", "mock") != "mock"),
-            "ids": bool(cfg and getattr(cfg, "ids_enabled", False) and getattr(cfg, "suricata_mode", "mock") != "mock"),
-            "fw":  bool(cfg and getattr(cfg, "fw_enabled",  False) and getattr(cfg, "fw_mode", "mock") != "mock"),
-        },
-        "kpis": {
-            "ameacas_hoje":    0,
-            "dns_queries":     0,
-            "dns_bloqueios":   0,
-            "sensores_online": 0,
-            "sensores_total":  3,
-            "bloqueio_pct":    0,
-        },
-        "charts": {
-            "hours":   _hour_labels(),
-            "attacks": {"crit": [0]*24, "high": [0]*24, "med": [0]*24},
-            "dns":     {"queries": [0]*24, "blocked": [0]*24},
-        },
-        "feed":   [],
-        "map":    {"active": 0, "events": []},
-        "intel":  {"origens": [], "ataques": []},
-        "infra": {
-            "dispositivos": {"online": 0, "offline": 0, "novo_hoje": 0, "pct": 0},
-            "firewall":     {"drops": 0, "top_porta": 0, "blocks": 0, "pct": 0},
-            "dns_infra":    {"bloqueio_pct": 0, "clientes": 0, "ameacas": 0,
-                             "bloqueios": 0, "permitidos": 0},
-        },
-        "node": {
-            "name":  getattr(cfg, "node_name",      "—") if cfg else "—",
-            "cidr":  getattr(cfg, "cidr",            "—") if cfg else "—",
-            "iface": getattr(cfg, "iface_principal", "—") if cfg else "—",
-        },
-        "last_update": datetime.now().isoformat(),
-        "msg": "PROD ativo — aguardando integração dos coletores reais.",
-    })
-
-
+    return JsonResponse(_overview_real(_get_cfg()))
 # ─────────────────────────────────────────────────────────────────────────────
 # GET /api/sensores/   ← topbar.js
 # ─────────────────────────────────────────────────────────────────────────────
@@ -109,10 +136,12 @@ def api_overview(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_sensores(request):
-    cfg  = _get_cfg()
-    modo = getattr(cfg, "modo", "demo") if cfg else "demo"
-
-    return JsonResponse({"ids": "ok", "dns": "ok", "firewall": "ok"})
+    dados = _overview_real(_get_cfg())["saude"]
+    return JsonResponse({
+        "ids": "ok" if dados["ids"].get("saudavel") else "offline",
+        "dns": "ok" if dados["dns"].get("saudavel") else "offline",
+        "firewall": "ok" if dados["firewall"].get("saudavel") else "offline",
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -148,60 +177,29 @@ def api_uptime(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_alertas(request):
-    cfg  = _get_cfg()
-    modo = getattr(cfg, "modo", "demo") if cfg else "demo"
+    from incidentes.models import Incidente
 
-    if modo == "demo":
-        now = datetime.now()
-
-        def ts(minutes_ago):
-            from datetime import timedelta
-            return (now - timedelta(minutes=minutes_ago)).isoformat()
-
-        alertas = [
-            {
-                "id": 1,
-                "titulo": "Port Scan Detectado",
-                "descricao": "192.168.1.45 → 22/80/443 (Suricata SID:2000001)",
-                "severidade": "critico",
-                "tipo": "scan",
-                "timestamp": ts(3),
-                "url": "/incidentes/",
-            },
-            {
-                "id": 2,
-                "titulo": "DNS Blocklist Hit",
-                "descricao": "malware-tracker.ru bloqueado via AdGuard",
-                "severidade": "alto",
-                "tipo": "dns",
-                "timestamp": ts(10),
-                "url": "/dns/",
-            },
-            {
-                "id": 3,
-                "titulo": "Tentativa SSH Brute Force",
-                "descricao": "47.89.12.3 — 23 tentativas em 60s",
-                "severidade": "critico",
-                "tipo": "ids",
-                "timestamp": ts(15),
-                "url": "/incidentes/",
-            },
-        ]
-        return JsonResponse(alertas, safe=False)
-
-    return JsonResponse([], safe=False)
+    alertas = [
+        {
+            "id": incidente.pk,
+            "titulo": getattr(incidente, "titulo_jg", None) or getattr(incidente, "signature", None) or "Incidente",
+            "descricao": getattr(incidente, "src_ip", None) or "Evento detectado pelo Suricata",
+            "severidade": getattr(incidente, "severidade_jg", "medio"),
+            "tipo": "ids",
+            "timestamp": incidente.last_seen.isoformat(),
+            "url": "/incidentes/",
+        }
+        for incidente in Incidente.objects.order_by("-last_seen")[:20]
+    ]
+    return JsonResponse(alertas, safe=False)
 
 
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_alertas_count(request):
-    cfg  = _get_cfg()
-    modo = getattr(cfg, "modo", "demo") if cfg else "demo"
+    from incidentes.models import Incidente
 
-    if modo == "demo":
-        return JsonResponse({"count": random.randint(1, 5), "ok": True})
-
-    return JsonResponse({"count": 0, "ok": True})
+    return JsonResponse({"count": Incidente.objects.count(), "ok": True})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

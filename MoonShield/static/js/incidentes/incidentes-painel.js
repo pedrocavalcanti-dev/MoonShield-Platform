@@ -173,7 +173,6 @@ const _state = {
   horas: _saved.horas || 24,
   agrupado: _saved.agrupado !== undefined ? _saved.agrupado : true,
   presetAtivo: _saved.preset || 'casa',
-  modoDemo: false,
   modoProd: false,
   _lastHash: '',
   _renderPending: false,
@@ -181,7 +180,7 @@ const _state = {
 
 window.JGIncidentes.state = _state;
 window.JGIncidentes.utils = {
-  esc, fmtTime, fmtDateTime, toast, getCsrf, isDemo,
+  esc, fmtTime, fmtDateTime, toast, getCsrf,
   riskColor, riskLabel, evTitulo, evSev, evPort, evProto,
   sevBadge, statusBadge, fonteBadge,
   PORT_NAMES, SEV_CLASS, SEV_LABEL, CAT_ICON, CAT_LABEL,
@@ -458,10 +457,7 @@ async function loadIncidentes() {
     const url = `/incidentes/api/data/?count=100&horas=${_state.horas}&preset=${_state.presetAtivo}&agrupado=${agr}`;
     const data = await _fetchJson(url);
 
-    if (!data.ok) {
-      _ativarDemoEmergencia();
-      return;
-    }
+    if (!data.ok) throw new Error(data.error || 'Falha ao consultar incidentes');
 
     const eventos = (data.eventos || data.events || []).map(ev => ({
       ...ev,
@@ -474,10 +470,8 @@ async function loadIncidentes() {
     _state._lastHash = novoHash;
 
     _state.allEvents = eventos;
-    _state.modoDemo = !!data.demo;
-    _state.modoProd = !data.demo && eventos.length === 0;
+    _state.modoProd = eventos.length === 0;
 
-    _atualizarBannerDemo(_state.modoDemo);
     _atualizarBannerProd(_state.modoProd);
     updateBadges();
     applyFilters();
@@ -486,31 +480,17 @@ async function loadIncidentes() {
     _updateKpiFromEvents();
 
   } catch (e) {
-    console.warn('loadIncidentes falhou — fallback local:', e.message);
-    // Mostra toast de erro apenas se não estiver em modo demo já
-    if (!_state.modoDemo) {
-      toast(`⚠ Erro ao carregar dados: ${e.message}`, 4000);
-    }
-    _ativarDemoEmergencia();
+    console.warn('loadIncidentes falhou:', e.message);
+    _state.allEvents = [];
+    _state.modoProd = false;
+    _atualizarBannerProd(false);
+    updateBadges();
+    applyFilters();
+    toast(`⚠ Erro ao carregar dados: ${e.message}`, 4000);
   }
 }
 
-function _ativarDemoEmergencia() {
-  _state.allEvents = _gerarDemoLocal(_state.horas);
-  _state.modoDemo = true;
-  _state.modoProd = false;
-  _atualizarBannerDemo(true);
-  _atualizarBannerProd(false);
-  updateBadges();
-  applyFilters();
-  updateInsights();
-  _updateKpiFromEvents();
-}
-
 // ─── Banners ──────────────────────────────────────────────────────────────────
-function _atualizarBannerDemo(ativo) {
-  $('demoBanner')?.classList.toggle('jg-demo-banner--visible', ativo);
-}
 function _atualizarBannerProd(ativo) {
   $('prodLiveBanner')?.classList.toggle('jg-prod-banner--visible', ativo);
 }
@@ -748,14 +728,6 @@ async function cycleStatus(ev, badge) {
   const cycle = ['novo', 'investigando', 'resolvido', 'falso'];
   const cur = badge.dataset.status || 'novo';
   const next = cycle[(cycle.indexOf(cur) + 1) % cycle.length];
-
-  if (isDemo(ev.id)) {
-    _aplicarStatusLocal(ev.id, next);
-    _state._renderPending = false;
-    renderTable();
-    toast(`Status → ${next} (demo)`);
-    return;
-  }
 
   try {
     const data = await _fetchJson(`/incidentes/api/${ev.id}/status/`, {

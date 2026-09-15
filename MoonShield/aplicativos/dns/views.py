@@ -42,16 +42,6 @@ except ImportError:
 # HELPER — modo do sistema (mesma lógica do incidentes/views.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_modo_sistema() -> str:
-    """Retorna 'demo' ou 'prod'. Padrão: 'demo' se não conseguir ler."""
-    if ConfigSistema:
-        try:
-            return ConfigSistema.get_solo().modo
-        except Exception:
-            pass
-    return 'demo'
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # RESPOSTA PROD VAZIA — retorna zeros reais, sem nenhum dado simulado
 # ─────────────────────────────────────────────────────────────────────────────
@@ -60,7 +50,8 @@ def _prod_empty_response(error: str = None) -> dict:
     """Resposta para PROD quando AdGuard está offline ou não configurado."""
     resp = {
         "ok": True,
-        "mode": "prod_offline",
+        "mode": "real",
+        "fonte": "local",
         "metrics": {
             "queries": 0,
             "bloqueios": 0,
@@ -313,13 +304,8 @@ def _get_adguard_client(cfg) -> "AdGuardClient":
     return _adguard_client
 
 
-def _check_prod_mode(cfg):
-    """Valida se a requisição pode ser executada em modo PROD."""
-    modo = cfg.modo if cfg else "demo"
-    if modo == "demo":
-        return JsonResponse({"ok": False, "error": "Ação indisponível no modo Demo."}, status=400)
-    if not getattr(cfg, 'dns_enabled', False) or getattr(cfg, 'adguard_mode', '') == "mock":
-        return JsonResponse({"ok": False, "error": "AdGuard desativado ou em modo Mock."}, status=400)
+def _check_adguard_local(cfg):
+    """Valida somente a disponibilidade da integração local da appliance."""
     if not ADGUARD_AVAILABLE:
         return JsonResponse({"ok": False, "error": "adguard_client não encontrado."}, status=500)
     if not _get_adguard_client(cfg):
@@ -339,20 +325,12 @@ def api_dns_data(request):
         period = "24h"
 
     # ── Modo DEMO: sempre dados simulados ────────────────────────────────────
-    if _get_modo_sistema() == 'demo':
-        return JsonResponse(_demo_response(period))
-
     # ── Modo PROD ─────────────────────────────────────────────────────────────
     cfg = ConfigSistema.get_solo() if ConfigSistema else None
 
     # AdGuard não habilitado ou não configurado → zeros reais, sem mock
     if not ADGUARD_AVAILABLE:
         return JsonResponse(_prod_empty_response("adguard_client não instalado no servidor."))
-
-    if not cfg or not getattr(cfg, 'dns_enabled', False):
-        return JsonResponse(_prod_empty_response(
-            "AdGuard desativado em Configurações → DNS. Ative para ver dados reais."
-        ))
 
     client = _get_adguard_client(cfg)
     if not client:
@@ -366,7 +344,8 @@ def api_dns_data(request):
 
         return JsonResponse({
             "ok": True,
-            "mode": "prod",
+            "mode": "real",
+            "fonte": "local",
             "metrics": data["metrics"],
             "health": data.get("health", {}),
             "charts": data["charts"],
@@ -390,7 +369,7 @@ def api_dns_data(request):
 
     except Exception as exc:
         logger.exception("Erro inesperado em api_dns_data (prod)")
-        return JsonResponse({"ok": False, "mode": "prod", "error": f"Erro interno: {exc}"}, status=500)
+        return JsonResponse({"ok": False, "mode": "real", "error": f"Erro interno: {exc}"}, status=500)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -408,29 +387,23 @@ def api_querylog(request):
     limit = max(1, min(limit, 500))
 
     # ── Modo DEMO: dados simulados ────────────────────────────────────────────
-    if _get_modo_sistema() == 'demo':
-        return JsonResponse({
-            "ok":      True,
-            "mode":    "demo",
-            "entries": _gen_querylog_demo(limit=limit, since=since),
-        })
-
     # ── Modo PROD ─────────────────────────────────────────────────────────────
     cfg = ConfigSistema.get_solo() if ConfigSistema else None
 
-    if not ADGUARD_AVAILABLE or not cfg or not getattr(cfg, 'dns_enabled', False):
+    if not ADGUARD_AVAILABLE:
         # PROD sem AdGuard: feed vazio, sem simulação
-        return JsonResponse({"ok": True, "mode": "prod_offline", "entries": []})
+        return JsonResponse({"ok": True, "mode": "real", "entries": [], "warning": "Cliente AdGuard indisponível."})
 
     client = _get_adguard_client(cfg)
     if not client:
-        return JsonResponse({"ok": True, "mode": "prod_offline", "entries": []})
+        return JsonResponse({"ok": True, "mode": "real", "entries": [], "warning": "AdGuard local indisponível."})
 
     try:
         entries = client.get_querylog_formatted(limit=limit, since=since)
         return JsonResponse({
             "ok": True,
-            "mode": "prod",
+            "mode": "real",
+            "fonte": "local",
             "entries": entries,
             "generated_at": datetime.now().astimezone().isoformat(),
         })
@@ -440,7 +413,7 @@ def api_querylog(request):
         # PROD offline: feed vazio, sem simulação
         return JsonResponse({
             "ok":      True,
-            "mode":    "prod_offline",
+            "mode":    "real",
             "entries": [],
             "warning": str(exc),
         })
@@ -466,7 +439,7 @@ def api_block_domain(request):
         return JsonResponse({"ok": False, "error": "Nenhum domínio informado."}, status=400)
 
     cfg   = ConfigSistema.get_solo() if ConfigSistema else None
-    check = _check_prod_mode(cfg)
+    check = _check_adguard_local(cfg)
     if check: return check
 
     try:
@@ -492,7 +465,7 @@ def api_allow_domain(request):
         return JsonResponse({"ok": False, "error": "Nenhum domínio informado."}, status=400)
 
     cfg   = ConfigSistema.get_solo() if ConfigSistema else None
-    check = _check_prod_mode(cfg)
+    check = _check_adguard_local(cfg)
     if check: return check
 
     try:
@@ -514,7 +487,7 @@ def api_allow_domain(request):
 @require_POST
 def api_flush_cache(request):
     cfg   = ConfigSistema.get_solo() if ConfigSistema else None
-    check = _check_prod_mode(cfg)
+    check = _check_adguard_local(cfg)
     if check: return check
 
     try:
@@ -532,7 +505,7 @@ def api_flush_cache(request):
 @require_POST
 def api_update_filters(request):
     cfg   = ConfigSistema.get_solo() if ConfigSistema else None
-    check = _check_prod_mode(cfg)
+    check = _check_adguard_local(cfg)
     if check: return check
 
     try:
@@ -553,20 +526,17 @@ def api_update_filters(request):
 @login_required(login_url='autenticacao:login')
 @require_GET
 def api_regras_list(request):
-    if _get_modo_sistema() == 'demo':
-        return JsonResponse({"ok": True, "mode": "demo", "rules": []})
-
     cfg = ConfigSistema.get_solo() if ConfigSistema else None
-    if not ADGUARD_AVAILABLE or not cfg:
-        return JsonResponse({"ok": True, "mode": "prod_offline", "rules": []})
+    if not ADGUARD_AVAILABLE:
+        return JsonResponse({"ok": True, "mode": "real", "rules": [], "warning": "Cliente AdGuard indisponível."})
 
     client = _get_adguard_client(cfg)
     if not client:
-        return JsonResponse({"ok": True, "mode": "prod_offline", "rules": []})
+        return JsonResponse({"ok": True, "mode": "real", "rules": [], "warning": "AdGuard local indisponível."})
 
     try:
         rules  = client.get_custom_rules()
-        return JsonResponse({"ok": True, "mode": "prod", "rules": rules})
+        return JsonResponse({"ok": True, "mode": "real", "fonte": "local", "rules": rules})
     except AdGuardError as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=502)
     except Exception as exc:
@@ -586,7 +556,7 @@ def api_regras_salvar(request):
         return JsonResponse({"ok": False, "error": "JSON inválido."}, status=400)
 
     cfg   = ConfigSistema.get_solo() if ConfigSistema else None
-    check = _check_prod_mode(cfg)
+    check = _check_adguard_local(cfg)
     if check: return check
 
     try:

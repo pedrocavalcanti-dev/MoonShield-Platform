@@ -22,14 +22,6 @@ from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
-from .demo import (
-    get_demo_contexto,
-    get_demo_eventos,
-    get_demo_stats,
-    get_demo_timeline,
-    get_demo_totais,
-)
-
 from .models import (
     CategoriaJG,
     EventoDNS,
@@ -70,23 +62,6 @@ except ImportError:
 # =============================================================================
 # HELPERS
 # =============================================================================
-
-def _get_modo_sistema() -> str:
-    """
-    FIX v11: retorna 'prod' como padrão.
-    Antes retornava 'demo' quando ConfigSistema não existia, causando o painel
-    mostrar dados falsos mesmo com eventos reais no banco.
-
-    Para ativar modo demo explicitamente: setar ConfigSistema.modo = 'demo'
-    no Django admin.
-    """
-    if ConfigSistema:
-        try:
-            return ConfigSistema.get_solo().modo
-        except Exception:
-            pass
-    return 'prod'   # ← era 'demo'
-
 
 def _calcular_top_ip(qs) -> dict | None:
     """
@@ -161,12 +136,6 @@ def api_incidentes_data(request):
     qs = qs.order_by('-last_seen')[:count]
     eventos_raw = [_incidente_para_evento(inc) for inc in qs]
 
-    is_demo = False
-    if not eventos_raw:
-        if _get_modo_sistema() == 'demo':
-            eventos_raw = get_demo_eventos()
-            is_demo = True
-
     eventos_agrupados = classificar_lista(eventos_raw, preset_nome=preset)
 
     if not agrupado:
@@ -183,17 +152,14 @@ def api_incidentes_data(request):
         totais_sev[sev] = totais_sev.get(sev, 0) + 1
         totais_cat[cat] = totais_cat.get(cat, 0) + 1
 
-    if is_demo:
-        totais_class = get_demo_totais()
-    else:
-        totais_class = {'incidente': 0, 'evento': 0, 'telemetria': 0}
-        for ev in eventos_agrupados:
-            classe = ev.get('classificacao') or 'telemetria'
-            totais_class[classe] = totais_class.get(classe, 0) + 1
+    totais_class = {'incidente': 0, 'evento': 0, 'telemetria': 0}
+    for ev in eventos_agrupados:
+        classe = ev.get('classificacao') or 'telemetria'
+        totais_class[classe] = totais_class.get(classe, 0) + 1
 
     return JsonResponse({
         'ok':                  True,
-        'demo':                is_demo,
+        'fonte':               'local',
         'agrupado':            agrupado,
         'preset':              preset,
         'preset_info':         get_info_preset(preset),
@@ -241,9 +207,6 @@ def api_estatisticas(request):
     qs    = Incidente.objects.filter(last_seen__gte=desde)
 
     if not qs.exists():
-        if _get_modo_sistema() == 'demo':
-            return JsonResponse(get_demo_stats())
-
         return JsonResponse({
             'ultimas_24h': {
                 'total_incidentes':        0,
@@ -384,12 +347,8 @@ def api_contexto_ip(request, ip):
 
         tem_dados = Incidente.objects.filter(src_ip=ip, last_seen__gte=since).exists()
         if not tem_dados:
-            if _get_modo_sistema() == 'demo':
-                ctx = get_demo_contexto(ip)
-                return JsonResponse({'ok': True, 'demo': True, 'contexto': ctx})
-
             return JsonResponse({
-                'ok': True, 'demo': False,
+                'ok': True,
                 'contexto': {
                     'total_alertas': 0, 'total_dns': 0, 'total_http': 0, 'total_tls': 0,
                     'geo': {},
@@ -496,13 +455,7 @@ def api_timeline_ip(request, ip):
         )
 
         if not tem_dados:
-            if _get_modo_sistema() == 'demo':
-                eventos = get_demo_timeline(ip, horas)
-                return JsonResponse({
-                    'ok': True, 'demo': True,
-                    'ip': ip, 'total': len(eventos), 'eventos': eventos,
-                })
-            return JsonResponse({'ok': True, 'demo': False, 'ip': ip, 'total': 0, 'eventos': []})
+            return JsonResponse({'ok': True, 'ip': ip, 'total': 0, 'eventos': []})
 
         eventos = []
 

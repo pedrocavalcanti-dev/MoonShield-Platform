@@ -250,9 +250,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       return data;
-    } catch (_) {
-      // Retorna dados demo
-      return DEMO_DATA;
+    } catch (error) {
+      console.error("Falha ao consultar o Dashboard:", error);
+      throw error;
     }
   }
 
@@ -969,11 +969,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ════════════════════════════════════════════════════════════ */
   function renderMode(data) {
     const badge = document.getElementById("modeBadge");
-    if (badge) {
-      badge.textContent = data.mode === "demo" ? "DEMO" : "PROD";
-      badge.style.color = data.mode === "demo" ? "#eab308" : "#22c55e";
-      badge.style.borderColor = data.mode === "demo" ? "rgba(234,179,8,.3)" : "rgba(34,197,94,.3)";
-    }
+    if (badge) badge.style.display = "none";
     if (data.node) {
       setEl("dashNodeName", data.node.name);
       setEl("dashNodeCidr", data.node.cidr);
@@ -1062,7 +1058,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const delay = 8000 + Math.floor(Math.random() * 8000);
     setTimeout(() => { injectLiveEvent(); scheduleLive(); }, delay);
   }
-  scheduleLive();
 
   /* ════════════════════════════════════════════════════════════
      POLLING — 30s

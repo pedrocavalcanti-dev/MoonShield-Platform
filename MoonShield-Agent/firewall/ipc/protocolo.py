@@ -92,6 +92,11 @@ ACOES = frozenset({
     "network.change.cancel",
 
     #
+    # AdGuard Home.
+    #
+    "adguard.reconcile",
+
+    #
     # Suricata IDS.
     #
     "suricata.status",

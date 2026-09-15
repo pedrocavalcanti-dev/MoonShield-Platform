@@ -27,6 +27,10 @@ except ImportError:
 
 try:
     from .services.adguard_client import AdGuardClient, AdGuardError
+    from .services.adguard_bootstrap import (
+        AdGuardBootstrapError,
+        criar_cliente_adguard_local,
+    )
     from .services.regras import adicionar_regras
     ADGUARD_AVAILABLE = True
 except ImportError:
@@ -292,25 +296,18 @@ _adguard_last_signature: tuple = ()
 
 def _get_adguard_client(cfg) -> "AdGuardClient":
     """
-    Mantém uma instância reutilizável, mas recria a sessão sempre que
-    URL/usuário/senha/HTTPS mudarem. Isso evita autenticação antiga presa
-    após salvar novas credenciais no painel.
+    Mantém um cliente local para o engine da appliance. Credenciais e URL
+    vêm do secret e do YAML local, nunca de campos de formulário/model.
     """
     global _adguard_client, _adguard_last_signature
 
-    url = (getattr(cfg, "adguard_url", "") or "").strip()
-    user = getattr(cfg, "adguard_user", "") or ""
-    pwd = getattr(cfg, "adguard_pass", "") or ""
-    https = bool(getattr(cfg, "adguard_https", False))
-
-    signature = (url, user, pwd, https)
+    signature = ("adguard-local",)
     if _adguard_client is None or signature != _adguard_last_signature:
-        _adguard_client = AdGuardClient(
-            url=url,
-            user=user,
-            password=pwd,
-            https=https,
-        )
+        try:
+            _adguard_client = criar_cliente_adguard_local()
+        except AdGuardBootstrapError as exc:
+            logger.info("AdGuard local ainda não está pronto: %s", exc)
+            return None
         _adguard_last_signature = signature
 
     return _adguard_client
@@ -325,8 +322,8 @@ def _check_prod_mode(cfg):
         return JsonResponse({"ok": False, "error": "AdGuard desativado ou em modo Mock."}, status=400)
     if not ADGUARD_AVAILABLE:
         return JsonResponse({"ok": False, "error": "adguard_client não encontrado."}, status=500)
-    if not getattr(cfg, 'adguard_url', ''):
-        return JsonResponse({"ok": False, "error": "URL do AdGuard não configurada."}, status=400)
+    if not _get_adguard_client(cfg):
+        return JsonResponse({"ok": False, "error": "AdGuard local não está provisionado."}, status=503)
     return None
 
 
@@ -357,14 +354,14 @@ def api_dns_data(request):
             "AdGuard desativado em Configurações → DNS. Ative para ver dados reais."
         ))
 
-    if not getattr(cfg, 'adguard_url', ''):
+    client = _get_adguard_client(cfg)
+    if not client:
         return JsonResponse(_prod_empty_response(
-            "URL do AdGuard não configurada em Configurações → DNS."
+            "AdGuard local ainda não foi provisionado."
         ))
 
     # AdGuard habilitado: tenta buscar dados reais
     try:
-        client = _get_adguard_client(cfg)
         data   = client.fetch_all()
 
         return JsonResponse({
@@ -421,12 +418,15 @@ def api_querylog(request):
     # ── Modo PROD ─────────────────────────────────────────────────────────────
     cfg = ConfigSistema.get_solo() if ConfigSistema else None
 
-    if not ADGUARD_AVAILABLE or not cfg or not getattr(cfg, 'dns_enabled', False) or not getattr(cfg, 'adguard_url', ''):
+    if not ADGUARD_AVAILABLE or not cfg or not getattr(cfg, 'dns_enabled', False):
         # PROD sem AdGuard: feed vazio, sem simulação
         return JsonResponse({"ok": True, "mode": "prod_offline", "entries": []})
 
+    client = _get_adguard_client(cfg)
+    if not client:
+        return JsonResponse({"ok": True, "mode": "prod_offline", "entries": []})
+
     try:
-        client  = _get_adguard_client(cfg)
         entries = client.get_querylog_formatted(limit=limit, since=since)
         return JsonResponse({
             "ok": True,
@@ -557,11 +557,14 @@ def api_regras_list(request):
         return JsonResponse({"ok": True, "mode": "demo", "rules": []})
 
     cfg = ConfigSistema.get_solo() if ConfigSistema else None
-    if not ADGUARD_AVAILABLE or not cfg or not getattr(cfg, "adguard_url", ""):
+    if not ADGUARD_AVAILABLE or not cfg:
+        return JsonResponse({"ok": True, "mode": "prod_offline", "rules": []})
+
+    client = _get_adguard_client(cfg)
+    if not client:
         return JsonResponse({"ok": True, "mode": "prod_offline", "rules": []})
 
     try:
-        client = _get_adguard_client(cfg)
         rules  = client.get_custom_rules()
         return JsonResponse({"ok": True, "mode": "prod", "rules": rules})
     except AdGuardError as exc:

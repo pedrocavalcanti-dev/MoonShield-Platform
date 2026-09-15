@@ -627,6 +627,9 @@ def _despachar(
     if req.acao.startswith("suricata."):
         return _despachar_suricata(req)
 
+    if req.acao.startswith("adguard."):
+        return _despachar_adguard(req)
+
     handler = _HANDLERS.get(req.acao)
 
     if handler is None:
@@ -700,6 +703,22 @@ def _despachar_rede(
         codigo="rede_resposta_invalida",
         detalhes={"tipo": type(resultado).__name__},
     )
+
+
+def _despachar_adguard(req: RequisicaoIPC) -> dict[str, Any]:
+    """Encaminha a reconciliação DNS ao handler privilegiado e allowlisted."""
+    try:
+        modulo = importlib.import_module("adguard.ipc.handlers")
+        executar = getattr(modulo, "executar_acao_adguard")
+        resultado = executar(req.acao, req.dados)
+    except Exception as exc:
+        raise ErroOperacao(
+            str(exc) or "A reconciliação do AdGuard falhou.",
+            codigo=str(getattr(exc, "codigo", "") or "adguard_reconcile_falhou"),
+        ) from exc
+    if isinstance(resultado, dict):
+        return resultado
+    raise ErroOperacao("O módulo AdGuard retornou um formato inválido.", codigo="adguard_resposta_invalida")
 
 
 def _despachar_firewall(

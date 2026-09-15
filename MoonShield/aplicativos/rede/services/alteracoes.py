@@ -53,6 +53,7 @@ O MoonShield-Agent será responsável pelo timer real de rollback.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -101,6 +102,9 @@ from rede.services.roteamento import (
     marcar_rota_sincronizada,
     montar_payload_roteamento,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 STATUS_EM_ANDAMENTO = set(AlteracaoRede.statuses_em_andamento())
@@ -1023,6 +1027,19 @@ def confirmar_alteracao(
         alteracao=alteracao,
         usuario=usuario,
     )
+
+    # A topologia só é entregue ao DNS depois do commit que persiste a
+    # confirmação. O callback não altera a semântica do Safe Apply.
+    def reconciliar_dns_confirmado() -> None:
+        try:
+            from dns.services.adguard_reconcile import reconciliar_adguard_apos_rede
+
+            reconciliar_adguard_apos_rede()
+        except Exception as exc:
+            # DNS não pode desfazer uma confirmação de conectividade já concluída.
+            logger.warning("Reconcile AdGuard após Rede não concluído: %s", exc)
+
+    transaction.on_commit(reconciliar_dns_confirmado)
 
     return alteracao
 

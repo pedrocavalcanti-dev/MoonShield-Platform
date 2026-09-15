@@ -15,10 +15,11 @@ from .utils.quicktests import test_dns_latency, test_internet_access, test_ping_
 from .utils.sysinfo import get_sysinfo_real
 
 try:
-    from dns.services.adguard_client import AdGuardClient, AdGuardError
+    from dns.services.adguard_client import AdGuardClient, AdGuardError, AdGuardHTTPError
 except ImportError:
     AdGuardClient = None
     AdGuardError = Exception
+    AdGuardHTTPError = Exception
 
 try:
     from firewall.services.firewall_status import obter_status_resumido
@@ -90,20 +91,33 @@ def _config_editavel(cfg: ConfigSistema, topologia: dict) -> dict:
     }
 
 
-def _estado_adguard(cfg: ConfigSistema) -> dict:
+def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
     from dns.views import _get_adguard_client
+    from dns.services.adguard_bootstrap import (
+        _hosts_dns_iniciais,
+        descobrir_adguard,
+        inventariar_interfaces_dns,
+        upstreams_aprovados,
+        validar_resolucao_dns,
+    )
 
+    instalado = bool(descobrir_adguard(obrigatorio=False))
     base = {
         "tipo": "adguard", "nome": "AdGuard Home", "fonte": "local", "ativo": False,
-        "configurado": bool(cfg.adguard_url),
-        "instalado": True,
+        "configurado": False,
+        "instalado": instalado,
         "saudavel": False, "status": "atencao", "status_label": "Requer atenção",
         "dns_resolver": False, "api": False, "protecao": False, "filtros_ativos": 0, "versao": "?",
     }
 
     client = _get_adguard_client(cfg)
     if not client:
-        return {**base, "status": "erro", "status_label": "Integração indisponível", "erro": "Integração DNS indisponível."}
+        return {
+            **base,
+            "status": "atencao" if instalado else "indisponivel",
+            "status_label": "Requer atenção" if instalado else "Componente indisponível",
+            "erro": "Integração DNS local não está provisionada.",
+        }
 
     try:
         dados = client.fetch_all()
@@ -111,28 +125,72 @@ def _estado_adguard(cfg: ConfigSistema) -> dict:
         ativo = bool(health.get("running"))
         api_ok = health.get("api") == "ok"
         protecao = bool(health.get("protection_enabled"))
+        porta_dns = int(health.get("dns_port", 0) or 0)
+        enderecos_dns = health.get("dns_addresses") or []
+        inventario = inventariar_interfaces_dns(topologia)
+        hosts_esperados = set(_hosts_dns_iniciais(inventario))
+        hosts_reais = set(enderecos_dns)
+        listener_ok = bool(
+            inventario["interfaces_dns_ativas"]
+            and hosts_reais == hosts_esperados
+            and not ({"0.0.0.0", "::"} & hosts_reais)
+        )
+        dns_real = validar_resolucao_dns() if listener_ok else {"resolver_ok": False}
+        try:
+            upstream_ok = upstreams_aprovados(
+                dados.get("dns_info") or {},
+                client.testar_upstreams_dns(dados.get("dns_info") or {}),
+            )
+        except AdGuardError:
+            upstream_ok = False
+        dns_resolver = bool(dns_real["resolver_ok"])
+        configurado = bool(api_ok and protecao and porta_dns == 53 and listener_ok and dns_resolver and upstream_ok)
 
-        status = "operacional" if ativo and api_ok and protecao else "atencao"
+        status = "operacional" if ativo and configurado else "atencao"
         label = "Operacional" if status == "operacional" else "Requer atenção"
 
         return {
             **base,
             "ativo": ativo,
+            "configurado": configurado,
             "saudavel": status == "operacional",
             "status": status,
             "status_label": label,
             "api": api_ok,
             "protecao": protecao,
-            "dns_resolver": ativo,
-            "filtros_ativos": dados.get("filters", {}).get("active", 0),
+            "dns_resolver": dns_resolver,
+            "engine_ok": ativo,
+            "api_ok": api_ok,
+            "listener_ok": listener_ok,
+            "resolver_ok": dns_real["resolver_ok"],
+            "upstream_ok": upstream_ok,
+            "filtros_ativos": int(health.get("filters_enabled", 0) or 0),
             "versao": health.get("version", "?"),
+        }
+    except AdGuardHTTPError as exc:
+        logger.info("API local do AdGuard requer atenção: %s", exc)
+        return {
+            **base,
+            "status": "atencao" if instalado else "indisponivel",
+            "status_label": "Requer atenção" if instalado else "Componente indisponível",
+            "erro": "API local do AdGuard não respondeu ao contrato esperado.",
         }
     except (AdGuardError, OSError, ValueError) as exc:
         logger.info("AdGuard local indisponível: %s", exc)
-        return {**base, "ativo": True, "configurado": True, "status": "atencao", "status_label": "Requer atenção", "erro": str(exc)}
+        return {
+            **base,
+            "status": "indisponivel",
+            "status_label": "Componente indisponível",
+            "erro": str(exc),
+        }
     except Exception as exc:
         logger.exception("Falha ao consultar AdGuard local: %s", exc)
-        return {**base, "ativo": True, "configurado": True, "status": "atencao", "status_label": "Requer atenção", "erro": "Não foi possível consultar o serviço DNS."}
+        return {
+            **base,
+            "status": "indisponivel",
+            "status_label": "Componente indisponível",
+            "erro": "Não foi possível consultar o serviço DNS.",
+        }
 
 
 def _estado_suricata(topologia: dict) -> dict:
@@ -226,7 +284,7 @@ def _estado_firewall() -> dict:
 
 
 def _servicos(cfg: ConfigSistema, topologia: dict) -> dict:
-    adguard = _estado_adguard(cfg)
+    adguard = _estado_adguard(cfg, topologia)
     suricata = _estado_suricata(topologia)
     firewall = _estado_firewall()
     estados = (adguard, suricata, firewall)

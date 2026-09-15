@@ -218,6 +218,8 @@ class Command(BaseCommand):
 
         self._ativar_monitor(alterado=monitor_changed)
 
+        adguard = self._provisionar_adguard(automatico=automatico)
+
         socket_ok = self._aguardar_socket(timeout=6.0)
 
         if not socket_ok:
@@ -255,6 +257,7 @@ class Command(BaseCommand):
             "socket": str(self.SOCKET_PATH),
             "agent_dir": str(paths["agent_dir"]),
             "python": str(paths["python"]),
+            "adguard": adguard,
         }
 
     # ------------------------------------------------------------------
@@ -607,6 +610,28 @@ WantedBy=multi-user.target
         if not ativo or alterado:
             acao = "restart" if ativo else "start"
             self._systemctl([acao, self.MONITOR_SERVICE_NAME], obrigatorio=True)
+
+    def _provisionar_adguard(self, *, automatico: bool) -> dict:
+        """Provisiona o engine DNS sem depender da interface HTML nativa."""
+        from dns.services.adguard_bootstrap import provisionar_adguard
+        from rede.services.topologia import obter_topologia
+
+        def controlar_servico(args: list[str]) -> None:
+            self._systemctl(args, obrigatorio=True)
+
+        def servico_ativo(nome: str) -> bool:
+            return self._systemctl(
+                ["is-active", "--quiet", nome],
+                obrigatorio=False,
+            ).returncode == 0
+
+        resultado = provisionar_adguard(
+            topologia=obter_topologia(),
+            controlar_servico=controlar_servico,
+            servico_ativo=servico_ativo,
+        )
+        self._ok("AdGuard Home local provisionado.", automatico)
+        return resultado
 
     def _systemctl(
 

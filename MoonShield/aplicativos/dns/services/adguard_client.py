@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from requests import RequestException, Session
+from requests import HTTPError, RequestException, Session
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,15 @@ class AdGuardError(Exception):
     """Erro controlado de integração com o AdGuard Home."""
 
 
+class AdGuardHTTPError(AdGuardError):
+    """Erro HTTP preservando apenas status e URL, nunca a credencial."""
+
+    def __init__(self, *, status_code: int, url: str):
+        self.status_code = status_code
+        self.url = url
+        super().__init__(f"AdGuard respondeu HTTP {status_code} em {url}.")
+
+
 class AdGuardClient:
     def __init__(self, url: str, user: str, password: str, https: bool = False):
         url = (url or "").strip().rstrip("/")
@@ -167,37 +176,22 @@ class AdGuardClient:
     def _needs_login(self) -> bool:
         return self._session is None or (time.time() - self._last_login) > SESSION_TTL
 
-    def _new_session(self) -> Session:
+    def _new_session(self, *, autenticar: bool = True) -> Session:
         session = Session()
-        # Mantém compatibilidade com instalações locais/self-signed.
-        # Quando houver PKI própria, isso pode ser tornado configurável.
-        session.verify = False
         session.headers.update({"Accept": "application/json"})
+        if autenticar and self.user:
+            # A API 0.107.x documenta Basic Auth para cada requisição. Isso
+            # evita depender da UI ou de cookie de login para a integração.
+            session.auth = (self.user, self.password)
         return session
 
     def _login(self) -> None:
         session = self._new_session()
 
-        # Instalações sem autenticação não precisam do POST /control/login.
-        if not self.user:
-            self._session = session
-            self._last_login = time.time()
-            return
-
-        url = f"{self.base_url}/control/login"
-        try:
-            response = session.post(
-                url,
-                json={"name": self.user, "password": self.password},
-                timeout=TIMEOUT,
-            )
-            response.raise_for_status()
-        except RequestException as exc:
-            raise AdGuardError(f"Falha no login AdGuard ({url}): {exc}") from exc
-
+        # Basic Auth é aceito pela API oficial; nenhuma automação do HTML ou
+        # endpoint de sessão é necessária.
         self._session = session
         self._last_login = time.time()
-        logger.info("AdGuard login OK: %s", self.base_url)
 
     def _ensure_session(self) -> Session:
         if self._needs_login():
@@ -205,36 +199,30 @@ class AdGuardClient:
         assert self._session is not None
         return self._session
 
-    def _get(self, path: str, params: dict = None):
-        session = self._ensure_session()
+    def _get(self, path: str, params: dict = None, *, autenticar: bool = True):
+        session = self._ensure_session() if autenticar else self._new_session(autenticar=False)
         url = f"{self.base_url}{path}"
 
         try:
             response = session.get(url, params=params, timeout=TIMEOUT)
 
-            if response.status_code in (401, 403) and self.user:
-                self._last_login = 0
-                self._login()
-                session = self._ensure_session()
-                response = session.get(url, params=params, timeout=TIMEOUT)
-
             response.raise_for_status()
             return response.json()
+        except HTTPError as exc:
+            resposta = exc.response
+            raise AdGuardHTTPError(
+                status_code=resposta.status_code if resposta is not None else 0,
+                url=url,
+            ) from exc
         except (RequestException, ValueError) as exc:
             raise AdGuardError(f"Erro GET {url}: {exc}") from exc
 
-    def _post(self, path: str, *, json_data: dict = None):
-        session = self._ensure_session()
+    def _post(self, path: str, *, json_data: dict = None, autenticar: bool = True):
+        session = self._ensure_session() if autenticar else self._new_session(autenticar=False)
         url = f"{self.base_url}{path}"
 
         try:
             response = session.post(url, json=json_data, timeout=TIMEOUT)
-
-            if response.status_code in (401, 403) and self.user:
-                self._last_login = 0
-                self._login()
-                session = self._ensure_session()
-                response = session.post(url, json=json_data, timeout=TIMEOUT)
 
             response.raise_for_status()
 
@@ -244,6 +232,12 @@ class AdGuardClient:
                 return response.json()
             except ValueError:
                 return {}
+        except HTTPError as exc:
+            resposta = exc.response
+            raise AdGuardHTTPError(
+                status_code=resposta.status_code if resposta is not None else 0,
+                url=url,
+            ) from exc
         except RequestException as exc:
             raise AdGuardError(f"Erro POST {url}: {exc}") from exc
 
@@ -269,6 +263,37 @@ class AdGuardClient:
     def get_filtering_status(self) -> dict:
         data = self._get("/control/filtering/status")
         return data if isinstance(data, dict) else {}
+
+    def get_dns_info(self) -> dict:
+        data = self._get("/control/dns_info")
+        return data if isinstance(data, dict) else {}
+
+    def testar_upstreams_dns(self, dns_info: dict) -> dict:
+        """Executa o teste oficial sem alterar upstreams ou bootstrap DNS."""
+        dados = {
+            "upstream_dns": list(dns_info.get("upstream_dns") or []),
+            "bootstrap_dns": list(dns_info.get("bootstrap_dns") or []),
+        }
+        resultado = self._post("/control/test_upstream_dns", json_data=dados)
+        return resultado if isinstance(resultado, dict) else {}
+
+    def verificar_configuracao_inicial(self, dados: dict) -> dict:
+        data = self._post(
+            "/control/install/check_config",
+            json_data=dados,
+            autenticar=False,
+        )
+        return data if isinstance(data, dict) else {}
+
+    def configurar_instalacao(self, dados: dict) -> None:
+        self._post(
+            "/control/install/configure",
+            json_data=dados,
+            autenticar=False,
+        )
+
+    def ativar_protecao(self) -> None:
+        self._post("/control/protection", json_data={"enabled": True, "duration": 0})
 
     # ──────────────────────────────────────────────────────────────────────
     # Regras / ações
@@ -400,7 +425,13 @@ class AdGuardClient:
         except Exception:
             return 0
 
-    def _build_health(self, status: dict, filtering: dict) -> dict:
+    def _build_health(
+        self,
+        status: dict,
+        filtering: dict,
+        dns_info: dict | None = None,
+    ) -> dict:
+        dns_info = dns_info or {}
         version = (
             status.get("version")
             or status.get("running_version")
@@ -415,7 +446,9 @@ class AdGuardClient:
         if not uptime_seconds and self._is_local():
             uptime_seconds = self._local_systemd_uptime_seconds()
 
-        protection = bool(status.get("protection_enabled", False))
+        protection = bool(
+            dns_info.get("protection_enabled", status.get("protection_enabled", False))
+        )
         running = bool(status.get("running", True))
 
         filters = filtering.get("filters", [])
@@ -448,9 +481,11 @@ class AdGuardClient:
             "version": version or "—",
             "uptime_seconds": uptime_seconds,
             "uptime": self._uptime_str(uptime_seconds),
-            "dns_port": status.get("dns_port", 53),
+            "dns_port": dns_info.get("port", status.get("dns_port", 53)),
             "dns_addresses": dns_addresses,
             "filters_enabled": enabled_filters,
+            "upstreams": list(dns_info.get("upstream_dns") or []),
+            "bootstrap_dns": list(dns_info.get("bootstrap_dns") or []),
         }
 
     # ──────────────────────────────────────────────────────────────────────
@@ -518,6 +553,7 @@ class AdGuardClient:
         status = self.get_status()
         stats = self.get_stats()
         filtering = self.get_filtering_status()
+        dns_info = self.get_dns_info()
         raw_querylog = self.get_querylog_raw(limit=MAX_QUERYLOG)
 
         clientes = self._build_clients_from_querylog(raw_querylog)
@@ -527,7 +563,7 @@ class AdGuardClient:
         if not clientes:
             clientes = self._build_clients_from_stats(stats.get("top_clients", []))
 
-        health = self._build_health(status, filtering)
+        health = self._build_health(status, filtering, dns_info)
         metrics = self._build_metrics(status, stats, clientes, health)
 
         filters = filtering.get("filters", [])
@@ -542,6 +578,7 @@ class AdGuardClient:
             "top_bloqueados": self._build_top(stats.get("top_blocked_domains", []), limit=8),
             "clientes": clientes,
             "filter_count": filter_count,
+            "dns_info": dns_info,
         }
 
     @staticmethod
@@ -844,7 +881,8 @@ def testar_conexao_adguard(
         )
         status = client.get_status()
         filtering = client.get_filtering_status()
-        health = client._build_health(status, filtering)
+        dns_info = client.get_dns_info()
+        health = client._build_health(status, filtering, dns_info)
 
         msg = (
             f"AdGuard {health.get('version', '—')} · "

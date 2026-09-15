@@ -275,6 +275,22 @@ class AlteracoesServiceTests(TestCase):
         self.assertIsNone(confirmada.expira_em)
         agent.assert_called_once()
 
+    def test_confirmacao_de_lan_dispara_reconcile_adguard_apos_commit(self):
+        alteracao = self.criar_modelo(
+            status=AlteracaoRede.Status.AGUARDANDO_CONFIRMACAO,
+            expira_em=timezone.now() + timedelta(seconds=60),
+        )
+
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch.object(service, "requisitar_agent", return_value={"status": "confirmed"}),
+            patch.object(service, "registrar_evento"),
+            patch("dns.services.adguard_reconcile.reconciliar_adguard_apos_rede") as reconciliar,
+        ):
+            service.confirmar_alteracao(alteracao.id, usuario=self.usuario)
+
+        reconciliar.assert_called_once_with()
+
     def criar_interface_para_confirmacao(self, nome="lan-confirmacao"):
         return InterfaceRede.objects.create(
             nome=nome,

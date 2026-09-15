@@ -14,6 +14,7 @@ from dns.services.adguard_bootstrap import (
     CaminhosAdGuard,
     detectar_conflitos_porta_dns,
     garantir_secret,
+    _hosts_dns_iniciais,
     inventariar_interfaces_dns,
     obter_porta_admin,
     obter_url_admin,
@@ -72,7 +73,7 @@ class TestClienteAdGuard(unittest.TestCase):
 
 
 class TestInventarioDNS(unittest.TestCase):
-    def test_inventario_conhece_todos_os_papeis_sem_habilitar_wan(self):
+    def test_inventario_ativa_todos_os_papeis_habilitados_com_ipv4(self):
         inventario = inventariar_interfaces_dns(TOPOLOGIA_DNS)
         self.assertEqual(
             {item["nome"] for item in inventario["interfaces_disponiveis"]},
@@ -80,7 +81,11 @@ class TestInventarioDNS(unittest.TestCase):
         )
         self.assertEqual(
             [item["nome"] for item in inventario["interfaces_dns_ativas"]],
-            ["lan0"],
+            ["wan0", "lan0", "mgmt0", "dmz0", "custom0"],
+        )
+        self.assertEqual(
+            _hosts_dns_iniciais(inventario),
+            ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"],
         )
 
     def test_politica_nao_hardcoda_interfaces_de_laboratorio(self):
@@ -116,8 +121,8 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         client = client_class.return_value
         client.get_status.side_effect = [
             AdGuardHTTPError(status_code=404, url="http://127.0.0.1:3000/control/status"),
-            {"running": True, "dns_addresses": ["127.0.0.1", "192.168.52.1"]},
-            {"running": True, "dns_addresses": ["127.0.0.1", "192.168.52.1"]},
+            {"running": True, "dns_addresses": ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]},
+            {"running": True, "dns_addresses": ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]},
         ]
         client.verificar_configuracao_inicial.return_value = {"web": {"status": ""}, "dns": {"status": ""}}
         client.get_dns_info.return_value = {"protection_enabled": True, "port": 53}
@@ -134,14 +139,17 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         client.configurar_instalacao.assert_called_once()
         payload = client.configurar_instalacao.call_args.args[0]
         self.assertEqual(payload["web"], {"ip": "127.0.0.1", "port": 3000})
-        self.assertEqual(payload["dns"]["ip"], "192.168.52.1")
+        self.assertEqual(payload["dns"]["ip"], "203.0.113.2")
         self.assertNotIn("segredo-unico", str(resultado))
 
     @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
     @patch("dns.services.adguard_bootstrap.descobrir_adguard")
-    def test_sem_lan_retorna_aguardando_topologia_sem_usar_wan(self, descobrir, _secret):
+    def test_sem_interfaces_com_ipv4_retorna_aguardando_topologia(self, descobrir, _secret):
         descobrir.return_value = self._paths()
-        topologia = {**TOPOLOGIA_DNS, "lan": {"interfaces": []}}
+        topologia = {
+            papel: {"interfaces": [{"nome": f"{papel}0", "desejado": {"habilitada": True}, "real": {}}]}
+            for papel in ("wan", "lan", "mgmt", "dmz", "custom", "unassigned")
+        }
         resultado = provisionar_adguard(
             topologia=topologia,
             controlar_servico=MagicMock(),
@@ -159,7 +167,7 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
     def test_execucao_repetida_preserva_setup_e_customizacoes(self, _dns, _yaml, client_class, descobrir, _secret, _conflitos):
         descobrir.return_value = self._paths()
         client = client_class.return_value
-        client.get_status.return_value = {"running": True, "dns_addresses": ["127.0.0.1", "192.168.52.1"]}
+        client.get_status.return_value = {"running": True, "dns_addresses": ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]}
         client.get_dns_info.return_value = {"protection_enabled": True, "port": 53, "upstream_dns": ["https://existente/dns-query"]}
 
         resultado = provisionar_adguard(
@@ -171,6 +179,31 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         self.assertFalse(resultado["setup_realizado"])
         client.configurar_instalacao.assert_not_called()
         client.get_dns_info.assert_called_once()
+
+    @patch("dns.services.adguard_bootstrap.time.sleep")
+    @patch("dns.services.adguard_bootstrap.detectar_conflitos_porta_dns", return_value=[])
+    @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
+    @patch("dns.services.adguard_bootstrap.descobrir_adguard")
+    @patch("dns.services.adguard_bootstrap.AdGuardClient")
+    @patch("dns.services.adguard_bootstrap._reconciliar_yaml")
+    @patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True})
+    def test_reconcile_aguarda_api_apos_restart(self, _dns, reconciliar, client_class, descobrir, _secret, _conflitos, dormir):
+        descobrir.return_value = self._paths()
+        client = client_class.return_value
+        status = {"running": True, "dns_addresses": ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]}
+        client.get_status.side_effect = [status, AdGuardError("connection refused"), status, status, status]
+        client.get_dns_info.return_value = {"protection_enabled": True, "port": 53, "upstream_dns": ["https://cloudflare-dns.com/dns-query"]}
+        client.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "OK"}
+        reconciliar.side_effect = lambda **kwargs: (kwargs["validar_apos_inicio"]() or True)
+
+        resultado = provisionar_adguard(
+            topologia=TOPOLOGIA_DNS,
+            controlar_servico=MagicMock(),
+            servico_ativo=lambda _nome: True,
+        )
+
+        self.assertTrue(resultado["reconciliado"])
+        dormir.assert_called_once_with(0.25)
 
 
 class TestMigracaoYamlAdGuard(unittest.TestCase):
@@ -226,8 +259,32 @@ class TestUpstreamsAdGuard(unittest.TestCase):
         resultado = {"https://cloudflare-dns.com/dns-query": "OK", "1.1.1.1": "OK"}
         self.assertTrue(upstreams_aprovados(self.DNS_INFO, resultado))
 
+    def test_porta_https_padrao_explicita_equivale_a_implicita(self):
+        resultado = {"https://cloudflare-dns.com:443/dns-query": "OK"}
+        self.assertTrue(upstreams_aprovados(self.DNS_INFO, resultado))
+
+    def test_upstream_configurado_ausente_reprova(self):
+        dns_info = {"upstream_dns": ["https://cloudflare-dns.com/dns-query", "https://dns10.quad9.net/dns-query"]}
+        self.assertFalse(upstreams_aprovados(dns_info, {"https://cloudflare-dns.com/dns-query": "OK"}))
+
 
 class TestHealthAdGuard(unittest.TestCase):
+    ENDERECOS_ESPERADOS = ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]
+
+    def _dados_operacionais(self):
+        return {
+            "health": {
+                "api": "ok",
+                "running": True,
+                "protection_enabled": True,
+                "dns_port": 53,
+                "dns_addresses": self.ENDERECOS_ESPERADOS,
+                "filters_enabled": 3,
+                "version": "v0.107.79",
+            },
+            "dns_info": {"upstream_dns": ["https://cloudflare-dns.com/dns-query"]},
+        }
+
     def _estado_com_erro(self, erro):
         with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.side_effect = erro
@@ -240,8 +297,24 @@ class TestHealthAdGuard(unittest.TestCase):
 
     def test_servico_indisponivel_nao_e_reportado_ativo(self):
         estado = self._estado_com_erro(AdGuardError("conexão recusada"))
-        self.assertEqual(estado["status"], "indisponivel")
+        self.assertEqual(estado["status"], "atencao")
+        self.assertTrue(estado["instalado"])
         self.assertFalse(estado["ativo"])
+
+    def test_health_operacional_usa_contrato_local_completo(self):
+        with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True}), patch("dns.views._get_adguard_client") as factory:
+            factory.return_value.fetch_all.return_value = self._dados_operacionais()
+            factory.return_value.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "OK"}
+            estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
+
+        self.assertTrue(estado["configurado"])
+        self.assertTrue(estado["saudavel"])
+        self.assertEqual(estado["status"], "operacional")
+        self.assertTrue(estado["ativo"])
+        self.assertTrue(estado["api"])
+        self.assertTrue(estado["protecao"])
+        self.assertEqual(estado["filtros_ativos"], 3)
+        self.assertEqual(estado["versao"], "v0.107.79")
 
     def test_protecao_versao_e_filtros_vem_do_health_real(self):
         dados = {
@@ -270,6 +343,7 @@ class TestHealthAdGuard(unittest.TestCase):
                 factory.return_value.fetch_all.return_value = dados
                 estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
             self.assertFalse(estado["saudavel"])
+            self.assertFalse(estado["configurado"])
 
     def test_api_ok_sem_resolucao_real_fica_em_atencao(self):
         dados = {"health": {"api": "ok", "running": True, "protection_enabled": True, "dns_port": 53, "dns_addresses": ["127.0.0.1", "192.168.52.1"]}}

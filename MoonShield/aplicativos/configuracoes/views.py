@@ -143,7 +143,7 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
             )
         except AdGuardError:
             upstream_ok = False
-        dns_resolver = bool(dns_real["resolver_ok"])
+        dns_resolver = bool(dns_real.get("resolver_ok"))
         configurado = bool(api_ok and protecao and porta_dns == 53 and listener_ok and dns_resolver and upstream_ok)
 
         status = "operacional" if ativo and configurado else "atencao"
@@ -162,7 +162,7 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
             "engine_ok": ativo,
             "api_ok": api_ok,
             "listener_ok": listener_ok,
-            "resolver_ok": dns_real["resolver_ok"],
+            "resolver_ok": dns_resolver,
             "upstream_ok": upstream_ok,
             "filtros_ativos": int(health.get("filters_enabled", 0) or 0),
             "versao": health.get("version", "?"),
@@ -179,16 +179,16 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
         logger.info("AdGuard local indisponível: %s", exc)
         return {
             **base,
-            "status": "indisponivel",
-            "status_label": "Componente indisponível",
-            "erro": str(exc),
+            "status": "atencao" if instalado else "indisponivel",
+            "status_label": "Requer atenção" if instalado else "Componente indisponível",
+            "erro": "API local do AdGuard está indisponível.",
         }
     except Exception as exc:
         logger.exception("Falha ao consultar AdGuard local: %s", exc)
         return {
             **base,
-            "status": "indisponivel",
-            "status_label": "Componente indisponível",
+            "status": "atencao" if instalado else "indisponivel",
+            "status_label": "Requer atenção" if instalado else "Componente indisponível",
             "erro": "Não foi possível consultar o serviço DNS.",
         }
 

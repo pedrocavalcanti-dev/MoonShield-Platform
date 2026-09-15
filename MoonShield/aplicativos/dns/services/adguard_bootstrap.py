@@ -665,11 +665,24 @@ def provisionar_adguard(
             raise AdGuardBootstrapError("API local do AdGuard não respondeu ao contrato esperado.") from exc
 
     def validar_api_reconciliada() -> None:
-        AdGuardClient(
+        client_validacao = AdGuardClient(
             obter_url_admin_local(paths),
             secret["username"],
             secret["password"],
-        ).get_status()
+        )
+        ultimo_erro: AdGuardError | None = None
+        for tentativa in range(20):
+            try:
+                client_validacao.get_status()
+                return
+            except AdGuardError as exc:
+                ultimo_erro = exc
+                if tentativa == 19:
+                    break
+                time.sleep(0.25)
+        raise AdGuardBootstrapError(
+            "API do AdGuard não ficou disponível após o restart."
+        ) from ultimo_erro
 
     reconciliado = _reconciliar_yaml(
         paths=paths,
@@ -710,8 +723,8 @@ def provisionar_adguard(
 
     return {
         "ok": True,
-        "estado": "operacional" if dns_real["resolver_ok"] and upstream_ok else "atencao",
-        "saudavel": bool(dns_real["resolver_ok"] and upstream_ok),
+        "estado": "operacional" if dns_real.get("resolver_ok") and upstream_ok else "atencao",
+        "saudavel": bool(dns_real.get("resolver_ok") and upstream_ok),
         "setup_realizado": setup_realizado,
         "reconciliado": reconciliado,
         "api_url": client.base_url,

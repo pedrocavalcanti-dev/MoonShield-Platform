@@ -648,11 +648,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function servicePresentation(service) {
     if (
-      service?.erro ||
       ["erro", "falha", "agent_indisponivel", "nftables_nao_instalado"].includes(service?.status) ||
       (service?.instalado === false && service?.status === "indisponivel")
     ) {
       return { label: "Indisponível", level: "error", configuration: service?.configurado ? "Configurado" : "Não configurado", health: service?.status_label || "Falha na verificação" };
+    }
+    if (service?.status === "atencao") {
+      return { label: "Requer atenção", level: "warning", configuration: service?.configurado ? "Configurado" : "Não configurado", health: service?.status_label || "Requer atenção" };
     }
     if (!service?.configurado) {
       return { label: "Aguardando configuração", level: "neutral", configuration: "Não configurado", health: "Ainda não validada" };
@@ -705,7 +707,7 @@ document.addEventListener("DOMContentLoaded", () => {
           details: [
             ["Serviço local", adguard.ativo ? "Ativo" : adguard.instalado === false ? "Componente indisponível" : "Não confirmado"],
             ["API", adguard.api ? "Disponível" : "Indisponível"],
-            ["Proteção", adguard.protecao ? "Ativa" : "Estado não informado"],
+            ["Proteção", adguard.protecao ? "Ativada" : "Estado não informado"],
             ["Filtros", Number.isFinite(Number(adguard.filtros_ativos)) ? `${Number(adguard.filtros_ativos)} ativos` : "Não informado"],
           ],
           note: "Configurações avançadas ficam disponíveis em DNS & Rede após concluir.",

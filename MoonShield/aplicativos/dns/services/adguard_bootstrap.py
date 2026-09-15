@@ -207,6 +207,28 @@ def criar_cliente_adguard_local(
     )
 
 
+def _garantir_permissoes_configuracao(
+    paths: CaminhosAdGuard,
+    *,
+    grupo: str = "moonshield",
+) -> None:
+    """Mantém o YAML acessível apenas ao runtime web da appliance."""
+    try:
+        gid = grp.getgrnam(grupo).gr_gid
+    except KeyError as exc:
+        raise AdGuardBootstrapError(
+            f"Grupo de integração {grupo} não foi encontrado."
+        ) from exc
+
+    try:
+        os.chown(paths.configuracao, 0, gid)
+        os.chmod(paths.configuracao, 0o640)
+    except (PermissionError, OSError) as exc:
+        raise AdGuardBootstrapError(
+            "Não foi possível proteger a configuração local do AdGuard Home."
+        ) from exc
+
+
 def _enderecos_ipv4(interface: dict) -> list[str]:
     real = interface.get("real") if isinstance(interface.get("real"), dict) else {}
     candidatos = list(real.get("enderecos_ipv4") or [])
@@ -476,14 +498,15 @@ def _escrever_configuracao_atomica(paths: CaminhosAdGuard, conteudo: str) -> Pat
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=original.parent, delete=False) as temporario:
         temporario.write(conteudo)
         nome_temporario = temporario.name
-    os.chmod(nome_temporario, stat.S_IMODE(original.stat().st_mode))
     os.replace(nome_temporario, original)
+    _garantir_permissoes_configuracao(paths)
     return backup
 
 
 def _restaurar_backup(paths: CaminhosAdGuard, backup: Path) -> None:
     if backup.is_file():
         shutil.copy2(backup, paths.configuracao)
+        _garantir_permissoes_configuracao(paths)
 
 
 def validar_resolucao_dns(*, host: str = "127.0.0.1", porta: int = 53, timeout: float = 1.5) -> dict[str, bool]:
@@ -626,6 +649,7 @@ def provisionar_adguard(
     """Provisiona setup nativo sem HTML e preserva instâncias já válidas."""
     paths = descobrir_adguard()
     secret = garantir_secret(secret_path)
+    _garantir_permissoes_configuracao(paths)
     inventario = inventariar_interfaces_dns(topologia)
     if not inventario["interfaces_dns_ativas"]:
         return {
@@ -660,6 +684,7 @@ def provisionar_adguard(
             if problemas:
                 raise AdGuardBootstrapError("Configuração inicial do AdGuard recusada: " + "; ".join(problemas))
             client.configurar_instalacao(payload)
+            _garantir_permissoes_configuracao(paths)
             setup_realizado = True
         elif exc.status_code != 401:
             raise AdGuardBootstrapError("API local do AdGuard não respondeu ao contrato esperado.") from exc
@@ -691,6 +716,7 @@ def provisionar_adguard(
         controlar_servico=controlar_servico,
         validar_apos_inicio=validar_api_reconciliada,
     )
+    _garantir_permissoes_configuracao(paths)
     client = AdGuardClient(obter_url_admin_local(paths), secret["username"], secret["password"])
     try:
         for tentativa in range(20):

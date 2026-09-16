@@ -98,7 +98,6 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
         adguard_esta_provisionado,
         inventariar_interfaces_dns,
         upstreams_aprovados,
-        validar_resolucao_dns,
     )
 
     instalado = adguard_esta_provisionado()
@@ -135,7 +134,6 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
             and hosts_reais == hosts_esperados
             and not ({"0.0.0.0", "::"} & hosts_reais)
         )
-        dns_real = validar_resolucao_dns() if listener_ok else {"resolver_ok": False}
         try:
             upstream_ok = upstreams_aprovados(
                 dados.get("dns_info") or {},
@@ -143,12 +141,12 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
             )
         except AdGuardError:
             upstream_ok = False
-        dns_resolver = bool(dns_real.get("resolver_ok"))
+
+        dns_resolver = bool(ativo and api_ok and listener_ok and upstream_ok)
         configurado = bool(api_ok and protecao and porta_dns == 53 and listener_ok and dns_resolver and upstream_ok)
 
         status = "operacional" if ativo and configurado else "atencao"
         label = "Operacional" if status == "operacional" else "Requer atenção"
-
         return {
             **base,
             "ativo": ativo,

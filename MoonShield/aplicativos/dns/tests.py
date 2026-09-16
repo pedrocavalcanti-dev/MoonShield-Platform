@@ -410,7 +410,7 @@ class TestHealthAdGuard(unittest.TestCase):
         self.assertFalse(estado["ativo"])
 
     def test_health_operacional_usa_contrato_local_completo(self):
-        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True}), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.return_value = self._dados_operacionais()
             factory.return_value.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "OK"}
             estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
@@ -436,8 +436,9 @@ class TestHealthAdGuard(unittest.TestCase):
                 "version": "v0.107.79",
             }
         }
-        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True, "upstream_ok": True}), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.return_value = dados
+            factory.return_value.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "OK"}
             estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
 
         self.assertFalse(estado["saudavel"])
@@ -453,10 +454,20 @@ class TestHealthAdGuard(unittest.TestCase):
             self.assertFalse(estado["saudavel"])
             self.assertFalse(estado["configurado"])
 
-    def test_api_ok_sem_resolucao_real_fica_em_atencao(self):
+    def test_api_ok_sem_upstream_fica_em_atencao(self):
         dados = {"health": {"api": "ok", "running": True, "protection_enabled": True, "dns_port": 53, "dns_addresses": ["127.0.0.1", "192.168.52.1"]}}
-        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": False, "upstream_ok": False}), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.return_value = dados
+            # upstream falha ou retorna erro
+            factory.return_value.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "Server Error"}
             estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
         self.assertFalse(estado["saudavel"])
         self.assertFalse(estado["upstream_ok"])
+
+    def test_runtime_health_nao_dispara_query_dns_sintetica(self):
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.views._get_adguard_client") as factory, patch("configuracoes.views.validar_resolucao_dns", create=True) as mock_validar:
+            factory.return_value.fetch_all.return_value = self._dados_operacionais()
+            factory.return_value.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "OK"}
+            estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
+            self.assertTrue(estado["saudavel"])
+            mock_validar.assert_not_called()

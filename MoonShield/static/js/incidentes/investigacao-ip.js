@@ -221,51 +221,9 @@ function gerarSerie(eventos, horas) {
   return { labels, score, series:counts, hourBuckets, bucketMin };
 }
 
-/* ---------- Simulação ---------- */
-function gerarSimulacao(ip) {
-  const now = new Date();
-  const ctx = {
-    total_alertas:47,total_dns:312,total_http:89,total_tls:54,criticos:3,altos:12,medios:18,baixos:14,
-    geo:{pais:'Rússia',pais_codigo:'RU',cidade:'Moscou',asn_number:'AS12389',asn_org:'PJSC Rostelecom',rdns:'client.example.ru',latitude:55.7558,longitude:37.6173},
-    risk_score:{score:74.5,total_alertas:47,criticos:3,altos:12,medios:18,ultimo_alerta:new Date(now-1800000).toISOString()},
-    direction_counts:{inbound:34,outbound:9,lateral:4},direction_dominant:'inbound',
-    top_sids:[
-      {sid:'2100498',signature:'ET SCAN Potential SSH Scan',total:18},{sid:'2023019',signature:'ET MALWARE CobaltStrike Beacon',total:9},
-      {sid:'2010935',signature:'ET DNS Query to .ru TLD',total:14},{sid:'2001328',signature:'ET POLICY RDP connection',total:6},
-      {sid:'2034700',signature:'ET EXPLOIT Log4Shell Attempt',total:4}
-    ],
-    top_dominios:[
-      {query:'update.microsoft.com',total:45},{query:'api.telegram.org',total:23},{query:'raw.githubusercontent.com',total:17},
-      {query:'185.220.101.47.nip.io',total:11},{query:'cdn.discordapp.com',total:8}
-    ],
-    top_user_agents:[
-      {ua:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',total:34},
-      {ua:'python-requests/2.28.1',total:18},{ua:'curl/7.84.0',total:7}
-    ],
-  };
-  const tipos = ['alert','dns','http','tls'], eventos = [];
-  for (let i=0;i<100;i++) {
-    const tipo = tipos[Math.floor(Math.random()*tipos.length)], ev = { tipo, timestamp:new Date(now - Math.random()*86400000*(INV.horas/24)).toISOString() };
-    if (tipo === 'alert') {
-      const sig = ctx.top_sids[Math.floor(Math.random()*ctx.top_sids.length)], sevs = ['critico','critico','alto','alto','medio','medio','baixo'];
-      ev.titulo=sig.signature; ev.severidade_jg=sevs[Math.floor(Math.random()*sevs.length)];
-      ev.detalhe=`${ip}:${Math.floor(Math.random()*60000+1024)} → 10.0.0.${Math.floor(Math.random()*254+1)}:${[22,3389,80,443][Math.floor(Math.random()*4)]}`;
-      ev.sid=sig.sid; ev.status=['novo','investigando','resolvido'][Math.floor(Math.random()*3)]; ev.id=1000+i;
-    } else if (tipo === 'dns') { ev.titulo=ctx.top_dominios[Math.floor(Math.random()*ctx.top_dominios.length)].query; ev.detalhe='tipo=A rcode=NOERROR'; }
-    else if (tipo === 'http') { ev.titulo=`GET ${['/api/v1/data','/wp-admin/','/uploads/shell.php','/login'][Math.floor(Math.random()*4)]}`; ev.detalhe=`status=${[200,403,404,500][Math.floor(Math.random()*4)]} • python-requests/2.28.1`; }
-    else { ev.titulo=['api.telegram.org','raw.githubusercontent.com','cdn.discordapp.com'][Math.floor(Math.random()*3)]; ev.detalhe='TLS 1.3 • ja3=a0e9f5d64349fb13191bc781f81f42e1'; }
-    eventos.push(ev);
-  }
-  eventos.sort((a,b) => new Date(b.timestamp)-new Date(a.timestamp));
-  return { ctx, timeline:{ok:true,eventos,total:eventos.length} };
-}
-
 /* ---------- Carga ---------- */
 async function carregarTudo() {
   hideChartTooltip();
-  if (INV.sim) {
-    const sim = gerarSimulacao(INV.ip); INV.dados={ok:true,contexto:sim.ctx}; INV.timeline=sim.timeline; renderTudo(); return;
-  }
   try {
     const [ctxData, tlData] = await Promise.all([
       fetchJson(`/incidentes/api/ip/${encodeURIComponent(INV.ip)}/contexto/?horas=${INV.horas}`),
@@ -549,7 +507,7 @@ function renderTlItem(ev) {
 function abrirModalSupressao(){const modal=$('modalOverlay');if(modal){modal.classList.add('open');modal.setAttribute('aria-hidden','false');}$('acoesDropdown')?.classList.remove('open');setTimeout(()=>$('supMotivo')?.focus(),50);}
 function fecharModalSupressao(){const modal=$('modalOverlay');if(modal){modal.classList.remove('open');modal.setAttribute('aria-hidden','true');}}
 function exportarJSON() {
-  const payload={ip:INV.ip,horas:INV.horas,gerado:new Date().toISOString(),simulado:INV.sim,contexto:INV.dados?.contexto||null,timeline:INV.timeline?.eventos||[]};
+  const payload={ip:INV.ip,horas:INV.horas,gerado:new Date().toISOString(),contexto:INV.dados?.contexto||null,timeline:INV.timeline?.eventos||[]};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
   a.download=`moonshield_investigacao_${INV.ip.replace(/[\.:]/g,'_')}_${Date.now()}.json`;a.href=url;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),0);
   toast('JSON exportado com sucesso!','ok');$('acoesDropdown')?.classList.remove('open');
@@ -557,7 +515,6 @@ function exportarJSON() {
 async function criarSupressao() {
   const tipo=$('supTipo')?.value||'ip_src',motivo=$('supMotivo')?.value.trim()||'';
   if(!motivo)return toast('Informe o motivo da supressão.','danger');
-  if(INV.sim){toast('Supressão criada (simulação)!','ok');fecharModalSupressao();return;}
   try{
     const data=await fetchJson('/incidentes/api/supressao/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')},body:JSON.stringify({tipo,ip:tipo==='ip_src'?INV.ip:null,sid:tipo==='sid'?($('supSidVal')?.value.trim()||null):null,dominio:tipo==='dominio'?($('supDominioVal')?.value.trim()||null):null,motivo,expira:$('supExpira')?.value||null})});
     if(data.ok||data.id){toast('Supressão criada!','ok');fecharModalSupressao();}else throw new Error(data.erro||'Erro ao criar supressão');
@@ -581,10 +538,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     document.querySelectorAll('.inv-tl-filter').forEach(b=>b.classList.remove('inv-tl-filter--active'));btn.classList.add('inv-tl-filter--active');aplicarFiltroTimeline(btn.dataset.tipo||'all');
   }));
   $('tlMoreBtn')?.addEventListener('click',mostrarMaisTimeline);
-  $('btnSimular')?.addEventListener('click',()=>{
-    INV.sim=!INV.sim;$('btnSimular').classList.toggle('active',INV.sim);if($('simBanner'))$('simBanner').style.display=INV.sim?'flex':'none';toast(INV.sim?'Modo simulação ativado — dados fictícios':'Modo simulação desativado');carregarTudo();
-  });
-  $('simBannerClose')?.addEventListener('click',()=>{if($('simBanner'))$('simBanner').style.display='none';});
+
   $('btnAcoes')?.addEventListener('click',e=>{e.stopPropagation();$('acoesDropdown')?.classList.toggle('open');});
   document.addEventListener('click',e=>{if(!e.target.closest('.inv-actions-wrap'))$('acoesDropdown')?.classList.remove('open');});
   $('optSupressao')?.addEventListener('click',abrirModalSupressao);$('optExportar')?.addEventListener('click',exportarJSON);

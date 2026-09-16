@@ -542,25 +542,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         ? d.interfaces
                         : [],
 
-                    // Telemetria ainda simulada.
-                    telemetry_mode: 'simulated',
-                    queries_dns: rand(100, 2000),
-                    blocked_dns: rand(0, 50),
-                    soc_events: rand(0, 2),
-                    fw_connections: rand(10, 300),
-                    req_min: rand(1, 10),
-                    dns_hourly: Array.from(
-                        { length: 24 },
-                        () => rand(0, 100)
-                    ),
-                    blocked_hourly: Array.from(
-                        { length: 24 },
-                        () => rand(0, 20)
-                    ),
-                    conn_hourly: Array.from(
-                        { length: 24 },
-                        () => rand(0, 50)
-                    ),
+                    telemetry_mode: 'real',
+                    queries_dns: 0,
+                    blocked_dns: 0,
+                    soc_events: 0,
+                    fw_connections: 0,
+                    req_min: 0,
+                    dns_hourly: [],
+                    blocked_hourly: [],
+                    conn_hourly: [],
                     ip_history: [{
                         ip: d.ip,
                         since: d.first_seen
@@ -740,6 +730,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function mkMiniLine(id, data, color) {
         const el = $(id); if (!el) return null;
+        if (!data || data.length === 0) {
+            el.parentElement.innerHTML = '<div style="color:var(--text-dim);font-size:12px;margin:auto;display:flex;align-items:center;justify-content:center;height:100%;">Sem dados</div>';
+            return null;
+        }
         const [r, g, b] = [
             parseInt(color.slice(1, 3), 16),
             parseInt(color.slice(3, 5), 16),

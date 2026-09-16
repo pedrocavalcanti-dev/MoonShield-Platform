@@ -62,7 +62,7 @@ from django.views.decorators.http import (
 from .auxiliares import (
     allow_to_dict,
     block_to_dict,
-    demo_data,
+
     evento_to_log,
     geo_to_dict,
     get_modo,
@@ -568,12 +568,7 @@ def api_fw_data(request):
         )
     )
 
-    if get_modo() == "demo":
-        return JsonResponse(
-            demo_data(
-                period
-            )
-        )
+
 
     try:
         has_data = EventoFirewall.objects.exists()
@@ -600,23 +595,7 @@ def api_fw_data(request):
 @require_GET
 @login_required(login_url=LOGIN_URL)
 def api_status(request):
-    if get_modo() == "demo":
-        return JsonResponse(
-            {
-                "ok": True,
-                "fonte": "simulacao",
-                "modo": "simulacao",
-                "agent_ativo": False,
-                "agent_disponivel": False,
-                "instalado": False,
-                "configurado": False,
-                "ativo": False,
-                "operacional": False,
-                "saudavel": False,
-                "status": "simulacao",
-                "status_label": "Simulação",
-            }
-        )
+
 
     estado = obter_estado_firewall(
         incluir_detalhes=True
@@ -687,47 +666,7 @@ def api_diagnostico(request):
 @require_GET
 @login_required(login_url=LOGIN_URL)
 def api_interfaces(request):
-    if get_modo() == "demo":
-        return JsonResponse(
-            {
-                "ok": True,
-                "fonte": "simulacao",
-                "interfaces": [
-                    {
-                        "nome": "WAN",
-                        "ip": "203.0.113.10",
-                        "rede": "203.0.113.0/24",
-                        "up": True,
-                        "papeis": [
-                            "WAN"
-                        ],
-                    },
-                    {
-                        "nome": "MGMT",
-                        "ip": "10.20.0.10",
-                        "rede": "10.20.0.0/24",
-                        "up": True,
-                        "papeis": [
-                            "MGMT"
-                        ],
-                    },
-                    {
-                        "nome": "LAN",
-                        "ip": "10.10.0.1",
-                        "rede": "10.10.0.0/24",
-                        "up": True,
-                        "papeis": [
-                            "LAN"
-                        ],
-                    },
-                ],
-                "mapeamento": {
-                    "WAN": "WAN",
-                    "MGMT": "MGMT",
-                    "LAN": "LAN",
-                },
-            }
-        )
+
 
     resultado = obter_interfaces()
 
@@ -758,39 +697,7 @@ def api_fw_feed(request):
         maximo=200,
     )
 
-    if get_modo() == "demo":
-        dados = demo_data(
-            "24h"
-        )
 
-        return JsonResponse(
-            {
-                "ok": True,
-                "mode": "demo",
-                "modo": "simulacao",
-                "interfaces": [
-                    {
-                        "nome": "WAN",
-                        "ip": "203.0.113.10",
-                        "up": True,
-                    },
-                    {
-                        "nome": "MGMT",
-                        "ip": "10.20.0.10",
-                        "up": True,
-                    },
-                    {
-                        "nome": "LAN",
-                        "ip": "10.10.0.1",
-                        "up": True,
-                    },
-                ],
-                "eventos": dados.get(
-                    "logs",
-                    [],
-                )[:limite],
-            }
-        )
 
     qs = EventoFirewall.objects.order_by(
         "-timestamp"

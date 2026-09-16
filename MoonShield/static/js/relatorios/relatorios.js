@@ -9,63 +9,11 @@
 /* ══════════════════════════════════════════════════════════
    0. DADOS SIMULADOS (substituir por fetch Django)
 ══════════════════════════════════════════════════════════ */
-const MOCK_REPORTS = (() => {
-    const tipos = ['soc', 'auditoria', 'vulnerabilidade', 'compliance', 'executivo', 'forense', 'firewall', 'dns'];
-    const status = ['pronto', 'pronto', 'pronto', 'pronto', 'gerando', 'agendado', 'erro'];
-    const formatos = ['PDF', 'XLSX', 'CSV', 'JSON', 'PDF', 'PDF'];
-    const nomes = {
-        soc: ['SOC Operacional Diário', 'Resumo SOC — Turno Noite', 'SOC — Alertas Críticos'],
-        auditoria: ['Auditoria de Acesso', 'Log de Autenticações', 'Revisão de Privilégios'],
-        vulnerabilidade: ['Scan Completo de Vulnerabilidades', 'CVEs Críticos Q3', 'Patch Gap Analysis'],
-        compliance: ['ISO 27001 Checklist', 'LGPD Conformidade', 'PCI-DSS Trimestral'],
-        executivo: ['Resumo Executivo Mensal', 'Board Report Q3', 'KPI Dashboard Export'],
-        forense: ['Análise Forense — Incidente #34', 'Memory Dump Analysis', 'Network Forensics'],
-        firewall: ['Regras de Firewall Ativas', 'Bloqueios Recentes', 'Firewall Audit'],
-        dns: ['DNS Queries Report', 'Domínios Suspeitos', 'DNS Anomalias'],
-    };
-    const periodos = ['Hoje', 'Últ. 7 dias', 'Últ. 30 dias', 'Jun 2025', 'Jul 2025', 'Ago 2025', 'Set 2025'];
-    const tamanhos = ['1.2 MB', '340 KB', '4.8 MB', '820 KB', '2.1 MB', '156 KB', '6.3 MB', '512 KB'];
+const MOCK_REPORTS = [];
 
-    const randomFrom = arr => arr[Math.floor(Math.random() * arr.length)];
-    const randomDate = () => {
-        const d = new Date();
-        d.setDate(d.getDate() - Math.floor(Math.random() * 60));
-        return d;
-    };
+const MOCK_ACTIVITY = [];
 
-    return Array.from({ length: 147 }, (_, i) => {
-        const tipo = randomFrom(tipos);
-        return {
-            id: `REL-${String(i + 1).padStart(4, '0')}`,
-            nome: randomFrom(nomes[tipo]),
-            tipo,
-            data: randomDate(),
-            periodo: randomFrom(periodos),
-            formato: randomFrom(formatos),
-            status: randomFrom(status),
-            tamanho: randomFrom(tamanhos),
-        };
-    }).sort((a, b) => b.data - a.data);
-})();
-
-const MOCK_ACTIVITY = [
-    { type: 'gen', text: 'SOC Operacional Diário gerado com sucesso', time: 'há 3 min' },
-    { type: 'down', text: 'ISO 27001 Checklist baixado por admin', time: 'há 18 min' },
-    { type: 'sched', text: 'Compliance Semanal agendado para seg 08:00', time: 'há 1h' },
-    { type: 'gen', text: 'Scan de Vulnerabilidades concluído · 23 CVEs', time: 'há 2h' },
-    { type: 'err', text: 'Falha ao gerar Board Report Q3 · timeout', time: 'há 3h' },
-    { type: 'gen', text: 'Resumo Executivo Mensal gerado', time: 'ontem' },
-];
-
-const MOCK_CHART = [
-    { label: 'Abr', val: 28 },
-    { label: 'Mai', val: 34 },
-    { label: 'Jun', val: 22 },
-    { label: 'Jul', val: 41 },
-    { label: 'Ago', val: 38 },
-    { label: 'Set', val: 29 },
-    { label: 'Out', val: 47, cur: true },
-];
+const MOCK_CHART = [];
 
 /* ══════════════════════════════════════════════════════════
    1. ESTADO GLOBAL
@@ -531,91 +479,7 @@ const newScheduleModalHTML = `
    7. GERAÇÃO — SIMULAÇÃO
 ══════════════════════════════════════════════════════════ */
 function startGeneration() {
-    if (State.generating) return;
-    State.generating = true;
-    State.genProgress = 0;
-
-    const quickCard = document.getElementById('quickGenCard');
-    const progressCard = document.getElementById('progressCard');
-    quickCard.style.display = 'none';
-    progressCard.style.display = '';
-
-    const steps = [
-        { id: 'ps1', label: 'Coletando dados', from: 0, to: 25 },
-        { id: 'ps2', label: 'Processando eventos', from: 25, to: 65 },
-        { id: 'ps3', label: 'Renderizando gráficos', from: 65, to: 88 },
-        { id: 'ps4', label: 'Exportando arquivo', from: 88, to: 100 },
-    ];
-
-    let stepIdx = 0;
-    const bar = document.getElementById('genProgressBar');
-
-    // Reset visual
-    steps.forEach(s => {
-        const el = document.getElementById(s.id);
-        el.classList.remove('rel-pstep--done', 'rel-pstep--active');
-    });
-
-    document.getElementById('ps1').classList.add('rel-pstep--active');
-
-    State.genInterval = setInterval(() => {
-        State.genProgress = Math.min(State.genProgress + Math.random() * 3 + 1, 100);
-        bar.style.width = State.genProgress + '%';
-
-        // Avança steps
-        while (stepIdx < steps.length && State.genProgress >= steps[stepIdx].to) {
-            document.getElementById(steps[stepIdx].id).classList.remove('rel-pstep--active');
-            document.getElementById(steps[stepIdx].id).classList.add('rel-pstep--done');
-            stepIdx++;
-            if (stepIdx < steps.length) {
-                document.getElementById(steps[stepIdx].id).classList.add('rel-pstep--active');
-            }
-        }
-
-        // Atualiza meta do step atual
-        if (stepIdx < steps.length) {
-            const pct = Math.round((State.genProgress - steps[stepIdx].from) / (steps[stepIdx].to - steps[stepIdx].from) * 100);
-            const metaEl = document.getElementById(steps[stepIdx].id)?.querySelector('.rel-pstep__meta');
-            if (metaEl) metaEl.textContent = Math.min(pct, 99) + '%';
-        }
-
-        if (State.genProgress >= 100) {
-            clearInterval(State.genInterval);
-            State.generating = false;
-
-            setTimeout(() => {
-                progressCard.style.display = 'none';
-                quickCard.style.display = '';
-
-                // Injeta relatório simulado na lista
-                const tipo = document.getElementById('quickType').value;
-                const formato = document.querySelector('input[name="qFormat"]:checked')?.value?.toUpperCase() || 'PDF';
-                const novoRel = {
-                    id: `REL-${String(MOCK_REPORTS.length + 1).padStart(4, '0')}`,
-                    nome: document.getElementById('quickType').options[document.getElementById('quickType').selectedIndex].text.split(' — ')[0],
-                    tipo,
-                    data: new Date(),
-                    periodo: document.getElementById('quickPeriod').value,
-                    formato,
-                    status: 'pronto',
-                    tamanho: (Math.random() * 4 + 0.5).toFixed(1) + ' MB',
-                };
-                MOCK_REPORTS.unshift(novoRel);
-                render();
-                toast('ok', `Relatório "${novoRel.nome}" gerado com sucesso!`);
-
-                /* BACK-END:
-                 * fetch('/api/relatorios/gerar/', {
-                 *   method: 'POST',
-                 *   headers: { 'Content-Type':'application/json', 'X-CSRFToken': getCsrf() },
-                 *   body: JSON.stringify({ tipo, formato, periodo: document.getElementById('quickPeriod').value })
-                 * })
-                 * .then(r => r.json())
-                 * .then(data => { ... });
-                 */
-            }, 600);
-        }
-    }, 80);
+    toast('info', 'Geração de relatórios ainda não disponível nesta versão.');
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -625,6 +489,12 @@ function renderMiniChart() {
     const chart = document.getElementById('miniChart');
     const labels = document.getElementById('miniChartLabels');
     if (!chart || !labels) return;
+
+    if (MOCK_CHART.length === 0) {
+        chart.innerHTML = '<div style="color: var(--text-muted); font-size: 12px; margin: auto;">Sem dados</div>';
+        labels.innerHTML = '';
+        return;
+    }
 
     const max = Math.max(...MOCK_CHART.map(d => d.val));
     const chartH = 50;
@@ -645,6 +515,11 @@ function renderMiniChart() {
 function renderActivity() {
     const feed = document.getElementById('activityFeed');
     if (!feed) return;
+
+    if (MOCK_ACTIVITY.length === 0) {
+        feed.innerHTML = '<div style="color: var(--text-muted); font-size: 12px; padding: 8px 0;">Sem dados</div>';
+        return;
+    }
 
     feed.innerHTML = MOCK_ACTIVITY.map(a => `
     <div class="rel-activity-item">

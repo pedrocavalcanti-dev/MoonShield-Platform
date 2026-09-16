@@ -138,7 +138,6 @@ function openDrawer(ev) {
   const evPort      = u.evPort      || (() => 0);
   const evProto     = u.evProto     || (() => '—');
   const PORT_NAMES  = u.PORT_NAMES  || {};
-  const isDemo      = u.isDemo      || (id => !id || String(id).startsWith('demo-') || isNaN(parseInt(String(id))));
 
   // Badges no header
   const sevEl = _$('drawerSevBadge');
@@ -310,7 +309,7 @@ function openDrawer(ev) {
   // Detalhe → /incidentes/<id>/  (só para incidentes reais)
   const detLink = _$('drawerDetalhe');
   if (detLink) {
-    if (ev.id && !isDemo(ev.id)) {
+    if (ev.id) {
       detLink.href         = `/incidentes/${ev.id}/`;
       detLink.style.display = '';
     } else {
@@ -337,22 +336,8 @@ function syncStatus(id, status) {
 
 async function loadCorrelacao(id) {
   const u       = _u();
-  const isDemo  = u.isDemo  || (id => !id);
   const fmtTime = u.fmtTime || (iso => iso || '—');
   const esc     = u.esc     || (s => String(s ?? ''));
-
-  if (isDemo(id)) {
-    _$('corrLoading')?.remove();
-    const cont = _$('corrContent');
-    if (cont) cont.style.display = 'flex';
-    ['corrDns', 'corrHttp', 'corrTls'].forEach(k => {
-      const el = _$(k);
-      if (el) el.innerHTML = '<p style="color:var(--text-dim);font-size:11px">Sem correlações (modo demo)</p>';
-    });
-    _drawer.corrLoaded = true;
-    return;
-  }
-
   try {
     const data = await _fetchJsonDrawer(`/incidentes/api/${id}/`);
     _$('corrLoading')?.remove();
@@ -520,17 +505,9 @@ async function loadTimeline(ip) {
 
 async function updateDrawerStatus(status) {
   const u       = _u();
-  const isDemo  = u.isDemo   || (id => !id);
   const toast   = u.toast    || (() => { });
   const getCsrf = u.getCsrf  || (() => '');
   const id      = _drawer.currentId;
-
-  if (isDemo(id)) {
-    MSIncidentes.aplicarStatusLocal?.(id, status);
-    MSIncidentes.renderTable?.();
-    toast(`Status → ${status} (demo)`);
-    return;
-  }
 
   try {
     const data = await _fetchJsonDrawer(`/incidentes/api/${id}/status/`, {

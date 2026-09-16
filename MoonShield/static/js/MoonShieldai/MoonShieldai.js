@@ -37,21 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { id:4, name:'Sessão de ontem',       last:'Status DNS e rede',           time:'Ontem', active:false },
   ];
 
-  const AI_RESPONSES = {
-    'soc':       ['**Resumo do SOC** — últimas 24h:\n\n• **3 incidentes** abertos (1 crítico, 2 médios)\n• **147 alertas** processados automaticamente\n• **Top ameaça:** Port scan de 185.22.11.4\n• **Ação recomendada:** Bloquear range 185.22.0.0/14 no Firewall\n\nDeseja que eu crie uma regra de bloqueio automaticamente?'],
-    'ip':        ['**Top IPs Atacantes** — últimas 24h:\n\n1. `185.22.11.4` — 847 tentativas (RU)\n2. `91.108.4.12` — 523 tentativas (RU)\n3. `45.142.212.5` — 412 tentativas (DE)\n4. `103.235.46.3` — 298 tentativas (CN)\n5. `5.188.86.172` — 187 tentativas (RU)\n\nTodos já estão na blocklist do Firewall. Deseja gerar um relatório?'],
-    'dns':       ['**Status DNS (AdGuard)** — agora:\n\n• **Total queries:** 2.347 nas últimas 24h\n• **Bloqueados:** 412 (17.5%)\n• **Top domínio bloqueado:** `malware-cdn.net`\n• **Latência média:** 4.2ms\n• **Uptime:** 99.98%\n\nO DNS está operando normalmente. Nenhuma anomalia detectada.'],
-    'firewall':  ['**Firewall — Visão Geral:**\n\n• **15 regras ativas** (3 desativadas)\n• **Drops nas últimas 24h:** 4.823\n• **Allows:** 18.934\n• **Interface WAN:** Online\n• **Default policy IN:** DENY\n\n**Regras críticas ativas:**\n- Bloquear SSH externo (porta 22)\n- Bloquear RDP externo (porta 3389)\n- Bloquear TOR range 185.220.0.0/14'],
-    'dispositivos': ['**Dispositivos na rede:**\n\n• **Total:** 20 dispositivos mapeados\n• **Online:** 14 (70%)\n• **Offline:** 6 (30%)\n• **Suspeitos:** 2\n• **Novos (24h):** 1\n\n**Dispositivo novo:** `10.0.0.22` — MAC não reconhecido\n**Ação recomendada:** Investigar dispositivo desconhecido.'],
-    'relatorio': ['**Gerando relatório de incidentes…**\n\n✓ Coletando logs do SOC\n✓ Analisando padrões de ataque\n✓ Correlacionando eventos\n✓ Formatando documento\n\n**Relatório gerado:** `relatorio-soc-2025-02-23.pdf`\n\n**Resumo executivo:**\n- 3 incidentes críticos evitados\n- 4.823 conexões bloqueadas\n- Sistema operando dentro do esperado\n\nDeseja que eu envie por e-mail?'],
-    'mapa':      ['**Mapa de Ameaças — Ativo:**\n\n• **Ameaças ativas:** 8 indicadores\n• **Países de origem:** RU (47%), CN (23%), DE (18%), outros\n• **Tipo mais comum:** Port Scan, Brute Force SSH\n• **IOCs novos:** 3 nas últimas 2h\n\nAbrindo mapa de ameaças...\n*(Navegação simulada — clique em Mapa de Ameaças no menu lateral)*'],
-    'bloquear':  ['**Bloquear domínio suspeito:**\n\nDomínio recebido para análise. Verificando contra threat intelligence...\n\n• `malware-cdn.net` → **Confirmado malicioso** (VirusTotal: 47/72)\n• Adicionado à blocklist do DNS (AdGuard)\n• Regra de bloqueio criada no Firewall\n\n✓ Domínio bloqueado com sucesso em todos os sistemas.'],
-    'default':   [
-      'Entendido. Analisando sua solicitação com base nos dados atuais do ambiente de segurança...\n\nCom base nos logs das últimas 24h, posso te ajudar a:\n• Investigar IPs suspeitos\n• Gerar relatórios de incidentes\n• Criar regras no Firewall\n• Analisar queries DNS anômalas\n\nO que você gostaria de aprofundar?',
-      'Processando sua consulta...\n\nAnalisando os dados de segurança disponíveis. O ambiente está **estável** no momento, com 3 alertas pendentes de revisão humana.\n\nPosso te mostrar mais detalhes sobre algum sistema específico?',
-      'Certo. Com base no contexto de segurança atual:\n\n• **SOC:** 3 alertas abertos\n• **Firewall:** 4.823 drops/24h\n• **Dispositivos suspeitos:** 2\n\nAlguma ação específica que você quer executar?',
-    ],
-  };
+
 
   const VOICE_TRANSCRIPTS = [
     'Resumo do SOC por favor',
@@ -357,16 +343,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function getAIResponse(input) {
-    const lower = input.toLowerCase();
-    if (lower.includes('soc') || lower.includes('incidente') || lower.includes('resumo')) return pick(AI_RESPONSES.soc);
-    if (lower.includes('ip') || lower.includes('atacante'))   return pick(AI_RESPONSES.ip);
-    if (lower.includes('dns'))                                return pick(AI_RESPONSES.dns);
-    if (lower.includes('firewall') || lower.includes('regra')) return pick(AI_RESPONSES.firewall);
-    if (lower.includes('dispositiv') || lower.includes('online')) return pick(AI_RESPONSES.dispositivos);
-    if (lower.includes('relat'))                              return pick(AI_RESPONSES.relatorio);
-    if (lower.includes('mapa') || lower.includes('ameaça'))   return pick(AI_RESPONSES.mapa);
-    if (lower.includes('bloqu') || lower.includes('domínio')) return pick(AI_RESPONSES.bloquear);
-    return pick(AI_RESPONSES.default);
+    return 'Moon AI ainda não está disponível nesta versão.';
   }
 
   function detectIntent(input) {

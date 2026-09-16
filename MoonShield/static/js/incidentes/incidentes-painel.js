@@ -187,67 +187,6 @@ window.JGIncidentes.utils = {
 };
 window.JGIncidentes.renderTable = renderTable;
 
-// ─── Fallback demo local ──────────────────────────────────────────────────────
-function _gerarDemoLocal(horas) {
-  const now = Date.now();
-  const SIGS = [
-    { name: 'ET SCAN Potential SSH Scan', sid: '2100498', sev: 'alto', cat: 'recon' },
-    { name: 'ET MALWARE CobaltStrike Beacon', sid: '2023019', sev: 'critico', cat: 'malware' },
-    { name: 'ET POLICY RDP Detected', sid: '2001328', sev: 'medio', cat: 'lateral' },
-    { name: 'ET DNS Query to .ru TLD', sid: '2010935', sev: 'baixo', cat: 'dns' },
-    { name: 'ET EXPLOIT Log4Shell Attempt', sid: '2034700', sev: 'critico', cat: 'web' },
-    { name: 'ET SCAN Nmap Scripting Engine', sid: '2009358', sev: 'alto', cat: 'recon' },
-    { name: 'ET TROJAN Metasploit Meterpreter', sid: '2019714', sev: 'critico', cat: 'malware' },
-    { name: 'ET INFO TOR Known Exit Node', sid: '2522616', sev: 'medio', cat: 'p2p' },
-    { name: 'ET WEB_SERVER SQL Injection', sid: '2006445', sev: 'alto', cat: 'web' },
-    { name: 'ET POLICY DNS Query for TOR', sid: '2522610', sev: 'baixo', cat: 'dns' },
-  ];
-  const IPS = ['185.220.101.47', '91.92.251.103', '45.33.32.156', '104.21.44.87', '37.19.221.15'];
-  const PAISES = [
-    { name: 'Rússia', c: 'RU' }, { name: 'China', c: 'CN' },
-    { name: 'Brasil', c: 'BR' }, { name: 'EUA', c: 'US' }, { name: 'Alemanha', c: 'DE' },
-  ];
-  const DSTS = ['192.168.1.1', '10.0.0.1', '10.0.0.5', '192.168.0.254'];
-  const CLS = ['incidente', 'incidente', 'evento', 'evento', 'telemetria'];
-  const r = a => a[Math.floor(Math.random() * a.length)];
-  const evs = [];
-  for (let i = 0; i < 80; i++) {
-    const sig = r(SIGS), pais = r(PAISES), ip = r(IPS);
-    const dt = new Date(now - Math.random() * horas * 3600000);
-    evs.push({
-      id: `demo-${i}`,
-      timestamp: dt.toISOString(),
-      last_seen: dt.toISOString(),
-      first_seen: dt.toISOString(),
-      severidade_jg: sig.sev,
-      classificacao: r(CLS),
-      categoria_jg: sig.cat,
-      titulo_jg: sig.name,
-      resumo_jg: `Atividade suspeita de ${ip} (${pais.name}).`,
-      evidencia: `SID ${sig.sid} — ${sig.name}`,
-      tags_jg: [sig.cat.toUpperCase(), sig.sev.toUpperCase()],
-      recomendacoes: ['Bloquear IP de origem no firewall', 'Revisar logs do servidor alvo'],
-      srcIp: ip,
-      dstIp: r(DSTS),
-      country: { name: pais.name, flag: '<span class="fi fi-br" style="width:20px;height:14px;border-radius:2px;display:inline-block;vertical-align:middle"></span>' },
-      pais_codigo: pais.c,
-      asn_org: 'AS' + (Math.floor(Math.random() * 60000) + 1000),
-      fonte: r(['IDS', 'FW', 'DNS']),
-      status: r(['novo', 'novo', 'investigando', 'resolvido']),
-      group_count: Math.floor(Math.random() * 8) + 1,
-      src_is_local: false,
-      direction: r(['inbound', 'inbound', 'outbound', 'lateral']),
-      sig: { name: sig.name, sid: sig.sid, cat: sig.cat },
-      tecnico: {
-        signature: sig.name, sid: sig.sid,
-        protocolo: r(['TCP', 'UDP']),
-        dest_porta: r([22, 80, 443, 3389, 8080]),
-      },
-    });
-  }
-  evs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return evs;
-}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {

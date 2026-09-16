@@ -11,14 +11,14 @@
    BACK-END: substituir por fetch('/diagnostico/api/contexto/')
 ══════════════════════════════════════════════════════════ */
 const MOCK_CTX = {
-    iface: 'Wi-Fi (Intel AX201)',
-    cidr: '192.168.1.0/24',
-    gateway: '192.168.1.1',
-    dns1: '1.1.1.1',
-    dns2: '8.8.8.8',
-    hostname: 'JARVIS-NODE-01',
-    ip_local: '192.168.1.100',
-    mode: 'DEMO',
+    iface: '—',
+    cidr: '—',
+    gateway: '—',
+    dns1: '—',
+    dns2: '—',
+    hostname: '—',
+    ip_local: '—',
+    mode: 'N/D',
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -81,164 +81,7 @@ function loadContext() {
    3. MOCK DE EXECUÇÃO
    BACK-END: substituir simulateExec() por fetch real
 ══════════════════════════════════════════════════════════ */
-const MOCK_RESPONSES = {
-    ping: (target, opts) => {
-        const ms = Math.floor(Math.random() * 15) + 1;
-        const lost = Math.random() > 0.9 ? 1 : 0;
-        const count = opts.count || 4;
-        const ok = lost === 0;
-        return {
-            ok, status: ok ? 'ok' : 'warn',
-            summary: `Ping ${ok ? 'OK' : 'PARCIAL'} (${count - lost}/${count}) avg ${ms}ms`,
-            stdout: `Disparando ${count} pacotes para ${target}:\n\nResposta de ${target}: bytes=32 tempo=${ms}ms TTL=64\nResposta de ${target}: bytes=32 tempo=${ms + 1}ms TTL=64\nResposta de ${target}: bytes=32 tempo=${ms - 1}ms TTL=64\n${lost ? `Tempo limite da solicitação para host de destino.` : `Resposta de ${target}: bytes=32 tempo=${ms}ms TTL=64`}\n\nEstatísticas do Ping para ${target}:\n    Pacotes: Enviados = ${count}, Recebidos = ${count - lost}, Perdidos = ${lost} (${lost > 0 ? Math.round(lost / count * 100) : 0}% de perda),\nTempo aproximado de ida e volta em milissegundos:\n    Mínimo = ${ms - 1}ms, Máximo = ${ms + 2}ms, Média = ${ms}ms`,
-            stderr: '',
-            meta: { duration_ms: ms * count * 250 + 120, exit_code: ok ? 0 : 1 },
-        };
-    },
-    traceroute: (target, opts) => {
-        const hops = Math.floor(Math.random() * 8) + 4;
-        let out = `Rastreando a rota para ${target} com no máximo ${opts.hops || 20} saltos:\n\n`;
-        for (let i = 1; i <= hops; i++) {
-            const ms = i * 3 + Math.floor(Math.random() * 8);
-            const ip = i === hops ? target : `10.${Math.floor(i / 2)}.${i}.${Math.floor(Math.random() * 250) + 1}`;
-            out += `  ${String(i).padStart(2)}    ${ms} ms    ${ms + 1} ms    ${ms} ms  ${ip}\n`;
-        }
-        out += `\nRastreamento concluído.`;
-        return { ok: true, status: 'ok', summary: `Traceroute concluído — ${hops} hops`, stdout: out, stderr: '', meta: { duration_ms: hops * 1200, exit_code: 0 } };
-    },
-    nslookup: (target, opts) => {
-        const server = opts.server === 'dns1' ? Diag.ctx.dns1 : opts.server === 'dns2' ? Diag.ctx.dns2 : (opts.server || Diag.ctx.dns1);
-        const ips = ['142.250.79.46', '142.250.79.78', '172.217.28.110'];
-        const ip = ips[Math.floor(Math.random() * ips.length)];
-        return {
-            ok: true, status: 'ok',
-            summary: `${target} → ${ip} via ${server}`,
-            stdout: `Servidor:  ${server}\nAddress:  ${server}#53\n\nResposta não autoritativa:\nNome:    ${target}\nAddress: ${ip}\nNome:    ${target}\nAddress: 2607:f8b0:4004:c08::64`,
-            stderr: '', meta: { duration_ms: Math.floor(Math.random() * 80) + 20, exit_code: 0 },
-        };
-    },
-    reverse_dns: (target) => {
-        const names = { '8.8.8.8': 'dns.google', '8.8.4.4': 'dns.google', '1.1.1.1': 'one.one.one.one', '1.0.0.1': 'one.one.one.one' };
-        const name = names[target] || `host-${target.replace(/\./g, '-')}.example.net`;
-        return {
-            ok: true, status: 'ok',
-            summary: `${target} → ${name}`,
-            stdout: `Servidor:  ${Diag.ctx.dns1}\nAddress:  ${Diag.ctx.dns1}#53\n\n${target}.in-addr.arpa  name = ${name}.`,
-            stderr: '', meta: { duration_ms: 35, exit_code: 0 },
-        };
-    },
-    dns_compare: (target) => {
-        const d1 = Diag.ctx.dns1, d2 = Diag.ctx.dns2;
-        const ip1 = '142.250.79.46', ip2 = '142.250.79.46';
-        const match = ip1 === ip2;
-        return {
-            ok: true, status: match ? 'ok' : 'warn',
-            summary: `DNS1 e DNS2 ${match ? 'concordam' : 'divergem'} para ${target}`,
-            stdout: `=== DNS1 (${d1}) ===\n${target} → ${ip1}\n\n=== DNS2 (${d2}) ===\n${target} → ${ip2}\n\n${match ? '✓ Resultado idêntico nos dois servidores.' : '⚠ Divergência detectada! Possível envenenamento de cache ou split-DNS.'}`,
-            stderr: '', meta: { duration_ms: 80, exit_code: 0 },
-        };
-    },
-    tcp_port_test: (target, opts) => {
-        const port = opts.port;
-        const open = Math.random() > 0.3;
-        return {
-            ok: open, status: open ? 'ok' : 'err',
-            summary: `${target}:${port} — ${open ? 'ABERTA' : 'FECHADA/TIMEOUT'}`,
-            stdout: `Testando conexão TCP com ${target} na porta ${port}...\n\nResultado: porta ${port} está ${open ? 'ABERTA' : 'FECHADA'}\n${open ? `Conexão estabelecida com sucesso em ${Math.floor(Math.random() * 50) + 5}ms` : 'Conexão recusada ou timeout (sem resposta em 5s)'}`,
-            stderr: '', meta: { duration_ms: open ? Math.floor(Math.random() * 80) + 10 : 5020, exit_code: open ? 0 : 1 },
-        };
-    },
-    http_check: (target, opts) => {
-        const codes = [200, 200, 200, 301, 403, 404, 200, 200];
-        const code = codes[Math.floor(Math.random() * codes.length)];
-        const ok = code < 400;
-        const ms = Math.floor(Math.random() * 200) + 50;
-        return {
-            ok, status: ok ? 'ok' : 'warn',
-            summary: `${target} → HTTP ${code} em ${ms}ms`,
-            stdout: `GET ${target}\n\nHTTP/2 ${code}\ncontent-type: text/html; charset=utf-8\ndate: ${new Date().toUTCString()}\nserver: cloudflare\n\nTempo de resposta: ${ms}ms\nTamanho da resposta: ${Math.floor(Math.random() * 50) + 1} KB`,
-            stderr: '', meta: { duration_ms: ms, exit_code: ok ? 0 : 1 },
-        };
-    },
-    arp_table: () => {
-        const entries = Array.from({ length: 6 }, (_, i) => {
-            const ip = `192.168.1.${[1, 2, 10, 20, 50, 100][i]}`;
-            const mac = Array.from({ length: 6 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join(':');
-            const type = i === 0 ? 'dinâmico (gateway)' : 'dinâmico';
-            return `  ${ip.padEnd(18)} ${mac}   ${type}`;
-        });
-        return {
-            ok: true, status: 'ok',
-            summary: `Tabela ARP — ${entries.length} entradas`,
-            stdout: `Tabela ARP da interface ${Diag.ctx.iface}:\n\nEndereço IP           Endereço físico    Tipo\n${entries.join('\n')}`,
-            stderr: '', meta: { duration_ms: 120, exit_code: 0 },
-        };
-    },
-    routes: () => ({
-        ok: true, status: 'ok',
-        summary: 'Tabela de rotas capturada',
-        stdout: `===========================================================================\nLista de Interfaces\n  ${Diag.ctx.iface}\n===========================================================================\nIPv4 Tabela de Rotas\n===========================================================================\nRotas Ativas:\n  Destino da Rede    Máscara de Rede   Gateway    Interface  Métrica\n          0.0.0.0          0.0.0.0   ${Diag.ctx.gateway}  ${Diag.ctx.ip_local}      25\n        127.0.0.0        255.0.0.0         Em host       127.0.0.1     331\n        127.0.0.1  255.255.255.255         Em host       127.0.0.1     331\n      192.168.1.0    255.255.255.0         Em host   ${Diag.ctx.ip_local}     281\n    ${Diag.ctx.ip_local}  255.255.255.255         Em host   ${Diag.ctx.ip_local}     281`,
-        stderr: '', meta: { duration_ms: 85, exit_code: 0 },
-    }),
-    ipconfig: (target, opts) => {
-        const all = opts && opts.mode === 'all';
-        return {
-            ok: true, status: 'ok',
-            summary: `IPConfig ${all ? '/all' : 'básico'} — ${Diag.ctx.hostname}`,
-            stdout: `Configuração de IP do Windows\n\nNome do Host. . . . . . . . . . . . . : ${Diag.ctx.hostname}\n${all ? `Sufixo DNS Primário . . . . . . . . . :\nTipo de Nó. . . . . . . . . . . . . . : Híbrido\nRoteamento IP Habilitado. . . . . . . : Não\nProxy WINS Habilitado . . . . . . . . : Não\n\n` : ''}Adaptador ${Diag.ctx.iface}:\n\n   Sufixo DNS específico de Conexão. . : lan\n   Endereço IPv4. . . . . . . . . . . . : ${Diag.ctx.ip_local}\n   Máscara de Sub-Rede . . . . . . . . : 255.255.255.0\n   Gateway Padrão. . . . . . . . . . . : ${Diag.ctx.gateway}\n   Servidores DNS. . . . . . . . . . . : ${Diag.ctx.dns1}\n                                          ${Diag.ctx.dns2}`,
-            stderr: '', meta: { duration_ms: 45, exit_code: 0 },
-        };
-    },
-    netstat: (target, opts) => {
-        const states = { all: ['ESTABLISHED', 'LISTENING', 'TIME_WAIT'], established: ['ESTABLISHED'], listening: ['LISTENING'] };
-        const filter = opts.filter || 'all';
-        const stateList = states[filter] || states.all;
-        const rows = Array.from({ length: 8 }, (_, i) => {
-            const st = stateList[i % stateList.length];
-            const lport = [443, 80, 3000, 22, 8080, 445, 3389, 53][i];
-            const rport = Math.floor(Math.random() * 50000) + 1024;
-            return `  TCP    ${Diag.ctx.ip_local}:${lport.toString().padEnd(6)} 0.0.0.0:${String(rport).padEnd(6)} ${st}`;
-        });
-        return {
-            ok: true, status: 'ok',
-            summary: `Netstat — ${rows.length} conexões (${filter})`,
-            stdout: `Conexões Ativas\n\n  Proto  Endereço Local         Endereço Externo       Estado\n${rows.join('\n')}`,
-            stderr: '', meta: { duration_ms: 160, exit_code: 0 },
-        };
-    },
-    interfaces: () => ({
-        ok: true, status: 'ok',
-        summary: `3 interfaces detectadas`,
-        stdout: `=== Interfaces de Rede ===\n\n[1] ${Diag.ctx.iface}\n    IP:  ${Diag.ctx.ip_local} / 24\n    MAC: a4:c3:f0:${Math.floor(Math.random() * 256).toString(16).padStart(2, '0')}:b2:11\n    Status: UP\n\n[2] Loopback Pseudo-Interface 1\n    IP:  127.0.0.1 / 8\n    Status: UP\n\n[3] Bluetooth PAN\n    Status: DOWN`,
-        stderr: '', meta: { duration_ms: 55, exit_code: 0 },
-    }),
-    dns_latency: (target, opts) => {
-        const ms1 = Math.floor(Math.random() * 40) + 5;
-        const ms2 = Math.floor(Math.random() * 60) + 10;
-        const best = ms1 <= ms2 ? `DNS1 (${Diag.ctx.dns1})` : `DNS2 (${Diag.ctx.dns2})`;
-        return {
-            ok: true, status: 'ok',
-            summary: `DNS1: ${ms1}ms · DNS2: ${ms2}ms · Melhor: ${best}`,
-            stdout: `=== Latência DNS ===\n\nDNS1 (${Diag.ctx.dns1}):\n  Consulta: google.com\n  Tempo:    ${ms1}ms\n  Resultado: OK\n\nDNS2 (${Diag.ctx.dns2}):\n  Consulta: google.com\n  Tempo:    ${ms2}ms\n  Resultado: OK\n\nMelhor servidor: ${best} (${Math.min(ms1, ms2)}ms)`,
-            stderr: '', meta: { duration_ms: ms1 + ms2 + 20, exit_code: 0 },
-        };
-    },
-    arp_scan: (target) => {
-        const n = Math.floor(Math.random() * 8) + 3;
-        const rows = Array.from({ length: n }, (_, i) => {
-            const ip = `192.168.1.${[1, 2, 5, 10, 20, 50, 100, 150][i] || i + 1}`;
-            const mac = Array.from({ length: 6 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join(':');
-            const vendor = ['Intel Corp', 'Apple Inc', 'TP-Link', 'Xiaomi', 'Samsung', 'Raspberry Pi', 'Unknown'][i % 7];
-            return `  ${ip.padEnd(16)} ${mac}   ${vendor}`;
-        });
-        return {
-            ok: true, status: 'ok',
-            summary: `ARP Scan — ${n} hosts encontrados em ${Diag.ctx.cidr}`,
-            stdout: `Escaneando ${Diag.ctx.cidr}...\n\n  IP              MAC                Fabricante\n  ─────────────────────────────────────────────────\n${rows.join('\n')}\n\n${n} host(s) encontrado(s).`,
-            stderr: '', meta: { duration_ms: n * 400 + 800, exit_code: 0 },
-        };
-    },
-};
+const MOCK_RESPONSES = {};
 
 const SUGGESTIONS = {
     'ping-err': 'Gateway não responde → verifique o cabo/Wi-Fi ou a configuração da VLAN.',
@@ -253,20 +96,14 @@ const SUGGESTIONS = {
 ══════════════════════════════════════════════════════════ */
 function executeToolMock(tool, target, options) {
     return new Promise(resolve => {
-        const fn = MOCK_RESPONSES[tool];
-        const base = fn ? fn(target, options) : { ok: true, status: 'ok', summary: 'OK', stdout: 'Ferramenta não simulada.', stderr: '', meta: { duration_ms: 500, exit_code: 0 } };
-
-        /* BACK-END: substituir TODA esta função por:
-         *
-         * return fetch('/diagnostico/api/executar/', {
-         *   method: 'POST',
-         *   headers: { 'Content-Type':'application/json', 'X-CSRFToken': getCsrf() },
-         *   body: JSON.stringify({ tool, target, options })
-         * }).then(r => r.json());
-         */
-
-        const delay = Math.min(base.meta.duration_ms, 3500);
-        setTimeout(() => resolve(base), delay);
+        resolve({
+            ok: false,
+            status: 'err',
+            summary: 'Indisponível',
+            stdout: 'Ferramenta não implementada nesta versão (aguardando backend).',
+            stderr: 'Nenhum backend configurado.',
+            meta: { duration_ms: 0, exit_code: 1 }
+        });
     });
 }
 

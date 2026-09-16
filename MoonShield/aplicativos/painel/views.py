@@ -1,5 +1,16 @@
+"""
+MoonShield — painel/views.py
+
+Painel Aggregator: consolida dados reais de todos os módulos da appliance.
+
+Contrato de _overview_real():
+  - Suporta ?period=1h|24h|7d|30d  e  ?sev=all|critico|alto|medio
+  - Retorna SOMENTE dados reais; jamais inventa fallback ou demo.
+  - Se um módulo não estiver disponível → campo nulo / lista vazia / 0.
+"""
+
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
@@ -8,90 +19,549 @@ from django.views.decorators.http import require_GET
 from autenticacao.models import UserProfile
 
 
-def _overview_real(cfg):
-    """Agrega somente contratos operacionais locais da appliance."""
+# ─────────────────────────────────────────────────────────────────────────────
+# PERÍODOS VÁLIDOS
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PERIODOS = {
+    "1h":  {"horas": 1,    "bucket": "minuto",  "bucket_min": 5},
+    "24h": {"horas": 24,   "bucket": "hora",    "bucket_min": 60},
+    "7d":  {"horas": 168,  "bucket": "dia",     "bucket_min": 1440},
+    "30d": {"horas": 720,  "bucket": "dia",     "bucket_min": 1440},
+}
+
+_SEV_MAP = {
+    # frontend → model
+    "critico": "critico",
+    "alto":    "alto",
+    "medio":   "medio",
+}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPER: aggregação de incidentes por período
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _incidentes_no_periodo(horas: int, sev_filtro: str | None):
+    """Retorna o queryset de Incidentes no período com filtro opcional de sev."""
+    from incidentes.models import Incidente
+    from django.utils import timezone
+
+    desde = timezone.now() - timedelta(hours=horas)
+    qs = Incidente.objects.filter(last_seen__gte=desde)
+    if sev_filtro and sev_filtro in _SEV_MAP:
+        qs = qs.filter(severidade_jg=_SEV_MAP[sev_filtro])
+    return qs
+
+
+def _series_ataques(qs, periodo_cfg: dict, agora: datetime) -> dict:
+    """
+    Gera séries horárias (ou diárias) de incidentes por severidade.
+    Retorna {"labels": [...], "crit": [...], "high": [...], "med": [...]}.
+    Usa apenas dados reais — se vazio retorna listas de zeros.
+    """
+    from django.db.models.functions import TruncHour, TruncDay, TruncMinute
+    from django.db.models import Count
+
+    bucket = periodo_cfg["bucket"]
+    horas = periodo_cfg["horas"]
+    bucket_min = periodo_cfg["bucket_min"]
+    n_buckets = max(1, (horas * 60) // bucket_min)
+
+    if bucket == "minuto":
+        trunc_fn = TruncMinute("last_seen")
+        label_fmt = "%H:%M"
+    elif bucket == "hora":
+        trunc_fn = TruncHour("last_seen")
+        label_fmt = "%Hh"
+    else:
+        trunc_fn = TruncDay("last_seen")
+        label_fmt = "%d/%m"
+
+    # Buckets temporais reais
+    from django.utils import timezone
+    agora_tz = timezone.now()
+    # Para 1h com bucket 5min, gera 12 buckets de 5min
+    step = timedelta(minutes=bucket_min)
+    inicio = agora_tz - step * n_buckets
+
+    # Índice de bucket → posição na lista
+    bucket_idx: dict[datetime, int] = {}
+    labels = []
+    for i in range(n_buckets):
+        ts = inicio + step * i
+        # Arredonda para o início do bucket
+        if bucket == "minuto":
+            key = ts.replace(second=0, microsecond=0)
+            # Arredonda para múltiplo de bucket_min minutos
+            rounded_min = (key.minute // bucket_min) * bucket_min
+            key = key.replace(minute=rounded_min)
+        elif bucket == "hora":
+            key = ts.replace(minute=0, second=0, microsecond=0)
+        else:
+            key = ts.replace(hour=0, minute=0, second=0, microsecond=0)
+        bucket_idx[key] = i
+        labels.append(ts.strftime(label_fmt))
+
+    crit = [0] * n_buckets
+    high = [0] * n_buckets
+    med = [0] * n_buckets
+
+    # Aggregação real por severidade
+    for sev_key, target_list in [("critico", crit), ("alto", high), ("medio", med)]:
+        rows = (
+            qs.filter(severidade_jg=sev_key)
+            .annotate(bucket_ts=trunc_fn)
+            .values("bucket_ts")
+            .annotate(n=Count("id"))
+            .order_by("bucket_ts")
+        )
+        for row in rows:
+            ts = row["bucket_ts"]
+            if ts is None:
+                continue
+            # Normaliza para naive se necessário
+            if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
+                ts_naive = ts.replace(tzinfo=None)
+            else:
+                ts_naive = ts
+            # Arredonda para o bucket
+            if bucket == "minuto":
+                rounded_min = (ts_naive.minute // bucket_min) * bucket_min
+                key = ts_naive.replace(minute=rounded_min, second=0, microsecond=0)
+            elif bucket == "hora":
+                key = ts_naive.replace(minute=0, second=0, microsecond=0)
+            else:
+                key = ts_naive.replace(hour=0, minute=0, second=0, microsecond=0)
+            # Procura posição aproximada (dentro de ±1 bucket)
+            for candidate, idx in bucket_idx.items():
+                diff = abs((key - candidate).total_seconds())
+                if diff <= bucket_min * 60:
+                    target_list[idx] += row["n"]
+                    break
+
+    return {"labels": labels, "crit": crit, "high": high, "med": med}
+
+
+def _timeline_60min(qs_base) -> dict:
+    """
+    Timeline dos últimos 60 minutos agrupados em buckets de 5 minutos.
+    Retorna {"labels": [...], "crit": [...], "high": [...], "med": [...]}.
+    Usa queryset já filtrado por período.
+    """
+    from django.utils import timezone
+    from django.db.models.functions import TruncMinute
+    from django.db.models import Count
+
+    agora = timezone.now()
+    inicio = agora - timedelta(hours=1)
+    qs60 = qs_base.filter(last_seen__gte=inicio)
+
+    n_buckets = 12  # 60min / 5min = 12 pontos
+    step = timedelta(minutes=5)
+    labels = []
+    crit = [0] * n_buckets
+    high = [0] * n_buckets
+    med = [0] * n_buckets
+
+    bucket_starts = []
+    for i in range(n_buckets):
+        ts = inicio + step * i
+        bucket_starts.append(ts)
+        labels.append(ts.strftime("%H:%M"))
+
+    for sev_key, target in [("critico", crit), ("alto", high), ("medio", med)]:
+        rows = (
+            qs60.filter(severidade_jg=sev_key)
+            .annotate(bucket_ts=TruncMinute("last_seen"))
+            .values("bucket_ts")
+            .annotate(n=Count("id"))
+        )
+        for row in rows:
+            ts = row["bucket_ts"]
+            if ts is None:
+                continue
+            if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
+                ts = ts.replace(tzinfo=None)
+            # Arredonda para múltiplo de 5 min
+            rounded = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
+            for i, bs in enumerate(bucket_starts):
+                bs_naive = bs.replace(tzinfo=None) if hasattr(bs, "tzinfo") else bs
+                if abs((rounded - bs_naive).total_seconds()) <= 300:
+                    target[i] += row["n"]
+                    break
+
+    return {"labels": labels, "crit": crit, "high": high, "med": med}
+
+
+def _top_ips(qs, limit: int = 7) -> list[dict]:
+    """Top IPs atacantes por quantidade de incidentes. Sem GeoIP."""
+    from django.db.models import Count, Sum
+
+    rows = (
+        qs.values("src_ip")
+        .annotate(total=Sum("ocorrencias"))
+        .order_by("-total")[:limit]
+    )
+    result = []
+    for i, row in enumerate(rows):
+        ip = row["src_ip"]
+        if not ip:
+            continue
+        sev_map = {0: "crit", 1: "high", 2: "high", 3: "med"}
+        result.append({
+            "rank": i + 1,
+            "ip":    ip,
+            "count": int(row["total"] or 0),
+            "sev":   sev_map.get(i, "med"),
+        })
+    return result
+
+
+def _top_ataques(qs, limit: int = 5) -> list[dict]:
+    """Top assinaturas/tipos de ataque por frequência."""
+    from django.db.models import Count
+
+    rows = (
+        qs.exclude(titulo_jg="")
+        .values("titulo_jg", "severidade_jg")
+        .annotate(n=Count("id"))
+        .order_by("-n")[:limit]
+    )
+    sev_label_map = {
+        "critico": "crit",
+        "alto": "high",
+        "medio": "med",
+        "baixo": "low",
+        "informativo": "info",
+    }
+    result = []
+    for row in rows:
+        result.append({
+            "nome":  row["titulo_jg"],
+            "sev":   sev_label_map.get(row["severidade_jg"], "info"),
+            "count": row["n"],
+        })
+    return result
+
+
+def _categorias(qs, total: int) -> list[dict]:
+    """Distribuição por categoria JG. Sem percentuais inventados."""
+    from django.db.models import Count
+
+    cat_label = {
+        "recon":    "Reconhecimento",
+        "auth":     "Auth / Brute Force",
+        "lateral":  "Lateral Movement",
+        "dns":      "DNS / Policy",
+        "web":      "Web / HTTP",
+        "tls":      "TLS / QUIC",
+        "malware":  "Malware / C2",
+        "exfil":    "Exfiltração",
+        "p2p":      "P2P / Mineração",
+        "anomalia": "Anomalia",
+        "info":     "Informativo",
+    }
+    cat_color = {
+        "recon":    "#3b82f6",
+        "auth":     "#ef4444",
+        "lateral":  "#a855f7",
+        "dns":      "#06b6d4",
+        "web":      "#f97316",
+        "tls":      "#8b5cf6",
+        "malware":  "#dc2626",
+        "exfil":    "#f59e0b",
+        "p2p":      "#64748b",
+        "anomalia": "#eab308",
+        "info":     "#6b7280",
+    }
+    rows = (
+        qs.values("categoria_jg")
+        .annotate(n=Count("id"))
+        .order_by("-n")
+    )
+    result = []
+    for row in rows:
+        cat = row["categoria_jg"]
+        count = row["n"]
+        if not count:
+            continue
+        result.append({
+            "nome":  cat_label.get(cat, cat),
+            "color": cat_color.get(cat, "#6b7280"),
+            "count": count,
+        })
+    return result
+
+
+def _infra_dispositivos() -> dict:
+    """Métricas reais do módulo Dispositivos."""
+    from django.utils import timezone
+    try:
+        from dispositivos.models import Dispositivo
+        total = Dispositivo.objects.count()
+        online = Dispositivo.objects.filter(status="online").count()
+        offline = total - online
+        hoje = timezone.now().date()
+        novo_hoje = Dispositivo.objects.filter(first_seen__date=hoje).count()
+        pct = round((online / total) * 100) if total else 0
+        return {
+            "online":     online,
+            "offline":    offline,
+            "total":      total,
+            "novo_hoje":  novo_hoje,
+            "pct":        pct,
+        }
+    except Exception:
+        return {"online": 0, "offline": 0, "total": 0, "novo_hoje": 0, "pct": 0}
+
+
+def _infra_firewall(estado_fw: dict) -> dict:
+    """
+    Dados de infra do Firewall usando apenas o que o backend real provê.
+    Sem drops/blocks inventados — se não existirem, ficam como '—'.
+    """
+    return {
+        "operacional":  estado_fw.get("saudavel", False),
+        "agent_online": estado_fw.get("agent_online", False),
+        "drift":        estado_fw.get("drift", "Nenhum"),
+        "status":       estado_fw.get("status", "indisponivel"),
+        "status_label": estado_fw.get("status_label", "Indisponível"),
+        # Métricas de tráfego: apenas se o backend fornecer no futuro
+        "drops":        estado_fw.get("drops", "—"),
+        "blocks":       estado_fw.get("blocks", "—"),
+        "top_porta":    estado_fw.get("top_porta", "—"),
+        "pct":          0,
+    }
+
+
+def _sensores_lista(adguard: dict, suricata: dict, firewall: dict) -> list[dict]:
+    """Estrutura de sensores para renderSaude no frontend."""
+    def status_to_js(s: dict) -> str:
+        if s.get("saudavel"):
+            return "ok"
+        if s.get("status") in ("atencao", "degradado"):
+            return "warn"
+        return "err"
+
+    return [
+        {
+            "nome":   "IDS (Suricata)",
+            "desc":   "Detecção de intrusão",
+            "status": status_to_js(suricata),
+            "icon":   "bi-shield-check",
+        },
+        {
+            "nome":   "DNS (AdGuard)",
+            "desc":   "Filtragem DNS",
+            "status": status_to_js(adguard),
+            "icon":   "bi-globe-americas",
+        },
+        {
+            "nome":   "Firewall (nftables)",
+            "desc":   "Controle de tráfego",
+            "status": status_to_js(firewall),
+            "icon":   "bi-fire",
+        },
+    ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGGREGATOR PRINCIPAL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
+    """
+    Agrega somente dados reais dos módulos da appliance.
+
+    Args:
+        cfg:    ConfigSistema (ou None)
+        period: "1h" | "24h" | "7d" | "30d"
+        sev:    "all" | "critico" | "alto" | "medio"
+    """
     from configuracoes.views import _servicos, _topologia
     from dns.views import _get_adguard_client
-    from incidentes.models import Incidente
+    from django.utils import timezone
 
-    servicos = _servicos(cfg, _topologia())
+    # Valida período — padrão 24h se inválido
+    periodo_cfg = _PERIODOS.get(period, _PERIODOS["24h"])
+    horas = periodo_cfg["horas"]
+
+    # Filtro de severidade para incidentes
+    sev_filtro = sev if sev != "all" else None
+
+    # ── Serviços
+    topo = _topologia()
+    servicos = _servicos(cfg, topo)
     adguard = servicos["adguard"]
     suricata = servicos["suricata"]
     firewall = servicos["firewall"]
-    dns = {"metrics": {}, "charts": {}}
+
+    # ── AdGuard metrics
+    dns_metrics: dict = {}
+    dns_charts: dict = {}
     try:
         client = _get_adguard_client(cfg)
         if client:
-            dns = client.fetch_all()
+            dns_all = client.fetch_all()
+            dns_metrics = dns_all.get("metrics") or {}
+            dns_charts = dns_all.get("charts") or {}
     except Exception:
         pass
 
-    metrics = dns.get("metrics") or {}
-    dns_charts = dns.get("charts") or {}
-    agora = datetime.now()
-    desde = agora - timedelta(hours=24)
-    incidentes = Incidente.objects.filter(last_seen__gte=desde).order_by("-last_seen")
-    ameaças = incidentes.count()
+    # ── Incidentes
+    qs = _incidentes_no_periodo(horas, sev_filtro)
+    total_ameacas = qs.count()
+
     severidades = {
-        "crit": incidentes.filter(severidade_jg="critico").count(),
-        "high": incidentes.filter(severidade_jg="alto").count(),
-        "med": incidentes.filter(severidade_jg="medio").count(),
+        "crit": qs.filter(severidade_jg="critico").count(),
+        "high": qs.filter(severidade_jg="alto").count(),
+        "med":  qs.filter(severidade_jg="medio").count(),
     }
-    hours = list(dns_charts.get("hours") or _hour_labels())
-    zeros = [0] * len(hours)
+
+    # ── Séries de ataques por hora/dia
+    agora = timezone.now()
+    series_att = _series_ataques(qs, periodo_cfg, agora)
+    hours_labels = series_att["labels"]
+
+    # ── DNS séries (sempre 24h vinda do AdGuard stats)
+    zeros_24 = [0] * 24
+    dns_hour_labels = _hour_labels()
+    dns_q_series = list(dns_charts.get("queries") or zeros_24)
+    dns_b_series = list(dns_charts.get("bloqueios") or zeros_24)
+
+    # Para gráfico de ataques, usa labels reais do período
+    # Para gráfico DNS, mantém labels das 24h do AdGuard
+    chart_hours = hours_labels if period in ("1h", "24h") else series_att["labels"]
+
+    # ── Timeline 60 min (sempre baseado nos incidentes reais do último 1h)
+    tl = _timeline_60min(qs if horas == 1 else _incidentes_no_periodo(1, None))
+
+    # ── Top IPs
+    top_ips_lista = _top_ips(qs)
+
+    # ── Top Ataques (signatures)
+    top_ataques = _top_ataques(qs)
+
+    # ── Categorias
+    categorias = _categorias(qs, total_ameacas)
+
+    # ── Live Feed (últimos 20 incidentes reais)
+    feed_qs = qs.order_by("-last_seen")[:20]
     feed = [
         {
-            "ts": item.last_seen.isoformat(), "type": "IDS", "sev": {
-                "critico": "crit", "alto": "high", "medio": "warn",
-            }.get(item.severidade_jg, "info"),
-            "src": getattr(item, "src_ip", None) or "—",
-            "msg": getattr(item, "titulo_jg", None) or getattr(item, "signature", None) or "Incidente",
+            "ts":   inc.last_seen.isoformat(),
+            "type": "IDS",
+            "sev":  {"critico": "crit", "alto": "high", "medio": "warn"}.get(
+                        inc.severidade_jg, "info"),
+            "src":  (f"{inc.src_ip}:{inc.src_porta}"
+                     if getattr(inc, "src_porta", None)
+                     else getattr(inc, "src_ip", "—")) or "—",
+            "msg":  getattr(inc, "titulo_jg", None)
+                     or getattr(inc, "signature", None)
+                     or "Incidente IDS",
         }
-        for item in incidentes[:20]
+        for inc in feed_qs
     ]
-    sensores = (adguard, suricata, firewall)
+
+    # ── Infra
+    disp = _infra_dispositivos()
+    fw_infra = _infra_firewall(firewall)
+
+    dns_pct = float(dns_metrics.get("pctBloq", 0) or 0)
+    dns_clients = int(dns_metrics.get("clientes", 0) or 0)
+    dns_bloq = int(dns_metrics.get("bloqueios", 0) or 0)
+    dns_perm = max(0, int(dns_metrics.get("queries", 0) or 0) - dns_bloq)
+
+    # ── Sensores estruturados (lista para renderSaude no JS)
+    sensores_lista = _sensores_lista(adguard, suricata, firewall)
+    sensores_online = sum(1 for s in sensores_lista if s["status"] == "ok")
+
     return {
-        "ok": True,
-        "mode": "real",
-        "fonte": "local",
+        "ok":      True,
+        "mode":    "real",
+        "fonte":   "local",
+        "periodo": period,
+        "sev":     sev,
+
         "kpis": {
-            "ameacas_hoje": ameaças,
-            "dns_queries": int(metrics.get("queries", 0) or 0),
-            "dns_bloqueios": int(metrics.get("bloqueios", 0) or 0),
-            "sensores_online": sum(bool(item.get("saudavel")) for item in sensores),
-            "sensores_total": 3,
-            "bloqueio_pct": float(metrics.get("pctBloq", 0) or 0),
+            "ameacas_hoje":     total_ameacas,
+            "dns_queries":      int(dns_metrics.get("queries", 0) or 0),
+            "dns_bloqueios":    dns_bloq,
+            "bloqueio_pct":     dns_pct,
+            "sensores_online":  sensores_online,
+            "sensores_total":   3,
+            "severidades":      severidades,
         },
+
         "charts": {
-            "hours": hours,
-            "attacks": {key: [value if index == len(hours) - 1 else 0 for index in range(len(hours))] for key, value in severidades.items()},
-            "dns": {"queries": list(dns_charts.get("queries") or zeros), "blocked": list(dns_charts.get("bloqueios") or zeros)},
+            # Ataques — séries do período selecionado
+            "hours":    chart_hours,
+            "attacks":  {
+                "crit": series_att["crit"],
+                "high": series_att["high"],
+                "med":  series_att["med"],
+            },
+            # DNS — séries 24h do AdGuard (sempre 24h independente do período)
+            "dns": {
+                "hours":   dns_hour_labels,
+                "queries": dns_q_series,
+                "blocked": dns_b_series,
+            },
+            # Timeline dos últimos 60min (sempre)
+            "timeline": tl,
         },
+
         "feed": feed,
-        "map": {"active": 0, "events": []},
-        "intel": {"origens": [], "ataques": []},
-        "infra": {
-            "dispositivos": {"online": 0, "offline": 0, "novo_hoje": 0, "pct": 0},
-            "firewall": {"drops": 0, "top_porta": "—", "blocks": 0, "pct": 0},
-            "dns_infra": {"bloqueio_pct": float(metrics.get("pctBloq", 0) or 0), "clientes": int(metrics.get("clientes", 0) or 0), "ameacas": ameaças, "bloqueios": int(metrics.get("bloqueios", 0) or 0), "permitidos": max(0, int(metrics.get("queries", 0) or 0) - int(metrics.get("bloqueios", 0) or 0))},
+
+        "intel": {
+            # Top Origens = IPs reais (sem GeoIP — será integrado no Mapa de Ameaças)
+            "top_ips":    top_ips_lista,
+            "top_ataques": top_ataques,
+            "categorias": categorias,
+            # origens e ataques mantidos como lista vazia (sem GeoIP)
+            "origens":   [],
+            "ataques":   [],
         },
-        "saude": {"dns": adguard, "ids": suricata, "firewall": firewall},
-        "node": {"name": getattr(cfg, "node_name", "—") if cfg else "—", "cidr": "—", "iface": "—"},
+
+        "infra": {
+            "dispositivos": disp,
+            "firewall":     fw_infra,
+            "dns_infra": {
+                "bloqueio_pct": dns_pct,
+                "clientes":     dns_clients,
+                "bloqueios":    dns_bloq,
+                "permitidos":   dns_perm,
+                # "ameacas DNS" só com fonte real específica — omitido por ora
+            },
+        },
+
+        "saude": {
+            "ids":      suricata,
+            "dns":      adguard,
+            "firewall": firewall,
+            "sensores": sensores_lista,
+        },
+
+        "node": {
+            "name": getattr(cfg, "node_name", "—") if cfg else "—",
+        },
+
         "last_update": agora.isoformat(),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigSistema
+# ─────────────────────────────────────────────────────────────────────────────
 
 try:
     from configuracoes.models import ConfigSistema
 except ImportError:
     ConfigSistema = None
 
-# Guarda o momento em que o processo subiu (para calcular uptime)
 _BOOT_TIME = time.time()
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPER — obtém config sem explodir se tabela não existir
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _get_cfg():
     if ConfigSistema is None:
@@ -105,62 +575,51 @@ def _get_cfg():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PÁGINA PRINCIPAL
+# VIEWS
 # ─────────────────────────────────────────────────────────────────────────────
 
 @login_required(login_url="autenticacao:login")
 def index(request):
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
-
-    # True apenas na primeira carga após login — pop() consome e nunca repete
     mostrar_boasvindas = request.session.pop("mostrar_boasvindas", False)
-
     return render(request, "painel/dashboard.html", {
         "profile":            profile,
         "mostrar_boasvindas": mostrar_boasvindas,
     })
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /painel/api/overview/   (e alias /api/overview/)
-# ─────────────────────────────────────────────────────────────────────────────
-
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_overview(request):
-    return JsonResponse(_overview_real(_get_cfg()))
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /api/sensores/   ← topbar.js
-# ─────────────────────────────────────────────────────────────────────────────
+    period = request.GET.get("period", "24h").strip()
+    sev    = request.GET.get("sev", "all").strip()
+
+    # Valida period — rejeita valores arbitrários
+    if period not in _PERIODOS:
+        period = "24h"
+    if sev not in ("all", "critico", "alto", "medio"):
+        sev = "all"
+
+    return JsonResponse(_overview_real(_get_cfg(), period=period, sev=sev))
+
 
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_sensores(request):
+    """Topbar — status simples dos 3 sensores."""
     dados = _overview_real(_get_cfg())["saude"]
     return JsonResponse({
-        "ids": "ok" if dados["ids"].get("saudavel") else "offline",
-        "dns": "ok" if dados["dns"].get("saudavel") else "offline",
+        "ids":      "ok" if dados["ids"].get("saudavel") else "offline",
+        "dns":      "ok" if dados["dns"].get("saudavel") else "offline",
         "firewall": "ok" if dados["firewall"].get("saudavel") else "offline",
     })
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /api/badges/   ← sidebar.js
-# ─────────────────────────────────────────────────────────────────────────────
-
 @login_required(login_url="autenticacao:login")
 @require_GET
 def api_badges(request):
-    return JsonResponse({
-        "incidentes": 0,
-        "alertas":    0,
-        "mensagens":  0
-    })
+    return JsonResponse({"incidentes": 0, "alertas": 0, "mensagens": 0})
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /api/uptime/   ← footer.js
-# ─────────────────────────────────────────────────────────────────────────────
 
 @require_GET
 @login_required(login_url="autenticacao:login")
@@ -169,27 +628,21 @@ def api_uptime(request):
     return JsonResponse({"uptime_seconds": uptime_seconds, "ok": True})
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GET /api/alertas/         ← notificacoes.js (lista completa)
-# GET /api/alertas/count/   ← notificacoes.js (só a contagem)
-# ─────────────────────────────────────────────────────────────────────────────
-
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_alertas(request):
     from incidentes.models import Incidente
-
     alertas = [
         {
-            "id": incidente.pk,
-            "titulo": getattr(incidente, "titulo_jg", None) or getattr(incidente, "signature", None) or "Incidente",
-            "descricao": getattr(incidente, "src_ip", None) or "Evento detectado pelo Suricata",
-            "severidade": getattr(incidente, "severidade_jg", "medio"),
-            "tipo": "ids",
-            "timestamp": incidente.last_seen.isoformat(),
-            "url": "/incidentes/",
+            "id":         inc.pk,
+            "titulo":     getattr(inc, "titulo_jg", None) or getattr(inc, "signature", None) or "Incidente",
+            "descricao":  getattr(inc, "src_ip", None) or "Evento detectado pelo Suricata",
+            "severidade": getattr(inc, "severidade_jg", "medio"),
+            "tipo":       "ids",
+            "timestamp":  inc.last_seen.isoformat(),
+            "url":        "/incidentes/",
         }
-        for incidente in Incidente.objects.order_by("-last_seen")[:20]
+        for inc in Incidente.objects.order_by("-last_seen")[:20]
     ]
     return JsonResponse(alertas, safe=False)
 
@@ -198,7 +651,6 @@ def api_alertas(request):
 @login_required(login_url="autenticacao:login")
 def api_alertas_count(request):
     from incidentes.models import Incidente
-
     return JsonResponse({"count": Incidente.objects.count(), "ok": True})
 
 
@@ -206,117 +658,7 @@ def api_alertas_count(request):
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _hour_labels():
-    now = datetime.now()
+def _hour_labels() -> list[str]:
+    from django.utils import timezone
+    now = timezone.now()
     return [f"{(now.hour - 23 + i) % 24:02d}h" for i in range(24)]
-
-
-def _rarr(n, a, b):
-    return [random.randint(a, b) for _ in range(n)]
-
-
-def _demo_overview(cfg, period, sev):
-    mult = {"1h": 0.15, "24h": 1, "7d": 4.5, "30d": 18}.get(period, 1)
-
-    hours = _hour_labels()
-    crit  = _rarr(24, 0,   int(4  * mult))
-    high  = _rarr(24, 1,   int(7  * mult))
-    med   = _rarr(24, 2,   int(12 * mult))
-    dns   = _rarr(24, 400, int(2400 * max(mult, 1)))
-    bloq  = _rarr(24, 20,  int(320  * max(mult, 1)))
-
-    total_ameacas = sum(crit) + sum(high) + sum(med)
-    total_dns     = sum(dns)
-    total_bloq    = sum(bloq)
-    bloqueio_pct  = round((total_bloq / total_dns * 100) if total_dns else 0, 1)
-
-    dev_online  = random.randint(10, 15)
-    dev_offline = random.randint(1, 3)
-    dev_total   = dev_online + dev_offline
-    dev_pct     = round(dev_online / dev_total * 100, 1)
-
-    fw_drops  = random.randint(900, 1800)
-    fw_blocks = random.randint(5, 14)
-
-    feed_templates = [
-        {"sev": "crit", "type": "IDS",  "src": "45.88.12.3",    "msg": "ET SCAN SSH Brute Force (SID 2001219)"},
-        {"sev": "high", "type": "IDS",  "src": "91.108.4.1",    "msg": "ET SCAN Nmap OS Detection"},
-        {"sev": "crit", "type": "FW",   "src": "45.88.12.3",    "msg": "Porta 22 — TCP DROP INPUT"},
-        {"sev": "warn", "type": "DNS",  "src": "10.0.0.21",     "msg": "malware-tracker.ru (Blocklist)"},
-        {"sev": "warn", "type": "DNS",  "src": "10.0.0.5",      "msg": "tracking-domain.xyz (OISD)"},
-        {"sev": "info", "type": "DEV",  "src": "10.0.0.101",    "msg": "Novo dispositivo detectado"},
-        {"sev": "high", "type": "IDS",  "src": "104.21.8.99",   "msg": "ET DROP Known Compromised IP"},
-        {"sev": "info", "type": "DNS",  "src": "10.0.0.5",      "msg": "google.com · 8 queries/min"},
-        {"sev": "warn", "type": "FW",   "src": "185.220.10.2",  "msg": "Porta 3389 — RDP block"},
-        {"sev": "crit", "type": "IDS",  "src": "185.220.101.5", "msg": "ET SCAN Nmap SYN Scan"},
-        {"sev": "high", "type": "FW",   "src": "104.21.8.99",   "msg": "Multi-porta · UDP flood"},
-        {"sev": "info", "type": "DEV",  "src": "10.0.0.77",     "msg": "Samsung TV · heartbeat OK"},
-    ]
-    feed = [
-        {**random.choice(feed_templates), "ts": datetime.now().isoformat()}
-        for _ in range(14)
-    ]
-
-    origens = [
-        {"rank": 1, "flag": "🇨🇳", "pais": "China",    "count": random.randint(5, 9),  "pct": 80, "color": "#ef4444"},
-        {"rank": 2, "flag": "🇷🇺", "pais": "Rússia",   "count": random.randint(3, 6),  "pct": 55, "color": "#f97316"},
-        {"rank": 3, "flag": "🇺🇸", "pais": "EUA",      "count": random.randint(2, 4),  "pct": 40, "color": "#eab308"},
-        {"rank": 4, "flag": "🇳🇱", "pais": "Holanda",  "count": random.randint(1, 3),  "pct": 26, "color": "#6b7280"},
-        {"rank": 5, "flag": "🇩🇪", "pais": "Alemanha", "count": random.randint(1, 2),  "pct": 14, "color": "#4b5563"},
-    ]
-
-    ataques = [
-        {"icon": "shield", "nome": "ET SCAN SSH Brute",   "sub": "Porta 22 · TCP",    "sev": "crit", "count": 7},
-        {"icon": "search", "nome": "ET SCAN Nmap SYN",    "sub": "TCP · Multi-porta", "sev": "high", "count": 4},
-        {"icon": "globe",  "nome": "DNS Malware Tracker", "sub": "malware-track.ru",  "sev": "high", "count": 3},
-        {"icon": "pulse",  "nome": "Port Scan Detectado", "sub": "UDP · Multi-porta", "sev": "med",  "count": 2},
-    ]
-
-    return {
-        "ok":   True,
-        "mode": "demo",
-        "providers": {"dns": True, "ids": True, "fw": True},
-        "kpis": {
-            "ameacas_hoje":    total_ameacas,
-            "dns_queries":     total_dns,
-            "dns_bloqueios":   total_bloq,
-            "sensores_online": 2,
-            "sensores_total":  3,
-            "bloqueio_pct":    bloqueio_pct,
-        },
-        "charts": {
-            "hours":   hours,
-            "attacks": {"crit": crit, "high": high, "med": med},
-            "dns":     {"queries": dns, "blocked": bloq},
-        },
-        "feed":  feed,
-        "map":   {"active": random.randint(8, 14), "events": []},
-        "intel": {"origens": origens, "ataques": ataques},
-        "infra": {
-            "dispositivos": {
-                "online":    dev_online,
-                "offline":   dev_offline,
-                "novo_hoje": random.randint(0, 2),
-                "pct":       dev_pct,
-            },
-            "firewall": {
-                "drops":     fw_drops,
-                "top_porta": 22,
-                "blocks":    fw_blocks,
-                "pct":       62,
-            },
-            "dns_infra": {
-                "bloqueio_pct": bloqueio_pct,
-                "clientes":     random.randint(6, 12),
-                "ameacas":      random.randint(1, 5),
-                "bloqueios":    total_bloq,
-                "permitidos":   total_dns - total_bloq,
-            },
-        },
-        "node": {
-            "name":  getattr(cfg, "node_name",       "JG-DEMO")        if cfg else "JG-DEMO",
-            "cidr":  getattr(cfg, "cidr",             "192.168.0.0/24") if cfg else "192.168.0.0/24",
-            "iface": getattr(cfg, "iface_principal",  "Ethernet")       if cfg else "Ethernet",
-        },
-        "last_update": datetime.now().isoformat(),
-    }

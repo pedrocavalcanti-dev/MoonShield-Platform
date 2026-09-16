@@ -10,18 +10,11 @@ class ConfigSistema(models.Model):
 
         ConfigSistema.get_solo()
 
-    Valores internos do modo:
-        demo -> Modo Demonstração
-        prod -> Modo Operacional
-
-    O valor interno "prod" foi mantido para preservar compatibilidade
-    com o backend e o frontend existentes.
+    A appliance opera sempre em modo ``prod``. O ambiente do node é
+    metadado administrativo e não altera a fonte da telemetria.
     """
 
-    MODO_CHOICES = [
-        ("demo", "Modo Demonstração"),
-        ("prod", "Modo Operacional"),
-    ]
+    MODO_CHOICES = [("prod", "Operacional")]
 
     AMBIENTE_CHOICES = [
         ("lab", "LAB"),
@@ -42,11 +35,8 @@ class ConfigSistema(models.Model):
     modo = models.CharField(
         max_length=10,
         choices=MODO_CHOICES,
-        default="demo",
-        help_text=(
-            "Modo Demonstração: utiliza dados simulados e bloqueia integrações reais. "
-            "Modo Operacional: permite instalar, conectar e utilizar componentes reais."
-        ),
+        default="prod",
+        help_text="Compatibilidade administrativa; a appliance usa somente telemetria real.",
     )
 
     # ──────────────────────────────────────────────────────────────────────
@@ -416,18 +406,16 @@ class ConfigSistema(models.Model):
         O objeto principal utiliza pk=1 e será criado automaticamente
         quando ainda não existir.
         """
-        objeto, _ = cls.objects.get_or_create(pk=1)
+        objeto, _ = cls.objects.get_or_create(pk=1, defaults={"modo": "prod"})
+        if objeto.modo != "prod":
+            objeto.modo = "prod"
+            objeto.save(update_fields=["modo", "updated_at"])
         return objeto
 
     @property
-    def modo_demo(self):
-        """Retorna True quando o MoonShield está em demonstração."""
-        return self.modo == "demo"
-
-    @property
     def modo_operacional(self):
-        """Retorna True quando o MoonShield está no modo operacional."""
-        return self.modo == "prod"
+        """A appliance não possui modos alternativos de telemetria."""
+        return True
 
     @property
     def total_providers_habilitados(self):
@@ -452,17 +440,12 @@ class ConfigSistema(models.Model):
         """
 
         return {
-            "modo": self.modo,
+            "modo": "prod",
 
             "modo_info": {
-                "valor": self.modo,
-                "demo": self.modo_demo,
-                "operacional": self.modo_operacional,
-                "label": (
-                    "Modo Operacional"
-                    if self.modo_operacional
-                    else "Modo Demonstração"
-                ),
+                "valor": "prod",
+                "operacional": True,
+                "label": "Operacional",
             },
 
             "node": {

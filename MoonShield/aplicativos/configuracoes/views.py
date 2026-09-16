@@ -95,13 +95,13 @@ def _estado_adguard(cfg: ConfigSistema, topologia: dict) -> dict:
     from dns.views import _get_adguard_client
     from dns.services.adguard_bootstrap import (
         _hosts_dns_iniciais,
-        descobrir_adguard,
+        adguard_esta_provisionado,
         inventariar_interfaces_dns,
         upstreams_aprovados,
         validar_resolucao_dns,
     )
 
-    instalado = bool(descobrir_adguard(obrigatorio=False))
+    instalado = adguard_esta_provisionado()
     base = {
         "tipo": "adguard", "nome": "AdGuard Home", "fonte": "local", "ativo": False,
         "configurado": False,

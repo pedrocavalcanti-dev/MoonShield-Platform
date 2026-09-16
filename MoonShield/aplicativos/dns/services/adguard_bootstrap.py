@@ -25,8 +25,11 @@ from .adguard_client import AdGuardClient, AdGuardError, AdGuardHTTPError
 
 SECRET_DIR_PADRAO = Path("/etc/moonshield/secrets")
 SECRET_ADGUARD_PADRAO = SECRET_DIR_PADRAO / "adguard"
+STATE_DIR_ADGUARD = Path("/var/lib/moonshield/dns")
+STATE_ADGUARD_PADRAO = STATE_DIR_ADGUARD / "adguard-state.json"
 USUARIO_INTEGRACAO = "moonshield"
 ENDERECO_ADMIN_PADRAO = "127.0.0.1:3000"
+URL_ADMIN_LOCAL_PADRAO = f"http://{ENDERECO_ADMIN_PADRAO}"
 PORTA_DNS_PADRAO = 53
 SERVICO_ADGUARD_PADRAO = "AdGuardHome.service"
 
@@ -54,7 +57,11 @@ class CaminhosAdGuard:
 def descobrir_adguard(*, obrigatorio: bool = True) -> CaminhosAdGuard | None:
     """Descobre o layout instalado sem assumir um único caminho de ISO."""
     for binario in _LAYOUTS_CONHECIDOS:
-        if not binario.is_file():
+        try:
+            binario_encontrado = binario.is_file()
+        except OSError:
+            binario_encontrado = False
+        if not binario_encontrado:
             continue
 
         diretorio = binario.parent
@@ -62,10 +69,14 @@ def descobrir_adguard(*, obrigatorio: bool = True) -> CaminhosAdGuard | None:
             diretorio / "AdGuardHome.yaml",
             * _CONFIGS_ALTERNATIVOS,
         )
-        configuracao = next(
-            (caminho for caminho in candidatos_config if caminho.is_file()),
-            candidatos_config[0],
-        )
+        configuracao = candidatos_config[0]
+        for caminho in candidatos_config:
+            try:
+                if caminho.is_file():
+                    configuracao = caminho
+                    break
+            except OSError:
+                continue
         return CaminhosAdGuard(
             binario=binario,
             diretorio_trabalho=diretorio,
@@ -135,7 +146,8 @@ def obter_porta_admin(paths: CaminhosAdGuard) -> int:
 
 
 def obter_url_admin_local(paths: CaminhosAdGuard) -> str:
-    return f"http://127.0.0.1:{obter_porta_admin(paths)}"
+    """Contrato interno fixo; o YAML é exclusivo do bootstrap privilegiado."""
+    return URL_ADMIN_LOCAL_PADRAO
 
 
 def carregar_secret(caminho: Path = SECRET_ADGUARD_PADRAO) -> dict[str, str]:
@@ -193,36 +205,84 @@ def garantir_secret(
     return segredo
 
 
+def _metadata_estado_adguard(paths: CaminhosAdGuard) -> dict[str, object]:
+    return {
+        "provisionado": True,
+        "api_url": URL_ADMIN_LOCAL_PADRAO,
+        "servico": paths.servico,
+        "binario": str(paths.binario),
+    }
+
+
+def persistir_estado_adguard(
+    paths: CaminhosAdGuard,
+    caminho: Path = STATE_ADGUARD_PADRAO,
+    *,
+    grupo: str | None = "moonshield",
+) -> None:
+    """Registra metadados não secretos para consultas do runtime web."""
+    try:
+        caminho.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+        if grupo:
+            gid = grp.getgrnam(grupo).gr_gid
+            os.chown(caminho.parent, 0, gid)
+            os.chmod(caminho.parent, 0o750)
+        conteudo = json.dumps(_metadata_estado_adguard(paths), separators=(",", ":"))
+        descritor, temporario = tempfile.mkstemp(prefix=".adguard-state.", dir=caminho.parent)
+        try:
+            with os.fdopen(descritor, "w", encoding="utf-8") as arquivo:
+                arquivo.write(conteudo)
+            os.chmod(temporario, 0o640)
+            if grupo:
+                os.chown(temporario, 0, gid)
+            os.replace(temporario, caminho)
+        except Exception:
+            try:
+                os.unlink(temporario)
+            except OSError:
+                pass
+            raise
+    except (KeyError, PermissionError, OSError) as exc:
+        raise AdGuardBootstrapError("Não foi possível persistir o estado local do AdGuard.") from exc
+
+
+def adguard_esta_provisionado(caminho: Path = STATE_ADGUARD_PADRAO) -> bool:
+    """Consulta o marcador MoonShield sem acessar a árvore do AdGuard."""
+    try:
+        modo = stat.S_IMODE(caminho.stat().st_mode)
+        if modo & 0o007:
+            return False
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+
+    return bool(
+        isinstance(dados, dict)
+        and dados.get("provisionado") is True
+        and dados.get("api_url") == URL_ADMIN_LOCAL_PADRAO
+        and dados.get("servico") == SERVICO_ADGUARD_PADRAO
+        and isinstance(dados.get("binario"), str)
+    )
+
+
 def criar_cliente_adguard_local(
     *,
-    paths: CaminhosAdGuard | None = None,
     secret_path: Path = SECRET_ADGUARD_PADRAO,
 ) -> AdGuardClient:
-    paths = paths or descobrir_adguard()
+    """Cria o cliente do contrato interno sem ler YAML ou /opt/AdGuardHome."""
     secret = carregar_secret(secret_path)
     return AdGuardClient(
-        url=obter_url_admin_local(paths),
+        url=URL_ADMIN_LOCAL_PADRAO,
         user=secret["username"],
         password=secret["password"],
     )
 
 
-def _garantir_permissoes_configuracao(
-    paths: CaminhosAdGuard,
-    *,
-    grupo: str = "moonshield",
-) -> None:
-    """Mantém o YAML acessível apenas ao runtime web da appliance."""
+def _proteger_configuracao_privilegiada(paths: CaminhosAdGuard) -> None:
+    """Mantém o YAML sob controle exclusivo do componente privilegiado."""
     try:
-        gid = grp.getgrnam(grupo).gr_gid
-    except KeyError as exc:
-        raise AdGuardBootstrapError(
-            f"Grupo de integração {grupo} não foi encontrado."
-        ) from exc
-
-    try:
-        os.chown(paths.configuracao, 0, gid)
-        os.chmod(paths.configuracao, 0o640)
+        os.chown(paths.configuracao, 0, 0)
+        os.chmod(paths.configuracao, 0o600)
     except (PermissionError, OSError) as exc:
         raise AdGuardBootstrapError(
             "Não foi possível proteger a configuração local do AdGuard Home."
@@ -481,7 +541,7 @@ def _configuracao_desejada(paths: CaminhosAdGuard, senha: str, hosts_dns: list[s
     hash_atual = _hash_usuario_moonshield(linhas)
     senha_hash = hash_atual if hash_atual and _senha_confere(hash_atual, senha) else _bcrypt(senha)
     http_inicio, http_fim = _bloco_yaml(linhas, "http")
-    endereco_admin = f"127.0.0.1:{obter_porta_admin(paths)}"
+    endereco_admin = ENDERECO_ADMIN_PADRAO
     if http_inicio is None:
         linhas.extend(["http:", f"  address: {endereco_admin}"])
     else:
@@ -499,14 +559,14 @@ def _escrever_configuracao_atomica(paths: CaminhosAdGuard, conteudo: str) -> Pat
         temporario.write(conteudo)
         nome_temporario = temporario.name
     os.replace(nome_temporario, original)
-    _garantir_permissoes_configuracao(paths)
+    _proteger_configuracao_privilegiada(paths)
     return backup
 
 
 def _restaurar_backup(paths: CaminhosAdGuard, backup: Path) -> None:
     if backup.is_file():
         shutil.copy2(backup, paths.configuracao)
-        _garantir_permissoes_configuracao(paths)
+        _proteger_configuracao_privilegiada(paths)
 
 
 def validar_resolucao_dns(*, host: str = "127.0.0.1", porta: int = 53, timeout: float = 1.5) -> dict[str, bool]:
@@ -649,7 +709,8 @@ def provisionar_adguard(
     """Provisiona setup nativo sem HTML e preserva instâncias já válidas."""
     paths = descobrir_adguard()
     secret = garantir_secret(secret_path)
-    _garantir_permissoes_configuracao(paths)
+    _proteger_configuracao_privilegiada(paths)
+    persistir_estado_adguard(paths)
     inventario = inventariar_interfaces_dns(topologia)
     if not inventario["interfaces_dns_ativas"]:
         return {
@@ -666,8 +727,8 @@ def provisionar_adguard(
     if not servico_ativo(paths.servico):
         controlar_servico(["start", paths.servico])
 
-    porta_admin = obter_porta_admin(paths)
-    client = AdGuardClient(obter_url_admin_local(paths), secret["username"], secret["password"])
+    porta_admin = 3000
+    client = AdGuardClient(URL_ADMIN_LOCAL_PADRAO, secret["username"], secret["password"])
     setup_realizado = False
     try:
         client.get_status()
@@ -684,14 +745,14 @@ def provisionar_adguard(
             if problemas:
                 raise AdGuardBootstrapError("Configuração inicial do AdGuard recusada: " + "; ".join(problemas))
             client.configurar_instalacao(payload)
-            _garantir_permissoes_configuracao(paths)
+            _proteger_configuracao_privilegiada(paths)
             setup_realizado = True
         elif exc.status_code != 401:
             raise AdGuardBootstrapError("API local do AdGuard não respondeu ao contrato esperado.") from exc
 
     def validar_api_reconciliada() -> None:
         client_validacao = AdGuardClient(
-            obter_url_admin_local(paths),
+            URL_ADMIN_LOCAL_PADRAO,
             secret["username"],
             secret["password"],
         )
@@ -716,8 +777,8 @@ def provisionar_adguard(
         controlar_servico=controlar_servico,
         validar_apos_inicio=validar_api_reconciliada,
     )
-    _garantir_permissoes_configuracao(paths)
-    client = AdGuardClient(obter_url_admin_local(paths), secret["username"], secret["password"])
+    _proteger_configuracao_privilegiada(paths)
+    client = AdGuardClient(URL_ADMIN_LOCAL_PADRAO, secret["username"], secret["password"])
     try:
         for tentativa in range(20):
             try:

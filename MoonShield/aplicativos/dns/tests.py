@@ -9,16 +9,19 @@ from configuracoes import views as configuracoes_views
 from dns.services import adguard_bootstrap
 from dns.services.adguard_bootstrap import (
     _configuracao_desejada,
-    _garantir_permissoes_configuracao,
+    _proteger_configuracao_privilegiada,
     _reconciliar_yaml,
     AdGuardBootstrapError,
     CaminhosAdGuard,
+    adguard_esta_provisionado,
+    criar_cliente_adguard_local,
     detectar_conflitos_porta_dns,
     garantir_secret,
     _hosts_dns_iniciais,
     inventariar_interfaces_dns,
     obter_porta_admin,
     obter_url_admin,
+    persistir_estado_adguard,
     provisionar_adguard,
     upstreams_aprovados,
 )
@@ -72,6 +75,19 @@ class TestClienteAdGuard(unittest.TestCase):
             self.assertEqual(obter_url_admin(paths), "http://127.0.0.1:3100")
             self.assertEqual(obter_porta_admin(paths), 3100)
 
+    def test_cliente_web_nao_descobre_nem_le_yaml_privilegiado(self):
+        with tempfile.TemporaryDirectory() as diretorio:
+            secret = Path(diretorio) / "adguard"
+            secret.write_text(
+                '{"username":"moonshield","password":"' + "a" * 32 + '"}',
+                encoding="utf-8",
+            )
+            secret.chmod(0o640)
+            with patch("dns.services.adguard_bootstrap.descobrir_adguard", side_effect=PermissionError):
+                client = criar_cliente_adguard_local(secret_path=secret)
+
+        self.assertEqual(client.base_url, "http://127.0.0.1:3000")
+
 
 class TestInventarioDNS(unittest.TestCase):
     def test_inventario_ativa_todos_os_papeis_habilitados_com_ipv4(self):
@@ -111,14 +127,15 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         raiz = Path("/opt/AdGuardHome")
         return CaminhosAdGuard(raiz / "AdGuardHome", raiz, raiz / "AdGuardHome.yaml", raiz / "data")
 
-    @patch("dns.services.adguard_bootstrap._garantir_permissoes_configuracao")
+    @patch("dns.services.adguard_bootstrap.persistir_estado_adguard")
+    @patch("dns.services.adguard_bootstrap._proteger_configuracao_privilegiada")
     @patch("dns.services.adguard_bootstrap.detectar_conflitos_porta_dns", return_value=[])
     @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
     @patch("dns.services.adguard_bootstrap.descobrir_adguard")
     @patch("dns.services.adguard_bootstrap.AdGuardClient")
     @patch("dns.services.adguard_bootstrap._reconciliar_yaml", return_value=True)
     @patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True, "upstream_ok": True})
-    def test_fresh_install_usa_api_sem_html_e_nao_expoe_secret(self, _dns, _yaml, client_class, descobrir, _secret, _conflitos, permissoes):
+    def test_fresh_install_usa_api_sem_html_e_nao_expoe_secret(self, _dns, _yaml, client_class, descobrir, _secret, _conflitos, permissoes, _estado):
         descobrir.return_value = self._paths()
         client = client_class.return_value
         client.get_status.side_effect = [
@@ -145,10 +162,11 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         self.assertNotIn("segredo-unico", str(resultado))
         self.assertGreaterEqual(permissoes.call_count, 3)
 
-    @patch("dns.services.adguard_bootstrap._garantir_permissoes_configuracao")
+    @patch("dns.services.adguard_bootstrap.persistir_estado_adguard")
+    @patch("dns.services.adguard_bootstrap._proteger_configuracao_privilegiada")
     @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
     @patch("dns.services.adguard_bootstrap.descobrir_adguard")
-    def test_sem_interfaces_com_ipv4_retorna_aguardando_topologia(self, descobrir, _secret, _permissoes):
+    def test_sem_interfaces_com_ipv4_retorna_aguardando_topologia(self, descobrir, _secret, _permissoes, _estado):
         descobrir.return_value = self._paths()
         topologia = {
             papel: {"interfaces": [{"nome": f"{papel}0", "desejado": {"habilitada": True}, "real": {}}]}
@@ -162,14 +180,15 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         self.assertEqual(resultado["estado"], "aguardando_topologia")
         self.assertFalse(resultado["setup_realizado"])
 
-    @patch("dns.services.adguard_bootstrap._garantir_permissoes_configuracao")
+    @patch("dns.services.adguard_bootstrap.persistir_estado_adguard")
+    @patch("dns.services.adguard_bootstrap._proteger_configuracao_privilegiada")
     @patch("dns.services.adguard_bootstrap.detectar_conflitos_porta_dns", return_value=[])
     @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
     @patch("dns.services.adguard_bootstrap.descobrir_adguard")
     @patch("dns.services.adguard_bootstrap.AdGuardClient")
     @patch("dns.services.adguard_bootstrap._reconciliar_yaml", return_value=False)
     @patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True, "upstream_ok": True})
-    def test_execucao_repetida_preserva_setup_e_customizacoes(self, _dns, _yaml, client_class, descobrir, _secret, _conflitos, _permissoes):
+    def test_execucao_repetida_preserva_setup_e_customizacoes(self, _dns, _yaml, client_class, descobrir, _secret, _conflitos, _permissoes, _estado):
         descobrir.return_value = self._paths()
         client = client_class.return_value
         client.get_status.return_value = {"running": True, "dns_addresses": ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]}
@@ -185,7 +204,8 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
         client.configurar_instalacao.assert_not_called()
         client.get_dns_info.assert_called_once()
 
-    @patch("dns.services.adguard_bootstrap._garantir_permissoes_configuracao")
+    @patch("dns.services.adguard_bootstrap.persistir_estado_adguard")
+    @patch("dns.services.adguard_bootstrap._proteger_configuracao_privilegiada")
     @patch("dns.services.adguard_bootstrap.time.sleep")
     @patch("dns.services.adguard_bootstrap.detectar_conflitos_porta_dns", return_value=[])
     @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
@@ -193,7 +213,7 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
     @patch("dns.services.adguard_bootstrap.AdGuardClient")
     @patch("dns.services.adguard_bootstrap._reconciliar_yaml")
     @patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True})
-    def test_reconcile_aguarda_api_apos_restart(self, _dns, reconciliar, client_class, descobrir, _secret, _conflitos, dormir, _permissoes):
+    def test_reconcile_aguarda_api_apos_restart(self, _dns, reconciliar, client_class, descobrir, _secret, _conflitos, dormir, _permissoes, _estado):
         descobrir.return_value = self._paths()
         client = client_class.return_value
         status = {"running": True, "dns_addresses": ["127.0.0.1", "203.0.113.2", "192.168.52.1", "198.51.100.2", "172.16.0.1", "10.1.0.1"]}
@@ -262,32 +282,29 @@ class TestPermissoesConfiguracaoAdGuard(unittest.TestCase):
         return CaminhosAdGuard(raiz / "AdGuardHome", raiz, configuracao, raiz / "data")
 
     @patch("dns.services.adguard_bootstrap.os.chown")
-    @patch("dns.services.adguard_bootstrap.grp.getgrnam", return_value=SimpleNamespace(gr_gid=GID_MOONSHIELD))
-    def test_helper_aplica_root_moonshield_0640_sem_expor_arquivo(self, _grupo, chown):
+    def test_helper_aplica_root_root_0600_ao_yaml_privilegiado(self, chown):
         with tempfile.TemporaryDirectory() as diretorio:
             paths = self._paths(diretorio)
-            _garantir_permissoes_configuracao(paths)
-            _garantir_permissoes_configuracao(paths)
+            _proteger_configuracao_privilegiada(paths)
+            _proteger_configuracao_privilegiada(paths)
 
-            self.assertEqual(stat.S_IMODE(paths.configuracao.stat().st_mode), 0o640)
+            self.assertEqual(stat.S_IMODE(paths.configuracao.stat().st_mode), 0o600)
             self.assertFalse(stat.S_IMODE(paths.configuracao.stat().st_mode) & 0o004)
-            chown.assert_called_with(paths.configuracao, 0, self.GID_MOONSHIELD)
+            chown.assert_called_with(paths.configuracao, 0, 0)
 
     @patch("dns.services.adguard_bootstrap.os.chown")
-    @patch("dns.services.adguard_bootstrap.grp.getgrnam", return_value=SimpleNamespace(gr_gid=GID_MOONSHIELD))
-    def test_escrita_atomica_substitui_0600_por_0640(self, _grupo, chown):
+    def test_escrita_atomica_preserva_yaml_root_only(self, chown):
         with tempfile.TemporaryDirectory() as diretorio:
             paths = self._paths(diretorio)
             backup = adguard_bootstrap._escrever_configuracao_atomica(paths, "depois\n")
 
             self.assertEqual(paths.configuracao.read_text(encoding="utf-8"), "depois\n")
             self.assertTrue(backup.is_file())
-            self.assertEqual(stat.S_IMODE(paths.configuracao.stat().st_mode), 0o640)
-            chown.assert_called_with(paths.configuracao, 0, self.GID_MOONSHIELD)
+            self.assertEqual(stat.S_IMODE(paths.configuracao.stat().st_mode), 0o600)
+            chown.assert_called_with(paths.configuracao, 0, 0)
 
     @patch("dns.services.adguard_bootstrap.os.chown")
-    @patch("dns.services.adguard_bootstrap.grp.getgrnam", return_value=SimpleNamespace(gr_gid=GID_MOONSHIELD))
-    def test_rollback_restaura_conteudo_e_reaplica_0640(self, _grupo, chown):
+    def test_rollback_restaura_conteudo_e_reaplica_0600(self, chown):
         with tempfile.TemporaryDirectory() as diretorio:
             paths = self._paths(diretorio)
             backup = Path(diretorio) / "AdGuardHome.yaml.moonshield.bak"
@@ -299,14 +316,8 @@ class TestPermissoesConfiguracaoAdGuard(unittest.TestCase):
             adguard_bootstrap._restaurar_backup(paths, backup)
 
             self.assertEqual(paths.configuracao.read_text(encoding="utf-8"), "antes\n")
-            self.assertEqual(stat.S_IMODE(paths.configuracao.stat().st_mode), 0o640)
-            chown.assert_called_with(paths.configuracao, 0, self.GID_MOONSHIELD)
-
-    @patch("dns.services.adguard_bootstrap.grp.getgrnam", side_effect=KeyError("moonshield"))
-    def test_grupo_moonshield_ausente_gera_erro_explicito(self, _grupo):
-        with tempfile.TemporaryDirectory() as diretorio:
-            with self.assertRaisesRegex(AdGuardBootstrapError, "Grupo de integração moonshield"):
-                _garantir_permissoes_configuracao(self._paths(diretorio))
+            self.assertEqual(stat.S_IMODE(paths.configuracao.stat().st_mode), 0o600)
+            chown.assert_called_with(paths.configuracao, 0, 0)
 
     @patch("dns.services.adguard_bootstrap.os.chown")
     @patch("dns.services.adguard_bootstrap.grp.getgrnam", return_value=SimpleNamespace(gr_gid=GID_MOONSHIELD))
@@ -318,6 +329,28 @@ class TestPermissoesConfiguracaoAdGuard(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(caminho.stat().st_mode), 0o640)
             self.assertFalse(stat.S_IMODE(caminho.stat().st_mode) & 0o004)
             chown.assert_called_with(caminho, 0, self.GID_MOONSHIELD)
+
+
+class TestEstadoAdGuard(unittest.TestCase):
+    def test_state_nao_contem_secret_e_indica_componente_provisionado(self):
+        with tempfile.TemporaryDirectory() as diretorio:
+            estado = Path(diretorio) / "adguard-state.json"
+            paths = CaminhosAdGuard(
+                Path("/opt/AdGuardHome/AdGuardHome"),
+                Path("/opt/AdGuardHome"),
+                Path("/opt/AdGuardHome/AdGuardHome.yaml"),
+                Path("/opt/AdGuardHome/data"),
+            )
+            persistir_estado_adguard(paths, estado, grupo=None)
+
+            self.assertTrue(adguard_esta_provisionado(estado))
+            self.assertNotIn("password", estado.read_text(encoding="utf-8"))
+            self.assertEqual(stat.S_IMODE(estado.stat().st_mode), 0o640)
+
+    def test_state_inacessivel_ou_invalido_nao_derruba_health(self):
+        estado = Path("/state/inacessivel")
+        with patch.object(Path, "stat", side_effect=PermissionError):
+            self.assertFalse(adguard_esta_provisionado(estado))
 
 
 class TestUpstreamsAdGuard(unittest.TestCase):
@@ -361,7 +394,7 @@ class TestHealthAdGuard(unittest.TestCase):
         }
 
     def _estado_com_erro(self, erro):
-        with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.side_effect = erro
             return configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
 
@@ -377,7 +410,7 @@ class TestHealthAdGuard(unittest.TestCase):
         self.assertFalse(estado["ativo"])
 
     def test_health_operacional_usa_contrato_local_completo(self):
-        with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True}), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True}), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.return_value = self._dados_operacionais()
             factory.return_value.testar_upstreams_dns.return_value = {"https://cloudflare-dns.com:443/dns-query": "OK"}
             estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
@@ -403,7 +436,7 @@ class TestHealthAdGuard(unittest.TestCase):
                 "version": "v0.107.79",
             }
         }
-        with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True, "upstream_ok": True}), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": True, "upstream_ok": True}), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.return_value = dados
             estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
 
@@ -414,7 +447,7 @@ class TestHealthAdGuard(unittest.TestCase):
     def test_listener_localhost_apenas_e_wan_indevido_nao_ficam_operacionais(self):
         for enderecos in (["127.0.0.1"], ["127.0.0.1", "192.168.52.1", "203.0.113.2"]):
             dados = {"health": {"api": "ok", "running": True, "protection_enabled": True, "dns_port": 53, "dns_addresses": enderecos}}
-            with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.views._get_adguard_client") as factory:
+            with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.views._get_adguard_client") as factory:
                 factory.return_value.fetch_all.return_value = dados
                 estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
             self.assertFalse(estado["saudavel"])
@@ -422,7 +455,7 @@ class TestHealthAdGuard(unittest.TestCase):
 
     def test_api_ok_sem_resolucao_real_fica_em_atencao(self):
         dados = {"health": {"api": "ok", "running": True, "protection_enabled": True, "dns_port": 53, "dns_addresses": ["127.0.0.1", "192.168.52.1"]}}
-        with patch("dns.services.adguard_bootstrap.descobrir_adguard", return_value=object()), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": False, "upstream_ok": False}), patch("dns.views._get_adguard_client") as factory:
+        with patch("dns.services.adguard_bootstrap.adguard_esta_provisionado", return_value=True), patch("dns.services.adguard_bootstrap.validar_resolucao_dns", return_value={"resolver_ok": False, "upstream_ok": False}), patch("dns.views._get_adguard_client") as factory:
             factory.return_value.fetch_all.return_value = dados
             estado = configuracoes_views._estado_adguard(SimpleNamespace(), TOPOLOGIA_DNS)
         self.assertFalse(estado["saudavel"])

@@ -145,9 +145,11 @@ def _inicializar_rede() -> None:
 # =============================================================================
 
 def _inicializar_firewall() -> None:
-    """Recupera Safe Apply persistente do Firewall antes do socket IPC abrir."""
+    """Recupera Safe Apply persistente do Firewall antes do socket IPC abrir e assegura estado operacional."""
     try:
         from firewall.nucleo.rollback import inicializar_rollback_pendente
+        from firewall.nucleo.status import obter_status, ARQUIVO_CONFIG
+        from firewall.nucleo.instalador import reparar_firewall
 
         resultado = inicializar_rollback_pendente()
         recuperadas = resultado.get("recuperadas", [])
@@ -180,9 +182,23 @@ def _inicializar_firewall() -> None:
                 erro.get("erro"),
             )
 
+        if not (recuperadas or revertidas or erros):
+            if ARQUIVO_CONFIG.exists():
+                estado_atual = obter_status()
+                if not estado_atual.get("instalado"):
+                    logger.warning("[firewall] Configuração existe, mas tabela ausente. Executando reparo automático.")
+                    reparo = reparar_firewall()
+                    if reparo.get("ok"):
+                        logger.info("[firewall] Reparo automático do Firewall concluído com sucesso.")
+                    else:
+                        logger.error(
+                            "[firewall] Falha no reparo automático: %s",
+                            reparo.get("erro", "Desconhecido")
+                        )
+
     except Exception:
         logger.exception(
-            "[firewall] falha durante inicialização do Safe Apply"
+            "[firewall] falha durante inicialização e reconciliação do Firewall"
         )
 
 

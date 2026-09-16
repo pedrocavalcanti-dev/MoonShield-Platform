@@ -402,7 +402,7 @@ class Command(BaseCommand):
 
         return f"""[Unit]
 Description=MoonShield Agent IPC
-After=network.target
+After=network.target nftables.service
 Wants=network.target
 
 [Service]

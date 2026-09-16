@@ -2,17 +2,23 @@ import unittest
 from unittest.mock import patch, MagicMock
 import sys
 
-# Mock grp para Windows
+# Mock grp e UnixStreamServer para testes no Windows
 sys.modules['grp'] = MagicMock()
+import socketserver
+import socket
+if not hasattr(socketserver, 'UnixStreamServer'):
+    socketserver.UnixStreamServer = type('UnixStreamServer', (object,), {})
+if not hasattr(socket, 'AF_UNIX'):
+    socket.AF_UNIX = getattr(socket, 'AF_INET', 2)
 
 # The function to test
 from firewall.ipc.servidor import _inicializar_firewall
 
 class TestFirewallBootRestore(unittest.TestCase):
-    @patch("firewall.ipc.servidor.inicializar_rollback_pendente")
-    @patch("firewall.ipc.servidor.ARQUIVO_CONFIG")
-    @patch("firewall.ipc.servidor.obter_status")
-    @patch("firewall.ipc.servidor.reparar_firewall")
+    @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
+    @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
+    @patch("firewall.nucleo.status.obter_status")
+    @patch("firewall.nucleo.instalador.reparar_firewall")
     def test_boot_restore_config_exists_table_missing(
         self, mock_reparar, mock_obter_status, mock_arquivo, mock_rollback
     ):
@@ -27,10 +33,10 @@ class TestFirewallBootRestore(unittest.TestCase):
 
         mock_reparar.assert_called_once()
 
-    @patch("firewall.ipc.servidor.inicializar_rollback_pendente")
-    @patch("firewall.ipc.servidor.ARQUIVO_CONFIG")
-    @patch("firewall.ipc.servidor.obter_status")
-    @patch("firewall.ipc.servidor.reparar_firewall")
+    @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
+    @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
+    @patch("firewall.nucleo.status.obter_status")
+    @patch("firewall.nucleo.instalador.reparar_firewall")
     def test_boot_restore_config_exists_table_healthy(
         self, mock_reparar, mock_obter_status, mock_arquivo, mock_rollback
     ):
@@ -44,10 +50,10 @@ class TestFirewallBootRestore(unittest.TestCase):
 
         mock_reparar.assert_not_called()
 
-    @patch("firewall.ipc.servidor.inicializar_rollback_pendente")
-    @patch("firewall.ipc.servidor.ARQUIVO_CONFIG")
-    @patch("firewall.ipc.servidor.obter_status")
-    @patch("firewall.ipc.servidor.reparar_firewall")
+    @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
+    @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
+    @patch("firewall.nucleo.status.obter_status")
+    @patch("firewall.nucleo.instalador.reparar_firewall")
     def test_boot_restore_never_configured(
         self, mock_reparar, mock_obter_status, mock_arquivo, mock_rollback
     ):
@@ -61,10 +67,10 @@ class TestFirewallBootRestore(unittest.TestCase):
         mock_reparar.assert_not_called()
         mock_obter_status.assert_not_called()
 
-    @patch("firewall.ipc.servidor.inicializar_rollback_pendente")
-    @patch("firewall.ipc.servidor.ARQUIVO_CONFIG")
-    @patch("firewall.ipc.servidor.obter_status")
-    @patch("firewall.ipc.servidor.reparar_firewall")
+    @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
+    @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
+    @patch("firewall.nucleo.status.obter_status")
+    @patch("firewall.nucleo.instalador.reparar_firewall")
     def test_boot_restore_yields_to_safe_apply(
         self, mock_reparar, mock_obter_status, mock_arquivo, mock_rollback
     ):
@@ -78,10 +84,10 @@ class TestFirewallBootRestore(unittest.TestCase):
 
         mock_reparar.assert_not_called()
 
-    @patch("firewall.ipc.servidor.inicializar_rollback_pendente")
-    @patch("firewall.ipc.servidor.ARQUIVO_CONFIG")
-    @patch("firewall.ipc.servidor.obter_status")
-    @patch("firewall.ipc.servidor.reparar_firewall")
+    @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
+    @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
+    @patch("firewall.nucleo.status.obter_status")
+    @patch("firewall.nucleo.instalador.reparar_firewall")
     def test_boot_restore_failure_handled_gracefully(
         self, mock_reparar, mock_obter_status, mock_arquivo, mock_rollback
     ):
@@ -95,5 +101,25 @@ class TestFirewallBootRestore(unittest.TestCase):
             _inicializar_firewall()
         except Exception as e:
             self.fail(f"_inicializar_firewall raised {type(e).__name__} unexpectedly!")
+
+        mock_reparar.assert_called_once()
+
+    @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
+    @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
+    @patch("firewall.nucleo.status.obter_status")
+    @patch("firewall.nucleo.instalador.reparar_firewall")
+    def test_boot_restore_exception_handled_gracefully(
+        self, mock_reparar, mock_obter_status, mock_arquivo, mock_rollback
+    ):
+        """6. falha em restore com exception: erro é tratado e Agent não crasha."""
+        mock_rollback.return_value = {"recuperadas": [], "revertidas": [], "erros": []}
+        mock_arquivo.exists.return_value = True
+        mock_obter_status.return_value = {"instalado": False}
+        mock_reparar.side_effect = RuntimeError("Falha grave e inesperada simulada")
+
+        try:
+            _inicializar_firewall()
+        except Exception as e:
+            self.fail(f"_inicializar_firewall raised {type(e).__name__} unexpectedly despite exception block!")
 
         mock_reparar.assert_called_once()

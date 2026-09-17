@@ -1,3 +1,4 @@
+from unittest.mock import patch
 from django.test import TestCase
 from datetime import datetime, timedelta
 from django.utils import timezone
@@ -80,3 +81,65 @@ class LocationApiTest(TestCase):
         events = normalizer.get_suricata_events(max_limit=10)
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]['src_ip'], '8.8.8.8')
+    def test_get_firewall_events_regression(self):
+        from firewall.models import EventoFirewall
+        EventoFirewall.objects.create(
+            timestamp=timezone.now(),
+            acao='DROP',
+            src_ip='198.51.100.12',
+            dst_ip='192.168.1.1',
+            dst_port=443,
+            proto='TCP',
+            chain='INPUT',
+            event_hash='fwtest1'
+        )
+        normalizer = FeedNormalizer(start_time=timezone.now() - timedelta(days=1), severities=['all'], sources=['firewall'])
+        events = normalizer.get_firewall_events(max_limit=10)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['source'], 'firewall')
+        self.assertEqual(events[0]['event_class'], 'block')
+        self.assertEqual(events[0]['severity'], 'low')
+        self.assertEqual(events[0]['src_ip'], '198.51.100.12')
+        self.assertEqual(events[0]['dst_ip'], '192.168.1.1')
+        self.assertEqual(events[0]['dst_port'], 443)
+        self.assertEqual(events[0]['protocol'], 'TCP')
+        self.assertGreaterEqual(events[0]['count'], 1)
+        self.assertFalse(events[0]['src_geo']['geolocatable']) # 198.51.100.12 is TEST-NET
+
+    @patch('dns.services.adguard_client.AdGuardClient.get_querylog_raw')
+    def test_api_overview_integrated(self, mock_adguard):
+        mock_adguard.return_value = []
+
+        from incidentes.models import EventoBruto
+        from firewall.models import EventoFirewall
+        from django.test import RequestFactory
+        from .views import api_map_overview
+
+        EventoBruto.objects.create(
+            timestamp=timezone.now(),
+            event_type='alert',
+            src_ip='8.8.8.8',
+            dest_ip='1.1.1.1',
+            dest_porta=80,
+            protocolo='TCP',
+            signature='Test Signature API',
+            severidade='critical',
+            event_hash='api_bruto_1'
+        )
+        EventoFirewall.objects.create(
+            timestamp=timezone.now(),
+            acao='DROP',
+            src_ip='8.8.4.4',
+            dst_ip='192.168.1.1',
+            dst_port=443,
+            proto='TCP',
+            chain='INPUT',
+            event_hash='api_fw_1'
+        )
+
+        factory = RequestFactory()
+        req = factory.get('/mapa/api/overview/')
+        req.user = type('User', (), {'is_authenticated': True})
+
+        res = api_map_overview(req)
+        self.assertEqual(res.status_code, 200)

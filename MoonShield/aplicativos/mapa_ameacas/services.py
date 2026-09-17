@@ -134,10 +134,10 @@ class FeedNormalizer:
         if self.country and self.country != 'all':
             qs = qs.filter(src_ip__in=GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip'))
         if self.query:
-            qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dest_ip__icontains=self.query))
+            qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dst_ip__icontains=self.query))
 
         qs = qs.values(
-            'src_ip', 'dest_ip', 'dest_port', 'proto', 'acao', 'chain'
+            'src_ip', 'dst_ip', 'dst_port', 'proto', 'acao', 'chain'
         ).annotate(
             count=Count('id'),
             last_seen=Max('timestamp')
@@ -162,8 +162,8 @@ class FeedNormalizer:
                 "severity": sev,
                 "src_ip": item['src_ip'],
                 "src_port": None,
-                "dst_ip": item['dest_ip'],
-                "dst_port": item['dest_port'],
+                "dst_ip": item['dst_ip'],
+                "dst_port": item['dst_port'],
                 "protocol": item['proto'],
                 "direction": "inbound",
                 "signature": f"Firewall {item['acao']} ({item['chain']})",

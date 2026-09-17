@@ -73,8 +73,6 @@ def enriquecer_ip(ip: str) -> dict:
 
     if not resultado:
         geo = _consultar_maxmind(ip)
-        if not geo['pais']:
-            geo = _consultar_ipapi(ip)
 
         geo['rdns']       = _rdns(ip)
         geo['is_private'] = False
@@ -195,44 +193,8 @@ def _consultar_maxmind(ip: str) -> dict:
     return resultado
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ip-api.com (online, fallback)
-# ─────────────────────────────────────────────────────────────────────────────
 
-def _consultar_ipapi(ip: str) -> dict:
-    resultado = {**_VAZIO}
 
-    try:
-        import requests
-        url  = f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,city,lat,lon,as,org"
-        resp = requests.get(url, timeout=3)
-
-        if resp.status_code == 200:
-            dados = resp.json()
-            if dados.get('status') == 'success':
-                asn_raw = dados.get('as', '')
-                org_raw = dados.get('org', '')
-
-                if asn_raw and asn_raw.startswith('AS'):
-                    partes = asn_raw.split(' ', 1)
-                    resultado['asn_number'] = partes[0]
-                    resultado['asn_org']    = partes[1] if len(partes) > 1 else org_raw
-                else:
-                    resultado['asn_number'] = ''
-                    resultado['asn_org']    = org_raw or asn_raw
-
-                resultado['pais']        = dados.get('country', '')
-                resultado['pais_codigo'] = dados.get('countryCode', '')
-                resultado['cidade']      = dados.get('city', '')
-                resultado['latitude']    = dados.get('lat')
-                resultado['longitude']   = dados.get('lon')
-                resultado['asn']         = asn_raw
-                resultado['source']      = 'ip-api'
-
-    except Exception as e:
-        logger.debug(f"ip-api.com falhou para {ip}: {e}")
-
-    return resultado
 
 
 # ─────────────────────────────────────────────────────────────────────────────

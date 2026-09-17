@@ -466,11 +466,20 @@
     async function loadMapOverview() {
         if (paused) return;
         try {
-            const res = await fetch(`/mapa/api/overview/?period=${currentPeriod}&sev=${sevFilter}`);
+            const res = await fetch(`/mapa/api/overview/?period=${currentPeriod}&sev=${sevFilter}&source=${feedFilter}&limit=${maxEvents}`);
             if (!res.ok) throw new Error('Erro ao buscar mapa');
             const data = await res.json();
             processApiData(data);
         } catch (e) { console.error('Falha na API Map Overview:', e); }
+    }
+
+    function getFlagEmoji(countryCode) {
+        if (!countryCode) return '';
+        const codePoints = countryCode
+            .toUpperCase()
+            .split('')
+            .map(char => 127397 + char.charCodeAt());
+        return String.fromCodePoint(...codePoints);
     }
 
     function processApiData(data) {
@@ -488,7 +497,25 @@
             if (!seenIds.has(ev.id)) {
                 seenIds.add(ev.id);
                 ev.born = Date.now();
-                addToGlobe(ev);
+
+                // Flatten geo properties for backwards compatibility
+                if (ev.src_geo) {
+                    ev.src_country = ev.src_geo.country || '';
+                    ev.src_city = ev.src_geo.city || '';
+                    ev.src_lat = ev.src_geo.latitude;
+                    ev.src_lon = ev.src_geo.longitude;
+                    ev.src_flag = ev.src_geo.country_code ? getFlagEmoji(ev.src_geo.country_code) : '';
+                }
+                if (ev.dst_geo) {
+                    ev.dest_lat = ev.dst_geo.latitude;
+                    ev.dest_lon = ev.dst_geo.longitude;
+                }
+                ev.port = ev.dst_port || ev.src_port || '';
+                ev.asn = ev.asn || '';
+
+                if (ev.geolocatable && ev.dst_geo && ev.dst_geo.geolocatable !== false) {
+                    addToGlobe(ev);
+                }
                 addToFeed(ev);
             }
         });
@@ -563,16 +590,25 @@
         document.getElementById('tg-det-time').textContent = ev.timestamp;
         document.getElementById('tg-det-asn-hero').textContent = ev.asn;
         document.getElementById('tg-det-ip-big').textContent = ev.src_ip;
-        document.getElementById('tg-det-country').textContent = `${ev.src_flag} ${ev.src_city} · ${ev.src_country}`;
-        document.getElementById('tg-det-coords').textContent = `${ev.src_lat.toFixed(2)}°, ${ev.src_lon.toFixed(2)}°`;
+        const srcFlag = ev.src_flag || '';
+        const srcCity = ev.src_city || '';
+        const srcCountry = ev.src_country || 'Desconhecido';
+        const srcLat = ev.src_lat !== undefined && ev.src_lat !== null ? ev.src_lat.toFixed(2) + '°' : '--';
+        const srcLon = ev.src_lon !== undefined && ev.src_lon !== null ? ev.src_lon.toFixed(2) + '°' : '--';
+        const asn = ev.asn || 'N/A';
+
+        document.getElementById('tg-det-country').textContent = `${srcFlag} ${srcCity} • ${srcCountry}`;
+        document.getElementById('tg-det-coords').textContent = `${srcLat}, ${srcLon}`;
         document.getElementById('tg-det-ip').textContent = ev.src_ip;
-        document.getElementById('tg-det-asn').textContent = ev.asn;
-        document.getElementById('tg-det-dest').textContent = `${ev.dest_ip} (sensor)`;
-        document.getElementById('tg-det-port').textContent = `${ev.port} · ${ev.proto}`;
-        document.getElementById('tg-det-sig').textContent = ev.signature;
+        document.getElementById('tg-det-asn').textContent = asn;
+        document.getElementById('tg-det-dest').textContent = `${ev.dest_ip || 'N/A'} (sensor)`;
+        document.getElementById('tg-det-port').textContent = `${ev.port || ''} • ${ev.protocol || ev.proto || ''}`;
+        document.getElementById('tg-det-sig').textContent = ev.signature || '';
 
         detailsEl.classList.add('visible');
-        map.easeTo({ center: [ev.src_lon, ev.src_lat], zoom: 3.5, duration: 1500, essential: true });
+        if (ev.src_lon !== undefined && ev.src_lat !== undefined) {
+            map.easeTo({ center: [ev.src_lon, ev.src_lat], zoom: 3.5, duration: 1500, essential: true });
+        }
     }
 
     /* ══════════════════════════════════════════════════════════
@@ -719,7 +755,10 @@
         document.getElementById('tg-rot-val').textContent = (parseInt(e.target.value) / 10).toFixed(1) + '×';
     });
 
-    document.getElementById('tg-feed-src-filter').addEventListener('change', e => { feedFilter = e.target.value; });
+    document.getElementById('tg-feed-src-filter').addEventListener('change', e => {
+        feedFilter = e.target.value;
+        loadMapOverview();
+    });
 
     document.getElementById('tg-search').addEventListener('input', e => {
         const q = e.target.value.toLowerCase();
@@ -743,6 +782,6 @@
        11. BOOT & POLLING
     ══════════════════════════════════════════════════════════ */
     loadMapOverview();
-    setInterval(loadMapOverview, 4000);
+    setInterval(loadMapOverview, 5000);
 
 })();

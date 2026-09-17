@@ -67,6 +67,26 @@ class ConfigSistema(models.Model):
         default="",
     )
 
+    # Localização do Node
+    node_latitude = models.FloatField(null=True, blank=True)
+    node_longitude = models.FloatField(null=True, blank=True)
+    node_city = models.CharField(max_length=100, blank=True)
+    node_region = models.CharField(max_length=100, blank=True)
+    node_country_code = models.CharField(max_length=10, blank=True)
+    node_location_source = models.CharField(
+        max_length=50,
+        choices=[
+            ('manual', 'Manual Confirmado'),
+            ('browser', 'Browser Confirmado pelo Usuário'),
+            ('config', 'Configurado'),
+            ('geoip', 'WAN GeoIP'),
+            ('unknown', 'Desconhecido')
+        ],
+        default='unknown'
+    )
+    node_location_accuracy = models.CharField(max_length=50, blank=True)
+    node_location_confirmed_at = models.DateTimeField(null=True, blank=True)
+
     # Primeiro boot da appliance. Este estado é global e não substitui o
     # onboarding individual mantido em UserProfile.
     appliance_onboarding_completo = models.BooleanField(

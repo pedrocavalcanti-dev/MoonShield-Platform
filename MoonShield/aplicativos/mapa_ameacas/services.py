@@ -30,12 +30,32 @@ class FeedNormalizer:
         self.query = query
 
         self.cfg = ConfigSistema.get_solo()
-        # Inicializa o estado de saúde como online para todas as fontes solicitadas
         self.source_health = {
             'ids': 'online',
             'firewall': 'online',
             'dns': 'online',
         }
+
+        # Constrói o inventário de redes internas baseadas na topologia lícita SSOT
+        try:
+            from rede.services.topologia import obter_home_net
+            cidrs = obter_home_net()
+            self._internal_networks = [ipaddress.ip_network(c, strict=False) for c in cidrs]
+        except Exception as e:
+            logger.error(f"Erro ao carregar topologia para FeedNormalizer: {e}")
+            self._internal_networks = []
+
+    def _is_internal_ip(self, ip_str: str) -> bool:
+        if not ip_str:
+            return False
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            for net in self._internal_networks:
+                if ip in net:
+                    return True
+            return False
+        except ValueError:
+            return False
 
     def _get_node_location(self) -> dict:
         """Obtém a localização local configurada do Node (MoonShield Appliance)."""
@@ -74,21 +94,24 @@ class FeedNormalizer:
 
     def _determine_direction_and_external(self, src_ip: str, dst_ip: str):
         """
-        Determina a direção e o endpoint geográfico externo baseado em validade global.
+        Determina a direção com base nas redes configuradas, e extrai o endpoint externo.
+        Regra fundamental: NON-GLOBAL != INTERNAL.
         Retorna (direction, external_ip).
         """
+        src_internal = self._is_internal_ip(src_ip)
+        dst_internal = self._is_internal_ip(dst_ip)
+
         src_global = _is_global_ip(src_ip)
         dst_global = _is_global_ip(dst_ip)
 
-        if src_global and not dst_global:
-            return "inbound", src_ip
-        elif not src_global and dst_global:
+        if src_internal and dst_global:
             return "outbound", dst_ip
-        elif not src_global and not dst_global:
+        elif src_global and dst_internal:
+            return "inbound", src_ip
+        elif src_internal and dst_internal:
             return "internal", None
         else:
-            # Caso ambos sejam globais ou situação ambígua, mantemos unknown com o source atuando como external
-            return "unknown", src_ip
+            return "unknown", None
 
     def get_suricata_events(self, max_limit=200):
         if 'ids' not in self.sources and 'all' not in self.sources:
@@ -101,8 +124,6 @@ class FeedNormalizer:
         if self.category and self.category != 'all':
             qs = qs.filter(categoria__iexact=self.category)
 
-        # Filtro de país: se for inbound, o src_ip é o external endpoint.
-        # Como o Suricata pode registrar inbound ou outbound, tentamos buscar IPs no GeoCache
         if self.country and self.country != 'all':
             geo_ips = GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip')
             qs = qs.filter(Q(src_ip__in=geo_ips) | Q(dest_ip__in=geo_ips))
@@ -119,6 +140,8 @@ class FeedNormalizer:
         ).order_by('-last_seen')[:max_limit]
 
         events = []
+        node_loc = self._get_node_location()
+
         for item in qs:
             sev = self._normalize_severity(item['severidade'])
             if self.severities and sev not in self.severities and 'all' not in self.severities:
@@ -129,7 +152,6 @@ class FeedNormalizer:
 
             direction, external_ip = self._determine_direction_and_external(src_ip, dst_ip)
 
-            # Filtro país (post-filtro) caso o país bata mas a direção do evento torne o IP filtrado interno
             if self.country and self.country != 'all':
                 if not external_ip: continue
                 ext_geo = self._get_geo(external_ip)
@@ -140,6 +162,9 @@ class FeedNormalizer:
             dst_geo = self._get_geo(dst_ip)
 
             ext_geo = self._get_geo(external_ip) if external_ip else {"geolocatable": False}
+
+            # map_eligible (antigo top-level geolocatable) significa que pode renderizar arcos reais
+            map_eligible = bool(direction in ['inbound', 'outbound'] and ext_geo.get('geolocatable') and node_loc.get('geolocatable'))
 
             events.append({
                 "id": f"suricata-{src_ip}-{item['signature']}-{item['last_seen'].timestamp()}",
@@ -161,7 +186,7 @@ class FeedNormalizer:
                 "dst_geo": dst_geo,
                 "external_ip": external_ip,
                 "external_geo": ext_geo,
-                "geolocatable": ext_geo.get('geolocatable', False),
+                "geolocatable": map_eligible,
                 "count": item['count'],
                 "incident_id": item['incidente_id'],
                 "rule_id": item['sid'] or None,
@@ -195,6 +220,8 @@ class FeedNormalizer:
         ).order_by('-last_seen')[:max_limit]
 
         events = []
+        node_loc = self._get_node_location()
+
         for item in qs:
             sev = "low" # Default firewall block severity
             if self.severities and sev not in self.severities and 'all' not in self.severities:
@@ -214,6 +241,7 @@ class FeedNormalizer:
             src_geo = self._get_geo(src_ip)
             dst_geo = self._get_geo(dst_ip)
             ext_geo = self._get_geo(external_ip) if external_ip else {"geolocatable": False}
+            map_eligible = bool(direction in ['inbound', 'outbound'] and ext_geo.get('geolocatable') and node_loc.get('geolocatable'))
 
             events.append({
                 "id": f"fw-{src_ip}-{item['last_seen'].timestamp()}",
@@ -235,7 +263,7 @@ class FeedNormalizer:
                 "dst_geo": dst_geo,
                 "external_ip": external_ip,
                 "external_geo": ext_geo,
-                "geolocatable": ext_geo.get('geolocatable', False),
+                "geolocatable": map_eligible,
                 "count": item['count'],
                 "incident_id": None,
                 "rule_id": None,
@@ -253,7 +281,7 @@ class FeedNormalizer:
             raw_logs = client.get_querylog_raw(limit=500)
         except Exception as e:
             logger.error(f"Erro ao buscar logs AdGuard: {e}")
-            self.source_health['dns'] = 'offline'
+            self.source_health['dns'] = 'offline' # Semantic: Unavailable physically or config missing, safe degradation
             return []
 
         events = []
@@ -271,8 +299,6 @@ class FeedNormalizer:
             if not entry_time_str:
                 continue
             try:
-                # Tratar possiveis naive datetimes com timezone awareness.
-                # Como AdGuard retorna 'Z', timezone.datetime.fromisoformat substitui +00:00
                 dt = timezone.datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
                 if dt < self.start_time:
                     continue
@@ -305,10 +331,9 @@ class FeedNormalizer:
                 continue
 
             src_ip = item['src_ip']
-            direction = "outbound"
+            direction = "outbound" if self._is_internal_ip(src_ip) else "unknown"
 
             src_geo = self._get_geo(src_ip)
-            # Para DNS bloqueado, nao fazemos GeoIP do dominio/destino, senao estariamos resolvendo externamente
             dst_geo = {"geolocatable": False}
             ext_geo = {"geolocatable": False}
 
@@ -322,7 +347,7 @@ class FeedNormalizer:
                 "severity": sev,
                 "src_ip": src_ip,
                 "src_port": None,
-                "dst_ip": None, # DNS query interceptada nao gera um dst_ip valido, usamos domain
+                "dst_ip": None,
                 "dst_port": 53,
                 "protocol": "UDP",
                 "direction": direction,

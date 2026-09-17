@@ -1,13 +1,22 @@
-from django.shortcuts import render
-from django.views.decorators.http import require_POST
 import json
 from django.utils import timezone
 from datetime import timedelta
 from django.http import JsonResponse
+from django.conf import settings
+from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST, require_GET
 from configuracoes.models import ConfigSistema
 from .services import FeedNormalizer
 
+@login_required(login_url="autenticacao:login")
+def mapa_view(request):
+    return render(request, "mapa_ameacas/mapa.html", {
+        "mapbox_token": getattr(settings, "MAPBOX_ACCESS_TOKEN", ""),
+    })
+
+@require_GET
+@login_required(login_url="autenticacao:login")
 def api_map_overview(request):
     periodo = request.GET.get("period", "24h")
     horas = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}.get(periodo, 24)
@@ -94,14 +103,14 @@ def api_set_location(request):
     try:
         data = json.loads(request.body.decode("utf-8"))
     except Exception:
-        return JsonResponse({"ok": False, "erro": "JSON invlido"}, status=400)
+        return JsonResponse({"ok": False, "erro": "JSON inválido"}, status=400)
 
     lat = data.get("latitude")
     lon = data.get("longitude")
     source = data.get("source", "unknown")
 
     if source not in ['manual', 'browser', 'config', 'geoip', 'unknown']:
-        return JsonResponse({"ok": False, "erro": "Source invlido"}, status=400)
+        return JsonResponse({"ok": False, "erro": "Source inválido"}, status=400)
 
     cfg = ConfigSistema.get_solo()
     cfg.node_latitude = lat
@@ -109,12 +118,3 @@ def api_set_location(request):
     cfg.node_location_source = source
     cfg.save()
     return JsonResponse({"ok": True})
-
-def mapa_ameacas(request):
-    cfg = ConfigSistema.get_solo()
-    if not cfg.node_latitude or not cfg.node_longitude:
-        tem_coordenadas = False
-    else:
-        tem_coordenadas = True
-
-    return render(request, "mapa_ameacas/mapa.html", {"tem_coordenadas": tem_coordenadas})

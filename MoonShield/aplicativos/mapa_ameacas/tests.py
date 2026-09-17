@@ -20,7 +20,13 @@ class FeedNormalizerTest(TestCase):
         normalizer = FeedNormalizer(start_time=timezone.now(), severities=['all'], sources=['ids'])
         self.assertEqual(normalizer._normalize_severity('1'), 'critical')
         self.assertEqual(normalizer._normalize_severity('crítico'), 'critical')
+        self.assertEqual(normalizer._normalize_severity('critico'), 'critical')
         self.assertEqual(normalizer._normalize_severity('alto'), 'high')
+        self.assertEqual(normalizer._normalize_severity('médio'), 'medium')
+        self.assertEqual(normalizer._normalize_severity('medio'), 'medium')
+        self.assertEqual(normalizer._normalize_severity('baixo'), 'low')
+        self.assertEqual(normalizer._normalize_severity('unknown_sev'), 'low')
+        self.assertEqual(normalizer._normalize_severity(None), 'low')
 
     def test_get_node_location(self):
         normalizer = FeedNormalizer(start_time=timezone.now(), severities=['all'], sources=['ids'])

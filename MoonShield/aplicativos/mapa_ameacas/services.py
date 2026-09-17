@@ -87,9 +87,12 @@ class FeedNormalizer:
     def _normalize_severity(self, sev: str) -> str:
         if not sev:
             return "low"
-        sev = sev.lower()
-        if sev in ["1", "high", "critical"]: return "critical"
-        if sev in ["2", "medium", "warning"]: return "medium"
+        import unicodedata
+        raw = unicodedata.normalize('NFKD', str(sev)).encode('ASCII', 'ignore').decode('utf-8').lower()
+        if raw in ['1', 'critical', 'critico']: return 'critical'
+        if raw in ['2', 'high', 'alto']: return 'high'
+        if raw in ['3', 'medium', 'medio', 'warning']: return 'medium'
+        if raw in ['4', 'low', 'baixo']: return 'low'
         return "low"
 
     def _determine_direction_and_external(self, src_ip: str, dst_ip: str):

@@ -1,33 +1,20 @@
-from datetime import datetime, timedelta
-
-from django.conf import settings
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
 from django.shortcuts import render
-from django.views.decorators.http import require_GET
-
+from django.views.decorators.http import require_POST
+import json
+from django.utils import timezone
+from datetime import timedelta
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
 from configuracoes.models import ConfigSistema
-from incidentes.models import Incidente
-
-
-@login_required(login_url="autenticacao:login")
-def mapa_view(request):
-    return render(request, "mapa_ameacas/mapa.html", {
-        "mapbox_token": settings.MAPBOX_ACCESS_TOKEN,
-    })
-
-
 from .services import FeedNormalizer
 
-@require_GET
-@login_required(login_url="autenticacao:login")
 def api_map_overview(request):
     periodo = request.GET.get("period", "24h")
     horas = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}.get(periodo, 24)
     sev_filter = request.GET.get("sev", "all")
     source_filter = request.GET.get("source", "all")
 
-    desde = datetime.now().astimezone() - timedelta(hours=horas)
+    desde = timezone.now() - timedelta(hours=horas)
 
     severities = [sev_filter] if sev_filter != 'all' else ['critical', 'high', 'medium', 'low', 'info']
     sources = [source_filter] if source_filter != 'all' else ['ids', 'firewall', 'dns']
@@ -60,8 +47,8 @@ def api_map_overview(request):
         facets['categories'][cat] = facets['categories'].get(cat, 0) + e['count']
         facets['sources'][src] = facets['sources'].get(src, 0) + e['count']
 
-        if e['src_geo'].get('geolocatable'):
-            c = e['src_geo'].get('country')
+        if e.get('external_geo', {}).get('geolocatable'):
+            c = e['external_geo'].get('country_code')
             if c:
                 facets['countries'][c] = facets['countries'].get(c, 0) + e['count']
 
@@ -70,14 +57,13 @@ def api_map_overview(request):
     cfg = ConfigSistema.get_solo()
 
     # KPIs baseados na janela solicitada
-    # Events per minute (rate) = (Total na janela / (horas * 60))
     rate = total / max(1, (horas * 60))
 
     return JsonResponse({
         "ok": True,
         "mode": "real",
         "fonte": "local",
-        "total": len(eventos), # Total of unique entries
+        "total": len(eventos),
         "kpis": {
             "active": len(eventos),
             "critical": criticos,
@@ -87,7 +73,7 @@ def api_map_overview(request):
         },
         "events": eventos,
         "facets": facets,
-        "cursor": None, # Cursor omitido. ORM e DNS temporal filters suprem a necessidade via last_seen_ts no client futuramente.
+        "cursor": None,
         "config": {"trail_duration": 15000, "max_events": max_events, "rot_speed": 0.05},
         "node": {
             "name": cfg.node_name,
@@ -98,15 +84,9 @@ def api_map_overview(request):
             "city": cfg.node_city,
             "country_code": cfg.node_country_code
         },
-        "last_update": datetime.now().astimezone().isoformat(),
-        "source_health": {
-            "ids": "online" if 'ids' in sources else "offline",
-            "firewall": "online" if 'firewall' in sources else "offline",
-            "dns": "online" if 'dns' in sources else "offline",
-        }
+        "last_update": timezone.now().isoformat(),
+        "source_health": normalizer.source_health
     })
-import json
-from django.views.decorators.http import require_POST
 
 @require_POST
 @login_required(login_url="autenticacao:login")
@@ -114,33 +94,27 @@ def api_set_location(request):
     try:
         data = json.loads(request.body.decode("utf-8"))
     except Exception:
-        return JsonResponse({"ok": False, "erro": "JSON inv�lido"}, status=400)
+        return JsonResponse({"ok": False, "erro": "JSON invlido"}, status=400)
 
     lat = data.get("latitude")
     lon = data.get("longitude")
     source = data.get("source", "unknown")
 
     if source not in ['manual', 'browser', 'config', 'geoip', 'unknown']:
-        return JsonResponse({"ok": False, "erro": "Source inv�lido"}, status=400)
-
-    if lat is not None and lon is not None:
-        try:
-            lat = float(lat)
-            lon = float(lon)
-            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-                raise ValueError()
-        except ValueError:
-            return JsonResponse({"ok": False, "erro": "Coordenadas inv�lidas"}, status=400)
-    else:
-        lat = None
-        lon = None
-        source = 'unknown'
+        return JsonResponse({"ok": False, "erro": "Source invlido"}, status=400)
 
     cfg = ConfigSistema.get_solo()
     cfg.node_latitude = lat
     cfg.node_longitude = lon
     cfg.node_location_source = source
-    cfg.node_location_confirmed_at = datetime.now()
     cfg.save()
+    return JsonResponse({"ok": True})
 
-    return JsonResponse({"ok": True, "message": "Localiza��o atualizada"})
+def mapa_ameacas(request):
+    cfg = ConfigSistema.get_solo()
+    if not cfg.node_latitude or not cfg.node_longitude:
+        tem_coordenadas = False
+    else:
+        tem_coordenadas = True
+
+    return render(request, "mapa_ameacas/mapa.html", {"tem_coordenadas": tem_coordenadas})

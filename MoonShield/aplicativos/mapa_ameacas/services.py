@@ -1,70 +1,98 @@
 import logging
-import ipaddress
 from datetime import datetime
-from django.db.models import Count, Min, Max
-from incidentes.models import EventoBruto, GeoCache
-from incidentes.services.enriquecedor import _buscar_geocache
-from firewall.models import EventoFirewall
+from django.utils import timezone
+from django.db.models import Count, Max, Q
+import ipaddress
 from configuracoes.models import ConfigSistema
+from incidentes.models import EventoBruto, GeoCache
+from firewall.models import EventoFirewall
 
 logger = logging.getLogger(__name__)
 
+def _is_global_ip(ip_str: str) -> bool:
+    """Retorna True apenas se o IP for publicamente roteável e geolocalizável."""
+    if not ip_str:
+        return False
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return ip.is_global
+    except ValueError:
+        return False
+
 class FeedNormalizer:
-    def __init__(self, start_time: datetime, severities: list, sources: list, category: str = None, country: str = None, query: str = None):
+    def __init__(self, start_time: datetime, severities: list = None, sources: list = None,
+                 category: str = None, country: str = None, query: str = None):
         self.start_time = start_time
-        self.severities = severities
-        self.sources = sources
+        self.severities = severities or ['all']
+        self.sources = sources or ['all']
         self.category = category
         self.country = country
         self.query = query
+
         self.cfg = ConfigSistema.get_solo()
-
-    def _normalize_severity(self, raw_sev: str) -> str:
-        # Normalize to critical, high, medium, low, info
-        raw = str(raw_sev).lower() if raw_sev else ""
-        if raw in ['1', 'critical', 'crítico']: return 'critical'
-        if raw in ['2', 'high', 'alto']: return 'high'
-        if raw in ['3', 'medium', 'médio']: return 'medium'
-        if raw in ['4', 'low', 'baixo']: return 'low'
-        return 'info'
-
-    def _get_geo(self, ip: str) -> dict:
-        if not ip:
-            return {"geolocatable": False}
-
-        try:
-            ip_obj = ipaddress.ip_address(ip)
-            if not ip_obj.is_global:
-                return {"geolocatable": False}
-        except ValueError:
-            return {"geolocatable": False}
-
-        geo = _buscar_geocache(ip)
-        if geo and geo.get('latitude') and geo.get('longitude'):
-            return {
-                "geolocatable": True,
-                "country_code": geo.get('pais_codigo', ''),
-                "country": geo.get('pais', ''),
-                "city": geo.get('cidade', ''),
-                "latitude": geo.get('latitude'),
-                "longitude": geo.get('longitude')
-            }
-        return {"geolocatable": False}
+        # Inicializa o estado de saúde como online para todas as fontes solicitadas
+        self.source_health = {
+            'ids': 'online',
+            'firewall': 'online',
+            'dns': 'online',
+        }
 
     def _get_node_location(self) -> dict:
-        return {
+        """Obtém a localização local configurada do Node (MoonShield Appliance)."""
+        loc = {
             "latitude": self.cfg.node_latitude,
             "longitude": self.cfg.node_longitude,
             "city": self.cfg.node_city,
             "country_code": self.cfg.node_country_code,
             "geolocatable": bool(self.cfg.node_latitude and self.cfg.node_longitude)
         }
+        return loc
+
+    def _get_geo(self, ip: str) -> dict:
+        """Consulta GeoCache offline de maneira determinística."""
+        if not ip or not _is_global_ip(ip):
+            return {"geolocatable": False}
+
+        cached = GeoCache.objects.filter(ip=ip).first()
+        if cached and cached.latitude and cached.longitude:
+            return {
+                "latitude": float(cached.latitude),
+                "longitude": float(cached.longitude),
+                "city": cached.cidade,
+                "country_code": cached.pais_codigo,
+                "geolocatable": True
+            }
+        return {"geolocatable": False}
+
+    def _normalize_severity(self, sev: str) -> str:
+        if not sev:
+            return "low"
+        sev = sev.lower()
+        if sev in ["1", "high", "critical"]: return "critical"
+        if sev in ["2", "medium", "warning"]: return "medium"
+        return "low"
+
+    def _determine_direction_and_external(self, src_ip: str, dst_ip: str):
+        """
+        Determina a direção e o endpoint geográfico externo baseado em validade global.
+        Retorna (direction, external_ip).
+        """
+        src_global = _is_global_ip(src_ip)
+        dst_global = _is_global_ip(dst_ip)
+
+        if src_global and not dst_global:
+            return "inbound", src_ip
+        elif not src_global and dst_global:
+            return "outbound", dst_ip
+        elif not src_global and not dst_global:
+            return "internal", None
+        else:
+            # Caso ambos sejam globais ou situação ambígua, mantemos unknown com o source atuando como external
+            return "unknown", src_ip
 
     def get_suricata_events(self, max_limit=200):
         if 'ids' not in self.sources and 'all' not in self.sources:
             return []
-
-        from django.db.models import Q
 
         qs = EventoBruto.objects.filter(
             event_type='alert',
@@ -72,8 +100,13 @@ class FeedNormalizer:
         )
         if self.category and self.category != 'all':
             qs = qs.filter(categoria__iexact=self.category)
+
+        # Filtro de país: se for inbound, o src_ip é o external endpoint.
+        # Como o Suricata pode registrar inbound ou outbound, tentamos buscar IPs no GeoCache
         if self.country and self.country != 'all':
-            qs = qs.filter(src_ip__in=GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip'))
+            geo_ips = GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip')
+            qs = qs.filter(Q(src_ip__in=geo_ips) | Q(dest_ip__in=geo_ips))
+
         if self.query:
             qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dest_ip__icontains=self.query) | Q(signature__icontains=self.query))
 
@@ -86,36 +119,53 @@ class FeedNormalizer:
         ).order_by('-last_seen')[:max_limit]
 
         events = []
-        node_loc = self._get_node_location()
         for item in qs:
             sev = self._normalize_severity(item['severidade'])
             if self.severities and sev not in self.severities and 'all' not in self.severities:
                 continue
 
-            src_geo = self._get_geo(item['src_ip'])
+            src_ip = item.get('src_ip')
+            dst_ip = item.get('dest_ip')
+
+            direction, external_ip = self._determine_direction_and_external(src_ip, dst_ip)
+
+            # Filtro país (post-filtro) caso o país bata mas a direção do evento torne o IP filtrado interno
+            if self.country and self.country != 'all':
+                if not external_ip: continue
+                ext_geo = self._get_geo(external_ip)
+                if ext_geo.get("country_code", "").lower() != self.country.lower():
+                    continue
+
+            src_geo = self._get_geo(src_ip)
+            dst_geo = self._get_geo(dst_ip)
+
+            ext_geo = self._get_geo(external_ip) if external_ip else {"geolocatable": False}
 
             events.append({
-                "id": f"suricata-{item['src_ip']}-{item['signature']}-{item['last_seen'].timestamp()}",
+                "id": f"suricata-{src_ip}-{item['signature']}-{item['last_seen'].timestamp()}",
                 "timestamp": item['last_seen'].strftime("%H:%M:%S"),
                 "ts": item['last_seen'].isoformat(),
                 "source": "ids",
                 "event_class": "threat",
                 "category": item['categoria'] or "other",
                 "severity": sev,
-                "src_ip": item['src_ip'],
+                "src_ip": src_ip,
                 "src_port": None,
-                "dst_ip": item['dest_ip'],
+                "dst_ip": dst_ip,
                 "dst_port": item['dest_porta'],
                 "protocol": item['protocolo'],
-                "direction": "inbound",
-                "signature": item['signature'],
+                "direction": direction,
+                "signature": item['signature'] or None,
                 "action": "detected",
                 "src_geo": src_geo,
-                "dst_geo": node_loc,
+                "dst_geo": dst_geo,
+                "external_ip": external_ip,
+                "external_geo": ext_geo,
+                "geolocatable": ext_geo.get('geolocatable', False),
                 "count": item['count'],
                 "incident_id": item['incidente_id'],
-                "geolocatable": src_geo['geolocatable'],
-                "rule_id": item['sid']
+                "rule_id": item['sid'] or None,
+                "domain": None
             })
         return events
 
@@ -123,16 +173,17 @@ class FeedNormalizer:
         if 'firewall' not in self.sources and 'all' not in self.sources:
             return []
 
-        from django.db.models import Q
-
         qs = EventoFirewall.objects.filter(
             timestamp__gte=self.start_time,
             acao__in=["DROP", "DENY", "REJECT"]
         )
         if self.category and self.category != 'all' and self.category != 'firewall_block':
             return []
+
         if self.country and self.country != 'all':
-            qs = qs.filter(src_ip__in=GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip'))
+            geo_ips = GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip')
+            qs = qs.filter(Q(src_ip__in=geo_ips) | Q(dst_ip__in=geo_ips))
+
         if self.query:
             qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dst_ip__icontains=self.query))
 
@@ -144,35 +195,51 @@ class FeedNormalizer:
         ).order_by('-last_seen')[:max_limit]
 
         events = []
-        node_loc = self._get_node_location()
         for item in qs:
             sev = "low" # Default firewall block severity
             if self.severities and sev not in self.severities and 'all' not in self.severities:
                 continue
 
-            src_geo = self._get_geo(item['src_ip'])
+            src_ip = item.get('src_ip')
+            dst_ip = item.get('dst_ip')
+
+            direction, external_ip = self._determine_direction_and_external(src_ip, dst_ip)
+
+            if self.country and self.country != 'all':
+                if not external_ip: continue
+                ext_geo = self._get_geo(external_ip)
+                if ext_geo.get("country_code", "").lower() != self.country.lower():
+                    continue
+
+            src_geo = self._get_geo(src_ip)
+            dst_geo = self._get_geo(dst_ip)
+            ext_geo = self._get_geo(external_ip) if external_ip else {"geolocatable": False}
 
             events.append({
-                "id": f"fw-{item['src_ip']}-{item['last_seen'].timestamp()}",
+                "id": f"fw-{src_ip}-{item['last_seen'].timestamp()}",
                 "timestamp": item['last_seen'].strftime("%H:%M:%S"),
                 "ts": item['last_seen'].isoformat(),
                 "source": "firewall",
                 "event_class": "block",
                 "category": "firewall_block",
                 "severity": sev,
-                "src_ip": item['src_ip'],
+                "src_ip": src_ip,
                 "src_port": None,
-                "dst_ip": item['dst_ip'],
+                "dst_ip": dst_ip,
                 "dst_port": item['dst_port'],
                 "protocol": item['proto'],
-                "direction": "inbound",
+                "direction": direction,
                 "signature": f"Firewall {item['acao']} ({item['chain']})",
                 "action": "blocked",
                 "src_geo": src_geo,
-                "dst_geo": node_loc,
+                "dst_geo": dst_geo,
+                "external_ip": external_ip,
+                "external_geo": ext_geo,
+                "geolocatable": ext_geo.get('geolocatable', False),
                 "count": item['count'],
                 "incident_id": None,
-                "geolocatable": src_geo['geolocatable']
+                "rule_id": None,
+                "domain": None
             })
         return events
 
@@ -181,18 +248,16 @@ class FeedNormalizer:
             return []
 
         try:
-            from dns.services.adguard_client import AdGuardClient
-            client = AdGuardClient(url=self.cfg.adguard_url, user=self.cfg.adguard_user, password=self.cfg.adguard_password, https=self.cfg.adguard_https)
-            # Limit is passed to avoid huge payload, AdGuard returns newest first
+            from dns.services.adguard_bootstrap import criar_cliente_adguard_local
+            client = criar_cliente_adguard_local()
             raw_logs = client.get_querylog_raw(limit=500)
         except Exception as e:
             logger.error(f"Erro ao buscar logs AdGuard: {e}")
+            self.source_health['dns'] = 'offline'
             return []
 
         events = []
-        node_loc = self._get_node_location()
 
-        # Aggregation in python for DNS since it comes from API
         agg = {}
         for entry in raw_logs:
             if self.category and self.category != 'all' and self.category != 'dns_block':
@@ -206,11 +271,13 @@ class FeedNormalizer:
             if not entry_time_str:
                 continue
             try:
-                dt = datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
+                # Tratar possiveis naive datetimes com timezone awareness.
+                # Como AdGuard retorna 'Z', timezone.datetime.fromisoformat substitui +00:00
+                dt = timezone.datetime.fromisoformat(entry_time_str.replace('Z', '+00:00'))
                 if dt < self.start_time:
                     continue
             except Exception:
-                pass
+                continue
 
             reason = entry.get('reason', '')
             if reason not in ['FilteredBlackList', 'FilteredSafeBrowsing', 'FilteredParental', 'Rewrite']:
@@ -237,6 +304,14 @@ class FeedNormalizer:
             if self.severities and sev not in self.severities and 'all' not in self.severities:
                 continue
 
+            src_ip = item['src_ip']
+            direction = "outbound"
+
+            src_geo = self._get_geo(src_ip)
+            # Para DNS bloqueado, nao fazemos GeoIP do dominio/destino, senao estariamos resolvendo externamente
+            dst_geo = {"geolocatable": False}
+            ext_geo = {"geolocatable": False}
+
             events.append({
                 "id": f"dns-{key}-{item['last_seen'].timestamp()}",
                 "timestamp": item['last_seen'].strftime("%H:%M:%S"),
@@ -245,19 +320,23 @@ class FeedNormalizer:
                 "event_class": "policy",
                 "category": "dns_block",
                 "severity": sev,
-                "src_ip": item['src_ip'],
+                "src_ip": src_ip,
                 "src_port": None,
-                "dst_ip": item['domain'], # We don't have IP for blocked domain usually
+                "dst_ip": None, # DNS query interceptada nao gera um dst_ip valido, usamos domain
                 "dst_port": 53,
                 "protocol": "UDP",
-                "direction": "outbound",
+                "direction": direction,
                 "signature": f"DNS Block: {item['domain']}",
                 "action": "blocked",
-                "src_geo": node_loc,
-                "dst_geo": {"geolocatable": False},
+                "src_geo": src_geo,
+                "dst_geo": dst_geo,
+                "external_ip": None,
+                "external_geo": ext_geo,
+                "geolocatable": False,
                 "count": item['count'],
                 "incident_id": None,
-                "geolocatable": False
+                "rule_id": None,
+                "domain": item['domain']
             })
 
         events.sort(key=lambda x: x['ts'], reverse=True)
@@ -271,4 +350,3 @@ class FeedNormalizer:
 
         evs.sort(key=lambda x: x['ts'], reverse=True)
         return evs[:max_limit]
-

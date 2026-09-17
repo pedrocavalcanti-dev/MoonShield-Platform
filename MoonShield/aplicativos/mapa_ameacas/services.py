@@ -84,7 +84,7 @@ class FeedNormalizer:
         ).order_by('-last_seen')[:max_limit]
 
         events = []
-        node_loc = self.get_node_location()
+        node_loc = self._get_node_location()
         for item in qs:
             sev = self._normalize_severity(item['severidade'])
             if self.severities and sev not in self.severities and 'all' not in self.severities:
@@ -140,7 +140,7 @@ class FeedNormalizer:
         ).order_by('-last_seen')[:max_limit]
 
         events = []
-        node_loc = self.get_node_location()
+        node_loc = self._get_node_location()
         for item in qs:
             sev = "low" # Default firewall block severity
             if self.severities and sev not in self.severities and 'all' not in self.severities:
@@ -186,7 +186,7 @@ class FeedNormalizer:
             return []
 
         events = []
-        node_loc = self.get_node_location()
+        node_loc = self._get_node_location()
 
         # Aggregation in python for DNS since it comes from API
         agg = {}

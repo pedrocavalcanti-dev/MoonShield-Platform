@@ -62,3 +62,19 @@ class LocationApiTest(TestCase):
     def test_filters(self):
         # category, country, query and source ids/firewall/dns
         pass
+    def test_get_suricata_events_regression(self):
+        from incidentes.models import EventoBruto
+        EventoBruto.objects.create(
+            timestamp=datetime.now(),
+            event_type='alert',
+            src_ip='8.8.8.8',
+            dest_ip='1.1.1.1',
+            dest_porta=80,
+            protocolo='TCP',
+            signature='Test Signature',
+            severidade='critical'
+        )
+        normalizer = FeedNormalizer(start_time=datetime.now() - timedelta(days=1), severities=['all'], sources=['ids'])
+        events = normalizer.get_suricata_events(max_limit=10)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]['src_ip'], '8.8.8.8')

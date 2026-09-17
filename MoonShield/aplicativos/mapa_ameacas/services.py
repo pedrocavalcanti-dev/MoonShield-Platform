@@ -75,7 +75,9 @@ class FeedNormalizer:
         if self.country and self.country != 'all':
             qs = qs.filter(src_ip__in=GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip'))
         if self.query:
-            qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dest_ip__icontains=self.query) | Q(signature__icontains=self.query)).values(
+            qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dest_ip__icontains=self.query) | Q(signature__icontains=self.query))
+
+        qs = qs.values(
             'src_ip', 'dest_ip', 'dest_porta', 'protocolo',
             'signature', 'sid', 'categoria', 'severidade', 'incidente_id'
         ).annotate(
@@ -132,7 +134,9 @@ class FeedNormalizer:
         if self.country and self.country != 'all':
             qs = qs.filter(src_ip__in=GeoCache.objects.filter(pais_codigo__iexact=self.country).values('ip'))
         if self.query:
-            qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dest_ip__icontains=self.query)).values(
+            qs = qs.filter(Q(src_ip__icontains=self.query) | Q(dest_ip__icontains=self.query))
+
+        qs = qs.values(
             'src_ip', 'dest_ip', 'dest_port', 'proto', 'acao', 'chain'
         ).annotate(
             count=Count('id'),

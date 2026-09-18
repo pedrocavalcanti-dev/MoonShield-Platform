@@ -11,6 +11,7 @@
 
 {% block conteudo %}
 {{ mapbox_token|json_script:"mapbox-token-data" }}
+<script id="tm-config-data" type="application/json">{"setLocationUrl": "{% url 'mapa_ameacas:api_set_location' %}"}</script>
 
 <div class="threat-map-app" id="tm-app">
 

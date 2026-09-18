@@ -1,12 +1,10 @@
-﻿(function () {
+(function () {
     'use strict';
 
-    // ---------------------------------------------------------------
-    // Config
-    // ---------------------------------------------------------------
-    // NOTE: verify this matches the real Django URL name/path for the
-    // "api_set_location" endpoint referenced in the spec before shipping.
-    const LOCATION_ENDPOINT = '/mapa/api/set-location/';
+    // URL real gerada pelo Django em mapa.html via {% url %}
+    const _tmCfgEl = document.getElementById('tm-config-data');
+    const _tmCfg = _tmCfgEl ? JSON.parse(_tmCfgEl.textContent) : {};
+    const LOCATION_ENDPOINT = _tmCfg.setLocationUrl || '/mapa/api/location/';
 
     // State
     const STATE = {
@@ -669,7 +667,8 @@
         );
     }
 
-    async function submitLocation(lat, lon) {
+    async function submitLocation(lat, lon, source) {
+        source = source || 'manual';
         hideLocError();
         if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
             showLocError('Coordenadas inválidas.');
@@ -684,6 +683,13 @@
             return;
         }
 
+        const btnSave = els.btnSaveLocation;
+        const originalLabel = btnSave ? btnSave.textContent : '';
+        if (btnSave) {
+            btnSave.disabled = true;
+            btnSave.textContent = 'Salvando...';
+        }
+
         try {
             const resp = await fetch(LOCATION_ENDPOINT, {
                 method: 'POST',
@@ -692,26 +698,41 @@
                     'X-CSRFToken': getCookie('csrftoken') || '',
                     'X-Requested-With': 'XMLHttpRequest'
                 },
-                body: JSON.stringify({ latitude: lat, longitude: lon })
+                body: JSON.stringify({ latitude: lat, longitude: lon, source: source })
             });
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+            let respData = {};
+            try { respData = await resp.json(); } catch (_) {}
+
+            if (!resp.ok) {
+                const errMsg = respData.erro || `Erro ${resp.status} ao salvar.`;
+                showLocError(errMsg);
+                console.error('submitLocation falhou:', resp.status);
+                return;
+            }
 
             closeLocationModal();
             fetchData();
         } catch (e) {
-            showLocError('Falha ao salvar a localização. Tente novamente.');
+            showLocError('Falha de rede ao salvar a localização. Tente novamente.');
+            console.error('submitLocation network error:', e.message);
+        } finally {
+            if (btnSave) {
+                btnSave.disabled = false;
+                btnSave.textContent = originalLabel;
+            }
         }
     }
 
     function saveManualLocation() {
-        const lat = parseFloat(els.locLat.value);
-        const lon = parseFloat(els.locLon.value);
-        submitLocation(lat, lon);
+        const lat = parseFloat(els.locLat ? els.locLat.value : '');
+        const lon = parseFloat(els.locLon ? els.locLon.value : '');
+        submitLocation(lat, lon, 'manual');
     }
 
     function confirmBrowserLocation() {
         if (!STATE.pendingBrowserLocation) return;
-        submitLocation(STATE.pendingBrowserLocation.latitude, STATE.pendingBrowserLocation.longitude);
+        submitLocation(STATE.pendingBrowserLocation.latitude, STATE.pendingBrowserLocation.longitude, 'browser');
     }
 
     // ---------------------------------------------------------------

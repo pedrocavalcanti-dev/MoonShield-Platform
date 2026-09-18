@@ -7,6 +7,8 @@
     let lastTime = 0;
 
     let nodeCoords = null;
+    let pendingInitialNodeFocus = false;
+    let hasInitialNodeFocus = false;
     let activeEvents = [];
     let impactFlashes = [];
 
@@ -344,6 +346,7 @@
                     initLayers();
                     layersReady = true;
                     if (nodeCoords) this.setNode(nodeCoords);
+                    if (pendingInitialNodeFocus) this._checkInitialFocus();
                     if (options.onReady) options.onReady();
                 });
 
@@ -374,16 +377,24 @@
                 this.hideNode();
                 return;
             }
-            const isFirst = !nodeCoords;
             nodeCoords = node;
             if (map && map.getSource('dest-point')) {
                 map.getSource('dest-point').setData({
                     type: 'Feature',
                     geometry: { type: 'Point', coordinates: [node.longitude, node.latitude] }
                 });
-                if (isFirst && map.isStyleLoaded()) {
-                    map.flyTo({ center: [node.longitude, node.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
+                if (!hasInitialNodeFocus) {
+                    pendingInitialNodeFocus = true;
+                    this._checkInitialFocus();
                 }
+            }
+        },
+
+        _checkInitialFocus: function () {
+            if (pendingInitialNodeFocus && nodeCoords && map && map.isStyleLoaded()) {
+                hasInitialNodeFocus = true;
+                pendingInitialNodeFocus = false;
+                map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
             }
         },
 

@@ -588,12 +588,48 @@
 
         const btnCopy = document.getElementById('btn-copy-ioc');
         if (btnCopy) {
-            btnCopy.onclick = () => {
-                const ioc = ev.src_ip || ev.dst_ip || ev.domain || '';
-                if (ioc && navigator.clipboard) {
-                    navigator.clipboard.writeText(ioc).catch(() => {});
-                }
-            };
+            const ioc = ev.external_ip || ev.domain || ev.dst_ip || ev.src_ip || '';
+            if (!ioc) {
+                btnCopy.disabled = true;
+                btnCopy.textContent = 'Sem IOC';
+            } else {
+                btnCopy.onclick = async () => {
+                    const originalText = btnCopy.textContent;
+                    const success = await copyText(ioc);
+                    btnCopy.textContent = success ? 'Copiado' : 'Falha ao copiar';
+                    setTimeout(() => {
+                        const btn = document.getElementById('btn-copy-ioc');
+                        if (btn && btn.textContent === 'Copiado' || btn && btn.textContent === 'Falha ao copiar') {
+                            btn.textContent = originalText;
+                        }
+                    }, 1500);
+                };
+            }
+        }
+    }
+
+    async function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (e) {
+                console.warn('Clipboard API failed', e);
+            }
+        }
+
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            const res = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return res;
+        } catch (e) {
+            return false;
         }
     }
 
@@ -766,14 +802,6 @@
     }
 
     function enterCinemaMode() {
-        if (!document.fullscreenElement && els.tmApp.requestFullscreen) {
-            els.tmApp.requestFullscreen().catch(() => _fallbackEnterCinema());
-        } else {
-            _fallbackEnterCinema();
-        }
-    }
-
-    function _fallbackEnterCinema() {
         STATE.cinemaMode = true;
         els.tmApp.classList.add('cinema-mode');
         if (els.btnCinema) {
@@ -785,14 +813,6 @@
     }
 
     function exitCinemaMode() {
-        if (document.fullscreenElement && document.exitFullscreen) {
-            document.exitFullscreen();
-        } else {
-            _fallbackExitCinema();
-        }
-    }
-
-    function _fallbackExitCinema() {
         STATE.cinemaMode = false;
         els.tmApp.classList.remove('cinema-mode');
         if (els.btnCinema) {
@@ -801,15 +821,6 @@
         }
         if (els.btnExitCinema) els.btnExitCinema.style.display = 'none';
         _triggerResize();
-    }
-
-    function syncFullscreenState() {
-        const isFS = !!document.fullscreenElement;
-        if (isFS) {
-            _fallbackEnterCinema();
-        } else {
-            _fallbackExitCinema();
-        }
     }
 
     // ---------------------------------------------------------------
@@ -897,12 +908,10 @@
 
         if (els.btnClear) {
             els.btnClear.addEventListener('click', () => {
-                if (els.feedContainer) {
-                    els.feedContainer.querySelectorAll('.feed-item').forEach(el => el.remove());
-                }
                 if (els.detailsPanel) els.detailsPanel.classList.remove('visible');
-                STATE.feedQueue = [];
-                updateFeedEmptyState();
+                STATE.selectedEvent = null;
+                document.querySelectorAll('.feed-item.active').forEach(el => el.classList.remove('active'));
+
                 if (window.MoonShieldThreatMapRenderer) {
                     window.MoonShieldThreatMapRenderer.clear();
                     window.MoonShieldThreatMapRenderer.resetView();
@@ -931,7 +940,11 @@
         });
         if (els.btnExitCinema) els.btnExitCinema.addEventListener('click', exitCinemaMode);
 
-        document.addEventListener('fullscreenchange', syncFullscreenState);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && STATE.cinemaMode) {
+                exitCinemaMode();
+            }
+        });
 
         if (els.btnSettings) {
             els.btnSettings.addEventListener('click', (e) => {

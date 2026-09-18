@@ -355,7 +355,7 @@
 -------------------------------------- */
 .tm-main-grid {
     display: grid;
-    grid-template-columns: 290px 1fr 305px;
+    grid-template-columns: 300px 1fr 345px;
     gap: 10px;
     flex-grow: 1;
     min-height: 0;
@@ -845,46 +845,30 @@
 }
 
 /* -------------------------------------
-   PANEL / CINEMA MODES
+   CINEMA MODE
 -------------------------------------- */
-
-
-.threat-map-app.cinema-mode .tm-topbar,
-.threat-map-app.cinema-mode .tm-active-filters {
-    display: none;
-}
 .threat-map-app.cinema-mode {
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
-    bottom: 0;
+    width: 100vw;
     height: 100dvh;
-    padding: 0;
-    gap: 0;
-    z-index: 1000;
-}
-.threat-map-app.cinema-mode .tm-main-grid {
-    grid-template-columns: 0 1fr 0;
-    gap: 0;
+    padding: 10px; /* same padding as normal app */
+    z-index: 9999;
+    background-color: var(--bg-body); /* ensures it hides everything behind */
+    box-sizing: border-box;
     border-radius: 0;
-}
-.threat-map-app.cinema-mode .tm-feed-panel,
-.threat-map-app.cinema-mode .tm-details-panel {
-    display: none;
 }
 .threat-map-app.cinema-mode .tm-map-area {
-    border-radius: 0;
-    border: none;
+    border-radius: var(--radius);
 }
 #btn-exit-cinema {
     position: fixed;
     top: 16px;
     right: 16px;
-    z-index: 1010;
-    background-color: rgba(var(--bg-card-rgb, 24,24,30), 0.9);
-    backdrop-filter: blur(4px);
-    border-color: var(--border);
+    z-index: 10000;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
 }
 .tm-main-grid.panels-hidden {
     grid-template-columns: 1fr;
@@ -901,17 +885,17 @@
 -------------------------------------- */
 @media (max-width: 1600px) {
     .tm-main-grid {
-        grid-template-columns: 270px 1fr 285px;
+        grid-template-columns: 285px 1fr 325px;
     }
 }
 @media (max-width: 1440px) {
     .tm-main-grid {
-        grid-template-columns: 255px 1fr 270px;
+        grid-template-columns: 270px 1fr 315px;
     }
 }
 @media (max-width: 1366px) {
     .tm-main-grid {
-        grid-template-columns: 240px 1fr 250px;
+        grid-template-columns: 260px 1fr 295px;
         gap: 8px;
     }
     .tm-search-wrap input {

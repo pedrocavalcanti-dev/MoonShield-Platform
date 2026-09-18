@@ -10,7 +10,7 @@
 {% endblock %}
 
 {% block conteudo %}
-<div id="mapbox-token" style="display: none;">{{ mapbox_token|escapejs }}</div>
+{{ mapbox_token|json_script:"mapbox-token-data" }}
 
 <div class="threat-map-app" id="tm-app">
 

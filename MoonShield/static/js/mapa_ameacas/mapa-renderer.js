@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     let map = null;
@@ -282,6 +282,10 @@
             if (map) return;
             currentTheme = options.theme || 'dark';
             try {
+                if (!options.token) {
+                    if (options.onError) options.onError("Token nÃ£o fornecido");
+                    return;
+                }
                 mapboxgl.accessToken = options.token;
                 map = new mapboxgl.Map({
                     container: options.containerId,
@@ -291,6 +295,12 @@
                     projection: 'globe',
                     attributionControl: false,
                     failIfMajorPerformanceCaveat: false
+                });
+
+                map.on('error', event => {
+                    if (options.onError) {
+                        options.onError(event.error || event);
+                    }
                 });
 
                 map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), 'bottom-right');
@@ -313,7 +323,7 @@
                 requestAnimationFrame(renderLoop);
 
             } catch (e) {
-                console.error("Mapbox init failed", e);
+                if (options.onError) options.onError(e);
             }
         },
 

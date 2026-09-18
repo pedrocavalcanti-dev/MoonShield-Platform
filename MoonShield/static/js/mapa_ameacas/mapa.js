@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     // State
@@ -70,7 +70,7 @@
         if (!els.activeFiltersBar) return;
         const active = [];
         if (STATE.filters.category) active.push({ key: 'category', val: STATE.filters.category, label: `Categoria: ${STATE.filters.category}` });
-        if (STATE.filters.country) active.push({ key: 'country', val: STATE.filters.country, label: `País: ${STATE.filters.country}` });
+        if (STATE.filters.country) active.push({ key: 'country', val: STATE.filters.country, label: `PaÃ­s: ${STATE.filters.country}` });
 
         if (active.length > 0) {
             els.activeFiltersBar.style.display = 'flex';
@@ -81,7 +81,7 @@
                 const label = document.createElement('span');
                 label.textContent = f.label;
                 const closeBtn = document.createElement('button');
-                closeBtn.innerHTML = '×';
+                closeBtn.innerHTML = 'Ã—';
                 closeBtn.onclick = () => {
                     STATE.filters[f.key] = '';
                     fetchData();
@@ -264,7 +264,7 @@
         };
 
         html += renderList('Categorias', facets.categories, 'category');
-        html += renderList('Países (Origem/Destino)', facets.countries, 'country');
+        html += renderList('PaÃ­ses (Origem/Destino)', facets.countries, 'country');
         html += renderList('Fontes', facets.sources, 'source');
 
         els.facetsContainer.innerHTML = html;
@@ -287,7 +287,7 @@
 
     const DIR_LABELS = {
         'inbound': 'ENTRADA',
-        'outbound': 'SAÍDA',
+        'outbound': 'SAÃDA',
         'internal': 'INTERNO',
         'unknown': 'INDEFINIDO'
     };
@@ -318,7 +318,7 @@
             <div class="feed-meta">`;
 
             if (ev.src_ip) {
-                html += `<span class="feed-ip">${escapeHTML(ev.src_ip)}</span> → `;
+                html += `<span class="feed-ip">${escapeHTML(ev.src_ip)}</span> â†’ `;
             }
             if (ev.dst_ip) {
                 html += `<span class="feed-ip">${escapeHTML(ev.dst_ip)}</span>`;
@@ -327,7 +327,7 @@
             html += `</div>`;
 
             if (ev.count > 1) {
-                html += `<div class="feed-badge count">×${ev.count}</div>`;
+                html += `<div class="feed-badge count">Ã—${ev.count}</div>`;
             }
 
             const dirLabel = DIR_LABELS[ev.direction] || DIR_LABELS.unknown;
@@ -423,7 +423,7 @@
             els.btnPause.addEventListener('click', () => {
                 STATE.isPaused = !STATE.isPaused;
                 els.btnPause.classList.toggle('active', STATE.isPaused);
-                els.btnPause.innerHTML = STATE.isPaused ? '▶ Retomar' : '⏸ Pausar';
+                els.btnPause.innerHTML = STATE.isPaused ? 'â–¶ Retomar' : 'â¸ Pausar';
                 if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setPaused(STATE.isPaused);
                 if (!STATE.isPaused) fetchData();
             });
@@ -464,22 +464,39 @@
     function boot() {
         setupListeners();
 
+        // Iniciar polling independentemente do Mapbox
+        fetchData();
+
         const initialTheme = document.documentElement.getAttribute('data-theme') || 'dark';
 
         if (window.MoonShieldThreatMapRenderer && els.mapContainer) {
-            const tokenEl = document.getElementById('mapbox-token');
-            const token = tokenEl ? tokenEl.textContent.trim() : '';
+            const tokenEl = document.getElementById('mapbox-token-data');
+            let mapboxToken = '';
+
+            try {
+                mapboxToken = tokenEl ? JSON.parse(tokenEl.textContent) : '';
+            } catch (error) {
+                // Silencioso por design
+            }
+
+            if (!mapboxToken) {
+                const mapFailureEl = document.getElementById('map-failure');
+                if (mapFailureEl) mapFailureEl.style.display = 'flex';
+                return;
+            }
 
             window.MoonShieldThreatMapRenderer.init({
                 containerId: 'map',
-                token: token,
+                token: mapboxToken,
                 theme: initialTheme,
                 onReady: () => {
-                    fetchData();
+                    // mapbox ready
+                },
+                onError: (err) => {
+                    const mapFailureEl = document.getElementById('map-failure');
+                    if (mapFailureEl) mapFailureEl.style.display = 'flex';
                 }
             });
-        } else {
-            fetchData();
         }
     }
 

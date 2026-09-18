@@ -1,4 +1,4 @@
-﻿/*
+/*
   MoonShield Threat Map CSS
   SOC / GIS Professional Theme
 */
@@ -49,21 +49,30 @@
     display: flex;
     flex-direction: column;
     min-width: 56px;
+    justify-content: flex-end;
 }
 
 .tm-kpi-label {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     font-weight: 600;
+    line-height: 1;
+    margin-bottom: 2px;
+}
+
+.tm-kpi-val-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
 }
 
 .tm-kpi-val {
     font-size: 1.25rem;
     font-weight: 700;
     font-family: var(--font-mono);
-    line-height: 1.2;
+    line-height: 1;
 }
 
 .tm-kpi-sub {
@@ -125,6 +134,13 @@
     display: flex;
     gap: 10px;
     align-items: center;
+    flex-wrap: nowrap;
+}
+
+.tm-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .tm-search-wrap {
@@ -871,17 +887,13 @@
     border-color: var(--border);
 }
 .tm-main-grid.panels-hidden {
-    grid-template-columns: 0 1fr 0;
+    grid-template-columns: 1fr;
     gap: 0;
 }
+
 .tm-main-grid.panels-hidden .tm-feed-panel,
 .tm-main-grid.panels-hidden .tm-details-panel {
-    overflow: hidden;
-    width: 0;
-    min-width: 0;
-    padding: 0;
-    border: none;
-    display: none;
+    display: none !important;
 }
 
 /* -------------------------------------

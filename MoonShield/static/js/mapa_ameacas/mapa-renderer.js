@@ -168,9 +168,14 @@
         if (!map || !map.isStyleLoaded() || !layersReady) return;
 
         if (!isPaused && !userInteracting && isGlobe && rotSpeed > 0 && !prefersReducedMotion) {
-            const c = map.getCenter();
-            c.lng -= (rotSpeed * 10 * deltaTime);
-            map.jumpTo({ center: c });
+            if (nodeCoords && nodeCoords.latitude != null && nodeCoords.longitude != null) {
+                const currentBearing = map.getBearing();
+                map.jumpTo({ bearing: currentBearing - (rotSpeed * 10 * deltaTime) });
+            } else {
+                const c = map.getCenter();
+                c.lng -= (rotSpeed * 10 * deltaTime);
+                map.jumpTo({ center: c });
+            }
         }
 
         const now = Date.now();
@@ -312,10 +317,16 @@
 
                 // Interação do usuário — todos os eventos relevantes incluindo wheel
                 let inactivityTimer = null;
+                const resumeAutoRotate = () => {
+                    userInteracting = false;
+                    if (isGlobe && rotSpeed > 0 && nodeCoords && nodeCoords.latitude != null) {
+                        map.easeTo({ center: [nodeCoords.longitude, nodeCoords.latitude], duration: 1500 });
+                    }
+                };
                 const markInteracting = () => {
                     userInteracting = true;
                     clearTimeout(inactivityTimer);
-                    inactivityTimer = setTimeout(() => { userInteracting = false; }, 5000);
+                    inactivityTimer = setTimeout(resumeAutoRotate, 10000);
                 };
 
                 ['mousedown', 'dragstart', 'touchstart', 'wheel', 'dblclick', 'movestart'].forEach(ev => {
@@ -324,7 +335,7 @@
                 ['mouseup', 'dragend', 'touchend'].forEach(ev => {
                     map.on(ev, () => {
                         clearTimeout(inactivityTimer);
-                        inactivityTimer = setTimeout(() => { userInteracting = false; }, 5000);
+                        inactivityTimer = setTimeout(resumeAutoRotate, 10000);
                     });
                 });
 
@@ -363,12 +374,16 @@
                 this.hideNode();
                 return;
             }
+            const isFirst = !nodeCoords;
             nodeCoords = node;
             if (map && map.getSource('dest-point')) {
                 map.getSource('dest-point').setData({
                     type: 'Feature',
                     geometry: { type: 'Point', coordinates: [node.longitude, node.latitude] }
                 });
+                if (isFirst && map.isStyleLoaded()) {
+                    map.flyTo({ center: [node.longitude, node.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
+                }
             }
         },
 
@@ -400,12 +415,17 @@
 
         focusNode: function () {
             if (nodeCoords && nodeCoords.longitude != null && nodeCoords.latitude != null) {
-                if (map) map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.5, duration: prefersReducedMotion ? 0 : 1500 });
+                if (map) map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
             }
         },
 
         resetView: function () {
-            if (map) map.flyTo({ center: [0, 20], zoom: 1.6, duration: prefersReducedMotion ? 0 : 1500 });
+            if (!map) return;
+            if (nodeCoords && nodeCoords.longitude != null && nodeCoords.latitude != null) {
+                map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
+            } else {
+                map.flyTo({ center: [0, 20], zoom: 1.6, duration: prefersReducedMotion ? 0 : 1500 });
+            }
         },
 
         clear: function () {

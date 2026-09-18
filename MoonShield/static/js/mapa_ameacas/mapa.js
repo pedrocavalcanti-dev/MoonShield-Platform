@@ -766,30 +766,123 @@
     }
 
     function enterCinemaMode() {
+        if (!document.fullscreenElement && els.tmApp.requestFullscreen) {
+            els.tmApp.requestFullscreen().catch(() => _fallbackEnterCinema());
+        } else {
+            _fallbackEnterCinema();
+        }
+    }
+
+    function _fallbackEnterCinema() {
         STATE.cinemaMode = true;
-        if (els.tmApp) els.tmApp.classList.add('cinema-mode');
-        if (els.btnCinema) els.btnCinema.style.display = 'none';
+        els.tmApp.classList.add('cinema-mode');
+        if (els.btnCinema) {
+            els.btnCinema.classList.add('active');
+            els.btnCinema.setAttribute('aria-pressed', 'true');
+        }
         if (els.btnExitCinema) els.btnExitCinema.style.display = 'flex';
         _triggerResize();
     }
+
     function exitCinemaMode() {
+        if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen();
+        } else {
+            _fallbackExitCinema();
+        }
+    }
+
+    function _fallbackExitCinema() {
         STATE.cinemaMode = false;
-        if (els.tmApp) els.tmApp.classList.remove('cinema-mode');
-        if (els.btnCinema) els.btnCinema.style.display = 'flex';
+        els.tmApp.classList.remove('cinema-mode');
+        if (els.btnCinema) {
+            els.btnCinema.classList.remove('active');
+            els.btnCinema.setAttribute('aria-pressed', 'false');
+        }
         if (els.btnExitCinema) els.btnExitCinema.style.display = 'none';
         _triggerResize();
+    }
+
+    function syncFullscreenState() {
+        const isFS = !!document.fullscreenElement;
+        if (isFS) {
+            _fallbackEnterCinema();
+        } else {
+            _fallbackExitCinema();
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Persistence
+    // ---------------------------------------------------------------
+    const PREFS_KEY = 'moonshield.threatmap.preferences';
+
+    function loadPreferences() {
+        try {
+            const stored = localStorage.getItem(PREFS_KEY);
+            if (stored) {
+                const prefs = JSON.parse(stored);
+                // Validate period
+                if (['1h', '24h', '7d', '30d'].includes(prefs.period)) {
+                    STATE.filters.period = prefs.period;
+                    if (els.filterPeriod) els.filterPeriod.value = prefs.period;
+                }
+                // Validate sev
+                if (['all', 'critical', 'high', 'medium', 'low', 'info'].includes(prefs.sev)) {
+                    STATE.filters.sev = prefs.sev;
+                    if (els.filterSev) els.filterSev.value = prefs.sev;
+                }
+                // Validate source
+                if (['all', 'ids', 'firewall', 'dns'].includes(prefs.source)) {
+                    STATE.filters.source = prefs.source;
+                    if (els.filterSource) els.filterSource.value = prefs.source;
+                }
+                // Settings
+                if (prefs.maxEvents) {
+                    STATE.settings.maxEvents = parseInt(prefs.maxEvents, 10);
+                    if (els.settingMaxEvents) els.settingMaxEvents.value = prefs.maxEvents;
+                }
+                if (prefs.trailDuration) {
+                    STATE.settings.trailDuration = parseInt(prefs.trailDuration, 10);
+                    if (els.settingTrail) els.settingTrail.value = prefs.trailDuration;
+                }
+                if (prefs.rotSpeed !== undefined) {
+                    STATE.settings.rotSpeed = parseFloat(prefs.rotSpeed);
+                    if (els.settingRot) els.settingRot.value = prefs.rotSpeed;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load Threat Map preferences:', e);
+        }
+    }
+
+    function savePreferences() {
+        try {
+            const prefs = {
+                period: STATE.filters.period,
+                sev: STATE.filters.sev,
+                source: STATE.filters.source,
+                maxEvents: STATE.settings.maxEvents,
+                trailDuration: STATE.settings.trailDuration,
+                rotSpeed: STATE.settings.rotSpeed
+            };
+            localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+        } catch (e) {
+            console.warn('Failed to save Threat Map preferences:', e);
+        }
     }
 
     // ---------------------------------------------------------------
     // Listeners
     // ---------------------------------------------------------------
     function setupListeners() {
-        if (els.filterPeriod) els.filterPeriod.addEventListener('change', (e) => { STATE.filters.period = e.target.value; fetchData(); });
-        if (els.filterSev) els.filterSev.addEventListener('change', (e) => { STATE.filters.sev = e.target.value; fetchData(); });
-        if (els.filterSource) els.filterSource.addEventListener('change', (e) => { STATE.filters.source = e.target.value; fetchData(); });
+        if (els.filterPeriod) els.filterPeriod.addEventListener('change', (e) => { STATE.filters.period = e.target.value; savePreferences(); fetchData(); });
+        if (els.filterSev) els.filterSev.addEventListener('change', (e) => { STATE.filters.sev = e.target.value; savePreferences(); fetchData(); });
+        if (els.filterSource) els.filterSource.addEventListener('change', (e) => { STATE.filters.source = e.target.value; savePreferences(); fetchData(); });
         if (els.searchInput) els.searchInput.addEventListener('input', debounce((e) => { STATE.filters.query = e.target.value; fetchData(); }, 300));
 
         if (els.btnPause) {
+
             els.btnPause.addEventListener('click', () => {
                 STATE.isPaused = !STATE.isPaused;
                 els.btnPause.classList.toggle('status-live', !STATE.isPaused);
@@ -810,7 +903,10 @@
                 if (els.detailsPanel) els.detailsPanel.classList.remove('visible');
                 STATE.feedQueue = [];
                 updateFeedEmptyState();
-                if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.clear();
+                if (window.MoonShieldThreatMapRenderer) {
+                    window.MoonShieldThreatMapRenderer.clear();
+                    window.MoonShieldThreatMapRenderer.resetView();
+                }
             });
         }
 
@@ -829,8 +925,13 @@
         // Toolbar
         if (els.btnProjection) els.btnProjection.addEventListener('click', toggleProjection);
         if (els.btnTogglePanels) els.btnTogglePanels.addEventListener('click', togglePanels);
-        if (els.btnCinema) els.btnCinema.addEventListener('click', enterCinemaMode);
+        if (els.btnCinema) els.btnCinema.addEventListener('click', () => {
+            if (STATE.cinemaMode) exitCinemaMode();
+            else enterCinemaMode();
+        });
         if (els.btnExitCinema) els.btnExitCinema.addEventListener('click', exitCinemaMode);
+
+        document.addEventListener('fullscreenchange', syncFullscreenState);
 
         if (els.btnSettings) {
             els.btnSettings.addEventListener('click', (e) => {
@@ -847,14 +948,17 @@
         });
         if (els.settingMaxEvents) els.settingMaxEvents.addEventListener('change', (e) => {
             STATE.settings.maxEvents = parseInt(e.target.value, 10) || 200;
+            savePreferences();
             fetchData();
         });
         if (els.settingTrail) els.settingTrail.addEventListener('change', (e) => {
             STATE.settings.trailDuration = parseInt(e.target.value, 10) || 15000;
+            savePreferences();
             if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setTrailDuration(STATE.settings.trailDuration);
         });
         if (els.settingRot) els.settingRot.addEventListener('change', (e) => {
             STATE.settings.rotSpeed = parseFloat(e.target.value) || 0;
+            savePreferences();
             if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setRotationSpeed(STATE.settings.rotSpeed);
         });
 
@@ -893,6 +997,7 @@
     function boot() {
         setupListeners();
         updateFeedEmptyState();
+        loadPreferences();
 
         // Iniciar polling independentemente do Mapbox
         fetchData();

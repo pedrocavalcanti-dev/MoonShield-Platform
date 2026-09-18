@@ -29,7 +29,7 @@
             'high-color': 'rgb(15, 15, 24)',
             'space-color': 'rgb(0, 0, 0)',
             'horizon-blend': 0.025,
-            'star-intensity': 0.2
+            'star-intensity': 0.12
         },
         light: {
             'color': 'rgb(210, 228, 248)',
@@ -283,7 +283,7 @@
             currentTheme = options.theme || 'dark';
             try {
                 if (!options.token) {
-                    if (options.onError) options.onError("Token nÃ£o fornecido");
+                    if (options.onError) options.onError("Token não fornecido");
                     return;
                 }
                 mapboxgl.accessToken = options.token;
@@ -291,7 +291,7 @@
                     container: options.containerId,
                     style: MAP_STYLES[currentTheme],
                     center: [0, 20],
-                    zoom: 1.2,
+                    zoom: 1.35,
                     projection: 'globe',
                     attributionControl: false,
                     failIfMajorPerformanceCaveat: false
@@ -374,7 +374,7 @@
         },
 
         resetView: function () {
-            if (map) map.flyTo({ center: [0, 20], zoom: 1.2, duration: prefersReducedMotion ? 0 : 1500 });
+            if (map) map.flyTo({ center: [0, 20], zoom: 1.35, duration: prefersReducedMotion ? 0 : 1500 });
         },
 
         clear: function () {

@@ -79,31 +79,121 @@
     font-size: 0.8rem;
 }
 
-/* Fallback message for missing node location */
+/* -------------------------------------
+   Node-without-location HUD
+   Compact operational banner, never a
+   full-screen modal, never hides the globe.
+-------------------------------------- */
 .map-no-location {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translate(-50%, -8px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid #ffd60a;
+    padding: 8px 12px;
+    border-radius: 6px;
+    z-index: 5;
+    box-shadow: var(--shadow-card);
+    max-width: min(92%, 560px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.map-no-location.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    pointer-events: auto;
+}
+.map-no-location-icon {
+    color: #ffd60a;
+    font-size: 1rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.map-no-location-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.map-no-location-text strong {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.map-no-location-text span {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.map-no-location .btn {
+    flex-shrink: 0;
+}
+
+@media (max-width: 1366px) {
+    .map-no-location {
+        top: 12px;
+        max-width: 90%;
+    }
+    .map-no-location-text span {
+        display: none;
+    }
+}
+
+/* Fallback message for missing Mapbox component */
+.map-failure-state {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
     background: var(--bg-card);
     border: 1px solid var(--border);
-    padding: 16px 24px;
+    padding: 20px 28px;
     border-radius: 8px;
     text-align: center;
     z-index: 5;
     box-shadow: var(--shadow-card);
-    display: none;
+    max-width: 360px;
 }
-.map-no-location.visible {
-    display: block;
-}
-.map-no-location h3 {
+.map-failure-state h3 {
     margin: 0 0 8px 0;
     font-size: 1rem;
     color: var(--text-primary);
 }
-.map-no-location p {
+.map-failure-state p {
     margin: 0;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: var(--text-muted);
+}
+
+.map-banner {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 6;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 4px;
+    box-shadow: var(--shadow-card);
+}
+.map-banner-error {
+    background-color: rgba(255, 45, 85, 0.15);
+    border: 1px solid #ff2d55;
+    color: #ff2d55;
+}
+.map-banner-warning {
+    background-color: rgba(255, 214, 10, 0.15);
+    border: 1px solid #ffd60a;
+    color: #ffd60a;
 }

@@ -33,17 +33,20 @@
                 <span class="tm-kpi-label">Top País</span>
                 <span class="tm-kpi-val" id="kpi-top-country">—</span>
             </div>
+
+            <div class="tm-group-sep" aria-hidden="true"></div>
+
             <div class="tm-health-indicators">
-                <div class="health-indicator offline" id="health-ids" title="IDS (Suricata)">IDS</div>
-                <div class="health-indicator offline" id="health-firewall" title="Firewall">FW</div>
-                <div class="health-indicator offline" id="health-dns" title="DNS (AdGuard)">DNS</div>
+                <div class="health-indicator unknown" id="health-ids" title="IDS (Suricata)">IDS</div>
+                <div class="health-indicator unknown" id="health-firewall" title="Firewall">FW</div>
+                <div class="health-indicator unknown" id="health-dns" title="DNS (AdGuard)">DNS</div>
             </div>
         </div>
 
         <div class="tm-filters">
             <div class="tm-search-wrap">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
-                <input type="text" id="search-input" placeholder="Pesquisar IP, assinatura, ID..." aria-label="Pesquisar eventos">
+                <input type="text" id="search-input" placeholder="Pesquisar IP, domínio, assinatura..." aria-label="Pesquisar eventos">
             </div>
             <select id="filter-period" class="tm-select" aria-label="Período">
                 <option value="1h">Última Hora</option>
@@ -60,16 +63,21 @@
                 <option value="info">Info</option>
             </select>
             <select id="filter-source" class="tm-select" aria-label="Fonte">
-                <option value="all" selected>Todas Fontes</option>
-                <option value="ids">Suricata (IDS)</option>
+                <option value="all" selected>Todas as fontes</option>
+                <option value="ids">IDS / Suricata</option>
                 <option value="firewall">Firewall</option>
-                <option value="dns">AdGuard (DNS)</option>
+                <option value="dns">DNS / AdGuard</option>
             </select>
 
-            <button class="tm-btn-text status-live" id="btn-pause" title="Pausar / Retomar" aria-label="Pausar">LIVE</button>
+            <div class="tm-group-sep" aria-hidden="true"></div>
 
-            <button class="tm-btn-icon" id="btn-projection" title="Alternar Globo / Mercator" aria-label="Alternar Projeção">
+            <button class="tm-status-btn status-live" id="btn-pause" title="Pausar / Retomar" aria-label="Pausar" aria-pressed="false">
+                <span class="status-dot" aria-hidden="true"></span><span class="status-label">LIVE</span>
+            </button>
+
+            <button class="tm-btn-icon" id="btn-projection" title="Alternar Globo (3D) / Mercator (2D)" aria-label="Alternar Projeção" data-mode="3D">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path><path d="M2 12h20"></path></svg>
+                <span class="btn-icon-tag" id="projection-tag">3D</span>
             </button>
             <button class="tm-btn-icon" id="btn-toggle-panels" title="Ocultar Painéis Laterais" aria-label="Ocultar Painéis">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
@@ -129,11 +137,12 @@
 
         <div class="tm-panel tm-feed-panel" id="panel-feed">
             <div class="tm-panel-header">
-                <h2>Event Feed</h2>
+                <h2>Eventos ao Vivo</h2>
+                <span class="tm-panel-count" id="feed-count">0 evento</span>
             </div>
             <div class="tm-feed-loading" id="feed-loading" style="display: none;">Carregando eventos...</div>
             <div class="tm-feed-container" id="feed-container">
-                <!-- Items injetados via JS -->
+                <div class="feed-empty-state" id="feed-empty-state">Nenhum evento nesta janela</div>
             </div>
         </div>
 
@@ -149,9 +158,12 @@
                 </div>
 
                 <div class="map-no-location" id="no-location-warning">
-                    <h3>Localização Não Configurada</h3>
-                    <p>O MoonShield requer as coordenadas deste appliance para visualizar a entrada e saída no mapa.</p>
-                    <button class="btn btn-primary" id="btn-open-location-modal">Configurar localização</button>
+                    <div class="map-no-location-icon" aria-hidden="true">⚠</div>
+                    <div class="map-no-location-text">
+                        <strong>Localização do node não configurada.</strong>
+                        <span>Rotas geográficas estão desativadas.</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="btn-open-location-modal">Configurar</button>
                 </div>
             </div>
         </div>
@@ -168,7 +180,18 @@
             </div>
 
             <div class="tm-facets-container" id="facets-container">
-                <!-- Facets injetados via JS -->
+                <div class="facet-group">
+                    <h4>Categorias</h4>
+                    <ul><li><span class="text-muted">Nenhum dado</span></li></ul>
+                </div>
+                <div class="facet-group">
+                    <h4>Países</h4>
+                    <ul><li><span class="text-muted">Nenhum evento geolocalizável</span></li></ul>
+                </div>
+                <div class="facet-group">
+                    <h4>Fontes</h4>
+                    <ul><li><span class="text-muted">Nenhum dado</span></li></ul>
+                </div>
             </div>
         </div>
 
@@ -180,29 +203,48 @@
     <div class="tm-modal">
         <div class="tm-modal-header">
             <h3>Configurar Localização do Appliance</h3>
-            <button class="tm-modal-close" id="btn-close-location">×</button>
+            <button class="tm-modal-close" id="btn-close-location" aria-label="Fechar">×</button>
         </div>
         <div class="tm-modal-body">
-            <p>Selecione a origem das coordenadas para este nodo:</p>
+
+            <p class="tm-modal-note">
+                A localização deste dispositivo pode não corresponder ao local físico do appliance
+                caso o painel esteja sendo acessado remotamente.
+            </p>
+
             <div class="tm-form-group">
-                <button class="btn btn-outline" id="btn-use-browser" type="button" style="width: 100%; margin-bottom: 16px;">
+                <button class="btn btn-outline" id="btn-use-browser" type="button" style="width: 100%;">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
-                    Usar localização deste dispositivo (Navegador)
+                    Usar localização deste dispositivo
                 </button>
+                <p class="tm-help-text" id="browser-unavailable-msg" style="display:none;">
+                    Localização automática requer acesso HTTPS. Informe as coordenadas manualmente.
+                </p>
             </div>
-            <hr style="border:0;border-top:1px solid var(--border);margin:16px 0;">
+
+            <div class="tm-browser-confirm" id="browser-confirm-box" style="display:none;">
+                <div class="tm-browser-confirm-coords">
+                    <span>Latitude: <strong id="browser-confirm-lat">--</strong></span>
+                    <span>Longitude: <strong id="browser-confirm-lon">--</strong></span>
+                </div>
+                <p class="tm-help-text">Confirmar esta localização para o MoonShield Node?</p>
+                <button class="btn btn-primary btn-sm" id="btn-confirm-browser-location" type="button">Confirmar localização</button>
+            </div>
+
+            <hr class="tm-modal-divider">
+
             <p>Ou informe manualmente (Decimal Degrees):</p>
             <div class="tm-form-row">
                 <div class="tm-form-group">
                     <label>Latitude</label>
-                    <input type="number" step="any" id="loc-lat">
+                    <input type="number" step="any" id="loc-lat" placeholder="-90 a 90">
                 </div>
                 <div class="tm-form-group">
                     <label>Longitude</label>
-                    <input type="number" step="any" id="loc-lon">
+                    <input type="number" step="any" id="loc-lon" placeholder="-180 a 180">
                 </div>
             </div>
-            <div id="loc-error" style="color: #ff2d55; font-size: 0.8rem; display: none; margin-top: 8px;"></div>
+            <div id="loc-error" class="tm-loc-error" style="display: none;"></div>
         </div>
         <div class="tm-modal-footer">
             <button class="btn btn-outline" id="btn-cancel-location">Cancelar</button>

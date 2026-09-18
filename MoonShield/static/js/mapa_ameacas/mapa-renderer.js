@@ -291,11 +291,16 @@
                     container: options.containerId,
                     style: MAP_STYLES[currentTheme],
                     center: [0, 20],
-                    zoom: 1.35,
+                    zoom: 1.6,
+                    minZoom: 0.6,
+                    maxZoom: 10,
                     projection: 'globe',
                     attributionControl: false,
                     failIfMajorPerformanceCaveat: false
                 });
+
+                // Compact attribution — satisfaz requisito legal sem poluir UI
+                map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
 
                 map.on('error', event => {
                     if (options.onError) {
@@ -305,18 +310,44 @@
 
                 map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), 'bottom-right');
 
-                ['mousedown', 'dragstart', 'touchstart'].forEach(ev => {
-                    map.on(ev, () => { userInteracting = true; });
+                // Interação do usuário — todos os eventos relevantes incluindo wheel
+                let inactivityTimer = null;
+                const markInteracting = () => {
+                    userInteracting = true;
+                    clearTimeout(inactivityTimer);
+                    inactivityTimer = setTimeout(() => { userInteracting = false; }, 5000);
+                };
+
+                ['mousedown', 'dragstart', 'touchstart', 'wheel', 'dblclick', 'movestart'].forEach(ev => {
+                    map.on(ev, markInteracting);
                 });
                 ['mouseup', 'dragend', 'touchend'].forEach(ev => {
-                    map.on(ev, () => { setTimeout(() => { userInteracting = false; }, 1000); });
+                    map.on(ev, () => {
+                        clearTimeout(inactivityTimer);
+                        inactivityTimer = setTimeout(() => { userInteracting = false; }, 5000);
+                    });
                 });
 
                 map.on('style.load', () => {
+                    layersReady = false;
                     initLayers();
+                    layersReady = true;
                     if (nodeCoords) this.setNode(nodeCoords);
                     if (options.onReady) options.onReady();
                 });
+
+                // ResizeObserver — recalcula mapa ao mudar container (cinema, painéis, DevTools)
+                if (window.ResizeObserver) {
+                    let resizeDebounce = null;
+                    const container = document.getElementById(options.containerId);
+                    const ro = new ResizeObserver(() => {
+                        clearTimeout(resizeDebounce);
+                        resizeDebounce = setTimeout(() => { if (map) map.resize(); }, 60);
+                    });
+                    if (container && container.parentElement) {
+                        ro.observe(container.parentElement);
+                    }
+                }
 
                 lastTime = performance.now();
                 renderStarted = true;
@@ -374,7 +405,7 @@
         },
 
         resetView: function () {
-            if (map) map.flyTo({ center: [0, 20], zoom: 1.35, duration: prefersReducedMotion ? 0 : 1500 });
+            if (map) map.flyTo({ center: [0, 20], zoom: 1.6, duration: prefersReducedMotion ? 0 : 1500 });
         },
 
         clear: function () {

@@ -746,11 +746,23 @@
         if (els.btnProjection) els.btnProjection.classList.toggle('active', !STATE.isGlobe);
     }
 
+    function _triggerResize() {
+        // Dispara resize imediatamente (depois do rAF para layout calculado)
+        // e novamente após a transição CSS (~300ms) para evitar canvas vazio.
+        if (!window.MoonShieldThreatMapRenderer) return;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                window.MoonShieldThreatMapRenderer.resize();
+                setTimeout(() => window.MoonShieldThreatMapRenderer.resize(), 320);
+            });
+        });
+    }
+
     function togglePanels() {
         STATE.panelsHidden = !STATE.panelsHidden;
         if (els.mainGrid) els.mainGrid.classList.toggle('panels-hidden', STATE.panelsHidden);
         if (els.btnTogglePanels) els.btnTogglePanels.classList.toggle('active', STATE.panelsHidden);
-        setTimeout(() => { if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.resize(); }, 250);
+        _triggerResize();
     }
 
     function enterCinemaMode() {
@@ -758,14 +770,14 @@
         if (els.tmApp) els.tmApp.classList.add('cinema-mode');
         if (els.btnCinema) els.btnCinema.style.display = 'none';
         if (els.btnExitCinema) els.btnExitCinema.style.display = 'flex';
-        setTimeout(() => { if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.resize(); }, 250);
+        _triggerResize();
     }
     function exitCinemaMode() {
         STATE.cinemaMode = false;
         if (els.tmApp) els.tmApp.classList.remove('cinema-mode');
         if (els.btnCinema) els.btnCinema.style.display = 'flex';
         if (els.btnExitCinema) els.btnExitCinema.style.display = 'none';
-        setTimeout(() => { if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.resize(); }, 250);
+        _triggerResize();
     }
 
     // ---------------------------------------------------------------

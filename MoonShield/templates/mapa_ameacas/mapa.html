@@ -1,382 +1,219 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Mapa de Ameaças{% endblock %}
-
-{% block breadcrumb %}
-<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10" />
-        <line x1="2" y1="12" x2="22" y2="12" />
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-    </svg>
-    Mapa de Ameaças
-</span>
-{% endblock %}
+{% block title %}Threat Map | MoonShield{% endblock %}
 
 {% block extra_css %}
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.css" rel="stylesheet">
-<link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa.css' %}" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa-mapbox.css' %}" />
+  <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa.css' %}" />
 {% endblock %}
 
 {% block conteudo %}
+<div id="mapbox-token" style="display: none;">{{ mapbox_token|escapejs }}</div>
 
-<div class="tg-wrapper" id="tgWrapper">
+<div class="threat-map-app" id="tm-app">
 
-    <div class="tg-topbar" id="tg-topbar">
-
-        <div class="tg-topbar__left">
-
-            <div class="tg-live-pill" id="tg-live-indicator">
-                <span class="tg-live-dot"></span>
-                LIVE
+    <div class="tm-topbar">
+        <div class="tm-kpis">
+            <div class="tm-kpi">
+                <span class="tm-kpi-label">Eventos</span>
+                <span class="tm-kpi-val" id="kpi-events">--</span>
+                <span class="tm-kpi-sub" id="kpi-rate">0 evt/min</span>
             </div>
-
-            <span id="mapModeBadge"
-                style="display:none; font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; margin-left:8px;"></span>
-
-            <div class="tg-seg" id="tg-range-selector">
-                <button class="tg-seg__btn" data-range="1h">+1h</button>
-                <button class="tg-seg__btn tg-seg__btn--active" data-range="24h">24h</button>
-                <button class="tg-seg__btn" data-range="7d">7d</button>
-                <button class="tg-seg__btn" data-range="30d">30d</button>
+            <div class="tm-kpi">
+                <span class="tm-kpi-label">Críticos</span>
+                <span class="tm-kpi-val text-critical" id="kpi-critical">--</span>
             </div>
-
-            <div class="tg-chips" id="tg-severity-chips">
-                <button class="tg-chip tg-chip--active" data-sev="all">Todos</button>
-                <button class="tg-chip tg-chip--crit" data-sev="critical">Crítico</button>
-                <button class="tg-chip tg-chip--high" data-sev="high">Alto</button>
-                <button class="tg-chip tg-chip--med" data-sev="medium">Médio</button>
-                <button class="tg-chip tg-chip--low" data-sev="low">Baixo</button>
+            <div class="tm-kpi">
+                <span class="tm-kpi-label">Geo no Mapa</span>
+                <span class="tm-kpi-val" id="kpi-geo">--</span>
             </div>
-
+            <div class="tm-kpi">
+                <span class="tm-kpi-label">Top País</span>
+                <span class="tm-kpi-val" id="kpi-top-country">—</span>
+            </div>
+            <div class="tm-health-indicators">
+                <div class="health-indicator offline" id="health-ids" title="IDS (Suricata)">IDS</div>
+                <div class="health-indicator offline" id="health-firewall" title="Firewall">FW</div>
+                <div class="health-indicator offline" id="health-dns" title="DNS (AdGuard)">DNS</div>
+            </div>
         </div>
 
-        <div class="tg-topbar__right">
+        <div class="tm-filters">
+            <div class="tm-search-wrap">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
+                <input type="text" id="search-input" placeholder="Pesquisar IP, assinatura, ID..." aria-label="Pesquisar eventos">
+            </div>
+            <select id="filter-period" class="tm-select" aria-label="Período">
+                <option value="1h">Última Hora</option>
+                <option value="24h" selected>24 Horas</option>
+                <option value="7d">7 Dias</option>
+                <option value="30d">30 Dias</option>
+            </select>
+            <select id="filter-sev" class="tm-select" aria-label="Severidade">
+                <option value="all" selected>Todas Severidades</option>
+                <option value="critical">Crítico</option>
+                <option value="high">Alto</option>
+                <option value="medium">Médio</option>
+                <option value="low">Baixo</option>
+                <option value="info">Info</option>
+            </select>
+            <select id="filter-source" class="tm-select" aria-label="Fonte">
+                <option value="all" selected>Todas Fontes</option>
+                <option value="ids">Suricata (IDS)</option>
+                <option value="firewall">Firewall</option>
+                <option value="dns">AdGuard (DNS)</option>
+            </select>
 
-            <button class="tg-topbar-btn" id="tg-btn-projection">
-                <svg id="tg-proj-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2">
-                    <rect x="2" y="6" width="20" height="12" rx="2" />
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                </svg>
-                <span id="tg-proj-label">Mapa 2D</span>
+            <button class="tm-btn-text status-live" id="btn-pause" title="Pausar / Retomar" aria-label="Pausar">LIVE</button>
+
+            <button class="tm-btn-icon" id="btn-projection" title="Alternar Globo / Mercator" aria-label="Alternar Projeção">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path><path d="M2 12h20"></path></svg>
+            </button>
+            <button class="tm-btn-icon" id="btn-toggle-panels" title="Ocultar Painéis Laterais" aria-label="Ocultar Painéis">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+            </button>
+            <button class="tm-btn-icon" id="btn-cinema" title="Modo Cinema" aria-label="Modo Cinema">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+            </button>
+            <button class="tm-btn-icon" id="btn-clear" title="Limpar Mapa" aria-label="Limpar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
 
-            <button class="tg-topbar-btn" id="tg-btn-pause">
-                <svg id="tg-pause-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2">
-                    <rect x="6" y="4" width="4" height="16" />
-                    <rect x="14" y="4" width="4" height="16" />
-                </svg>
-                <span id="tg-pause-label">Pausar</span>
+            <div class="tm-settings-wrap">
+                <button class="tm-btn-icon" id="btn-settings" title="Configurações do Mapa" aria-label="Configurações">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+                <div class="tm-settings-popover" id="settings-popover">
+                    <div class="popover-title">Configurações do Mapa</div>
+                    <div class="popover-row">
+                        <label>Max Events (DOM)</label>
+                        <select id="setting-max-events" class="tm-select">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="150">150</option>
+                            <option value="200" selected>200</option>
+                        </select>
+                    </div>
+                    <div class="popover-row">
+                        <label>Trail Duration</label>
+                        <select id="setting-trail" class="tm-select">
+                            <option value="5000">5s (Rápido)</option>
+                            <option value="15000" selected>15s (Normal)</option>
+                            <option value="30000">30s (Longo)</option>
+                        </select>
+                    </div>
+                    <div class="popover-row">
+                        <label>Rotação (Globo)</label>
+                        <select id="setting-rot" class="tm-select">
+                            <option value="0">Desligada</option>
+                            <option value="0.02">Muito Lenta</option>
+                            <option value="0.05" selected>Normal</option>
+                            <option value="0.1">Rápida</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <button class="tm-btn-icon" id="btn-exit-cinema" title="Sair do Modo Cinema" style="display: none;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
             </button>
-
-            <button class="tg-topbar-btn" id="tg-btn-clear">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6l-1 14H6L5 6" />
-                </svg>
-                Limpar
-            </button>
-
-            <span class="tg-topbar-sep"></span>
-
-            <button class="tg-topbar-btn tg-topbar-btn--panels" id="tg-toggle-panels">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="7" height="18" rx="1" />
-                    <rect x="14" y="3" width="7" height="18" rx="1" />
-                </svg>
-                <span id="tg-panels-label">Ocultar Painéis</span>
-            </button>
-
-            <button class="tg-topbar-btn tg-topbar-btn--cinema" id="tg-btn-cinema">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="2" y="7" width="20" height="15" rx="2" />
-                    <path d="M16 2l-4 5-4-5" />
-                </svg>
-                Modo Cinema
-            </button>
-
         </div>
     </div>
-    <div class="tg-body" id="tg-body">
 
-        <aside class="tg-left-panel" id="tg-left-panel">
+    <div class="tm-active-filters" id="active-filters-bar" style="display: none;"></div>
 
-            <div class="tg-panel-hdr">
-                <span class="tg-panel-title">Filtros Avançados</span>
-                <button class="tg-icon-btn" id="tg-filters-toggle" title="Fechar filtros">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                </button>
+    <div class="tm-main-grid" id="main-grid">
+
+        <div class="tm-panel tm-feed-panel" id="panel-feed">
+            <div class="tm-panel-header">
+                <h2>Event Feed</h2>
             </div>
-
-            <div class="tg-filter-block">
-                <p class="tg-filter-label">Fontes</p>
-                <div class="tg-check-list" id="tg-filter-source">
-                    <label class="tg-check"><input type="checkbox" value="IDS" checked /><span>IDS ·
-                            Suricata</span></label>
-                    <label class="tg-check"><input type="checkbox" value="FW" checked /><span>Firewall</span></label>
-                    <label class="tg-check"><input type="checkbox" value="DNS" checked /><span>DNS ·
-                            AdGuard</span></label>
-                </div>
+            <div class="tm-feed-loading" id="feed-loading" style="display: none;">Carregando eventos...</div>
+            <div class="tm-feed-container" id="feed-container">
+                <!-- Items injetados via JS -->
             </div>
-
-            <div class="tg-filter-block">
-                <p class="tg-filter-label">Tipo de Ataque</p>
-                <div class="tg-check-list" id="tg-filter-type">
-                    <label class="tg-check"><input type="checkbox" value="bruteforce" checked /><span>Brute
-                            Force</span></label>
-                    <label class="tg-check"><input type="checkbox" value="scan" checked /><span>Port Scan</span></label>
-                    <label class="tg-check"><input type="checkbox" value="exploit"
-                            checked /><span>Exploit</span></label>
-                    <label class="tg-check"><input type="checkbox" value="malware" checked /><span>Malware /
-                            C2</span></label>
-                    <label class="tg-check"><input type="checkbox" value="policy" checked /><span>Policy
-                            Violation</span></label>
-                </div>
-            </div>
-
-            <div class="tg-filter-block">
-                <p class="tg-filter-label">País de Origem</p>
-                <select class="tg-select" id="tg-filter-country">
-                    <option value="all">Todos os países</option>
-                    <option value="CN">🇨🇳 China</option>
-                    <option value="RU">🇷🇺 Rússia</option>
-                    <option value="US">🇺🇸 Estados Unidos</option>
-                    <option value="NL">🇳🇱 Holanda</option>
-                    <option value="DE">🇩🇪 Alemanha</option>
-                    <option value="IR">🇮🇷 Irã</option>
-                    <option value="KP">🇰🇵 Coreia do Norte</option>
-                    <option value="BR">🇧🇷 Brasil</option>
-                </select>
-            </div>
-
-            <div class="tg-filter-block">
-                <p class="tg-filter-label">
-                    Duração do Rastro
-                    <span id="tg-trail-val" class="tg-filter-val">15s</span>
-                </p>
-                <input type="range" class="tg-slider" id="tg-filter-trail" min="5" max="60" value="15" />
-            </div>
-
-            <div class="tg-filter-block">
-                <p class="tg-filter-label">
-                    Máx. Eventos
-                    <span id="tg-maxevt-val" class="tg-filter-val">200</span>
-                </p>
-                <input type="range" class="tg-slider" id="tg-filter-max-events" min="50" max="1000" step="50"
-                    value="200" />
-            </div>
-
-            <div class="tg-filter-block">
-                <p class="tg-filter-label">
-                    Velocidade de Rotação
-                    <span id="tg-rot-val" class="tg-filter-val">0.5×</span>
-                </p>
-                <input type="range" class="tg-slider" id="tg-filter-rotation" min="0" max="10" value="5" />
-            </div>
-
-            <button class="tg-apply-btn" id="tg-filter-apply">Aplicar Filtros</button>
-
-        </aside>
-        <div class="tg-globe-area" id="tg-map">
-
-            <div id="tg-canvas"></div>
-
-            <div class="tg-kpis" id="tg-kpis">
-                <div class="tg-kpi">
-                    <span class="tg-kpi__num" id="tg-kpi-rate">0</span>
-                    <span class="tg-kpi__lbl">eventos/min</span>
-                </div>
-                <div class="tg-kpi">
-                    <span class="tg-kpi__num tg-kpi__num--crit" id="tg-kpi-critical">0</span>
-                    <span class="tg-kpi__lbl">críticos</span>
-                </div>
-                <div class="tg-kpi">
-                    <span class="tg-kpi__num" id="tg-kpi-top-country">--</span>
-                    <span class="tg-kpi__lbl">top país</span>
-                </div>
-                <div class="tg-kpi">
-                    <span class="tg-kpi__num" id="tg-kpi-total">0</span>
-                    <span class="tg-kpi__lbl">total sessão</span>
-                </div>
-            </div>
-
-            <div class="tg-map-toolbar">
-                <button class="tg-map-btn" id="tg-open-filters">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="4" y1="6" x2="20" y2="6" />
-                        <line x1="8" y1="12" x2="16" y2="12" />
-                        <line x1="11" y1="18" x2="13" y2="18" />
-                    </svg>
-                    Filtros
-                </button>
-            </div>
-
-            <div class="tg-search-overlay">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.35-4.35" />
-                </svg>
-                <input type="text" class="tg-search" id="tg-search" placeholder="IP · País · Assinatura…" />
-            </div>
-
-            <div class="tg-globe-tooltip" id="tg-tooltip">
-                <p class="tg-gt__ip"></p>
-                <p class="tg-gt__info"></p>
-                <p class="tg-gt__sev"></p>
-            </div>
-
-            <div class="tg-legend">
-                <span class="tg-leg--crit"><span class="tg-leg-dot"></span>Crítico</span>
-                <span class="tg-leg--high"><span class="tg-leg-dot"></span>Alto</span>
-                <span class="tg-leg--med"><span class="tg-leg-dot"></span>Médio</span>
-                <span class="tg-leg--low"><span class="tg-leg-dot"></span>Baixo</span>
-            </div>
-
         </div>
-        <aside class="tg-right-panel" id="tg-right-panel">
 
-            <div class="tg-feed-hdr">
-                <div class="tg-feed-hdr__left">
-                    <span class="tg-live-dot tg-live-dot--sm"></span>
-                    <span class="tg-panel-title">Live Events</span>
-                    <span class="tg-feed-badge" id="tg-feed-count">0</span>
+        <div class="tm-map-area" id="panel-map">
+            <div class="map-container">
+                <div class="map-banner map-banner-error" id="banner-error" style="display: none;">Falha ao atualizar dados</div>
+                <div class="map-banner map-banner-warning" id="banner-stale" style="display: none;">Dados desatualizados</div>
+
+                <div id="map"></div>
+                <div class="map-failure-state" id="map-failure" style="display: none;">
+                    <h3>Mapa indisponível</h3>
+                    <p>Houve uma falha ao iniciar o componente 3D. A telemetria continua ativa no feed e relatórios.</p>
                 </div>
-                <div class="tg-feed-hdr__right">
-                    <select class="tg-feed-src-sel" id="tg-feed-src-filter">
-                        <option value="all">SERVIDOR</option>
-                        <option value="IDS">IDS</option>
-                        <option value="FW">FIREWALL</option>
-                        <option value="DNS">DNS</option>
-                    </select>
+
+                <div class="map-no-location" id="no-location-warning">
+                    <h3>Localização Não Configurada</h3>
+                    <p>O MoonShield requer as coordenadas deste appliance para visualizar a entrada e saída no mapa.</p>
+                    <button class="btn btn-primary" id="btn-open-location-modal">Configurar localização</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="tm-panel tm-details-panel" id="panel-details">
+            <div class="tm-panel-header">
+                <h2>Contexto</h2>
+            </div>
+
+            <div class="tm-details-content" id="details-panel">
+                <div class="details-empty-state">
+                    Selecione um evento no feed para visualizar os detalhes e o contexto técnico.
                 </div>
             </div>
 
-            <div class="tg-feed" id="tg-live-feed"></div>
-
-            <div class="tg-details" id="tg-event-details">
-
-                <div class="tg-det-hdr">
-                    <div class="tg-det-badges">
-                        <span class="tg-det-sev-badge" id="tg-det-sev-badge"></span>
-                        <span class="tg-det-src-badge" id="tg-det-source"></span>
-                        <span class="tg-det-time" id="tg-det-time"></span>
-                    </div>
-                    <button class="tg-icon-btn" id="tg-det-close">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
-                    </button>
-                </div>
-
-                <div class="tg-det-hero">
-                    <p class="tg-det-asn-hero" id="tg-det-asn-hero"></p>
-                    <p class="tg-det-ip-hero" id="tg-det-ip-big"></p>
-                </div>
-
-                <div class="tg-det-rows">
-
-                    <div class="tg-det-row">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="2" y1="12" x2="22" y2="12" />
-                            <path
-                                d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                        </svg>
-                        <span class="tg-det-key">País</span>
-                        <span class="tg-det-val" id="tg-det-country">—</span>
-                        <span class="tg-det-sub" id="tg-det-coords"></span>
-                    </div>
-
-                    <div class="tg-det-row">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <rect x="2" y="3" width="20" height="14" rx="2" />
-                            <line x1="8" y1="21" x2="16" y2="21" />
-                            <line x1="12" y1="17" x2="12" y2="21" />
-                        </svg>
-                        <span class="tg-det-key">IP Origem</span>
-                        <span class="tg-det-val tg-mono" id="tg-det-ip">—</span>
-                    </div>
-
-                    <div class="tg-det-row">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path
-                                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                        </svg>
-                        <span class="tg-det-key">ASN/ISP</span>
-                        <span class="tg-det-val tg-mono" id="tg-det-asn">—</span>
-                    </div>
-
-                    <div class="tg-det-row">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                        </svg>
-                        <span class="tg-det-key">Destino</span>
-                        <span class="tg-det-val tg-mono" id="tg-det-dest">—</span>
-                    </div>
-
-                    <div class="tg-det-row">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                        </svg>
-                        <span class="tg-det-key">Porta</span>
-                        <span class="tg-det-val tg-mono" id="tg-det-port">—</span>
-                    </div>
-
-                    <div class="tg-det-row tg-det-row--full">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                            <polyline points="22,6 12,13 2,6" />
-                        </svg>
-                        <span class="tg-det-key">Evento</span>
-                        <span class="tg-det-val" id="tg-det-sig" style="flex:1;word-break:break-word">—</span>
-                    </div>
-
-                </div>
-
-                <div class="tg-det-actions">
-                    <a href="#" class="tg-det-btn tg-det-btn--primary" id="tg-btn-view-soc">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                            <polyline points="15 3 21 3 21 9" />
-                            <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                        Ver no SOC
-                    </a>
-                    <button class="tg-det-btn tg-det-btn--ghost" id="tg-btn-copy-ioc">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
-                        <span id="tg-copy-label">Copiar IOC</span>
-                    </button>
-                </div>
-
+            <div class="tm-facets-container" id="facets-container">
+                <!-- Facets injetados via JS -->
             </div>
-        </aside>
+        </div>
+
     </div>
-</div>{% endblock %}
+</div>
+
+<!-- Modal Configurar Localização -->
+<div class="tm-modal-overlay" id="location-modal" style="display: none;">
+    <div class="tm-modal">
+        <div class="tm-modal-header">
+            <h3>Configurar Localização do Appliance</h3>
+            <button class="tm-modal-close" id="btn-close-location">×</button>
+        </div>
+        <div class="tm-modal-body">
+            <p>Selecione a origem das coordenadas para este nodo:</p>
+            <div class="tm-form-group">
+                <button class="btn btn-outline" id="btn-use-browser" type="button" style="width: 100%; margin-bottom: 16px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+                    Usar localização deste dispositivo (Navegador)
+                </button>
+            </div>
+            <hr style="border:0;border-top:1px solid var(--border);margin:16px 0;">
+            <p>Ou informe manualmente (Decimal Degrees):</p>
+            <div class="tm-form-row">
+                <div class="tm-form-group">
+                    <label>Latitude</label>
+                    <input type="number" step="any" id="loc-lat">
+                </div>
+                <div class="tm-form-group">
+                    <label>Longitude</label>
+                    <input type="number" step="any" id="loc-lon">
+                </div>
+            </div>
+            <div id="loc-error" style="color: #ff2d55; font-size: 0.8rem; display: none; margin-top: 8px;"></div>
+        </div>
+        <div class="tm-modal-footer">
+            <button class="btn btn-outline" id="btn-cancel-location">Cancelar</button>
+            <button class="btn btn-primary" id="btn-save-location">Salvar Coordenadas</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
 
 {% block extra_js %}
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.1.2/mapbox-gl.js"></script>
-<script>
-    // Token fixo para testes. Depois você move para o .env/settings.py
-    const MAPBOX_TOKEN = "pk.eyJ1IjoicGh6enp6IiwiYSI6ImNtbHpsOTgzcjA4N3UzZHB6cHAyajhpdjQifQ.NtI8jtSdypg-0BAS8RWhgQ";
-</script>
-<script src="{% static 'js/mapa_ameacas/mapa.js' %}"></script>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <script src="{% static 'js/mapa_ameacas/mapa-renderer.js' %}"></script>
+  <script src="{% static 'js/mapa_ameacas/mapa.js' %}"></script>
 {% endblock %}

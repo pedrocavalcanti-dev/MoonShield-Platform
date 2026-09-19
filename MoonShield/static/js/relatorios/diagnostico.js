@@ -43,6 +43,9 @@ function quickUnavailable(card) {
 }
 function syncButtons() {
     document.querySelectorAll('.diag-run-btn, .diag-quick-card__btn').forEach(btn => {
+        // O botão de STOP Live é governado exclusivamente pelo estado Live.
+        // Não pode ser desabilitado pelo lock global de execuções.
+        if (btn.id === 'routeLiveStopBtn') return;
         const card = btn.closest('.diag-quick-card');
         const reason = card ? quickUnavailable(card) : '';
         btn.disabled = Diag.isRunning || Boolean(reason);
@@ -576,6 +579,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return durationSeconds > 0 ? `${current} / ${formatTime(durationSeconds * 1000)}` : current;
     }
 
+    function activeLiveTool() {
+        return Object.keys(Live.active).find(tool => Boolean(Live.active[tool])) || null;
+    }
+
+    function syncTerminalLiveStop() {
+        const button = $('termLiveStopBtn');
+        if (!button) return;
+        const tool = activeLiveTool();
+        const stopping = tool ? Boolean(Live.stopping[tool]) : false;
+        button.style.display = tool ? 'inline-flex' : 'none';
+        button.disabled = !tool || stopping;
+        button.style.opacity = button.disabled ? '0.55' : '1';
+        button.textContent = stopping ? 'Parando…' : '■ Parar Live';
+    }
+
     function liveEntry(tool, target, data) {
         const result = {
             ...data,
@@ -595,6 +613,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setText('metaTime', entry.ts.toLocaleTimeString('pt-BR'));
         setText('metaStatus', (data.status || 'running').toUpperCase());
         $('metaStatus').className = 'diag-term-status diag-term-status--' + statusClass(data.status);
+        setText('termTitle', (TOOL_LABELS[tool] || tool) + ' → ' + scope(tool, target) + ' · ' + entry.ts.toLocaleTimeString('pt-BR') + ' · ' + (data.status || 'running').toUpperCase());
         $('termMeta').style.display = 'flex';
 
         setText('detDuration', duration(data.elapsed_ms ?? data.duration_ms));
@@ -696,6 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('terminalSection').setAttribute('aria-busy', 'false');
         syncButtons();
         RouteUI.update();
+        syncTerminalLiveStop();
     }
 
     function finalizeLiveResult(tool, target, data, reason) {
@@ -733,12 +753,22 @@ document.addEventListener('DOMContentLoaded', () => {
         Diag.selectedId = finalResult.execution_id || finalResult.id || finalResult.session_id || null;
 
         selectResultTab('saida');
-        setText('termTitle', 'Resultado final — ' + tool.toUpperCase());
-        $('termOutput').hidden = false;
-        $('termOutput').textContent = terminalText;
-        $('termStructured').replaceChildren();
-        $('termStructured').hidden = true;
-        $('termStructured').style.display = 'none';
+        setText('termTitle', (TOOL_LABELS[tool] || tool) + ' → ' + scope(tool, target) + ' · ' + finalEntry.ts.toLocaleTimeString('pt-BR') + ' · OK');
+        if (tool === 'mtr') {
+            // Mantém o visual rico/estruturado do MTR (mesmo padrão do one-shot).
+            const html = renderStructuredOutput('mtr', structured, finalEntry);
+            $('termStructured').innerHTML = html;
+            $('termStructured').hidden = !html;
+            $('termStructured').style.display = html ? 'block' : 'none';
+            $('termOutput').hidden = true;
+            $('termOutput').textContent = '';
+        } else {
+            $('termOutput').hidden = false;
+            $('termOutput').textContent = terminalText;
+            $('termStructured').replaceChildren();
+            $('termStructured').hidden = true;
+            $('termStructured').style.display = 'none';
+        }
         $('termSummary').style.display = 'flex';
         $('termSummary').className = 'diag-term-summary diag-term-summary--ok';
         setText('termSummaryText', finalResult.summary);
@@ -756,6 +786,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const target = state.target || value('routeTarget');
         $('routeLiveStopBtn').disabled = true;
         $('routeLiveStopBtn').style.opacity = '0.5';
+        syncTerminalLiveStop();
 
         const data = await stopLiveSession(sid);
         if (data && data.ok) {
@@ -820,6 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isTraceroute) hint = 'Traça o caminho dos pacotes até o destino.';
             if (isMTR) hint = 'Analisa latência, perda e caminho continuamente.';
             if ($('routeHint')) $('routeHint').textContent = hint;
+            syncTerminalLiveStop();
         }
     };
 
@@ -858,11 +890,16 @@ document.addEventListener('DOMContentLoaded', () => {
             $('terminalSection').setAttribute('aria-busy', 'true');
             $('termCliInput').disabled = true;
             $('termCliInput').placeholder = 'Diagnóstico ao vivo em execução...';
-            $('termOutput').hidden = false;
-            $('termOutput').textContent = `moonshield> ${tool} ${target} --live\n\n[Iniciando diagnóstico ao vivo...]`;
             $('termStructured').replaceChildren();
             $('termStructured').hidden = true;
             $('termStructured').style.display = 'none';
+            if (tool === 'mtr') {
+                $('termOutput').hidden = false;
+                $('termOutput').textContent = 'Aguardando primeira amostra MTR…';
+            } else {
+                $('termOutput').hidden = false;
+                $('termOutput').textContent = `moonshield> ${tool} ${target} --live\n\n[Iniciando diagnóstico ao vivo...]`;
+            }
             setText('termTitle', 'Diagnóstico em execução');
             $('termSummary').style.display = 'none';
             $('execBarLabel').textContent = 'Diagnóstico ao vivo (' + tool.toUpperCase() + ')';
@@ -895,6 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastData: null
             };
             RouteUI.update();
+            syncTerminalLiveStop();
 
             Live.timers[tool] = setInterval(() => {
                 pollLiveSession(sid, data => {
@@ -931,8 +969,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         const samples = hops.reduce((max, h) => Math.max(max, Number(h.sent) || 0), 0);
                         $('mtrLiveSamples').textContent = samples + ' amostras';
                         $('mtrLiveHops').textContent = hops.length + ' hops';
-                        $('termOutput').textContent = buildMtrTerminal(target, structured, data.elapsed_ms);
-                        $('termOutput').scrollTop = $('termOutput').scrollHeight;
+
+                        // Live MTR usa o mesmo visual estruturado bonito do MTR one-shot.
+                        const entry = liveEntry('mtr', target, data);
+                        const html = renderStructuredOutput('mtr', structured, entry);
+                        $('termStructured').innerHTML = html;
+                        $('termStructured').hidden = !html;
+                        $('termStructured').style.display = html ? 'block' : 'none';
+                        $('termOutput').hidden = true;
+                        $('termOutput').textContent = '';
                     }
 
                     setText('termJson', JSON.stringify(data, null, 2));
@@ -957,8 +1002,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         $('routeLiveStopBtn').addEventListener('click', () => finishLiveSession(RouteUI.tool, 'manual'));
+        if ($('termLiveStopBtn')) {
+            $('termLiveStopBtn').addEventListener('click', () => {
+                const tool = activeLiveTool();
+                if (tool) finishLiveSession(tool, 'manual');
+            });
+        }
 
         RouteUI.update();
+        syncTerminalLiveStop();
     }
 
     window.addEventListener('beforeunload', () => {

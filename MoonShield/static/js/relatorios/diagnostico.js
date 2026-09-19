@@ -523,12 +523,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if ($('mtrLiveOverlay')) $('mtrLiveOverlay').style.display = 'flex';
         });
     }
-        document.querySelectorAll('.diag-guide-panel').forEach(panel => {
-            const active = panel.id === 'panel-' + name;
-            panel.hidden = !active;
-            panel.classList.toggle('diag-guide-panel--active', active);
-        });
-    });
     $('termCliInput').addEventListener('keydown', event => {
         if (event.key !== 'Enter') return;
         event.preventDefault();

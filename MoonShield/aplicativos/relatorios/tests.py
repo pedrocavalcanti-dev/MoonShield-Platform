@@ -8,11 +8,19 @@ from unittest.mock import patch
 from rede.services.agent_client import AgentTimeoutErro, AgentIndisponivelErro, AgentOperacaoRecusadaErro
 from relatorios.models import ExecucaoDiagnostico
 
+from configuracoes.models import ConfigSistema
+
 User = get_user_model()
 
 class RelatoriosDiagnosticoTests(TestCase):
     def setUp(self):
         self.client = Client()
+        
+        # Bypass GlobalOnboardingGateMiddleware
+        config = ConfigSistema.get_solo()
+        config.appliance_onboarding_completo = True
+        config.save()
+        
         self.user = User.objects.create_user(username="testuser", password="testpassword")
         self.client.login(username="testuser", password="testpassword")
         self.contexto_url = reverse("relatorios:api_contexto")
@@ -82,17 +90,14 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(ex.origem, "guided")
 
     def test_executar_tool_invalida(self):
-        payload = {"tool": "", "target": "8.8.8.8"}
+        payload = {"tool": "invalid_tool", "target": "8.8.8.8"}
         response = self.client.post(self.executar_url, json.dumps(payload), content_type="application/json")
         self.assertEqual(response.status_code, 400)
 
-    @patch("relatorios.services.diagnostico_agent.agent_disponivel")
-    def test_executar_source_invalido_fallback(self, mock_disponivel):
-        mock_disponivel.return_value = False
+    def test_executar_source_invalido(self):
         payload = {"tool": "ping", "target": "8.8.8.8", "source": "invalid_source"}
-        self.client.post(self.executar_url, json.dumps(payload), content_type="application/json")
-        ex = ExecucaoDiagnostico.objects.first()
-        self.assertEqual(ex.origem, "guided") # Fallback to default
+        response = self.client.post(self.executar_url, json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
 
     @patch("relatorios.services.diagnostico_agent.requisitar_agent")
     @patch("relatorios.services.diagnostico_agent.agent_disponivel")

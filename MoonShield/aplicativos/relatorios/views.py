@@ -108,7 +108,17 @@ def diagnostico_executar_api(request):
         return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Target excedeu limite de tamanho."}, status=400)
 
     if source not in [c[0] for c in ExecucaoDiagnostico.ORIGEM_CHOICES]:
-        source = "guided"
+        return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Origem (source) inválida."}, status=400)
+
+    # Allowlist of tools
+    allowed_tools = {
+        "ping", "traceroute", "mtr", "dns_lookup", "reverse_dns",
+        "dns_latency", "tcp_connect", "http_check", "arp_table",
+        "routes", "interfaces", "sockets"
+    }
+    
+    if tool not in allowed_tools:
+        return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": f"Ferramenta não permitida: {tool}"}, status=400)
 
     if not isinstance(options, dict):
         options = {}

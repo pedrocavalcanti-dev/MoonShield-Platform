@@ -38,7 +38,6 @@ async function fetchJSON(url, options = {}) {
 
 function quickUnavailable(card) {
     if (card.dataset.target === 'gateway' && !Diag.ctx.gateway) return 'Gateway não identificado';
-    if (['dns_lookup', 'dns_latency'].includes(card.dataset.tool) && !Diag.ctx.dns1 && !Diag.ctx.dns2) return 'DNS não identificado';
     return '';
 }
 function syncButtons() {
@@ -67,15 +66,16 @@ async function loadContext() {
         $('agentStatusBadge').className = 'agent-status-badge agent-status-badge--' + (data.agent === 'online' ? 'online' : 'offline');
         setText('agentStatusLabel', data.agent === 'online' ? 'Agent Online' : 'Agent Offline');
         setText('qtPingGw', data.gateway || 'Gateway não identificado');
-        setText('qtDns', 'google.com · ' + (dns ? 'DNS informado: ' + dns : 'DNS não identificado'));
-        setText('qtDnsLat', 'google.com · ' + (dns ? 'DNS informado: ' + dns : 'DNS não identificado'));
+        const dnsLabel = dns ? 'DNS: ' + dns : 'Resolver do sistema';
+        setText('qtDns', 'google.com · ' + dnsLabel);
+        setText('qtDnsLat', 'google.com · ' + dnsLabel);
         return true;
     } catch (error) {
         Diag.ctx = {};
         ['ctxIface', 'ctxCidr', 'ctxGateway', 'ctxDns1', 'ctxHost'].forEach(id => setText(id, null));
         $('ctxLanWrap').hidden = true;
         setText('qtPingGw', 'Gateway não identificado');
-        ['qtDns', 'qtDnsLat'].forEach(id => setText(id, 'google.com · DNS não identificado'));
+        ['qtDns', 'qtDnsLat'].forEach(id => setText(id, 'google.com · Resolver do sistema'));
         $('agentStatusBadge').className = 'agent-status-badge';
         setText('agentStatusLabel', 'Agent · estado indisponível');
         toast('err', 'Erro ao carregar contexto: ' + error.message);
@@ -460,21 +460,35 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs('.diag-term-tab', document.querySelector('.diag-term-tabs'), 'tpanel-', 'diag-term-tab--active', selectResultTab);
 
     // Main Tabs logic
-    document.querySelectorAll('.diag-main-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = tab.dataset.maintab;
-            document.querySelectorAll('.diag-main-tab').forEach(t => {
-                const active = t.dataset.maintab === tabName;
-                t.classList.toggle('diag-main-tab--active', active);
-                t.setAttribute('aria-selected', active);
-            });
-            document.querySelectorAll('.diag-tab-content').forEach(content => {
-                const active = content.id === 'tab-' + tabName;
-                content.style.display = active ? 'block' : 'none';
-                content.classList.toggle('diag-tab-content--active', active);
-            });
+    const MAIN_TAB_KEY = 'moonshield.diagnostico.mainTab';
+
+    function setMainTab(tabName) {
+        if (tabName !== 'diagnostico' && tabName !== 'avancado') tabName = 'diagnostico';
+
+        document.querySelectorAll('.diag-main-tab').forEach(t => {
+            const active = t.dataset.maintab === tabName;
+            t.classList.toggle('diag-main-tab--active', active);
+            t.setAttribute('aria-selected', active);
         });
+        document.querySelectorAll('.diag-tab-content').forEach(content => {
+            const active = content.id === 'tab-' + tabName;
+            content.style.display = active ? 'block' : 'none';
+            content.classList.toggle('diag-tab-content--active', active);
+        });
+
+        try {
+            localStorage.setItem(MAIN_TAB_KEY, tabName);
+        } catch (e) {}
+    }
+
+    document.querySelectorAll('.diag-main-tab').forEach(tab => {
+        tab.addEventListener('click', () => setMainTab(tab.dataset.maintab));
     });
+
+    try {
+        const savedTab = localStorage.getItem(MAIN_TAB_KEY);
+        if (savedTab) setMainTab(savedTab);
+    } catch (e) {}
 
     // Fullscreen Toggle
     function toggleFullscreen(sectionId) {

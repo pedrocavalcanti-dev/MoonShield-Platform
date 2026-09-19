@@ -549,4 +549,214 @@ document.addEventListener('DOMContentLoaded', () => {
         $('portNumber').value = button.dataset.port;
         document.querySelectorAll('.diag-port-preset').forEach(item => item.classList.toggle('diag-port-preset--active', item === button));
     }));
+
+    // --- LIVE SESSIONS LOGIC ---
+    const Live = {
+        active: {},
+        timers: {}
+    };
+
+    function formatTime(ms) {
+        if (!ms) return '00:00:00';
+        const total = Math.floor(ms / 1000);
+        const h = String(Math.floor(total / 3600)).padStart(2, '0');
+        const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+        const s = String(total % 60).padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+
+    async function startLiveSession(tool, target, options) {
+        try {
+            const res = await fetch('/relatorios/diagnostico/api/live/iniciar/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.cookie.split(';').find(item => item.trim().startsWith('csrftoken=')).split('=')[1] },
+                body: JSON.stringify({ tool, target, options })
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.summary || data.error_code);
+            return data.session_id;
+        } catch (e) {
+            toast('err', 'Erro ao iniciar live: ' + e.message);
+            return null;
+        }
+    }
+
+    async function stopLiveSession(sessionId) {
+        try {
+            const res = await fetch(`/relatorios/diagnostico/api/live/${sessionId}/parar/`, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': document.cookie.split(';').find(item => item.trim().startsWith('csrftoken=')).split('=')[1] }
+            });
+            return await res.json();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function pollLiveSession(sessionId, cb) {
+        try {
+            const res = await fetch(`/relatorios/diagnostico/api/live/${sessionId}/`);
+            const data = await res.json();
+            if (data.ok) cb(data);
+        } catch (e) {}
+    }
+
+    // Ping Live UI
+    if ($('pingLiveStartBtn')) {
+        $('pingLiveStartBtn').addEventListener('click', async () => {
+            const target = value('pingLiveTarget');
+            if (!target) { toast('warn', 'Destino obrigatório'); return; }
+            $('pingLiveStartBtn').disabled = true;
+            $('pingLiveStopBtn').disabled = false;
+            $('pingLiveStopBtn').style.opacity = '1';
+            $('pingLiveTarget').disabled = true;
+            $('pingLiveMetrics').style.display = 'grid';
+            $('pingLiveBadge').style.display = 'inline-flex';
+
+            const sid = await startLiveSession('ping', target, {});
+            if (!sid) {
+                $('pingLiveStartBtn').disabled = false;
+                $('pingLiveStopBtn').disabled = true;
+                $('pingLiveStopBtn').style.opacity = '0.5';
+                $('pingLiveTarget').disabled = false;
+                return;
+            }
+
+            Live.active['ping'] = sid;
+            Live.timers['ping'] = setInterval(() => {
+                pollLiveSession(sid, data => {
+                    if (data.status === 'stopped' || data.status === 'error') {
+                        clearInterval(Live.timers['ping']);
+                        $('pingLiveStartBtn').disabled = false;
+                        $('pingLiveStopBtn').disabled = true;
+                        $('pingLiveStopBtn').style.opacity = '0.5';
+                        $('pingLiveTarget').disabled = false;
+                        $('pingLiveBadge').style.display = 'none';
+                        if (data.status === 'error') toast('err', 'Sessão Ping Live encerrou com erro.');
+                        else toast('ok', 'Ping Live finalizado.');
+
+                        // Push to visual history
+                        Diag.lastResult = data;
+                        renderStructuredOutput('ping', data.structured, { tool: 'ping', target, ts: new Date(), result: data });
+                    } else {
+                        const s = data.structured || {};
+                        $('pingLiveTime').textContent = formatTime(data.elapsed_ms);
+                        $('plSent').textContent = s.sent || 0;
+                        $('plRecv').textContent = s.received || 0;
+                        $('plLoss').textContent = (s.loss_percent || 0) + '%';
+                        $('plLast').textContent = (s.last_ms || 0) + ' ms';
+                        $('plAvg').textContent = (s.avg_ms || 0) + ' ms';
+                        $('plMin').textContent = (s.min_ms || 0) + ' ms';
+                        $('plMax').textContent = (s.max_ms || 0) + ' ms';
+                    }
+                });
+            }, 1000);
+        });
+
+        $('pingLiveStopBtn').addEventListener('click', async () => {
+            if (Live.active['ping']) {
+                await stopLiveSession(Live.active['ping']);
+                clearInterval(Live.timers['ping']);
+                delete Live.active['ping'];
+            }
+            $('pingLiveStartBtn').disabled = false;
+            $('pingLiveStopBtn').disabled = true;
+            $('pingLiveStopBtn').style.opacity = '0.5';
+            $('pingLiveTarget').disabled = false;
+            $('pingLiveBadge').style.display = 'none';
+        });
+    }
+
+    // MTR Live UI
+    if ($('mtrModeTeste') && $('mtrModeLive')) {
+        $('mtrModeTeste').addEventListener('click', () => {
+            $('mtrCycles').parentNode.style.display = 'block';
+            $('mtrTestBtn').style.display = 'inline-block';
+            $('mtrLiveStartBtn').style.display = 'none';
+            $('mtrLiveStopBtn').style.display = 'none';
+            $('mtrLiveBadge').style.display = 'none';
+        });
+        $('mtrModeLive').addEventListener('click', () => {
+            $('mtrCycles').parentNode.style.display = 'none';
+            $('mtrTestBtn').style.display = 'none';
+            $('mtrLiveStartBtn').style.display = 'inline-block';
+            if (Live.active['mtr']) {
+                $('mtrLiveStopBtn').style.display = 'inline-block';
+            }
+        });
+
+        $('mtrLiveStartBtn').addEventListener('click', async () => {
+            const target = value('mtrTarget');
+            if (!target) { toast('warn', 'Destino obrigatório'); return; }
+            $('mtrLiveStartBtn').disabled = true;
+            $('mtrLiveStopBtn').disabled = false;
+            $('mtrLiveStopBtn').style.display = 'inline-block';
+            $('mtrLiveStopBtn').style.opacity = '1';
+            $('mtrTarget').disabled = true;
+            $('mtrLiveBadge').style.display = 'flex';
+
+            // Switch to result tab automatically so we can see the live table
+            selectResultTab({ dataset: { ttab: 'estruturado' } });
+
+            const sid = await startLiveSession('mtr', target, {});
+            if (!sid) {
+                $('mtrLiveStartBtn').disabled = false;
+                $('mtrLiveStopBtn').disabled = true;
+                $('mtrTarget').disabled = false;
+                return;
+            }
+
+            Live.active['mtr'] = sid;
+            Live.timers['mtr'] = setInterval(() => {
+                pollLiveSession(sid, data => {
+                    if (data.status === 'stopped' || data.status === 'error') {
+                        clearInterval(Live.timers['mtr']);
+                        $('mtrLiveStartBtn').disabled = false;
+                        $('mtrLiveStopBtn').disabled = true;
+                        $('mtrLiveStopBtn').style.opacity = '0.5';
+                        $('mtrTarget').disabled = false;
+                        $('mtrLiveBadge').style.display = 'none';
+                        if (data.status === 'error') toast('err', 'Sessão MTR Live encerrou com erro.');
+                        else toast('ok', 'MTR Live finalizado.');
+                    } else {
+                        const s = data.structured || {};
+                        $('mtrLiveTime').textContent = formatTime(data.elapsed_ms);
+                        const hops = s.hops || [];
+                        $('mtrLiveHops').textContent = hops.length + ' hops';
+                        // Amostras is max sent of any hop
+                        const samples = hops.reduce((max, h) => Math.max(max, h.sent || 0), 0);
+                        $('mtrLiveSamples').textContent = samples + ' amostras';
+
+                        // Re-render structured output inline
+                        Diag.lastResult = data;
+                        $('termStructured').innerHTML = renderStructuredOutput('mtr', s, { tool: 'mtr', target, result: data });
+                    }
+                });
+            }, 1000);
+        });
+
+        $('mtrLiveStopBtn').addEventListener('click', async () => {
+            if (Live.active['mtr']) {
+                await stopLiveSession(Live.active['mtr']);
+                clearInterval(Live.timers['mtr']);
+                delete Live.active['mtr'];
+            }
+            $('mtrLiveStartBtn').disabled = false;
+            $('mtrLiveStopBtn').disabled = true;
+            $('mtrLiveStopBtn').style.opacity = '0.5';
+            $('mtrTarget').disabled = false;
+            $('mtrLiveBadge').style.display = 'none';
+        });
+    }
+
+    // Stop sessions if user leaves the page
+    window.addEventListener('beforeunload', () => {
+        const csrfToken = document.cookie.split(';').find(item => item.trim().startsWith('csrftoken='))?.split('=')[1];
+        for (const [tool, sid] of Object.entries(Live.active)) {
+            const fd = new FormData();
+            if (csrfToken) fd.append('csrfmiddlewaretoken', csrfToken);
+            navigator.sendBeacon(`/relatorios/diagnostico/api/live/${sid}/parar/`, fd);
+        }
+    });
+
 });

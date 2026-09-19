@@ -244,6 +244,32 @@
         </div>
       </section>
 
+
+      <section class="diag-section diag-live-ping" id="pingLiveSec">
+        <div class="diag-section__hdr">
+          <span class="diag-section__title">Ping Ao Vivo</span>
+          <div class="diag-live-status-badge" id="pingLiveBadge" style="display:none; align-items:center; background: rgba(110, 231, 183, 0.1); color: var(--diag-ok, #6ee7b7); padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid rgba(110, 231, 183, 0.2);">
+            <span style="display:inline-block; width:8px; height:8px; background:var(--diag-ok, #6ee7b7); border-radius:50%; margin-right:6px; animation: pulse 1.5s infinite;"></span> AO VIVO <span id="pingLiveTime" style="margin-left: 8px;">00:00:00</span>
+          </div>
+        </div>
+        <p class="diag-field-hint">Mede a disponibilidade e tempo de resposta de forma contínua.</p>
+        <div class="diag-mtr__form" id="pingLiveForm">
+          <div class="diag-field"><label for="pingLiveTarget">Destino</label><input class="diag-input" id="pingLiveTarget" placeholder="IP ou domínio" type="text"></div>
+          <button class="diag-run-btn" id="pingLiveStartBtn">Iniciar</button>
+          <button class="diag-run-btn" id="pingLiveStopBtn" disabled style="opacity: 0.5;">Parar</button>
+        </div>
+
+        <div class="diag-live-metrics" id="pingLiveMetrics" style="display:none; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 16px; margin-top: 16px; padding: 16px; background: var(--bg-soft, #f9f9f9); border-radius: 8px; border: 1px solid var(--border-soft, #ddd);">
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Enviados</span><div id="plSent" style="font-size: 18px; font-weight: 600;">0</div></div>
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Recebidos</span><div id="plRecv" style="font-size: 18px; font-weight: 600;">0</div></div>
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Perda</span><div id="plLoss" style="font-size: 18px; font-weight: 600; color: #ff4444;">0%</div></div>
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Último</span><div id="plLast" style="font-size: 18px; font-weight: 600;">0 ms</div></div>
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Média</span><div id="plAvg" style="font-size: 18px; font-weight: 600;">0 ms</div></div>
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Mínimo</span><div id="plMin" style="font-size: 18px; font-weight: 600;">0 ms</div></div>
+            <div><span style="font-size: 12px; color: var(--text-dim, #666);">Máximo</span><div id="plMax" style="font-size: 18px; font-weight: 600;">0 ms</div></div>
+        </div>
+      </section>
+
       <section class="diag-section diag-mtr" aria-labelledby="mtrHeading">
       <div class="diag-section__hdr">
         <h2 class="diag-section__title" id="mtrHeading">Análise MTR</h2>
@@ -256,12 +282,19 @@
       <div class="diag-mtr__form">
         <div class="diag-field"><label for="mtrTarget">Destino</label><input class="diag-input" id="mtrTarget" placeholder="IP ou domínio" type="text"></div>
         <div class="diag-field"><label for="mtrCycles">Ciclos</label><select class="diag-select" id="mtrCycles"><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></div>
-        <button class="diag-run-btn" data-tool="mtr" data-form="mtr">Executar MTR</button>
+        <button class="diag-run-btn" data-tool="mtr" data-form="mtr" id="mtrTestBtn">Executar MTR</button>
+        <button class="diag-run-btn" id="mtrLiveStartBtn" style="display:none;">Iniciar</button>
+        <button class="diag-run-btn" id="mtrLiveStopBtn" disabled style="display:none; opacity: 0.5;">Parar</button>
+      </div>
+      <div class="diag-live-status-badge" id="mtrLiveBadge" style="display:none; align-items: center; justify-content: center; width: 100%; margin-top: 16px; padding: 12px; background: var(--bg-soft, #f9f9f9); border-radius: 8px; border: 1px solid var(--border-soft, #ddd); font-size: 14px;">
+            <span style="display:inline-block; width:8px; height:8px; background:var(--diag-ok, #6ee7b7); border-radius:50%; margin-right:6px; animation: pulse 1.5s infinite;"></span> <strong style="color:var(--diag-ok, #6ee7b7); margin-right: 16px;">AO VIVO</strong>
+            <span id="mtrLiveTime" style="margin-right: 16px; font-weight: 600;">00:00:00</span>
+            <span id="mtrLiveSamples" style="margin-right: 16px; color: var(--text-dim, #666);">0 amostras</span>
+            <span id="mtrLiveHops" style="color: var(--text-dim, #666);">0 hops</span>
       </div>
 
-      <div class="diag-mtr-live-overlay" style="display:none;" id="mtrLiveOverlay">
-        <div class="diag-mtr-live-msg">Disponível na próxima etapa</div>
-      </div>
+
+
     </section>
 
       <section class="diag-section">

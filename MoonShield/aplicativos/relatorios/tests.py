@@ -217,3 +217,81 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["source"], "terminal")
+
+
+    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
+    @patch("aplicativos.relatorios.services.diagnostico_agent.run_ipc_action")
+    def test_live_start(self, mock_ipc, mock_online):
+        mock_online.return_value = True
+        mock_ipc.return_value = {"ok": True, "session_id": "123", "tool": "ping"}
+
+        self.client.force_login(self.usuario)
+        res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
+            "tool": "ping", "target": "8.8.8.8"
+        }), content_type="application/json")
+
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["session_id"], "123")
+
+    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
+    def test_live_start_agent_offline(self, mock_online):
+        mock_online.return_value = False
+
+        self.client.force_login(self.usuario)
+        res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
+            "tool": "ping", "target": "8.8.8.8"
+        }), content_type="application/json")
+
+        self.assertEqual(res.status_code, 503)
+        self.assertEqual(res.json()["error_code"], "agent_unavailable")
+
+    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
+    def test_live_start_invalid_tool(self, mock_online):
+        mock_online.return_value = True
+
+        self.client.force_login(self.usuario)
+        res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
+            "tool": "nmap", "target": "8.8.8.8"
+        }), content_type="application/json")
+
+        self.assertEqual(res.status_code, 400)
+        self.assertFalse(res.json()["ok"])
+
+    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
+    @patch("aplicativos.relatorios.services.diagnostico_agent.run_ipc_action")
+    def test_live_status(self, mock_ipc, mock_online):
+        mock_online.return_value = True
+        mock_ipc.return_value = {"ok": True, "status": "running"}
+
+        self.client.force_login(self.usuario)
+        res = self.client.get("/relatorios/diagnostico/api/live/123e4567-e89b-12d3-a456-426614174000/")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["ok"])
+
+    @patch("aplicativos.relatorios.views._obter_contexto_diagnostico")
+    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
+    @patch("aplicativos.relatorios.services.diagnostico_agent.run_ipc_action")
+    def test_live_stop_and_persist(self, mock_ipc, mock_online, mock_ctx):
+        mock_online.return_value = True
+        mock_ctx.return_value = {}
+        mock_ipc.return_value = {
+            "ok": True, "tool": "ping", "target": "8.8.8.8", "elapsed_ms": 5000,
+            "stdout": "done", "stderr": "", "structured": {"sent": 5}
+        }
+
+        self.client.force_login(self.usuario)
+
+        count_before = ExecucaoDiagnostico.objects.count()
+
+        res = self.client.post("/relatorios/diagnostico/api/live/123e4567-e89b-12d3-a456-426614174000/parar/")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["ok"])
+
+        self.assertEqual(ExecucaoDiagnostico.objects.count(), count_before + 1)
+        last_exec = ExecucaoDiagnostico.objects.last()
+        self.assertEqual(last_exec.ferramenta, "ping")
+        self.assertEqual(last_exec.alvo, "8.8.8.8")
+        self.assertEqual(last_exec.origem, "terminal")
+        self.assertEqual(last_exec.duration_ms, 5000)

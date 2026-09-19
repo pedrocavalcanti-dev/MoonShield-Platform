@@ -273,3 +273,83 @@ def diagnostico_execucao_api(request, execucao_id):
         "created_at": ex.created_at.isoformat(),
         "user": ex.usuario.username if ex.usuario else None
     })
+
+@login_required
+@require_POST
+def diagnostico_live_start_api(request):
+    try:
+        data = json.loads(request.body)
+    except Exception:
+        return JsonResponse({"ok": False, "status": "err", "error_code": "invalid_json"}, status=400)
+
+    tool = data.get("tool")
+    target = data.get("target") or ""
+    options = data.get("options", {})
+
+    if tool not in ["ping", "mtr"]:
+        return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": f"Ferramenta não permitida para live: {tool}"}, status=400)
+
+    from .services.diagnostico_agent import is_agent_online, run_ipc_action
+    if not is_agent_online():
+        return JsonResponse({"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, status=503)
+
+    resp = run_ipc_action("diagnostic.live.start", {"tool": tool, "target": target, "options": options})
+    if not resp:
+        return JsonResponse({"ok": False, "status": "err", "summary": "Sem resposta do Agent"}, status=500)
+
+    return JsonResponse(resp)
+
+@login_required
+def diagnostico_live_status_api(request, session_id):
+    from .services.diagnostico_agent import is_agent_online, run_ipc_action
+    if not is_agent_online():
+        return JsonResponse({"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, status=503)
+
+    resp = run_ipc_action("diagnostic.live.status", {"session_id": str(session_id)})
+    if not resp:
+        return JsonResponse({"ok": False, "status": "err", "summary": "Sem resposta do Agent"}, status=500)
+
+    return JsonResponse(resp)
+
+@login_required
+@require_POST
+def diagnostico_live_stop_api(request, session_id):
+    from .services.diagnostico_agent import is_agent_online, run_ipc_action
+    if not is_agent_online():
+        return JsonResponse({"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, status=503)
+
+    resp = run_ipc_action("diagnostic.live.stop", {"session_id": str(session_id)})
+    if not resp:
+        return JsonResponse({"ok": False, "status": "err", "summary": "Sem resposta do Agent"}, status=500)
+
+    if resp.get("ok"):
+        # Save ONE ExecucaoDiagnostico
+        try:
+            snapshot = _obter_contexto_diagnostico()
+            stdout = resp.get("stdout", "")
+            stderr = resp.get("stderr", "")
+            if len(stdout) > 256*1024:
+                stdout = stdout[:256*1024] + "\n\n... (TRUNCATED)"
+            if len(stderr) > 256*1024:
+                stderr = stderr[:256*1024] + "\n\n... (TRUNCATED)"
+
+            ExecucaoDiagnostico.objects.create(
+                usuario=request.user,
+                ferramenta=resp.get("tool"),
+                alvo=resp.get("target"),
+                opcoes={},
+                origem="terminal", # The prompt says we can use terminal or guided if no live exists to avoid migrations!
+                status="ok",
+                resumo="Sessão Live Finalizada",
+                stdout=stdout,
+                stderr=stderr,
+                resultado_estruturado=resp.get("structured", {}),
+                duration_ms=resp.get("elapsed_ms"),
+                exit_code=0,
+                contexto_snapshot=snapshot
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Erro ao salvar historico live: {e}")
+
+    return JsonResponse(resp)

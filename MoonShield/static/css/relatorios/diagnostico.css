@@ -1766,42 +1766,38 @@
 }
 
 /* ============================================================
-   AJUSTE FINAL — HISTÓRICO ACOMPANHA A ALTURA DO CONTEÚDO
-   Desktop: o painel lateral desce até o final do terminal.
+   AJUSTE FINAL — ALTURA CONTROLADA DO HISTÓRICO
+   Desktop: maior que o layout original, sem esticar até o fim da página.
    ============================================================ */
 @media (min-width: 1101px) {
     #diagPage .diag-body {
-        align-items: stretch;
+        align-items: start;
     }
 
     #diagPage .diag-aside {
-        align-self: stretch;
-        height: 100%;
+        align-self: start;
+        height: auto;
         min-height: 0;
         display: flex;
         flex-direction: column;
     }
 
     #diagPage .diag-aside > .card:first-child {
-        flex: 1 1 auto;
+        flex: none;
         min-height: 0;
         display: flex;
         flex-direction: column;
     }
 
-    #diagPage .diag-aside > .card:first-child .card__header {
-        flex: 0 0 auto;
-    }
-
     #diagPage .diag-history {
-        flex: 1 1 auto;
+        flex: none;
         min-height: 0;
-        max-height: none;
+        max-height: 720px;
         overflow-y: auto;
     }
 }
 
-/* Em telas menores, o histórico volta ao comportamento compacto. */
+/* Em telas menores, o histórico permanece compacto. */
 @media (max-width: 1100px) {
     #diagPage .diag-aside {
         height: auto;

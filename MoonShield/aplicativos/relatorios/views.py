@@ -274,7 +274,7 @@ def diagnostico_execucao_api(request, execucao_id):
         "user": ex.usuario.username if ex.usuario else None
     })
 
-from rede.services.agent_client import requisitar_agent, AgentIndisponivelErro, AgentTimeoutErro
+from rede.services.agent_client import requisitar_agent, AgentIndisponivelErro, AgentTimeoutErro, AgentOperacaoRecusadaErro
 
 def _run_live_action(action, payload):
     try:
@@ -283,7 +283,9 @@ def _run_live_action(action, payload):
     except AgentTimeoutErro:
         return {"ok": False, "status": "err", "error_code": "timeout", "summary": "Timeout com o Agent"}, 504
     except (AgentIndisponivelErro, ConnectionError):
-        return {"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent estǭ offline."}, 503
+        return {"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, 503
+    except AgentOperacaoRecusadaErro as exc:
+        return {"ok": False, "status": "err", "error_code": "execution_failed", "summary": str(exc)}, 400
     except Exception as e:
         return {"ok": False, "status": "err", "summary": f"Falha interna: {e}"}, 500
 

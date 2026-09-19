@@ -219,7 +219,7 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(data["source"], "terminal")
 
 
-    @patch("aplicativos.relatorios.views.requisitar_agent")
+    @patch("relatorios.views.requisitar_agent")
     def test_live_start(self, mock_req):
         mock_req.return_value = {"dados": {"ok": True, "session_id": "123", "tool": "ping", "status": "running"}}
 
@@ -233,7 +233,7 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertTrue(data["ok"])
         self.assertEqual(data["session_id"], "123")
 
-    @patch("aplicativos.relatorios.views.requisitar_agent")
+    @patch("relatorios.views.requisitar_agent")
     def test_live_start_agent_offline(self, mock_req):
         mock_req.side_effect = ConnectionError("Agent offline")
 
@@ -255,7 +255,7 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertFalse(res.json()["ok"])
 
-    @patch("aplicativos.relatorios.views.requisitar_agent")
+    @patch("relatorios.views.requisitar_agent")
     def test_live_status(self, mock_req):
         mock_req.return_value = {"dados": {"ok": True, "status": "running", "structured": {}}}
 
@@ -264,8 +264,8 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["ok"])
 
-    @patch("aplicativos.relatorios.views._obter_contexto_diagnostico")
-    @patch("aplicativos.relatorios.views.requisitar_agent")
+    @patch("relatorios.views._obter_contexto_diagnostico")
+    @patch("relatorios.views.requisitar_agent")
     def test_live_stop_and_persist(self, mock_req, mock_ctx):
         mock_ctx.return_value = {}
         mock_req.return_value = {"dados": {

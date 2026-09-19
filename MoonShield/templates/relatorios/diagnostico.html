@@ -130,15 +130,22 @@
   ════════════════════════════ -->
   <div class="diag-main">
 
-    <!-- ── TESTES RÁPIDOS ── -->
-    <section class="diag-section">
-      <div class="diag-section__hdr">
-        <span class="diag-section__title">Testes Rápidos</span>
-        <span class="diag-section__sub">Execuções reais pela appliance</span>
-      </div>
-      <div class="diag-quick-grid" id="quickGrid">
+    <!-- ABAS PRINCIPAIS -->
+    <div class="diag-main-tabs" role="tablist">
+      <button class="diag-main-tab diag-main-tab--active" role="tab" aria-selected="true" data-maintab="diagnostico">Diagnóstico</button>
+      <button class="diag-main-tab" role="tab" aria-selected="false" data-maintab="avancado">Avançado</button>
+    </div>
 
-        <div class="diag-quick-card" data-tool="ping" data-target="gateway" id="qcPingGw">
+    <!-- ABA DIAGNÓSTICO -->
+    <div class="diag-tab-content diag-tab-content--active" id="tab-diagnostico" role="tabpanel">
+
+      <section class="diag-section">
+        <div class="diag-section__hdr">
+          <span class="diag-section__title">Testes Rápidos</span>
+          <span class="diag-section__sub">Execuções reais pela appliance</span>
+        </div>
+        <div class="diag-quick-grid" id="quickGrid">
+          <div class="diag-quick-card" data-tool="ping" data-target="gateway" id="qcPingGw">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -155,8 +162,7 @@
             <button class="diag-quick-card__btn" data-id="qcPingGw">Executar</button>
           </div>
         </div>
-
-        <div class="diag-quick-card" data-tool="ping" data-target="1.1.1.1" id="qcInternet">
+          <div class="diag-quick-card" data-tool="ping" data-target="1.1.1.1" id="qcInternet">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -174,8 +180,7 @@
             <button class="diag-quick-card__btn" data-id="qcInternet">Executar</button>
           </div>
         </div>
-
-        <div class="diag-quick-card" data-tool="dns_lookup" data-target="google.com" id="qcDns">
+          <div class="diag-quick-card" data-tool="dns_lookup" data-target="google.com" id="qcDns">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -192,8 +197,7 @@
             <button class="diag-quick-card__btn" data-id="qcDns">Executar</button>
           </div>
         </div>
-
-        <div class="diag-quick-card" data-tool="dns_latency" data-target="google.com" id="qcDnsLat">
+          <div class="diag-quick-card" data-tool="dns_latency" data-target="google.com" id="qcDnsLat">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -210,8 +214,62 @@
             <button class="diag-quick-card__btn" data-id="qcDnsLat">Executar</button>
           </div>
         </div>
+        </div>
+      </section>
 
-        <div class="diag-quick-card" data-tool="arp_table" data-target="" id="qcArp">
+      <section class="diag-section">
+        <div class="diag-section__hdr">
+          <span class="diag-section__title">Ferramentas Básicas</span>
+          <span class="diag-section__sub">Preencha o alvo e execute</span>
+        </div>
+        <div class="diag-tool-grid">
+
+
+
+
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ABA AVANÇADO -->
+    <div class="diag-tab-content" id="tab-avancado" role="tabpanel" style="display:none;">
+
+      <section class="diag-section">
+        <div class="diag-section__hdr">
+          <span class="diag-section__title">Análise de Rota</span>
+        </div>
+        <div class="diag-tool-grid">
+
+        </div>
+      </section>
+
+      <section class="diag-section diag-mtr" aria-labelledby="mtrHeading">
+      <div class="diag-section__hdr">
+        <h2 class="diag-section__title" id="mtrHeading">Análise MTR</h2>
+        <div class="diag-mtr-mode-switch">
+          <button class="diag-mtr-mode-btn diag-mtr-mode-btn--active" data-mode="teste">Teste</button>
+          <button class="diag-mtr-mode-btn" data-mode="live">Ao vivo</button>
+        </div>
+      </div>
+      <p class="diag-field-hint">Analise latência, perda e caminho até o destino.</p>
+      <div class="diag-mtr__form">
+        <div class="diag-field"><label for="mtrTarget">Destino</label><input class="diag-input" id="mtrTarget" placeholder="IP ou domínio" type="text"></div>
+        <div class="diag-field"><label for="mtrCycles">Ciclos</label><select class="diag-select" id="mtrCycles"><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></div>
+        <button class="diag-run-btn" data-tool="mtr" data-form="mtr">Executar MTR</button>
+      </div>
+
+      <div class="diag-mtr-live-overlay" style="display:none;" id="mtrLiveOverlay">
+        <div class="diag-mtr-live-msg">Disponível na próxima etapa</div>
+      </div>
+    </section>
+
+      <section class="diag-section">
+        <div class="diag-section__hdr">
+          <span class="diag-section__title">Rede Local</span>
+        </div>
+        <div class="diag-quick-grid" style="margin-bottom:1rem;">
+          <div class="diag-quick-card" data-tool="arp_table" data-target="" id="qcArp">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -228,8 +286,7 @@
             <button class="diag-quick-card__btn" data-id="qcArp">Executar</button>
           </div>
         </div>
-
-        <div class="diag-quick-card" data-tool="routes" data-target="" id="qcRoutes">
+          <div class="diag-quick-card" data-tool="routes" data-target="" id="qcRoutes">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -246,328 +303,47 @@
             <button class="diag-quick-card__btn" data-id="qcRoutes">Executar</button>
           </div>
         </div>
+        </div>
+        <div class="diag-tool-grid">
 
+
+        </div>
+      </section>
+
+      <section class="diag-section">
+        <div class="diag-section__hdr">
+          <span class="diag-section__title">DNS Avançado</span>
+        </div>
+        <div class="diag-tool-grid">
+
+        </div>
+      </section>
+
+      <section class="diag-section diag-console" aria-labelledby="consoleHeading">
+      <div class="diag-section__hdr diag-section__hdr--console">
+        <h2 class="diag-section__title" id="consoleHeading">Console MoonShield</h2>
+        <button class="diag-term-action diag-fullscreen-close" id="consoleCloseFsBtn" title="Sair de Tela Cheia">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+        <button class="diag-term-action" id="consoleFullscreenBtn" title="Expandir Console">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </button>
       </div>
+      <p class="diag-field-hint">Comandos de diagnóstico controlados. Digite help para consultar a lista.</p>
+      <pre id="consoleOutput" class="diag-console__output" role="log" aria-live="polite"></pre>
+          <div class="diag-term-cli">
+            <span class="diag-term-cli__prompt">moonshield&gt;</span>
+            <input type="text" id="termCliInput" class="diag-term-cli__input" aria-label="Comando de diagnóstico" placeholder="Digite 'help' para comandos..." autocomplete="off" spellcheck="false">
+          </div>
     </section>
 
-    <!-- ── TESTES GUIADOS ── -->
-    <section class="diag-section">
-      <div class="diag-section__hdr">
-        <span class="diag-section__title">Testes Guiados</span>
-        <span class="diag-section__sub">Preencha o alvo e execute</span>
-      </div>
+    </div>
 
-      <!-- Tabs de categoria -->
-      <div class="diag-guide-tabs" id="guideTabs">
-        <button class="diag-guide-tab diag-guide-tab--active" data-tab="conectividade">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-          </svg>
-          Conectividade
-        </button>
-        <button class="diag-guide-tab" data-tab="dns">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          DNS
-        </button>
-        <button class="diag-guide-tab" data-tab="portas">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
-          Portas / Serviços
-        </button>
-        <button class="diag-guide-tab" data-tab="lan">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          LAN / Descoberta
-        </button>
-      </div>
-
-      <!-- Painel Conectividade -->
-      <div class="diag-guide-panel diag-guide-panel--active" id="panel-conectividade">
-        <div class="diag-tool-grid">
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Ping</span>
-              <span class="diag-tool-badge">ICMP</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Alvo (IP ou domínio)</label>
-                <input type="text" class="diag-input" id="pingTarget" placeholder="192.168.1.1 ou google.com">
-              </div>
-              <div class="diag-field-row">
-                <div class="diag-field">
-                  <label>Contagem</label>
-                  <select class="diag-select" id="pingCount">
-                    <option value="4" selected>4 pacotes</option>
-                    <option value="10">10 pacotes</option>
-                    <option value="20">20 pacotes</option>
-                  </select>
-                </div>
-                <div class="diag-field">
-                  <label>Timeout (s)</label>
-                  <select class="diag-select" id="pingTimeout">
-                    <option value="2" selected>2s</option>
-                    <option value="5">5s</option>
-                    <option value="10">10s</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="ping" data-form="ping">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Executar Ping
-            </button>
-          </div>
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Traceroute</span>
-              <span class="diag-tool-badge">TTL</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Alvo (IP ou domínio)</label>
-                <input type="text" class="diag-input" id="traceTarget" placeholder="8.8.8.8 ou cloudflare.com">
-              </div>
-              <div class="diag-field">
-                <label>Máximo de hops</label>
-                <select class="diag-select" id="traceHops">
-                  <option value="20" selected>20 hops</option>
-                  <option value="30">30 hops</option>
-                  <option value="64">64 hops</option>
-                </select>
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="traceroute" data-form="trace">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Executar Traceroute
-            </button>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Painel DNS -->
-      <div class="diag-guide-panel" id="panel-dns">
-        <div class="diag-tool-grid">
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">DNS Lookup</span>
-              <span class="diag-tool-badge">A/AAAA</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Domínio</label>
-                <input type="text" class="diag-input" id="nsTarget" placeholder="google.com">
-              </div>
-              <p class="diag-field-hint">Usa o resolver do sistema da appliance.</p>
-            </div>
-            <button class="diag-run-btn" data-tool="dns_lookup" data-form="ns">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Consultar DNS
-            </button>
-          </div>
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Reverse Lookup</span>
-              <span class="diag-tool-badge">PTR</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Endereço IP</label>
-                <input type="text" class="diag-input" id="revTarget" placeholder="8.8.8.8">
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="reverse_dns" data-form="rev">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Reverse Lookup
-            </button>
-          </div>
-
-          <div class="diag-tool-card diag-tool-card--full">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Latência DNS</span>
-              <span class="diag-tool-badge">DNS</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Domínio para consultar</label>
-                <input type="text" class="diag-input" id="cmpTarget" placeholder="google.com">
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="dns_latency" data-form="cmp">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Medir latência DNS
-            </button>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Painel Portas -->
-      <div class="diag-guide-panel" id="panel-portas">
-        <div class="diag-tool-grid">
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Teste de Porta TCP</span>
-              <span class="diag-tool-badge">TCP</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Alvo (IP ou domínio)</label>
-                <input type="text" class="diag-input" id="portTarget" placeholder="192.168.1.1">
-              </div>
-              <div class="diag-field">
-                <label>Porta</label>
-                <input type="number" class="diag-input" id="portNumber" placeholder="443" min="1" max="65535">
-              </div>
-              <div class="diag-field">
-                <label>Portas comuns</label>
-                <div class="diag-port-presets">
-                  <button class="diag-port-preset" data-port="22">22 SSH</button>
-                  <button class="diag-port-preset" data-port="53">53 DNS</button>
-                  <button class="diag-port-preset" data-port="80">80 HTTP</button>
-                  <button class="diag-port-preset" data-port="443">443 HTTPS</button>
-                  <button class="diag-port-preset" data-port="3389">3389 RDP</button>
-                  <button class="diag-port-preset" data-port="445">445 SMB</button>
-                  <button class="diag-port-preset" data-port="3000">3000 Dev</button>
-                  <button class="diag-port-preset" data-port="8080">8080 Alt</button>
-                </div>
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="tcp_connect" data-form="port">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Testar Porta
-            </button>
-          </div>
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">HTTP Check</span>
-              <span class="diag-tool-badge">HTTP</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>URL</label>
-                <input type="text" class="diag-input" id="httpTarget" placeholder="https://google.com">
-              </div>
-              <div class="diag-field">
-                <label>Timeout</label>
-                <select class="diag-select" id="httpTimeout">
-                  <option value="5" selected>5s</option>
-                  <option value="10">10s</option>
-                  <option value="15">15s</option>
-                </select>
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="http_check" data-form="http">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              HTTP Check
-            </button>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Painel LAN -->
-      <div class="diag-guide-panel" id="panel-lan">
-        <div class="diag-tool-grid">
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Tabela ARP</span>
-              <span class="diag-tool-badge">LAN</span>
-            </div>
-            <div class="diag-tool-card__fields"><p class="diag-field-hint">Vizinhos conhecidos pelo sistema local. Esta consulta não faz uma varredura ativa.</p></div>
-            <button class="diag-run-btn" data-tool="arp_table" data-form="arpscan">Consultar ARP</button>
-          </div>
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Rotas</span>
-              <span class="diag-tool-badge">LOCAL</span>
-            </div>
-            <div class="diag-tool-card__fields"><p class="diag-field-hint">Destinos, gateways e interfaces da tabela de roteamento atual.</p></div>
-            <button class="diag-run-btn" data-tool="routes" data-form="routes">Consultar Rotas</button>
-          </div>
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Sockets</span>
-              <span class="diag-tool-badge">CONN</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Filtro</label>
-                <select class="diag-select" id="netstatFilter">
-                  <option value="all">Todos os sockets</option>
-                  <option value="listening">Somente LISTENING</option>
-                </select>
-              </div>
-
-            </div>
-            <button class="diag-run-btn" data-tool="sockets" data-form="netstat">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Consultar Sockets
-            </button>
-          </div>
-
-          <div class="diag-tool-card">
-            <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Listar Interfaces</span>
-              <span class="diag-tool-badge">IFACE</span>
-            </div>
-            <div class="diag-tool-card__fields">
-              <p class="diag-field-hint">Lista todas as interfaces de rede detectadas no host, com endereços IP, MAC e status.</p>
-            </div>
-            <button class="diag-run-btn" data-tool="interfaces" data-form="ifaces">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Listar Interfaces
-            </button>
-          </div>
-
-        </div>
-      </div>
-
-    </section>
-
-    <section class="diag-section diag-mtr" aria-labelledby="mtrHeading">
-      <div class="diag-section__hdr"><h2 class="diag-section__title" id="mtrHeading">Análise MTR</h2></div>
-      <p class="diag-field-hint">Analise latência, perda e caminho até o destino.</p>
-      <div class="diag-mtr__form">
-        <div class="diag-field"><label for="mtrTarget">Destino</label><input class="diag-input" id="mtrTarget" placeholder="IP ou domínio" type="text"></div>
-        <div class="diag-field"><label for="mtrCycles">Ciclos</label><select class="diag-select" id="mtrCycles"><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></div>
-        <button class="diag-run-btn" data-tool="mtr" data-form="mtr">Executar MTR</button>
-      </div>
-    </section>
-
-    <!-- ── RESULTADO ── -->
+    <!-- RESULTADO COMPARTILHADO -->
     <section class="diag-section" id="terminalSection">
       <div class="diag-section__hdr">
         <div class="diag-term-hdr">
@@ -583,7 +359,17 @@
               <button class="diag-term-tab" data-ttab="detalhes">Detalhes</button>
               <button class="diag-term-tab" data-ttab="json">JSON</button>
             </div>
-            <button class="diag-term-action" id="termCopyBtn" title="Copiar">
+            <button class="diag-term-action diag-fullscreen-close" id="termCloseFsBtn" title="Sair de Tela Cheia">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+              <button class="diag-term-action" id="termFullscreenBtn" title="Expandir resultado">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+                </svg>
+              </button>
+              <button class="diag-term-action" id="termCopyBtn" title="Copiar">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -623,13 +409,13 @@
               <span class="diag-term-status" id="metaStatus">—</span>
             </span>
           </div>
-          
-          <div id="termStructured" class="diag-term-structured" style="display:none"></div>
-          
-          <pre class="diag-term-output" id="termOutput">Nenhuma execução ainda. Selecione uma ferramenta e clique em Executar.</pre>
-          
 
-          
+          <div id="termStructured" class="diag-term-structured" style="display:none"></div>
+
+          <pre class="diag-term-output" id="termOutput">Nenhuma execução ainda. Selecione uma ferramenta e clique em Executar.</pre>
+
+
+
           <div class="diag-term-summary" id="termSummary" style="display:none">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="termSummaryIcon" hidden>
               <polyline points="20 6 9 17 4 12"/>
@@ -699,20 +485,9 @@
 
     </section>
 
-    <section class="diag-section diag-console" aria-labelledby="consoleHeading">
-      <div class="diag-section__hdr"><h2 class="diag-section__title" id="consoleHeading">Console MoonShield</h2></div>
-      <p class="diag-field-hint">Comandos de diagnóstico controlados. Digite help para consultar a lista.</p>
-      <pre id="consoleOutput" class="diag-console__output" role="log" aria-live="polite"></pre>
-          <div class="diag-term-cli">
-            <span class="diag-term-cli__prompt">moonshield&gt;</span>
-            <input type="text" id="termCliInput" class="diag-term-cli__input" aria-label="Comando de diagnóstico" placeholder="Digite 'help' para comandos..." autocomplete="off" spellcheck="false">
-          </div>
-    </section>
   </div>
 
-  <!-- ════════════════════════════
-       SIDEBAR
-  ════════════════════════════ -->
+
   <aside class="diag-aside">
 
     <!-- Histórico -->

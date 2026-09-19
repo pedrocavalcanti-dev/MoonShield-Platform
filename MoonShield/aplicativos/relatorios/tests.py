@@ -71,8 +71,9 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(data["wan_cidr"], "192.168.1.100/24")
         self.assertEqual(data["gateway"], "192.168.1.1")
         self.assertEqual(data["gateway"], "192.168.1.1")
-        self.assertEqual(data["dns1"], "8.8.8.8")
-        self.assertEqual(data["dns2"], "1.1.1.1")
+        # DNS não é inferido/hardcoded pelo contexto de topologia.
+        self.assertEqual(data["dns1"], "")
+        self.assertEqual(data["dns2"], "")
 
     @patch("relatorios.services.diagnostico_agent.agent_disponivel")
     def test_agent_offline(self, mock_disponivel):

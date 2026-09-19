@@ -455,13 +455,74 @@ document.addEventListener('DOMContentLoaded', () => {
         runTool(button.dataset.tool, target, options, 'guided', button);
     }));
     initTabs('.diag-term-tab', document.querySelector('.diag-term-tabs'), 'tpanel-', 'diag-term-tab--active', selectResultTab);
-    initTabs('.diag-guide-tab', $('guideTabs'), 'panel-', 'diag-guide-tab--active', name => {
-        document.querySelectorAll('.diag-guide-tab').forEach(tab => {
-            const active = tab.dataset.tab === name;
-            tab.classList.toggle('diag-guide-tab--active', active);
-            tab.setAttribute('aria-selected', String(active));
-            tab.tabIndex = active ? 0 : -1;
+
+    // Main Tabs logic
+    document.querySelectorAll('.diag-main-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.maintab;
+            document.querySelectorAll('.diag-main-tab').forEach(t => {
+                const active = t.dataset.maintab === tabName;
+                t.classList.toggle('diag-main-tab--active', active);
+                t.setAttribute('aria-selected', active);
+            });
+            document.querySelectorAll('.diag-tab-content').forEach(content => {
+                const active = content.id === 'tab-' + tabName;
+                content.style.display = active ? 'block' : 'none';
+                content.classList.toggle('diag-tab-content--active', active);
+            });
         });
+    });
+
+    // Fullscreen Toggle
+    function toggleFullscreen(sectionId) {
+        const section = $(sectionId);
+        if (section) {
+            section.classList.toggle('diag-fullscreen');
+            document.body.style.overflow = section.classList.contains('diag-fullscreen') ? 'hidden' : '';
+        }
+    }
+
+    if ($('termFullscreenBtn')) $('termFullscreenBtn').addEventListener('click', () => toggleFullscreen('terminalSection'));
+    if ($('consoleFullscreenBtn')) $('consoleFullscreenBtn').addEventListener('click', () => toggleFullscreen('consoleHeading').parentNode);
+    // Note: consoleHeading is inside diag-section. So let's properly target the section
+    if ($('consoleFullscreenBtn')) {
+        $('consoleFullscreenBtn').addEventListener('click', () => {
+            const consoleSec = $('consoleHeading').closest('.diag-console');
+            consoleSec.classList.toggle('diag-fullscreen');
+            document.body.style.overflow = consoleSec.classList.contains('diag-fullscreen') ? 'hidden' : '';
+        });
+    }
+
+    if ($('termCloseFsBtn')) $('termCloseFsBtn').addEventListener('click', () => toggleFullscreen('terminalSection'));
+    if ($('consoleCloseFsBtn')) $('consoleCloseFsBtn').addEventListener('click', () => {
+        const consoleSec = $('consoleHeading').closest('.diag-console');
+        consoleSec.classList.remove('diag-fullscreen');
+        document.body.style.overflow = '';
+    });
+
+    // Escape to exit fullscreen
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.diag-fullscreen').forEach(el => {
+                el.classList.remove('diag-fullscreen');
+            });
+            document.body.style.overflow = '';
+        }
+    });
+
+    // MTR Mode switch
+    if ($('mtrModeTeste') && $('mtrModeLive')) {
+        $('mtrModeTeste').addEventListener('click', () => {
+            $('mtrModeTeste').classList.add('diag-mtr-mode-btn--active');
+            $('mtrModeLive').classList.remove('diag-mtr-mode-btn--active');
+            if ($('mtrLiveOverlay')) $('mtrLiveOverlay').style.display = 'none';
+        });
+        $('mtrModeLive').addEventListener('click', () => {
+            $('mtrModeLive').classList.add('diag-mtr-mode-btn--active');
+            $('mtrModeTeste').classList.remove('diag-mtr-mode-btn--active');
+            if ($('mtrLiveOverlay')) $('mtrLiveOverlay').style.display = 'flex';
+        });
+    }
         document.querySelectorAll('.diag-guide-panel').forEach(panel => {
             const active = panel.id === 'panel-' + name;
             panel.hidden = !active;

@@ -554,6 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- LIVE SESSIONS LOGIC ---
     const Live = {
         active: {},
+        state: {},
         timers: {}
     };
 
@@ -685,29 +686,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectResultTab({ dataset: { ttab: 'estruturado' } });
             }
 
+            // Integrar o console e painel de resultado (Bug Stale Result)
+            $('consoleOutput').textContent = `moonshield> ${tool} ${target} --live\n\n[Iniciando diagnóstico ao vivo...]`;
+            $('termCliInput').disabled = true;
+            $('termCliInput').placeholder = "Diagnóstico ao vivo em execução...";
+            $('termOutput').hidden = false;
+            $('termOutput').textContent = "Aguardando primeira resposta...";
+            setText('termTitle', 'Diagnóstico em execução');
+            $('termSummary').style.display = 'none';
+            $('execBarLabel').textContent = 'Diagnóstico ao vivo (' + tool.toUpperCase() + ')';
+            $('execBar').style.display = 'flex';
+
             const sid = await startLiveSession(tool, target, {});
             if (!sid) {
+                $('termOutput').textContent = "Não foi possível iniciar o diagnóstico Live.";
+                setText('termTitle', 'Não foi possível concluir o teste');
+                $('termSummary').style.display = 'flex';
+                $('termSummary').className = 'diag-term-summary diag-term-summary--err';
+                setText('termSummaryText', 'Falha ao iniciar a sessão ao vivo.');
+                $('consoleOutput').textContent += '\n\n[ERRO] Não foi possível iniciar diagnóstico Live.';
+                $('termCliInput').disabled = false;
+                $('termCliInput').placeholder = "Digite 'help' para comandos...";
                 RouteUI.update(); // reset
                 return;
             }
+            Live.state[tool] = { stdoutLength: 0 };
+
 
             Live.active[tool] = sid;
             Live.timers[tool] = setInterval(() => {
                 pollLiveSession(sid, data => {
-                    // Check if it was stopped externally or finished
-                    if (!Live.active[tool] || data.status === 'stopped' || data.status === 'error') {
-                        clearInterval(Live.timers[tool]);
-                        delete Live.active[tool];
-                        RouteUI.update(); // reset UI
-                        if (data.status === 'error') toast('err', `Sessão ${tool} Live encerrou com erro.`);
-                        else if (data.status === 'stopped') toast('ok', `${tool.toUpperCase()} Live finalizado.`);
-
-                        // Push to visual history
-                        Diag.lastResult = data;
-                        if (tool === 'ping') {
-                            renderStructuredOutput('ping', data.structured, { tool: 'ping', target, ts: new Date(), result: data });
-                        }
-                    } else {
+                    // Atualiza UX e Console durante poll
+                    if (Live.active[tool] && data.status !== 'stopped' && data.status !== 'error') {
                         const s = data.structured || {};
                         $('routeLiveTime').textContent = formatTime(data.elapsed_ms);
 
@@ -719,6 +729,22 @@ document.addEventListener('DOMContentLoaded', () => {
                             $('plAvg').textContent = (s.avg_ms || 0) + ' ms';
                             $('plMin').textContent = (s.min_ms || 0) + ' ms';
                             $('plMax').textContent = (s.max_ms || 0) + ' ms';
+
+                            if (data.stdout && Live.state[tool]) {
+                                const newStdout = data.stdout.substring(Live.state[tool].stdoutLength);
+                                if (newStdout) {
+                                    let curr = $('consoleOutput').textContent;
+                                    if (curr.endsWith("[Iniciando diagnóstico ao vivo...]")) {
+                                        curr = curr.replace("[Iniciando diagnóstico ao vivo...]", "").trim();
+                                        $('consoleOutput').textContent = curr + (curr ? '
+
+' : '');
+                                    }
+                                    $('consoleOutput').textContent += newStdout;
+                                    $('consoleOutput').scrollTop = $('consoleOutput').scrollHeight;
+                                    Live.state[tool].stdoutLength = data.stdout.length;
+                                }
+                            }
                         } else if (tool === 'mtr') {
                             const hops = s.hops || [];
                             $('mtrLiveHops').textContent = hops.length + ' hops';
@@ -727,6 +753,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             Diag.lastResult = data;
                             $('termStructured').innerHTML = renderStructuredOutput('mtr', s, { tool: 'mtr', target, result: data });
+
+                            // Console UI for MTR
+                            let table = "HOST                         Loss%   Snt   Last   Avg   Best   Wrst   StDev
+";
+                            for (let i = 0; i < hops.length; i++) {
+                                const h = hops[i];
+                                const hostPad = (String(i+1)+". " + (h.host || '???')).padEnd(28, ' ');
+                                const lossPad = String(h.loss || '0.0').padEnd(7, ' ');
+                                const sntPad = String(h.sent || '0').padEnd(5, ' ');
+                                const lastPad = String(h.last || '0.0').padEnd(6, ' ');
+                                const avgPad = String(h.avg || '0.0').padEnd(5, ' ');
+                                const bestPad = String(h.best || '0.0').padEnd(6, ' ');
+                                const wrstPad = String(h.worst || '0.0').padEnd(6, ' ');
+                                const stdevPad = String(h.stdev || '0.0');
+                                table += `${hostPad} ${lossPad} ${sntPad} ${lastPad} ${avgPad} ${bestPad} ${wrstPad} ${stdevPad}
+`;
+                            }
+
+                            $('consoleOutput').textContent = `moonshield> mtr ${target} --live
+
+My traceroute [MoonShield]
+
+${table}
+Live: ${formatTime(data.elapsed_ms)}`;
+                        }
+                    } else if (!Live.active[tool] || data.status === 'stopped' || data.status === 'error') {
+                        // Error ou stopped via background process, handled gracefully here se escapou
+                        clearInterval(Live.timers[tool]);
+                        delete Live.active[tool];
+                        delete Live.state[tool];
+
+                        $('termCliInput').disabled = false;
+                        $('termCliInput').placeholder = "Digite 'help' para comandos...";
+                        RouteUI.update();
+
+                        if (data.status === 'error') {
+                            toast('err', `Sessão ${tool} Live encerrou com erro.`);
+                            $('consoleOutput').textContent += `
+
+[ERRO] Sessão encerrada: ${data.summary || 'Erro desconhecido'}`;
+                            setText('termTitle', 'Não foi possível concluir o teste');
+                            $('termSummary').style.display = 'flex';
+                            $('termSummary').className = 'diag-term-summary diag-term-summary--err';
+                            setText('termSummaryText', data.summary || 'Erro');
                         }
                     }
                 });
@@ -736,11 +806,65 @@ document.addEventListener('DOMContentLoaded', () => {
         $('routeLiveStopBtn').addEventListener('click', async () => {
             const tool = RouteUI.tool;
             if (Live.active[tool]) {
-                await stopLiveSession(Live.active[tool]);
+                const sid = Live.active[tool];
+                const target = value('routeTarget');
+                $('routeLiveStopBtn').disabled = true; // prevent double click
+                $('routeLiveStopBtn').style.opacity = '0.5';
+
+                const data = await stopLiveSession(sid);
                 clearInterval(Live.timers[tool]);
                 delete Live.active[tool];
+                delete Live.state[tool];
+
+                $('termCliInput').disabled = false;
+                $('termCliInput').placeholder = "Digite 'help' para comandos...";
+                RouteUI.update();
+
+                if (data && data.ok) {
+                    toast('ok', `${tool.toUpperCase()} Live finalizado.`);
+
+                    if (tool === 'ping') {
+                        const s = data.structured || {};
+                        const min = s.min_ms || 0;
+                        const avg = s.avg_ms || 0;
+                        const max = s.max_ms || 0;
+                        const loss = s.loss_percent || 0;
+                        const tx = s.sent || 0;
+                        const rx = s.received || 0;
+                        const elapsed = (data.elapsed_ms / 1000).toFixed(1);
+                        $('consoleOutput').textContent += `\n^C\n\n--- ${target} ping statistics ---\n${tx} packets transmitted, ${rx} received, ${loss}% packet loss\nrtt min/avg/max = ${min}/${avg}/${max} ms\n\n[MoonShield] Diagnóstico encerrado.\nTempo total: ${elapsed} s`;
+                        $('consoleOutput').scrollTop = $('consoleOutput').scrollHeight;
+                    } else if (tool === 'mtr') {
+                        const hops = (data.structured || {}).hops || [];
+                        const samples = hops.reduce((m, h) => Math.max(m, h.sent || 0), 0);
+                        const elapsed = (data.elapsed_ms / 1000).toFixed(1);
+                        $('consoleOutput').textContent += `\n\n[MoonShield] MTR encerrado.\nAmostras: ${samples}\nHops: ${hops.length}\nTempo total: ${elapsed} s`;
+                        $('consoleOutput').scrollTop = $('consoleOutput').scrollHeight;
+                    }
+
+                    // Populate global result panel
+                    Diag.lastResult = data;
+                    setText('termTitle', 'Resultado final - ' + tool.toUpperCase());
+                    if (tool === 'ping') {
+                        $('termOutput').hidden = false;
+                        $('termOutput').textContent = data.stdout || '';
+                        renderStructuredOutput('ping', data.structured, { tool: 'ping', target, ts: new Date(), result: data });
+                    } else {
+                        // For MTR we already rendered in termStructured
+                        $('termOutput').hidden = true;
+                    }
+                    $('termSummary').style.display = 'flex';
+                    $('termSummary').className = 'diag-term-summary diag-term-summary--ok';
+                    setText('termSummaryText', 'Diagnóstico finalizado com sucesso.');
+
+                    // Trigger history refresh
+                    if (typeof loadHistory === 'function') loadHistory();
+                } else if (data && !data.ok) {
+                    toast('err', `Erro ao parar: ${data.summary}`);
+                }
+            } else {
+                RouteUI.update();
             }
-            RouteUI.update();
         });
 
         // Setup initial UI

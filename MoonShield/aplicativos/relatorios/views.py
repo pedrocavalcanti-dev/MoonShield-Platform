@@ -321,13 +321,9 @@ def diagnostico_live_stop_api(request, session_id):
             stdout = resp.get("stdout", "")
             stderr = resp.get("stderr", "")
             if len(stdout) > 256*1024:
-                stdout = stdout[:256*1024] + "
-
-... (TRUNCATED)"
+                stdout = stdout[:256*1024] + "\n\n... (TRUNCATED)"
             if len(stderr) > 256*1024:
-                stderr = stderr[:256*1024] + "
-
-... (TRUNCATED)"
+                stderr = stderr[:256*1024] + "\n\n... (TRUNCATED)"
 
             ExecucaoDiagnostico.objects.create(
                 usuario=request.user,

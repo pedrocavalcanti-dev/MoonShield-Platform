@@ -650,10 +650,12 @@ document.addEventListener('DOMContentLoaded', () => {
             $('pingLiveMetrics').style.display = (isLive && isPing && Live.active['ping']) ? 'grid' : 'none';
             $('mtrLiveMetrics').style.display = (isLive && isMTR && Live.active['mtr']) ? 'block' : 'none';
 
-            let hint = "Teste de conectividade ICMP.";
+                        let hint = "Teste de conectividade ICMP.";
             if (isTraceroute) hint = "Traça o caminho dos pacotes até o destino.";
             if (isMTR) hint = "Analisa latência, perda e caminho continuamente.";
-            $('routeHint').textContent = hint;
+            if ($('routeHint')) {
+                $('routeHint').textContent = hint;
+            }
         }
     };
 

@@ -148,5 +148,72 @@ class TestLiveSessions(unittest.TestCase):
         self.assertFalse(stop_res2["ok"])
         self.assertEqual(stop_res2["error_code"], "not_found")
 
+
+    def test_ipc_correlation_id(self):
+        # 15. TESTE IPC NOVO OBRIGATÓRIO
+        from firewall.ipc.protocolo import RequisicaoIPC, resposta_ok, codificar_resposta
+        from diagnostico.ipc.handlers import executar_acao_diagnostico
+        import json
+        
+        req = RequisicaoIPC(
+            id="request-123",
+            acao="diagnostic.live.start",
+            dados={"tool": "ping", "target": "8.8.8.8", "options": {}}
+        )
+        
+        # Mock para não rodar ping real
+        with patch("diagnostico.executor._get_bin", return_value="/bin/ping"),              patch("diagnostico.executor.validar_alvo_rede", return_value="8.8.8.8"),              patch("subprocess.Popen"):
+            dados = executar_acao_diagnostico(req.acao, req.dados)
+            
+        resp_obj = resposta_ok(req, dados)
+        raw = codificar_resposta(resp_obj)
+        resp = json.loads(raw)
+        
+        self.assertEqual(resp["id"], "request-123")
+        self.assertIn("dados", resp)
+        self.assertIn("session_id", resp["dados"])
+        self.assertNotEqual(resp["dados"]["session_id"], "request-123")
+
+    def test_ipc_correlation_status(self):
+        from firewall.ipc.protocolo import RequisicaoIPC, resposta_ok, codificar_resposta
+        from diagnostico.ipc.handlers import executar_acao_diagnostico
+        import json
+        
+        req = RequisicaoIPC(
+            id="request-status",
+            acao="diagnostic.live.status",
+            dados={"session_id": "fake-session"}
+        )
+        
+        with patch("diagnostico.live.status_live_session", return_value={"ok": True, "session_id": "fake-session", "status": "running"}):
+            dados = executar_acao_diagnostico(req.acao, req.dados)
+            
+        resp_obj = resposta_ok(req, dados)
+        raw = codificar_resposta(resp_obj)
+        resp = json.loads(raw)
+        
+        self.assertEqual(resp["id"], "request-status")
+        self.assertEqual(resp["dados"]["session_id"], "fake-session")
+        
+    def test_ipc_correlation_stop(self):
+        from firewall.ipc.protocolo import RequisicaoIPC, resposta_ok, codificar_resposta
+        from diagnostico.ipc.handlers import executar_acao_diagnostico
+        import json
+        
+        req = RequisicaoIPC(
+            id="request-stop",
+            acao="diagnostic.live.stop",
+            dados={"session_id": "fake-session"}
+        )
+        
+        with patch("diagnostico.live.stop_live_session", return_value={"ok": True, "session_id": "fake-session", "status": "stopped"}):
+            dados = executar_acao_diagnostico(req.acao, req.dados)
+            
+        resp_obj = resposta_ok(req, dados)
+        raw = codificar_resposta(resp_obj)
+        resp = json.loads(raw)
+        
+        self.assertEqual(resp["id"], "request-stop")
+        self.assertEqual(resp["dados"]["session_id"], "fake-session")
 if __name__ == "__main__":
     unittest.main()

@@ -101,6 +101,34 @@ class RelatoriosDiagnosticoTests(TestCase):
 
     @patch("relatorios.services.diagnostico_agent.requisitar_agent")
     @patch("relatorios.services.diagnostico_agent.agent_disponivel")
+    def test_executar_targetless_tool_sucesso(self, mock_disponivel, mock_req):
+        mock_disponivel.return_value = True
+        mock_req.return_value = {
+            "dados": {
+                "ok": True,
+                "status": "ok",
+                "summary": "Sucesso",
+                "structured": {"routes": []}
+            }
+        }
+        for tool in ["routes", "interfaces", "arp_table", "sockets"]:
+            payload = {"tool": tool, "target": ""}
+            response = self.client.post(self.executar_url, json.dumps(payload), content_type="application/json")
+            self.assertEqual(response.status_code, 200, f"Tool {tool} falhou com HTTP {response.status_code}")
+            resp_data = json.loads(response.content)
+            self.assertTrue(resp_data.get("ok"))
+
+    def test_executar_targeted_tool_sem_target_rejeitado(self):
+        for tool in ["ping", "mtr", "tcp_connect"]:
+            payload = {"tool": tool, "target": ""}
+            response = self.client.post(self.executar_url, json.dumps(payload), content_type="application/json")
+            self.assertEqual(response.status_code, 400)
+            resp_data = json.loads(response.content)
+            self.assertFalse(resp_data.get("ok"))
+            self.assertEqual(resp_data.get("error_code"), "validation_error")
+
+    @patch("relatorios.services.diagnostico_agent.requisitar_agent")
+    @patch("relatorios.services.diagnostico_agent.agent_disponivel")
     def test_output_truncation(self, mock_disponivel, mock_req):
         mock_disponivel.return_value = True
         large_str = "A" * (257 * 1024)

@@ -26,6 +26,13 @@ ALLOWED_TOOLS = {
     "sockets"
 }
 
+TARGETLESS_TOOLS = {
+    "routes",
+    "interfaces",
+    "arp_table",
+    "sockets",
+}
+
 def _get_bin(name: str) -> str:
     path = shutil.which(name)
     if not path:

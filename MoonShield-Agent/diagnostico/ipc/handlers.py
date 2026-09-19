@@ -5,7 +5,7 @@ MoonShield Agent — Diagnóstico / IPC Handlers
 import logging
 from typing import Any
 
-from diagnostico.executor import dispatch_tool
+from diagnostico.executor import dispatch_tool, TARGETLESS_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +18,23 @@ def executar_acao_diagnostico(acao: str, dados: dict[str, Any]) -> dict[str, Any
     """
     if acao == "diagnostic.execute":
         tool = dados.get("tool")
-        target = dados.get("target")
+        target = dados.get("target") or ""
         options = dados.get("options", {})
 
-        if not tool or not target:
+        if not tool:
             return {
                 "ok": False,
                 "status": "err",
                 "error_code": "missing_parameters",
-                "summary": "Parâmetros 'tool' e 'target' são obrigatórios."
+                "summary": "Parâmetro 'tool' é obrigatório."
+            }
+
+        if tool not in TARGETLESS_TOOLS and not target:
+            return {
+                "ok": False,
+                "status": "err",
+                "error_code": "missing_parameters",
+                "summary": "Parâmetro 'target' é obrigatório para esta ferramenta."
             }
 
         logger.info(f"[diagnostico] Executando tool={tool} target={target}")

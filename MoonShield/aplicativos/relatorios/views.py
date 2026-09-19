@@ -94,15 +94,21 @@ def diagnostico_executar_api(request):
         return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "JSON inválido."}, status=400)
 
     tool = dados.get("tool", "")
-    target = dados.get("target", "")
+    target = dados.get("target", "") or ""
     options = dados.get("options", {})
     source = dados.get("source", "guided")
 
     if not isinstance(tool, str) or not tool:
         return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Tool é obrigatória."}, status=400)
 
-    if not isinstance(target, str) or not target:
-        return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Target é obrigatório."}, status=400)
+    # Ferramentas que não precisam de target
+    targetless_tools = {"routes", "interfaces", "arp_table", "sockets"}
+
+    if not isinstance(target, str):
+        return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Target deve ser texto."}, status=400)
+
+    if not target and tool not in targetless_tools:
+        return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Target é obrigatório para esta ferramenta."}, status=400)
 
     if len(target) > 255:
         return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": "Target excedeu limite de tamanho."}, status=400)

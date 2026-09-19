@@ -316,8 +316,8 @@ function humanOutput() {
     const values = [...structured.querySelectorAll('.diag-metrics > div')].map(item => item.querySelector('dt').textContent + ': ' + item.querySelector('dd').textContent);
     const notes = [...structured.querySelectorAll('p, .diag-mtr-badges')].map(item => item.textContent);
     return [$('termTitle').textContent, structured.hidden ? '' : [...values, ...rows, ...notes].join('\n'),
-        $('termOutput').hidden ? '' : $('termOutput').textContent,
-        $('termSummary').style.display === 'none' ? '' : $('termSummaryText').textContent].filter(Boolean).join('\n\n');
+    $('termOutput').hidden ? '' : $('termOutput').textContent,
+    $('termSummary').style.display === 'none' ? '' : $('termSummaryText').textContent].filter(Boolean).join('\n\n');
 }
 function consoleLine(text) {
     const output = $('consoleOutput');
@@ -603,13 +603,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`/relatorios/diagnostico/api/live/${sessionId}/`);
             const data = await res.json();
             if (data.ok) cb(data);
-        } catch (e) {}
+        } catch (e) { }
     }
 
     const RouteUI = {
         tool: 'ping',
         mode: 'teste',
-        update: function() {
+        update: function () {
             document.querySelectorAll('#routeToolSwitch .diag-mtr-mode-btn').forEach(btn => {
                 btn.classList.toggle('diag-mtr-mode-btn--active', btn.dataset.tool === this.tool);
             });
@@ -651,7 +651,7 @@ document.addEventListener('DOMContentLoaded', () => {
             $('pingLiveMetrics').style.display = (isLive && isPing && Live.active['ping']) ? 'grid' : 'none';
             $('mtrLiveMetrics').style.display = (isLive && isMTR && Live.active['mtr']) ? 'block' : 'none';
 
-                        let hint = "Teste de conectividade ICMP.";
+            let hint = "Teste de conectividade ICMP.";
             if (isTraceroute) hint = "Traça o caminho dos pacotes até o destino.";
             if (isMTR) hint = "Analisa latência, perda e caminho continuamente.";
             if ($('routeHint')) {
@@ -662,18 +662,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if ($('routeToolSwitch')) {
         document.querySelectorAll('#routeToolSwitch .diag-mtr-mode-btn').forEach(btn => {
-            btn.addEventListener('click', () => { RouteUI.tool = btn.dataset.tool; RouteUI.update(); });
+            btn.addEventListener('click', () => {
+                if (Object.keys(Live.active).length) { toast('info', 'Pare o diagnóstico ao vivo antes de trocar a ferramenta.'); return; }
+                RouteUI.tool = btn.dataset.tool;
+                RouteUI.update();
+            });
         });
         document.querySelectorAll('#routeModeSwitch .diag-mtr-mode-btn').forEach(btn => {
-            btn.addEventListener('click', () => { RouteUI.mode = btn.dataset.mode; RouteUI.update(); });
+            btn.addEventListener('click', () => {
+                if (Object.keys(Live.active).length) { toast('info', 'Pare o diagnóstico ao vivo antes de trocar o modo.'); return; }
+                RouteUI.mode = btn.dataset.mode;
+                RouteUI.update();
+            });
         });
-        $('routeUseMtrBtn').addEventListener('click', () => { RouteUI.tool = 'mtr'; RouteUI.update(); });
+        $('routeUseMtrBtn').addEventListener('click', () => {
+            if (Object.keys(Live.active).length) return;
+            RouteUI.tool = 'mtr';
+            RouteUI.update();
+        });
 
         $('routeLiveStartBtn').addEventListener('click', async () => {
             const tool = RouteUI.tool;
             const target = value('routeTarget');
             if (!target) { toast('warn', 'Destino obrigatório'); return; }
 
+            Diag.isRunning = true;
+            syncButtons();
             $('routeLiveStartBtn').disabled = true;
             $('routeLiveStopBtn').disabled = false;
             $('routeLiveStopBtn').style.opacity = '1';
@@ -683,7 +697,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tool === 'ping') $('pingLiveMetrics').style.display = 'grid';
             if (tool === 'mtr') {
                 $('mtrLiveMetrics').style.display = 'block';
-                selectResultTab({ dataset: { ttab: 'estruturado' } });
+                selectResultTab('saida');
             }
 
             // Integrar o console e painel de resultado (Bug Stale Result)
@@ -707,6 +721,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 $('consoleOutput').textContent += '\n\n[ERRO] Não foi possível iniciar diagnóstico Live.';
                 $('termCliInput').disabled = false;
                 $('termCliInput').placeholder = "Digite 'help' para comandos...";
+                Diag.isRunning = false;
+                $('execBar').style.display = 'none';
+                syncButtons();
                 RouteUI.update(); // reset
                 return;
             }
@@ -736,9 +753,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     let curr = $('consoleOutput').textContent;
                                     if (curr.endsWith("[Iniciando diagnóstico ao vivo...]")) {
                                         curr = curr.replace("[Iniciando diagnóstico ao vivo...]", "").trim();
-                                        $('consoleOutput').textContent = curr + (curr ? '
-
-' : '');
+                                        $('consoleOutput').textContent = curr + (curr ? '\n\n' : '');
                                     }
                                     $('consoleOutput').textContent += newStdout;
                                     $('consoleOutput').scrollTop = $('consoleOutput').scrollHeight;
@@ -754,21 +769,28 @@ document.addEventListener('DOMContentLoaded', () => {
                             Diag.lastResult = data;
                             $('termStructured').innerHTML = renderStructuredOutput('mtr', s, { tool: 'mtr', target, result: data });
 
-                            // Console UI for MTR
-                            let table = "HOST                         Loss%   Snt   Last   Avg   Best   Wrst   StDev
-";
+                            // Console UI for MTR. Suporta o schema Live e o schema estruturado one-shot.
+                            let table = "HOST                         Loss%   Snt   Last   Avg   Best   Wrst   StDev\n";
                             for (let i = 0; i < hops.length; i++) {
                                 const h = hops[i];
-                                const hostPad = (String(i+1)+". " + (h.host || '???')).padEnd(28, ' ');
-                                const lossPad = String(h.loss || '0.0').padEnd(7, ' ');
-                                const sntPad = String(h.sent || '0').padEnd(5, ' ');
-                                const lastPad = String(h.last || '0.0').padEnd(6, ' ');
-                                const avgPad = String(h.avg || '0.0').padEnd(5, ' ');
-                                const bestPad = String(h.best || '0.0').padEnd(6, ' ');
-                                const wrstPad = String(h.worst || '0.0').padEnd(6, ' ');
-                                const stdevPad = String(h.stdev || '0.0');
-                                table += `${hostPad} ${lossPad} ${sntPad} ${lastPad} ${avgPad} ${bestPad} ${wrstPad} ${stdevPad}
-`;
+                                const hopNo = h.hop ?? (i + 1);
+                                const host = h.host || h.ip || '???';
+                                const loss = h.loss_percent ?? h.loss ?? 0;
+                                const sent = h.sent ?? 0;
+                                const last = h.last_ms ?? h.last ?? 0;
+                                const avg = h.avg_ms ?? h.avg ?? 0;
+                                const best = h.best_ms ?? h.best ?? 0;
+                                const worst = h.worst_ms ?? h.worst ?? 0;
+                                const stdev = h.stdev_ms ?? h.stdev ?? 0;
+                                const hostPad = (String(hopNo) + ". " + host).padEnd(28, ' ');
+                                const lossPad = String(loss).padEnd(7, ' ');
+                                const sntPad = String(sent).padEnd(5, ' ');
+                                const lastPad = String(last).padEnd(6, ' ');
+                                const avgPad = String(avg).padEnd(5, ' ');
+                                const bestPad = String(best).padEnd(6, ' ');
+                                const wrstPad = String(worst).padEnd(6, ' ');
+                                const stdevPad = String(stdev);
+                                table += `${hostPad} ${lossPad} ${sntPad} ${lastPad} ${avgPad} ${bestPad} ${wrstPad} ${stdevPad}\n`;
                             }
 
                             $('consoleOutput').textContent = `moonshield> mtr ${target} --live
@@ -786,6 +808,9 @@ Live: ${formatTime(data.elapsed_ms)}`;
 
                         $('termCliInput').disabled = false;
                         $('termCliInput').placeholder = "Digite 'help' para comandos...";
+                        Diag.isRunning = false;
+                        $('execBar').style.display = 'none';
+                        syncButtons();
                         RouteUI.update();
 
                         if (data.status === 'error') {
@@ -818,6 +843,9 @@ Live: ${formatTime(data.elapsed_ms)}`;
 
                 $('termCliInput').disabled = false;
                 $('termCliInput').placeholder = "Digite 'help' para comandos...";
+                Diag.isRunning = false;
+                $('execBar').style.display = 'none';
+                syncButtons();
                 RouteUI.update();
 
                 if (data && data.ok) {
@@ -842,20 +870,32 @@ Live: ${formatTime(data.elapsed_ms)}`;
                         $('consoleOutput').scrollTop = $('consoleOutput').scrollHeight;
                     }
 
-                    // Populate global result panel
-                    Diag.lastResult = data;
+                    // Populate global result panel with a consistent entry for export/copy/JSON.
+                    const finalResult = {
+                        ...data,
+                        status: 'ok',
+                        duration_ms: data.elapsed_ms ?? data.duration_ms,
+                        summary: data.summary || 'Diagnóstico finalizado com sucesso.',
+                        source: data.source || 'live'
+                    };
+                    const finalEntry = { tool, target, source: 'live', ts: new Date(), result: finalResult };
+                    Diag.lastResult = finalEntry;
                     setText('termTitle', 'Resultado final - ' + tool.toUpperCase());
+                    setText('termJson', JSON.stringify(finalResult, null, 2));
+                    const finalHtml = renderStructuredOutput(tool, finalResult.structured, finalEntry);
+                    $('termStructured').innerHTML = finalHtml;
+                    $('termStructured').hidden = !finalHtml;
+                    $('termStructured').style.display = finalHtml ? 'block' : 'none';
                     if (tool === 'ping') {
                         $('termOutput').hidden = false;
-                        $('termOutput').textContent = data.stdout || '';
-                        renderStructuredOutput('ping', data.structured, { tool: 'ping', target, ts: new Date(), result: data });
+                        $('termOutput').textContent = finalResult.stdout || '';
                     } else {
-                        // For MTR we already rendered in termStructured
                         $('termOutput').hidden = true;
+                        $('termOutput').textContent = '';
                     }
                     $('termSummary').style.display = 'flex';
                     $('termSummary').className = 'diag-term-summary diag-term-summary--ok';
-                    setText('termSummaryText', 'Diagnóstico finalizado com sucesso.');
+                    setText('termSummaryText', finalResult.summary);
 
                     // Trigger history refresh
                     if (typeof loadHistory === 'function') loadHistory();

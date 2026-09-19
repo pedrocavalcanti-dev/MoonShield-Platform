@@ -1362,3 +1362,104 @@
         grid-template-columns: 1fr 1fr;
     }
 }
+/* CLI Terminal */
+.diag-term-cli {
+    display: flex;
+    align-items: center;
+    background-color: var(--slate-800);
+    border-top: 1px solid var(--slate-700);
+    padding: 8px 12px;
+    margin: 0 -12px -12px -12px;
+    border-radius: 0 0 6px 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+.diag-term-cli__prompt {
+    color: var(--teal-400);
+    margin-right: 8px;
+    user-select: none;
+}
+.diag-term-cli__input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--slate-100);
+    outline: none;
+    font-family: inherit;
+    font-size: inherit;
+}
+.diag-term-cli__input::placeholder {
+    color: var(--slate-500);
+}
+
+/* Structured Output Tables */
+.diag-term-structured {
+    padding: 12px;
+    background-color: var(--slate-800);
+    border-bottom: 1px solid var(--slate-700);
+    margin: -12px -12px 12px -12px;
+    overflow-x: auto;
+}
+.diag-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--slate-200);
+}
+.diag-table th {
+    text-align: left;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--slate-600);
+    color: var(--slate-400);
+    font-weight: 500;
+}
+.diag-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--slate-700);
+}
+.diag-table tr:last-child td {
+    border-bottom: none;
+}
+.diag-table .loss-high { color: var(--rose-400); }
+.diag-table .loss-mid { color: var(--amber-400); }
+.diag-table .ms-high { color: var(--amber-400); }
+
+/* Loading State Enhancement */
+.diag-exec-bar--indet .diag-exec-bar__fill {
+    animation: diag-indet 1.5s infinite linear;
+    width: 30% !important;
+}
+@keyframes diag-indet {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+}
+
+/* Agent Status Visual */
+.agent-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background-color: var(--slate-800);
+    border: 1px solid var(--slate-700);
+}
+.agent-status-badge--online {
+    color: var(--teal-400);
+    border-color: var(--teal-900);
+    background-color: rgba(45, 212, 191, 0.1);
+}
+.agent-status-badge--offline {
+    color: var(--rose-400);
+    border-color: var(--rose-900);
+    background-color: rgba(244, 63, 94, 0.1);
+}
+.agent-status-badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+}

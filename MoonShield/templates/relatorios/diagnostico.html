@@ -32,9 +32,9 @@
     <p class="diag-page-hdr__sub">Ferramentas de rede · Sem abrir CMD ou PowerShell</p>
   </div>
   <div class="diag-page-hdr__right">
-    <div class="diag-mode-pill" id="modePill">
-      <span class="diag-mode-pill__dot"></span>
-      <span id="modePillLabel">DEMO</span>
+    <div class="agent-status-badge agent-status-badge--offline" id="agentStatusBadge">
+      <span class="dot"></span>
+      <span id="agentStatusLabel">Agent Offline</span>
     </div>
     <button class="btn btn--ghost btn--sm" id="btnExportTxt">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -648,7 +648,16 @@
               <span class="diag-term-status" id="metaStatus">—</span>
             </span>
           </div>
+          
+          <div id="termStructured" class="diag-term-structured" style="display:none"></div>
+          
           <pre class="diag-term-output" id="termOutput">Nenhuma execução ainda. Selecione uma ferramenta e clique em Executar.</pre>
+          
+          <div class="diag-term-cli">
+            <span class="diag-term-cli__prompt">moonshield&gt;</span>
+            <input type="text" id="termCliInput" class="diag-term-cli__input" placeholder="Digite 'help' para comandos..." autocomplete="off" spellcheck="false">
+          </div>
+          
           <div class="diag-term-summary" id="termSummary" style="display:none">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="termSummaryIcon">
               <polyline points="20 6 9 17 4 12"/>

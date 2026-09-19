@@ -219,11 +219,9 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(data["source"], "terminal")
 
 
-    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
-    @patch("aplicativos.relatorios.services.diagnostico_agent.run_ipc_action")
-    def test_live_start(self, mock_ipc, mock_online):
-        mock_online.return_value = True
-        mock_ipc.return_value = {"ok": True, "session_id": "123", "tool": "ping"}
+    @patch("aplicativos.relatorios.views.requisitar_agent")
+    def test_live_start(self, mock_req):
+        mock_req.return_value = {"dados": {"ok": True, "session_id": "123", "tool": "ping", "status": "running"}}
 
         self.client.force_login(self.usuario)
         res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
@@ -235,9 +233,9 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertTrue(data["ok"])
         self.assertEqual(data["session_id"], "123")
 
-    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
-    def test_live_start_agent_offline(self, mock_online):
-        mock_online.return_value = False
+    @patch("aplicativos.relatorios.views.requisitar_agent")
+    def test_live_start_agent_offline(self, mock_req):
+        mock_req.side_effect = ConnectionError("Agent offline")
 
         self.client.force_login(self.usuario)
         res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
@@ -247,10 +245,8 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(res.status_code, 503)
         self.assertEqual(res.json()["error_code"], "agent_unavailable")
 
-    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
-    def test_live_start_invalid_tool(self, mock_online):
-        mock_online.return_value = True
-
+    def test_live_start_invalid_tool(self):
+        # We don't even need to mock, it should be blocked by the view
         self.client.force_login(self.usuario)
         res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
             "tool": "nmap", "target": "8.8.8.8"
@@ -259,11 +255,9 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertFalse(res.json()["ok"])
 
-    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
-    @patch("aplicativos.relatorios.services.diagnostico_agent.run_ipc_action")
-    def test_live_status(self, mock_ipc, mock_online):
-        mock_online.return_value = True
-        mock_ipc.return_value = {"ok": True, "status": "running"}
+    @patch("aplicativos.relatorios.views.requisitar_agent")
+    def test_live_status(self, mock_req):
+        mock_req.return_value = {"dados": {"ok": True, "status": "running", "structured": {}}}
 
         self.client.force_login(self.usuario)
         res = self.client.get("/relatorios/diagnostico/api/live/123e4567-e89b-12d3-a456-426614174000/")
@@ -271,15 +265,13 @@ class RelatoriosDiagnosticoTests(TestCase):
         self.assertTrue(res.json()["ok"])
 
     @patch("aplicativos.relatorios.views._obter_contexto_diagnostico")
-    @patch("aplicativos.relatorios.services.diagnostico_agent.is_agent_online")
-    @patch("aplicativos.relatorios.services.diagnostico_agent.run_ipc_action")
-    def test_live_stop_and_persist(self, mock_ipc, mock_online, mock_ctx):
-        mock_online.return_value = True
+    @patch("aplicativos.relatorios.views.requisitar_agent")
+    def test_live_stop_and_persist(self, mock_req, mock_ctx):
         mock_ctx.return_value = {}
-        mock_ipc.return_value = {
+        mock_req.return_value = {"dados": {
             "ok": True, "tool": "ping", "target": "8.8.8.8", "elapsed_ms": 5000,
             "stdout": "done", "stderr": "", "structured": {"sent": 5}
-        }
+        }}
 
         self.client.force_login(self.usuario)
 

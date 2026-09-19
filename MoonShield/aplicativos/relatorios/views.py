@@ -274,6 +274,19 @@ def diagnostico_execucao_api(request, execucao_id):
         "user": ex.usuario.username if ex.usuario else None
     })
 
+from rede.services.agent_client import requisitar_agent, AgentIndisponivelErro, AgentTimeoutErro
+
+def _run_live_action(action, payload):
+    try:
+        resultado = requisitar_agent(action, dados=payload, timeout=10.0)
+        return resultado.get("dados", resultado), 200
+    except AgentTimeoutErro:
+        return {"ok": False, "status": "err", "error_code": "timeout", "summary": "Timeout com o Agent"}, 504
+    except (AgentIndisponivelErro, ConnectionError):
+        return {"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent estǭ offline."}, 503
+    except Exception as e:
+        return {"ok": False, "status": "err", "summary": f"Falha interna: {e}"}, 500
+
 @login_required
 @require_POST
 def diagnostico_live_start_api(request):
@@ -289,56 +302,39 @@ def diagnostico_live_start_api(request):
     if tool not in ["ping", "mtr"]:
         return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": f"Ferramenta não permitida para live: {tool}"}, status=400)
 
-    from .services.diagnostico_agent import is_agent_online, run_ipc_action
-    if not is_agent_online():
-        return JsonResponse({"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, status=503)
-
-    resp = run_ipc_action("diagnostic.live.start", {"tool": tool, "target": target, "options": options})
-    if not resp:
-        return JsonResponse({"ok": False, "status": "err", "summary": "Sem resposta do Agent"}, status=500)
-
-    return JsonResponse(resp)
+    resp, status_code = _run_live_action("diagnostic.live.start", {"tool": tool, "target": target, "options": options})
+    return JsonResponse(resp, status=status_code)
 
 @login_required
 def diagnostico_live_status_api(request, session_id):
-    from .services.diagnostico_agent import is_agent_online, run_ipc_action
-    if not is_agent_online():
-        return JsonResponse({"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, status=503)
-
-    resp = run_ipc_action("diagnostic.live.status", {"session_id": str(session_id)})
-    if not resp:
-        return JsonResponse({"ok": False, "status": "err", "summary": "Sem resposta do Agent"}, status=500)
-
-    return JsonResponse(resp)
+    resp, status_code = _run_live_action("diagnostic.live.status", {"session_id": str(session_id)})
+    return JsonResponse(resp, status=status_code)
 
 @login_required
 @require_POST
 def diagnostico_live_stop_api(request, session_id):
-    from .services.diagnostico_agent import is_agent_online, run_ipc_action
-    if not is_agent_online():
-        return JsonResponse({"ok": False, "status": "err", "error_code": "agent_unavailable", "summary": "MoonShield Agent está offline."}, status=503)
+    resp, status_code = _run_live_action("diagnostic.live.stop", {"session_id": str(session_id)})
 
-    resp = run_ipc_action("diagnostic.live.stop", {"session_id": str(session_id)})
-    if not resp:
-        return JsonResponse({"ok": False, "status": "err", "summary": "Sem resposta do Agent"}, status=500)
-
-    if resp.get("ok"):
-        # Save ONE ExecucaoDiagnostico
+    if status_code == 200 and resp.get("ok"):
         try:
             snapshot = _obter_contexto_diagnostico()
             stdout = resp.get("stdout", "")
             stderr = resp.get("stderr", "")
             if len(stdout) > 256*1024:
-                stdout = stdout[:256*1024] + "\n\n... (TRUNCATED)"
+                stdout = stdout[:256*1024] + "
+
+... (TRUNCATED)"
             if len(stderr) > 256*1024:
-                stderr = stderr[:256*1024] + "\n\n... (TRUNCATED)"
+                stderr = stderr[:256*1024] + "
+
+... (TRUNCATED)"
 
             ExecucaoDiagnostico.objects.create(
                 usuario=request.user,
                 ferramenta=resp.get("tool"),
                 alvo=resp.get("target"),
                 opcoes={},
-                origem="terminal", # The prompt says we can use terminal or guided if no live exists to avoid migrations!
+                origem="terminal",
                 status="ok",
                 resumo="Sessão Live Finalizada",
                 stdout=stdout,
@@ -352,4 +348,4 @@ def diagnostico_live_stop_api(request, session_id):
             import logging
             logging.getLogger(__name__).error(f"Erro ao salvar historico live: {e}")
 
-    return JsonResponse(resp)
+    return JsonResponse(resp, status=status_code)

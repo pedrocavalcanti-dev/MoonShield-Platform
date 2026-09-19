@@ -646,6 +646,9 @@ def _despachar(
     if req.acao.startswith("adguard."):
         return _despachar_adguard(req)
 
+    if req.acao.startswith("diagnostic."):
+        return _despachar_diagnostico(req)
+
     handler = _HANDLERS.get(req.acao)
 
     if handler is None:
@@ -735,6 +738,22 @@ def _despachar_adguard(req: RequisicaoIPC) -> dict[str, Any]:
     if isinstance(resultado, dict):
         return resultado
     raise ErroOperacao("O módulo AdGuard retornou um formato inválido.", codigo="adguard_resposta_invalida")
+
+
+def _despachar_diagnostico(req: RequisicaoIPC) -> dict[str, Any]:
+    """Encaminha diagnostic.* ao dispatcher do módulo de diagnóstico."""
+    try:
+        modulo = importlib.import_module("diagnostico.ipc.handlers")
+        executar = getattr(modulo, "executar_acao_diagnostico")
+        resultado = executar(req.acao, req.dados)
+    except Exception as exc:
+        raise ErroOperacao(
+            str(exc) or "A operação de diagnóstico falhou.",
+            codigo=str(getattr(exc, "codigo", "") or "diagnostico_operacao_falhou"),
+        ) from exc
+    if isinstance(resultado, dict):
+        return resultado
+    raise ErroOperacao("O módulo de Diagnóstico retornou um formato inválido.", codigo="diagnostico_resposta_invalida")
 
 
 def _despachar_firewall(

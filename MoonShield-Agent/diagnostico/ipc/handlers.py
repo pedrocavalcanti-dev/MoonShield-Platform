@@ -1,0 +1,43 @@
+"""
+MoonShield Agent — Diagnóstico / IPC Handlers
+===========================================
+"""
+import logging
+from typing import Any
+
+from diagnostico.executor import dispatch_tool
+
+logger = logging.getLogger(__name__)
+
+def executar_acao_diagnostico(acao: str, dados: dict[str, Any]) -> dict[str, Any]:
+    """
+    Handler principal para as ações diagnostic.*
+
+    Ações suportadas:
+    - diagnostic.execute
+    """
+    if acao == "diagnostic.execute":
+        tool = dados.get("tool")
+        target = dados.get("target")
+        options = dados.get("options", {})
+
+        if not tool or not target:
+            return {
+                "ok": False,
+                "status": "err",
+                "error_code": "missing_parameters",
+                "summary": "Parâmetros 'tool' e 'target' são obrigatórios."
+            }
+
+        logger.info(f"[diagnostico] Executando tool={tool} target={target}")
+        result = dispatch_tool(tool, target, options)
+        logger.info(f"[diagnostico] Finalizado tool={tool} status={result.get('status')}")
+
+        return result
+
+    return {
+        "ok": False,
+        "status": "err",
+        "error_code": "unknown_action",
+        "summary": f"Ação desconhecida: {acao}"
+    }

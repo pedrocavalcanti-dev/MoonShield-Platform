@@ -22,6 +22,11 @@
 {% endblock %}
 
 {% block conteudo %}
+<div id="diagPage"
+     data-context-url="{% url 'relatorios:api_contexto' %}"
+     data-execute-url="{% url 'relatorios:api_executar' %}"
+     data-history-url="{% url 'relatorios:api_historico' %}"
+     data-detail-url="{% url 'relatorios:api_execucao' execucao_id='00000000-0000-0000-0000-000000000000' %}">
 
 <!-- ══════════════════════════════════════════════
      CABEÇALHO DA PÁGINA
@@ -29,12 +34,12 @@
 <div class="diag-page-hdr">
   <div class="diag-page-hdr__left">
     <h1 class="diag-page-hdr__title">Diagnóstico & Testes</h1>
-    <p class="diag-page-hdr__sub">Ferramentas de rede · Sem abrir CMD ou PowerShell</p>
+    <p class="diag-page-hdr__sub">Ferramentas de rede · Diagnóstico direto pela appliance</p>
   </div>
   <div class="diag-page-hdr__right">
-    <div class="agent-status-badge agent-status-badge--offline" id="agentStatusBadge">
+    <div class="agent-status-badge" id="agentStatusBadge">
       <span class="dot"></span>
-      <span id="agentStatusLabel">Agent Offline</span>
+      <span id="agentStatusLabel">Consultando Agent…</span>
     </div>
     <button class="btn btn--ghost btn--sm" id="btnExportTxt">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -50,7 +55,7 @@
       </svg>
       JSON
     </button>
-    <button class="btn btn--primary btn--sm" id="btnAutoCheck">
+    <button class="btn btn--ghost btn--sm" id="btnAutoCheck" disabled title="Disponível em uma próxima etapa">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
       </svg>
@@ -93,17 +98,11 @@
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
     </svg>
-    <span class="diag-context__lbl">DNS 1</span>
+    <span class="diag-context__lbl">DNS</span>
     <span class="diag-context__val diag-context__val--mono" id="ctxDns1">—</span>
   </div>
   <div class="diag-context__sep"></div>
-  <div class="diag-context__item">
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-    </svg>
-    <span class="diag-context__lbl">DNS 2</span>
-    <span class="diag-context__val diag-context__val--mono" id="ctxDns2">—</span>
-  </div>
+
   <div class="diag-context__sep"></div>
   <div class="diag-context__item">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -112,6 +111,7 @@
     <span class="diag-context__lbl">Host</span>
     <span class="diag-context__val diag-context__val--mono" id="ctxHost">—</span>
   </div>
+  <div class="diag-context__item" id="ctxLanWrap" hidden><span class="diag-context__lbl">LAN</span><span class="diag-context__val" id="ctxLan">—</span></div>
   <div class="diag-context__spacer"></div>
   <button class="diag-context__refresh" id="ctxRefreshBtn" title="Atualizar contexto">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" id="ctxRefreshIcon">
@@ -134,7 +134,7 @@
     <section class="diag-section">
       <div class="diag-section__hdr">
         <span class="diag-section__title">Testes Rápidos</span>
-        <span class="diag-section__sub">1 clique · usa dados das Configurações</span>
+        <span class="diag-section__sub">Execuções reais pela appliance</span>
       </div>
       <div class="diag-quick-grid" id="quickGrid">
 
@@ -149,6 +149,7 @@
           </div>
           <span class="diag-quick-card__name">Ping Gateway</span>
           <span class="diag-quick-card__target" id="qtPingGw">carregando…</span>
+          <p class="diag-quick-card__desc">Verifica alcance do gateway local.</p>
           <div class="diag-quick-card__footer">
             <span class="diag-quick-card__time" id="qqPingGw"></span>
             <button class="diag-quick-card__btn" data-id="qcPingGw">Executar</button>
@@ -165,15 +166,16 @@
             </div>
             <span class="diag-quick-card__status" id="qsInternet">—</span>
           </div>
-          <span class="diag-quick-card__name">Internet OK?</span>
-          <span class="diag-quick-card__target">1.1.1.1 · google.com</span>
+          <span class="diag-quick-card__name">Internet</span>
+          <span class="diag-quick-card__target">1.1.1.1</span>
+          <p class="diag-quick-card__desc">Verifica conectividade externa.</p>
           <div class="diag-quick-card__footer">
             <span class="diag-quick-card__time" id="qqInternet"></span>
             <button class="diag-quick-card__btn" data-id="qcInternet">Executar</button>
           </div>
         </div>
 
-        <div class="diag-quick-card" data-tool="nslookup" data-target="google.com" id="qcDns">
+        <div class="diag-quick-card" data-tool="dns_lookup" data-target="google.com" id="qcDns">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -183,14 +185,15 @@
             <span class="diag-quick-card__status" id="qsDns">—</span>
           </div>
           <span class="diag-quick-card__name">Resolver DNS</span>
-          <span class="diag-quick-card__target" id="qtDns">DNS1 configurado</span>
+          <span class="diag-quick-card__target" id="qtDns">google.com · DNS não identificado</span>
+          <p class="diag-quick-card__desc">Consulta usando o resolver do sistema.</p>
           <div class="diag-quick-card__footer">
             <span class="diag-quick-card__time" id="qqDns"></span>
             <button class="diag-quick-card__btn" data-id="qcDns">Executar</button>
           </div>
         </div>
 
-        <div class="diag-quick-card" data-tool="dns_latency" data-target="dns1" id="qcDnsLat">
+        <div class="diag-quick-card" data-tool="dns_latency" data-target="google.com" id="qcDnsLat">
           <div class="diag-quick-card__top">
             <div class="diag-quick-card__icon">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -200,7 +203,8 @@
             <span class="diag-quick-card__status" id="qsDnsLat">—</span>
           </div>
           <span class="diag-quick-card__name">Latência DNS</span>
-          <span class="diag-quick-card__target" id="qtDnsLat">DNS1 / DNS2</span>
+          <span class="diag-quick-card__target" id="qtDnsLat">google.com · DNS não identificado</span>
+          <p class="diag-quick-card__desc">Mede o tempo da consulta DNS.</p>
           <div class="diag-quick-card__footer">
             <span class="diag-quick-card__time" id="qqDnsLat"></span>
             <button class="diag-quick-card__btn" data-id="qcDnsLat">Executar</button>
@@ -217,7 +221,8 @@
             <span class="diag-quick-card__status" id="qsArp">—</span>
           </div>
           <span class="diag-quick-card__name">Tabela ARP</span>
-          <span class="diag-quick-card__target" id="qtArp">Interface principal</span>
+          <span class="diag-quick-card__target" id="qtArp">Sistema local</span>
+          <p class="diag-quick-card__desc">Consulta os vizinhos conhecidos pela appliance.</p>
           <div class="diag-quick-card__footer">
             <span class="diag-quick-card__time" id="qqArp"></span>
             <button class="diag-quick-card__btn" data-id="qcArp">Executar</button>
@@ -234,7 +239,8 @@
             <span class="diag-quick-card__status" id="qsRoutes">—</span>
           </div>
           <span class="diag-quick-card__name">Rotas</span>
-          <span class="diag-quick-card__target">route print</span>
+          <span class="diag-quick-card__target">Sistema local</span>
+          <p class="diag-quick-card__desc">Exibe a tabela de roteamento observada.</p>
           <div class="diag-quick-card__footer">
             <span class="diag-quick-card__time" id="qqRoutes"></span>
             <button class="diag-quick-card__btn" data-id="qcRoutes">Executar</button>
@@ -356,7 +362,7 @@
 
           <div class="diag-tool-card">
             <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Nslookup</span>
+              <span class="diag-tool-card__name">DNS Lookup</span>
               <span class="diag-tool-badge">A/AAAA</span>
             </div>
             <div class="diag-tool-card__fields">
@@ -364,26 +370,13 @@
                 <label>Domínio</label>
                 <input type="text" class="diag-input" id="nsTarget" placeholder="google.com">
               </div>
-              <div class="diag-field">
-                <label>Servidor DNS</label>
-                <select class="diag-select" id="nsServer">
-                  <option value="dns1">DNS 1 (configurado)</option>
-                  <option value="dns2">DNS 2 (configurado)</option>
-                  <option value="8.8.8.8">8.8.8.8 (Google)</option>
-                  <option value="1.1.1.1">1.1.1.1 (Cloudflare)</option>
-                  <option value="custom">Custom…</option>
-                </select>
-              </div>
-              <div class="diag-field" id="nsCustomWrap" style="display:none">
-                <label>IP do servidor</label>
-                <input type="text" class="diag-input" id="nsCustomServer" placeholder="Ex: 208.67.222.222">
-              </div>
+              <p class="diag-field-hint">Usa o resolver do sistema da appliance.</p>
             </div>
-            <button class="diag-run-btn" data-tool="nslookup" data-form="ns">
+            <button class="diag-run-btn" data-tool="dns_lookup" data-form="ns">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
-              Executar Nslookup
+              Consultar DNS
             </button>
           </div>
 
@@ -408,20 +401,20 @@
 
           <div class="diag-tool-card diag-tool-card--full">
             <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Comparar DNS1 vs DNS2</span>
-              <span class="diag-tool-badge">COMPARE</span>
+              <span class="diag-tool-card__name">Latência DNS</span>
+              <span class="diag-tool-badge">DNS</span>
             </div>
             <div class="diag-tool-card__fields">
               <div class="diag-field">
-                <label>Domínio para comparar</label>
+                <label>Domínio para consultar</label>
                 <input type="text" class="diag-input" id="cmpTarget" placeholder="google.com">
               </div>
             </div>
-            <button class="diag-run-btn" data-tool="dns_compare" data-form="cmp">
+            <button class="diag-run-btn" data-tool="dns_latency" data-form="cmp">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
-              Comparar DNS1 vs DNS2
+              Medir latência DNS
             </button>
           </div>
 
@@ -460,7 +453,7 @@
                 </div>
               </div>
             </div>
-            <button class="diag-run-btn" data-tool="tcp_port_test" data-form="port">
+            <button class="diag-run-btn" data-tool="tcp_connect" data-form="port">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
@@ -504,70 +497,42 @@
 
           <div class="diag-tool-card">
             <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">ARP Scan</span>
+              <span class="diag-tool-card__name">Tabela ARP</span>
               <span class="diag-tool-badge">LAN</span>
             </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Rede CIDR</label>
-                <input type="text" class="diag-input" id="arpScanTarget" placeholder="Auto (usa configuração)">
-              </div>
-              <p class="diag-field-hint">Varre somente a rede local configurada. Pode demorar alguns segundos.</p>
-            </div>
-            <button class="diag-run-btn" data-tool="arp_scan" data-form="arpscan">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              ARP Scan
-            </button>
+            <div class="diag-tool-card__fields"><p class="diag-field-hint">Vizinhos conhecidos pelo sistema local. Esta consulta não faz uma varredura ativa.</p></div>
+            <button class="diag-run-btn" data-tool="arp_table" data-form="arpscan">Consultar ARP</button>
           </div>
 
           <div class="diag-tool-card">
             <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">IPConfig</span>
-              <span class="diag-tool-badge">HOST</span>
+              <span class="diag-tool-card__name">Rotas</span>
+              <span class="diag-tool-badge">LOCAL</span>
             </div>
-            <div class="diag-tool-card__fields">
-              <div class="diag-field">
-                <label>Detalhes</label>
-                <select class="diag-select" id="ipconfigMode">
-                  <option value="basic">Básico</option>
-                  <option value="all">/all (detalhado)</option>
-                </select>
-              </div>
-            </div>
-            <button class="diag-run-btn" data-tool="ipconfig" data-form="ipconfig">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polygon points="5 3 19 12 5 21 5 3"/>
-              </svg>
-              Ver IPConfig
-            </button>
+            <div class="diag-tool-card__fields"><p class="diag-field-hint">Destinos, gateways e interfaces da tabela de roteamento atual.</p></div>
+            <button class="diag-run-btn" data-tool="routes" data-form="routes">Consultar Rotas</button>
           </div>
 
           <div class="diag-tool-card">
             <div class="diag-tool-card__hdr">
-              <span class="diag-tool-card__name">Netstat</span>
+              <span class="diag-tool-card__name">Sockets</span>
               <span class="diag-tool-badge">CONN</span>
             </div>
             <div class="diag-tool-card__fields">
               <div class="diag-field">
                 <label>Filtro</label>
                 <select class="diag-select" id="netstatFilter">
-                  <option value="all">Todas conexões</option>
-                  <option value="established">Somente ESTABLISHED</option>
+                  <option value="all">Todos os sockets</option>
                   <option value="listening">Somente LISTENING</option>
                 </select>
               </div>
-              <div class="diag-field">
-                <label>Filtrar por porta (opcional)</label>
-                <input type="text" class="diag-input" id="netstatPort" placeholder="Ex: 443">
-              </div>
+
             </div>
-            <button class="diag-run-btn" data-tool="netstat" data-form="netstat">
+            <button class="diag-run-btn" data-tool="sockets" data-form="netstat">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                 <polygon points="5 3 19 12 5 21 5 3"/>
               </svg>
-              Ver Netstat
+              Consultar Sockets
             </button>
           </div>
 
@@ -592,7 +557,17 @@
 
     </section>
 
-    <!-- ── TERMINAL DE SAÍDA ── -->
+    <section class="diag-section diag-mtr" aria-labelledby="mtrHeading">
+      <div class="diag-section__hdr"><h2 class="diag-section__title" id="mtrHeading">Análise MTR</h2></div>
+      <p class="diag-field-hint">Analise latência, perda e caminho até o destino.</p>
+      <div class="diag-mtr__form">
+        <div class="diag-field"><label for="mtrTarget">Destino</label><input class="diag-input" id="mtrTarget" placeholder="IP ou domínio" type="text"></div>
+        <div class="diag-field"><label for="mtrCycles">Ciclos</label><select class="diag-select" id="mtrCycles"><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></div>
+        <button class="diag-run-btn" data-tool="mtr" data-form="mtr">Executar MTR</button>
+      </div>
+    </section>
+
+    <!-- ── RESULTADO ── -->
     <section class="diag-section" id="terminalSection">
       <div class="diag-section__hdr">
         <div class="diag-term-hdr">
@@ -600,7 +575,7 @@
             <div class="diag-term-dot diag-term-dot--red"></div>
             <div class="diag-term-dot diag-term-dot--yellow"></div>
             <div class="diag-term-dot diag-term-dot--green"></div>
-            <span class="diag-term-title" id="termTitle">Terminal · aguardando execução</span>
+            <span class="diag-term-title" id="termTitle">Resultado · aguardando execução</span>
           </div>
           <div class="diag-term-hdr__right">
             <div class="diag-term-tabs">
@@ -639,7 +614,7 @@
           <div class="diag-term-meta" id="termMeta" style="display:none">
             <span class="diag-term-meta__item"><span class="diag-term-meta__lbl">Tool</span><span id="metaTool">—</span></span>
             <span class="diag-term-meta__sep"></span>
-            <span class="diag-term-meta__item"><span class="diag-term-meta__lbl">Alvo</span><span id="metaTarget">—</span></span>
+            <span class="diag-term-meta__item"><span class="diag-term-meta__lbl">Escopo / Alvo</span><span id="metaTarget">—</span></span>
             <span class="diag-term-meta__sep"></span>
             <span class="diag-term-meta__item"><span class="diag-term-meta__lbl">Hora</span><span id="metaTime">—</span></span>
             <span class="diag-term-meta__sep"></span>
@@ -653,13 +628,10 @@
           
           <pre class="diag-term-output" id="termOutput">Nenhuma execução ainda. Selecione uma ferramenta e clique em Executar.</pre>
           
-          <div class="diag-term-cli">
-            <span class="diag-term-cli__prompt">moonshield&gt;</span>
-            <input type="text" id="termCliInput" class="diag-term-cli__input" placeholder="Digite 'help' para comandos..." autocomplete="off" spellcheck="false">
-          </div>
+
           
           <div class="diag-term-summary" id="termSummary" style="display:none">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="termSummaryIcon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="termSummaryIcon" hidden>
               <polyline points="20 6 9 17 4 12"/>
             </svg>
             <span id="termSummaryText">—</span>
@@ -675,6 +647,9 @@
         <!-- Painel Detalhes -->
         <div class="diag-term-panel" id="tpanel-detalhes">
           <div class="diag-details-grid" id="termDetails">
+            <div class="diag-detail-item"><span class="diag-detail-item__lbl">Source</span><span class="diag-detail-item__val" id="detSource">—</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-item__lbl">Execution ID</span><span class="diag-detail-item__val" id="detExecution">—</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-item__lbl">Status</span><span class="diag-detail-item__val" id="detStatus">—</span></div>
             <div class="diag-detail-item">
               <span class="diag-detail-item__lbl">Duração</span>
               <span class="diag-detail-item__val" id="detDuration">—</span>
@@ -724,6 +699,15 @@
 
     </section>
 
+    <section class="diag-section diag-console" aria-labelledby="consoleHeading">
+      <div class="diag-section__hdr"><h2 class="diag-section__title" id="consoleHeading">Console MoonShield</h2></div>
+      <p class="diag-field-hint">Comandos de diagnóstico controlados. Digite help para consultar a lista.</p>
+      <pre id="consoleOutput" class="diag-console__output" role="log" aria-live="polite"></pre>
+          <div class="diag-term-cli">
+            <span class="diag-term-cli__prompt">moonshield&gt;</span>
+            <input type="text" id="termCliInput" class="diag-term-cli__input" aria-label="Comando de diagnóstico" placeholder="Digite 'help' para comandos..." autocomplete="off" spellcheck="false">
+          </div>
+    </section>
   </div>
 
   <!-- ════════════════════════════
@@ -731,64 +715,11 @@
   ════════════════════════════ -->
   <aside class="diag-aside">
 
-    <!-- Diagnóstico completo automático -->
-    <div class="card diag-autocheck" id="autoCheckCard">
-      <div class="card__header">
-        <span class="card__title">Diagnóstico Completo</span>
-        <button class="diag-icon-btn" id="autoCheckRunBtn" title="Executar sequência">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-        </button>
-      </div>
-      <div class="diag-autocheck__steps" id="autoSteps">
-        <div class="diag-ac-step" data-step="gw">
-          <div class="diag-ac-step__dot"></div>
-          <div class="diag-ac-step__body">
-            <span class="diag-ac-step__name">Ping Gateway</span>
-            <span class="diag-ac-step__status" id="acGw">—</span>
-          </div>
-        </div>
-        <div class="diag-ac-step" data-step="dns">
-          <div class="diag-ac-step__dot"></div>
-          <div class="diag-ac-step__body">
-            <span class="diag-ac-step__name">Resolver DNS</span>
-            <span class="diag-ac-step__status" id="acDns">—</span>
-          </div>
-        </div>
-        <div class="diag-ac-step" data-step="inet">
-          <div class="diag-ac-step__dot"></div>
-          <div class="diag-ac-step__body">
-            <span class="diag-ac-step__name">Ping Internet</span>
-            <span class="diag-ac-step__status" id="acInet">—</span>
-          </div>
-        </div>
-        <div class="diag-ac-step" data-step="p443">
-          <div class="diag-ac-step__dot"></div>
-          <div class="diag-ac-step__body">
-            <span class="diag-ac-step__name">Porta 443 (HTTPS)</span>
-            <span class="diag-ac-step__status" id="acP443">—</span>
-          </div>
-        </div>
-        <div class="diag-ac-step" data-step="trace">
-          <div class="diag-ac-step__dot"></div>
-          <div class="diag-ac-step__body">
-            <span class="diag-ac-step__name">Traceroute (se falhar)</span>
-            <span class="diag-ac-step__status" id="acTrace">—</span>
-          </div>
-        </div>
-      </div>
-      <div class="diag-autocheck__result" id="autoResult" style="display:none">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="autoResultIcon"></svg>
-        <span id="autoResultText">—</span>
-      </div>
-    </div>
-
     <!-- Histórico -->
     <div class="card">
       <div class="card__header">
         <span class="card__title">Histórico de Execução</span>
-        <button class="diag-icon-btn" id="clearHistoryBtn" title="Limpar histórico">
+        <button class="diag-icon-btn" id="clearHistoryBtn" title="Limpar apenas a lista exibida">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -821,7 +752,8 @@
 </div>
 
 <!-- TOAST -->
-<div class="diag-toast-container" id="diagToast"></div>
+<div class="diag-toast-container" id="diagToast" aria-live="polite"></div>
+</div>
 
 {% endblock %}
 

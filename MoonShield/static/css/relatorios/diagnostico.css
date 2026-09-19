@@ -42,39 +42,6 @@
     flex-wrap: wrap;
 }
 
-/* Mode pill */
-.diag-mode-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 100px;
-    border: 1px solid var(--border);
-    background: var(--bg-hover);
-    font-size: 10px;
-    font-weight: 700;
-    font-family: var(--font-mono);
-    letter-spacing: .1em;
-    color: var(--text-muted);
-}
-
-.diag-mode-pill__dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--text-dim);
-}
-
-.diag-mode-pill--demo .diag-mode-pill__dot {
-    background: var(--text-muted);
-}
-
-.diag-mode-pill--prod .diag-mode-pill__dot {
-    background: #22c55e;
-    box-shadow: 0 0 5px rgba(34, 197, 94, .5);
-    animation: dot-pulse 2s ease-in-out infinite;
-}
-
 /* ══════════════════════════════════════════════════════════
    FAIXA DE CONTEXTO
 ══════════════════════════════════════════════════════════ */
@@ -743,15 +710,15 @@
 }
 
 .diag-term-status--ok {
-    color: #22c55e !important;
+    color: #22c55e;
 }
 
 .diag-term-status--warn {
-    color: #eab308 !important;
+    color: #eab308;
 }
 
 .diag-term-status--err {
-    color: #ef4444 !important;
+    color: #ef4444;
 }
 
 /* Output */
@@ -928,123 +895,6 @@
     color: rgba(239, 68, 68, .8);
     white-space: pre-wrap;
     word-break: break-all;
-}
-
-/* ══════════════════════════════════════════════════════════
-   SIDEBAR — DIAGNÓSTICO AUTOMÁTICO
-══════════════════════════════════════════════════════════ */
-.diag-autocheck__steps {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: var(--sp-sm);
-}
-
-.diag-ac-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    opacity: .45;
-    transition: opacity var(--dur-base);
-}
-
-.diag-ac-step--active {
-    opacity: 1;
-}
-
-.diag-ac-step--done {
-    opacity: .7;
-}
-
-.diag-ac-step__dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    border: 1.5px solid var(--text-dim);
-    flex-shrink: 0;
-    transition: background var(--dur-fast), border-color var(--dur-fast);
-}
-
-.diag-ac-step--done .diag-ac-step__dot {
-    background: #22c55e;
-    border-color: #22c55e;
-}
-
-.diag-ac-step--active .diag-ac-step__dot {
-    background: var(--text-primary);
-    border-color: var(--text-primary);
-    animation: dot-pulse 1.2s ease-in-out infinite;
-}
-
-.diag-ac-step--err .diag-ac-step__dot {
-    background: #ef4444;
-    border-color: #ef4444;
-}
-
-.diag-ac-step__body {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex: 1;
-    gap: var(--sp-sm);
-}
-
-.diag-ac-step__name {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-muted);
-}
-
-.diag-ac-step--active .diag-ac-step__name,
-.diag-ac-step--done .diag-ac-step__name {
-    color: var(--text-primary);
-}
-
-.diag-ac-step__status {
-    font-size: 10px;
-    font-family: var(--font-mono);
-    color: var(--text-dim);
-}
-
-.diag-ac-step--done .diag-ac-step__status {
-    color: #22c55e;
-}
-
-.diag-ac-step--err .diag-ac-step__status {
-    color: #ef4444;
-}
-
-/* Resultado do autocheck */
-.diag-autocheck__result {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px var(--sp-md);
-    border-radius: var(--r-md);
-    background: var(--bg-hover);
-    border: 1px solid var(--border-soft);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-top: 4px;
-}
-
-.diag-autocheck__result--ok {
-    border-color: rgba(34, 197, 94, .3);
-    color: #22c55e;
-    background: rgba(34, 197, 94, .06);
-}
-
-.diag-autocheck__result--warn {
-    border-color: rgba(234, 179, 8, .3);
-    color: #eab308;
-    background: rgba(234, 179, 8, .06);
-}
-
-.diag-autocheck__result--err {
-    border-color: rgba(239, 68, 68, .3);
-    color: #ef4444;
-    background: rgba(239, 68, 68, .06);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1462,4 +1312,555 @@
     height: 6px;
     border-radius: 50%;
     background-color: currentColor;
+}
+
+/* Refinamento local: os painéis escuros mantêm contraste nos dois temas. */
+#diagPage {
+    --diag-bg: #15181e;
+    --diag-surface: #202630;
+    --diag-line: #394350;
+    --diag-text: #edf2f7;
+    --diag-muted: #b5c0ce;
+    --diag-ok: #6ee7b7;
+    --diag-warn: #fcd34d;
+    --diag-error: #fda4af;
+    min-width: 0;
+}
+#diagPage [hidden] {
+    display: none !important;
+}
+#diagPage :is(button, input, select, [role="tabpanel"]):focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+}
+#diagPage button:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+}
+#diagPage .diag-body {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 24px;
+}
+#diagPage .diag-main {
+    gap: 24px;
+}
+#diagPage .diag-context {
+    gap: 8px 24px;
+    padding: 16px;
+    flex-wrap: wrap;
+}
+#diagPage .diag-context__item {
+    flex-wrap: wrap;
+    padding: 0;
+    min-width: 0;
+    flex-shrink: 1;
+}
+#diagPage .diag-context__val {
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+}
+#diagPage .diag-context__sep {
+    display: none;
+}
+#diagPage .diag-section__hdr {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+#diagPage .diag-section__title {
+    font-size: 12px;
+    margin: 0;
+}
+#diagPage .diag-quick-grid {
+    gap: 16px;
+}
+#diagPage .diag-quick-card {
+    padding: 16px;
+    min-width: 0;
+}
+#diagPage .diag-quick-card__name {
+    font-size: 14px;
+}
+#diagPage .diag-quick-card__target {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    min-height: 32px;
+}
+#diagPage .diag-quick-card__desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 8px 0 16px;
+}
+#diagPage .diag-quick-card__footer {
+    margin-top: auto;
+}
+#diagPage .diag-quick-card__status[data-status="ok"] {
+    color: #168057;
+}
+#diagPage .diag-quick-card__status[data-status="warn"] {
+    color: #a76b00;
+}
+#diagPage .diag-quick-card__status[data-status="err"] {
+    color: #dc3545;
+}
+#diagPage .diag-tool-grid {
+    gap: 16px;
+}
+#diagPage .diag-tool-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+    min-width: 0;
+}
+#diagPage .diag-tool-card__fields {
+    flex: 1;
+}
+#diagPage .diag-run-btn {
+    min-height: 40px;
+    justify-content: center;
+    margin-top: auto;
+}
+#diagPage .diag-input, #diagPage .diag-select {
+    min-height: 40px;
+    width: 100%;
+    min-width: 0;
+}
+#diagPage .diag-guide-tabs {
+    overflow-x: auto;
+}
+#diagPage .diag-guide-tab {
+    flex-shrink: 0;
+}
+#diagPage .diag-mtr {
+    padding: 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+}
+#diagPage .diag-mtr__form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 120px 180px;
+    gap: 16px;
+    align-items: end;
+}
+#diagPage .diag-mtr__form .diag-field {
+    margin: 0;
+}
+#diagPage .diag-mtr__form .diag-run-btn {
+    margin: 0;
+}
+#terminalSection {
+    min-width: 0;
+    gap: 0;
+    border: 1px solid var(--diag-line);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    background: var(--diag-bg);
+    color: var(--diag-text);
+}
+#terminalSection > .diag-section__hdr {
+    background: var(--diag-surface);
+    padding: 16px;
+    border-bottom: 1px solid var(--diag-line);
+}
+#terminalSection .diag-term-hdr {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+#terminalSection .diag-term-hdr__left {
+    min-width: 0;
+    flex: 1 1 260px;
+}
+#terminalSection .diag-term-hdr__right {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+#terminalSection .diag-term-title {
+    color: var(--diag-text);
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+#terminalSection .diag-term-tabs {
+    gap: 4px;
+}
+#terminalSection .diag-term-tab {
+    color: var(--diag-muted);
+    padding: 8px 12px;
+    border: 1px solid transparent;
+}
+#terminalSection .diag-term-tab:hover, #terminalSection .diag-term-tab--active {
+    background: var(--diag-line);
+    color: var(--diag-text);
+    border-color: #68778b;
+}
+#terminalSection .diag-term-action {
+    color: var(--diag-muted);
+    border-color: var(--diag-line);
+    min-width: 32px;
+    min-height: 32px;
+}
+#terminalSection .diag-term-action:hover {
+    color: var(--diag-text);
+    background: var(--diag-line);
+}
+#terminalSection .diag-terminal {
+    background: var(--diag-bg);
+    color: var(--diag-text);
+    border: 0;
+    border-radius: 0;
+    min-height: 160px;
+}
+#terminalSection .diag-term-panel {
+    padding: 20px;
+    max-height: 580px;
+    overflow: auto;
+    min-width: 0;
+}
+#terminalSection .diag-term-meta {
+    flex-wrap: wrap;
+    margin: 0 0 16px;
+    padding: 0 0 16px;
+    border-color: var(--diag-line);
+    color: var(--diag-text);
+    gap: 12px;
+}
+#terminalSection .diag-term-meta__lbl {
+    color: var(--diag-muted);
+}
+#terminalSection .diag-term-meta__item span:not(.diag-term-meta__lbl):not(.diag-term-status) {
+    color: var(--diag-text);
+}
+#terminalSection .diag-term-structured {
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: 0;
+    overflow: visible;
+}
+#terminalSection :is(pre, code) {
+    color: var(--diag-text);
+    background: transparent;
+    line-height: 1.7;
+    font-size: 12px;
+}
+#terminalSection .diag-term-output {
+    margin: 16px 0 0;
+    padding: 0;
+    min-height: 0;
+    max-height: 360px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+#terminalSection .diag-term-output--json {
+    white-space: pre;
+}
+#terminalSection .diag-table-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+}
+#terminalSection .diag-table {
+    color: var(--diag-text);
+    width: 100%;
+    font-size: 12px;
+    background: transparent;
+}
+#terminalSection .diag-table th {
+    color: var(--diag-muted);
+    background: var(--diag-surface);
+    white-space: nowrap;
+    padding: 12px;
+    border-color: var(--diag-line);
+}
+#terminalSection .diag-table td {
+    color: var(--diag-text);
+    background: transparent;
+    padding: 12px;
+    border-color: var(--diag-line);
+    max-width: 320px;
+    overflow-wrap: anywhere;
+}
+#terminalSection .diag-table tr:hover td {
+    background: var(--diag-surface);
+}
+#terminalSection .diag-table .loss-mid {
+    color: var(--diag-warn);
+}
+#terminalSection .diag-table .loss-high {
+    color: var(--diag-error);
+    font-weight: 600;
+}
+#terminalSection .diag-table .loss-total {
+    color: var(--diag-error);
+    background: #442931;
+    font-weight: 700;
+}
+#terminalSection .diag-term-status--ok, #terminalSection .diag-term-summary--ok {
+    color: var(--diag-ok);
+}
+#terminalSection .diag-term-status--warn, #terminalSection .diag-term-summary--warn {
+    color: var(--diag-warn);
+}
+#terminalSection .diag-term-status--err, #terminalSection .diag-term-summary--err {
+    color: var(--diag-error);
+}
+#terminalSection .diag-term-summary {
+    margin: 16px 0 0;
+    padding: 12px;
+    background: var(--diag-surface);
+    border-color: var(--diag-line);
+}
+#terminalSection .diag-details-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+}
+#terminalSection .diag-detail-item__lbl {
+    color: var(--diag-muted);
+}
+#terminalSection .diag-detail-item__val {
+    color: var(--diag-text);
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+#terminalSection .diag-detail-stderr {
+    margin-top: 20px;
+    background: var(--diag-surface);
+    padding: 16px;
+}
+#terminalSection .diag-detail-stderr__lbl, #terminalSection .diag-detail-stderr pre {
+    color: var(--diag-error);
+}
+#terminalSection .diag-exec-bar {
+    padding: 16px;
+    background: var(--diag-surface);
+    border-color: var(--diag-line);
+    color: var(--diag-text);
+}
+#terminalSection .diag-exec-bar__label {
+    color: var(--diag-text);
+}
+#terminalSection .diag-exec-bar__progress {
+    display: none;
+}
+#terminalSection .diag-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0 0 16px;
+}
+#terminalSection .diag-metrics > div {
+    padding: 16px;
+    background: var(--diag-surface);
+    border: 1px solid var(--diag-line);
+    border-radius: var(--r-md);
+    min-width: 0;
+}
+#terminalSection .diag-metrics dt {
+    font-size: 11px;
+    color: var(--diag-muted);
+    margin-bottom: 8px;
+}
+#terminalSection .diag-metrics dd {
+    font-size: 16px;
+    color: var(--diag-text);
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+#terminalSection .diag-mtr-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+#terminalSection .diag-mtr-badges span {
+    background: var(--diag-surface);
+    border: 1px solid var(--diag-line);
+    padding: 6px 12px;
+    border-radius: var(--r-sm);
+    font-size: 12px;
+}
+#terminalSection .diag-mtr-note, #terminalSection .diag-empty {
+    color: var(--diag-muted);
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 16px 0 0;
+}
+#diagPage .diag-console {
+    padding: 20px;
+    background: var(--diag-bg);
+    border: 1px solid var(--diag-line);
+    border-radius: var(--r-lg);
+    min-width: 0;
+    color: var(--diag-text);
+}
+#diagPage .diag-console .diag-section__title {
+    color: var(--diag-text);
+}
+#diagPage .diag-console .diag-field-hint {
+    color: var(--diag-muted);
+}
+#diagPage .diag-console__output {
+    margin: 0;
+    color: var(--diag-text);
+    background: transparent;
+    min-height: 64px;
+    max-height: 260px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 12px/1.7 var(--font-mono);
+}
+#diagPage .diag-term-cli {
+    margin: 0;
+    padding: 12px;
+    background: var(--diag-surface);
+    border: 1px solid var(--diag-line);
+    border-radius: var(--r-md);
+    gap: 8px;
+}
+#diagPage .diag-term-cli__prompt {
+    color: var(--diag-ok);
+    margin: 0;
+}
+#diagPage .diag-term-cli__input {
+    min-width: 0;
+    color: var(--diag-text);
+    caret-color: var(--diag-text);
+    background: transparent;
+    padding: 4px;
+}
+#diagPage .diag-term-cli__input::placeholder {
+    color: var(--diag-muted);
+    opacity: 1;
+}
+#diagPage .diag-history {
+    max-height: 600px;
+    gap: 8px;
+    padding: 4px;
+}
+#diagPage .diag-hist-item {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--bg-card);
+    text-align: left;
+    gap: 12px;
+}
+#diagPage .diag-hist-item:hover, #diagPage .diag-hist-item--selected {
+    background: var(--bg-hover);
+    border-color: var(--text-muted);
+}
+#diagPage .diag-hist-item__body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+#diagPage .diag-hist-item__tool {
+    font: 600 13px var(--font-sans, sans-serif);
+    text-transform: none;
+    letter-spacing: 0;
+}
+#diagPage .diag-hist-item__target {
+    font-size: 12px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+#diagPage .diag-hist-item__time {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-wrap: wrap;
+}
+#diagPage .diag-hist-item__dot {
+    width: 8px;
+    height: 8px;
+    margin-top: 5px;
+}
+#diagPage .diag-button--running::before {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+}
+#diagPage .diag-quick-card__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+}
+#diagPage .agent-status-badge {
+    color: var(--text-muted);
+    background: var(--bg-card);
+    border-color: var(--border);
+    padding: 6px 12px;
+}
+#diagPage .agent-status-badge--online {
+    color: #168057;
+}
+#diagPage .agent-status-badge--offline {
+    color: #dc3545;
+}
+@media (min-width: 1440px) {
+    #diagPage .diag-body {
+        grid-template-columns: minmax(0, 1fr) 300px;
+    }
+}
+@media (max-width: 1200px) {
+    #diagPage .diag-quick-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    #diagPage .diag-mtr__form {
+        grid-template-columns: minmax(0, 1fr) 100px;
+    }
+    #diagPage .diag-mtr__form .diag-run-btn {
+        grid-column: 1 / -1;
+    }
+}
+@media (max-width: 1023px) {
+    #diagPage .diag-body {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    #diagPage .diag-aside {
+        display: block;
+    }
+    #diagPage .diag-history {
+        max-height: 360px;
+    }
+}
+@media (max-width: 640px) {
+    #diagPage .diag-quick-grid, #diagPage .diag-tool-grid, #diagPage .diag-mtr__form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    #diagPage .diag-context {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+    }
+    #diagPage .diag-context__spacer {
+        display: none;
+    }
+    #terminalSection .diag-details-grid, #terminalSection .diag-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    #terminalSection .diag-term-panel {
+        padding: 12px;
+    }
+    #diagPage .diag-term-cli {
+        flex-wrap: wrap;
+    }
+    #diagPage .diag-term-cli__input {
+        flex-basis: 100%;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    #diagPage .diag-button--running::before, #diagPage .diag-exec-bar__spinner {
+        animation: none;
+    }
 }

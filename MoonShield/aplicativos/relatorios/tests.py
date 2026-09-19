@@ -15,12 +15,12 @@ User = get_user_model()
 class RelatoriosDiagnosticoTests(TestCase):
     def setUp(self):
         self.client = Client()
-        
+
         # Bypass GlobalOnboardingGateMiddleware
         config = ConfigSistema.get_solo()
         config.appliance_onboarding_completo = True
         config.save()
-        
+
         self.user = User.objects.create_user(username="testuser", password="testpassword")
         self.client.login(username="testuser", password="testpassword")
         self.contexto_url = reverse("relatorios:api_contexto")
@@ -37,17 +37,39 @@ class RelatoriosDiagnosticoTests(TestCase):
     def test_contexto_dados_reais_mockados(self, mock_disponivel, mock_topologia):
         mock_disponivel.return_value = True
         mock_topologia.return_value = {
-            "wan": {"principal": {"desejado": {"nome": "eth0", "ipv4": {"gateway": "192.168.1.1", "dns": ["8.8.8.8", "1.1.1.1"]}}, "observado": {"addresses": [{"address": "192.168.1.100/24"}]}}},
-            "lan": {"principal": {"desejado": {"nome": "eth1"}, "observado": {"addresses": [{"address": "10.0.0.1/24"}]}}}
+            "wan": {"principal": {"nome": "enp0s3", "desejado": {"papel": "wan", "gateway": "192.168.0.1"}, "real": {"ipv4": "192.168.0.106", "prefixo": "24", "gateway": "192.168.0.1"}}},
+            "lan": {"principal": {"nome": "enp0s8", "desejado": {"papel": "lan"}, "real": {"ipv4": "10.10.0.1", "prefixo": "24"}}}
         }
+        config = ConfigSistema.get_solo()
+        config.node_name = "MoonShield-Test"
+        config.save()
+
         response = self.client.get(self.contexto_url)
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["agent"], "online")
-        self.assertEqual(data["wan_iface"], "eth0")
+        self.assertEqual(data["wan_iface"], "enp0s3")
+        self.assertEqual(data["wan_cidr"], "192.168.0.106/24")
+        self.assertEqual(data["lan_iface"], "enp0s8")
+        self.assertEqual(data["lan_cidr"], "10.10.0.1/24")
+        self.assertEqual(data["gateway"], "192.168.0.1")
+        self.assertEqual(data["hostname"], "MoonShield-Test")
+
+    @patch("relatorios.views.obter_topologia")
+    @patch("relatorios.views.agent_disponivel")
+    def test_contexto_estrutura_antiga_falharia(self, mock_disponivel, mock_topologia):
+        mock_disponivel.return_value = True
+        # Topologia usando apenas as chaves reais "nome" e "real", sem "desejado"
+        mock_topologia.return_value = {
+            "wan": {"principal": {"nome": "enp0s3", "real": {"ipv4": "192.168.1.100", "prefixo": "24", "gateway": "192.168.1.1"}}}
+        }
+
+        response = self.client.get(self.contexto_url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["wan_iface"], "enp0s3")
         self.assertEqual(data["wan_cidr"], "192.168.1.100/24")
-        self.assertEqual(data["lan_iface"], "eth1")
-        self.assertEqual(data["lan_cidr"], "10.0.0.1/24")
+        self.assertEqual(data["gateway"], "192.168.1.1")
         self.assertEqual(data["gateway"], "192.168.1.1")
         self.assertEqual(data["dns1"], "8.8.8.8")
         self.assertEqual(data["dns2"], "1.1.1.1")
@@ -178,3 +200,19 @@ class RelatoriosDiagnosticoTests(TestCase):
         url = reverse("relatorios:api_execucao", args=[str(uuid.uuid4())])
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
+
+    def test_execucao_detalhe_source(self):
+        ex = ExecucaoDiagnostico.objects.create(
+            usuario=self.user,
+            ferramenta="ping",
+            alvo="8.8.8.8",
+            origem="terminal",
+            status="ok",
+            resumo="OK",
+            duration_ms=10,
+        )
+        url = reverse("relatorios:api_execucao", args=[str(ex.id)])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["source"], "terminal")

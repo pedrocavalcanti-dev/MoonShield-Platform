@@ -10,6 +10,7 @@ from rede.services.topologia import obter_topologia
 from rede.services.agent_client import agent_disponivel
 from relatorios.models import ExecucaoDiagnostico
 from relatorios.services.diagnostico_agent import executar_diagnostico_no_agent
+from configuracoes.models import ConfigSistema
 
 logger = logging.getLogger(__name__)
 
@@ -30,60 +31,59 @@ def diagnostico(request):
     return render(request, 'relatorios/diagnostico.html', contexto)
 
 
-@login_required
-@require_http_methods(["GET"])
-def diagnostico_contexto_api(request):
+
+
+def _obter_contexto_diagnostico(request=None) -> dict:
     topologia = obter_topologia()
 
-    # Extrair info WAN
     wan = topologia.get("wan", {}).get("principal") or {}
-    wan_desejado = wan.get("desejado", {})
-    wan_observado = wan.get("observado", {})
-
-    # Extrair info LAN
     lan = topologia.get("lan", {}).get("principal") or {}
-    lan_desejado = lan.get("desejado", {})
 
-    # DNS e Gateway normalmente ficam no gateway/dns da WAN desejada
+    try:
+        config = ConfigSistema.get_solo()
+        node = config.node_name or "MoonShield"
+    except Exception:
+        node = "MoonShield"
 
-    node = request.get_host().split(":")[0]  # O node atual acessado pelo browser
+    # WAN Extraction
+    wan_iface = wan.get("nome", "")
+    wan_real = wan.get("real", {})
+    wan_desejado = wan.get("desejado", {})
 
-    # Extrair IPs (seguro extrair de observed/addresses)
-    wan_cidr = ""
-    wan_ips = wan_observado.get("addresses", [])
-    if wan_ips:
-        wan_cidr = wan_ips[0].get("address", "")
+    wan_ip = wan_real.get("ipv4", "")
+    wan_prefix = wan_real.get("prefixo", "")
+    wan_cidr = f"{wan_ip}/{wan_prefix}" if wan_ip and wan_prefix else wan_ip
 
-    lan_cidr = ""
-    lan_ips = lan.get("observado", {}).get("addresses", [])
-    if lan_ips:
-        lan_cidr = lan_ips[0].get("address", "")
+    # Priority for gateway: real state, then desired state
+    gateway = wan_real.get("gateway") or wan_desejado.get("gateway", "")
 
-    context = {
+    # LAN Extraction
+    lan_iface = lan.get("nome", "")
+    lan_real = lan.get("real", {})
+    lan_ip = lan_real.get("ipv4", "")
+    lan_prefix = lan_real.get("prefixo", "")
+    lan_cidr = f"{lan_ip}/{lan_prefix}" if lan_ip and lan_prefix else lan_ip
+
+    return {
         "ok": True,
         "agent": "online" if agent_disponivel() else "offline",
         "hostname": node,
-        "wan_iface": wan_desejado.get("nome", ""),
+        "wan_iface": wan_iface,
         "wan_cidr": wan_cidr,
-        "lan_iface": lan_desejado.get("nome", ""),
+        "lan_iface": lan_iface,
         "lan_cidr": lan_cidr,
-        "gateway": wan_desejado.get("ipv4", {}).get("gateway", ""),
+        "gateway": gateway,
         "dns1": "",
         "dns2": "",
-        "ip_local": lan_cidr or node,
+        "ip_local": lan_ip or (request.get_host().split(":")[0] if request else ""),
         "node": node
     }
 
-    # Se houver dns configurado na WAN
-    dns_list = wan_desejado.get("ipv4", {}).get("dns", [])
-    if dns_list:
-        if len(dns_list) > 0:
-            context["dns1"] = dns_list[0]
-        if len(dns_list) > 1:
-            context["dns2"] = dns_list[1]
-
+@login_required
+@require_http_methods(["GET"])
+def diagnostico_contexto_api(request):
+    context = _obter_contexto_diagnostico(request)
     return JsonResponse(context)
-
 
 @login_required
 @require_http_methods(["POST"])
@@ -122,7 +122,7 @@ def diagnostico_executar_api(request):
         "dns_latency", "tcp_connect", "http_check", "arp_table",
         "routes", "interfaces", "sockets"
     }
-    
+
     if tool not in allowed_tools:
         return JsonResponse({"ok": False, "status": "err", "error_code": "validation_error", "summary": f"Ferramenta não permitida: {tool}"}, status=400)
 
@@ -153,13 +153,7 @@ def diagnostico_executar_api(request):
     meta["output_truncated"] = output_truncated
 
     # Montar contexto_snapshot
-    topologia = obter_topologia()
-    wan = topologia.get("wan", {}).get("principal") or {}
-    lan = topologia.get("lan", {}).get("principal") or {}
-    snapshot = {
-        "wan_iface": wan.get("desejado", {}).get("nome", ""),
-        "lan_iface": lan.get("desejado", {}).get("nome", ""),
-    }
+    snapshot = _obter_contexto_diagnostico()
 
     # Salva apenas execuções válidas que tentaram (incluindo agent timeout, offline, unavailable)
     # Não salva requests bloqueados no começo pelas regras do Django.
@@ -267,6 +261,7 @@ def diagnostico_execucao_api(request, execucao_id):
         "tool": ex.ferramenta,
         "target": ex.alvo,
         "options": safe_options,
+        "source": ex.origem,
         "status": ex.status,
         "summary": ex.resumo,
         "stdout": ex.stdout,

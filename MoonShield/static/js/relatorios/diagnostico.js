@@ -1,634 +1,497 @@
-
 'use strict';
 
-const Diag = {
-    ctx: {},
-    lastResult: null,
-    history: [],
-    isRunning: false,
-    activeTermTab: 'saida',
+const Diag = { ctx: {}, lastResult: null, history: [], isRunning: false, activeTermTab: 'saida', selectedId: null };
+const TOOL_LABELS = {
+    ping: 'Ping', traceroute: 'Traceroute', mtr: 'MTR', dns_lookup: 'DNS Lookup',
+    reverse_dns: 'Reverse DNS', dns_latency: 'Latência DNS', tcp_connect: 'TCP',
+    http_check: 'HTTP', arp_table: 'ARP', routes: 'Rotas', interfaces: 'Interfaces', sockets: 'Sockets'
 };
-
-function getCsrf() {
-    const c = document.cookie.split(';').find(x => x.trim().startsWith('csrftoken='));
-    return c ? c.split('=')[1] : '';
-}
+const TARGETLESS = new Set(['routes', 'interfaces', 'arp_table', 'sockets']);
+const $ = id => document.getElementById(id);
+const value = id => $(id)?.value.trim() || '';
+const scope = (tool, target) => TARGETLESS.has(tool) ? 'Sistema local' : (target || '—');
+const statusClass = status => ['ok', 'warn', 'err'].includes(status) ? status : 'unknown';
+const duration = ms => ms == null ? '—' : (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s');
+const elapsed = result => result.duration_ms ?? result.meta?.duration_ms;
+const escapeHTML = value => String(value ?? '—').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[char]));
+function setText(id, text) { if ($(id)) $(id).textContent = text == null || text === '' ? '—' : text; }
+function api(name) { return $('diagPage').dataset[name + 'Url']; }
 
 async function fetchJSON(url, options = {}) {
-    if (!options.headers) options.headers = {};
-    options.headers['X-CSRFToken'] = getCsrf();
-    options.headers['Content-Type'] = 'application/json';
-    
-    const res = await fetch(url, options);
+    const csrf = document.cookie.split(';').find(item => item.trim().startsWith('csrftoken='));
+    const res = await fetch(url, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf ? csrf.split('=')[1] : '', ...options.headers }
+    });
     let data;
-    try {
-        data = await res.json();
-    } catch(e) {
-        throw new Error('Falha ao processar resposta do servidor.');
-    }
-    
+    try { data = await res.json(); }
+    catch { throw new Error('Resposta inválida do servidor (HTTP ' + res.status + ').'); }
     if (!res.ok) {
-        throw new Error(data.summary || data.error_code || 'Erro na requisição');
+        const error = new Error(data.summary || data.error_code || 'Erro HTTP ' + res.status);
+        error.data = data;
+        throw error;
     }
     return data;
 }
 
-function setText(id, text) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = text || '—';
+function quickUnavailable(card) {
+    if (card.dataset.target === 'gateway' && !Diag.ctx.gateway) return 'Gateway não identificado';
+    if (['dns_lookup', 'dns_latency'].includes(card.dataset.tool) && !Diag.ctx.dns1 && !Diag.ctx.dns2) return 'DNS não identificado';
+    return '';
 }
-
+function syncButtons() {
+    document.querySelectorAll('.diag-run-btn, .diag-quick-card__btn').forEach(btn => {
+        const card = btn.closest('.diag-quick-card');
+        const reason = card ? quickUnavailable(card) : '';
+        btn.disabled = Diag.isRunning || Boolean(reason);
+        btn.title = reason;
+    });
+}
 async function loadContext() {
     try {
-        const data = await fetchJSON('/relatorios/diagnostico/api/contexto/');
+        const data = await fetchJSON(api('context'));
         Diag.ctx = data;
-        
-        setText('ctxIface', data.wan_iface);
+        setText('ctxIface', data.wan_iface ? 'WAN · ' + data.wan_iface : null);
         setText('ctxCidr', data.wan_cidr);
         setText('ctxGateway', data.gateway);
-        setText('ctxDns1', data.dns1);
-        setText('ctxDns2', data.dns2);
-        setText('ctxHost', `${data.hostname} — ${data.ip_local}`);
-        
-        const badge = document.getElementById('agentStatusBadge');
-        const lbl = document.getElementById('agentStatusLabel');
-        if (badge && lbl) {
-            if (data.agent === 'online') {
-                badge.className = 'agent-status-badge agent-status-badge--online';
-                lbl.textContent = 'Agent Online';
-            } else {
-                badge.className = 'agent-status-badge agent-status-badge--offline';
-                lbl.textContent = 'Agent Offline';
-            }
-        }
-        
-        setText('qtPingGw', data.gateway);
-        
-        const nsServer = document.getElementById('nsServer');
-        if (nsServer && nsServer.options.length >= 2) {
-            nsServer.options[0].text = `DNS 1 — ${data.dns1 || 'N/A'}`;
-            nsServer.options[1].text = `DNS 2 — ${data.dns2 || 'N/A'}`;
-        }
-    } catch(e) {
-        toast('err', 'Erro ao carregar contexto: ' + e.message);
-    }
+        const dns = [...new Set([data.dns1, data.dns2].filter(Boolean))].join(' / ');
+        setText('ctxDns1', dns);
+        setText('ctxHost', [...new Set([data.hostname, data.ip_local].filter(Boolean))].join(' / '));
+        $('ctxLanWrap').hidden = !data.lan_iface && !data.lan_cidr;
+        setText('ctxLan', [data.lan_iface, data.lan_cidr].filter(Boolean).join(' · '));
+        $('agentStatusBadge').className = 'agent-status-badge agent-status-badge--' + (data.agent === 'online' ? 'online' : 'offline');
+        setText('agentStatusLabel', data.agent === 'online' ? 'Agent Online' : 'Agent Offline');
+        setText('qtPingGw', data.gateway || 'Gateway não identificado');
+        setText('qtDns', 'google.com · ' + (dns ? 'DNS informado: ' + dns : 'DNS não identificado'));
+        setText('qtDnsLat', 'google.com · ' + (dns ? 'DNS informado: ' + dns : 'DNS não identificado'));
+        return true;
+    } catch (error) {
+        Diag.ctx = {};
+        ['ctxIface', 'ctxCidr', 'ctxGateway', 'ctxDns1', 'ctxHost'].forEach(id => setText(id, null));
+        $('ctxLanWrap').hidden = true;
+        setText('qtPingGw', 'Gateway não identificado');
+        ['qtDns', 'qtDnsLat'].forEach(id => setText(id, 'google.com · DNS não identificado'));
+        $('agentStatusBadge').className = 'agent-status-badge';
+        setText('agentStatusLabel', 'Agent · estado indisponível');
+        toast('err', 'Erro ao carregar contexto: ' + error.message);
+        return false;
+    } finally { syncButtons(); }
 }
 
 async function loadHistory() {
     try {
-        const data = await fetchJSON('/relatorios/diagnostico/api/historico/');
+        const data = await fetchJSON(api('history'));
         Diag.history = data.items || [];
         renderHistory();
-    } catch(e) {
-        console.error('Falha ao carregar historico', e);
-    }
+    } catch (error) { toast('err', 'Histórico indisponível: ' + error.message); }
 }
-
 function renderHistory() {
-    const list = document.getElementById('historyList');
-    if (!list) return;
-    list.innerHTML = '';
-    
-    if (Diag.history.length === 0) {
-        list.innerHTML = '<div class="diag-history__empty">Nenhum teste executado ainda</div>';
-        return;
+    const list = $('historyList');
+    list.replaceChildren();
+    if (!Diag.history.length) {
+        const empty = document.createElement('p');
+        empty.className = 'diag-history__empty';
+        empty.textContent = 'Nenhuma execução na lista.';
+        list.append(empty);
     }
-    
     Diag.history.forEach(entry => {
-        const ts = new Date(entry.created_at);
-        const item = document.createElement('div');
-        item.className = 'diag-history__item';
-        
-        let icon = '';
-        if (entry.status === 'ok') icon = '<svg width="12" height="12" style="color:var(--teal-400)"><circle cx="12" cy="12" r="10"/></svg>';
-        else if (entry.status === 'warn') icon = '<svg width="12" height="12" style="color:var(--amber-400)"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>';
-        else icon = '<svg width="12" height="12" style="color:var(--rose-400)"><circle cx="12" cy="12" r="10"/></svg>';
-        
-        item.innerHTML = `
-            ${icon}
-            <div class="diag-history__info">
-                <span class="diag-history__tool">${entry.tool} ${entry.target ? '→ '+entry.target : ''}</span>
-                <span class="diag-history__ts">${ts.toLocaleTimeString('pt-BR')} — ${entry.duration_ms}ms</span>
-            </div>
-        `;
-        
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'diag-hist-item' + (entry.id === Diag.selectedId ? ' diag-hist-item--selected' : '');
+        item.setAttribute('aria-pressed', String(entry.id === Diag.selectedId));
+        item.innerHTML = '<span class="diag-hist-item__dot diag-hist-item__dot--' + statusClass(entry.status) + '"></span>' +
+            '<span class="diag-hist-item__body"><span class="diag-hist-item__tool">' + escapeHTML(TOOL_LABELS[entry.tool] || entry.tool) +
+            '</span><span class="diag-hist-item__target">' + escapeHTML(scope(entry.tool, entry.target)) +
+            '</span><span class="diag-hist-item__time"><span>' + escapeHTML(new Date(entry.created_at).toLocaleTimeString('pt-BR')) +
+            '</span><span>' + escapeHTML(duration(entry.duration_ms)) + ' · ' + escapeHTML((entry.status || '—').toUpperCase()) + '</span></span></span>';
         item.addEventListener('click', () => fetchExecutionDetail(entry.id));
-        list.appendChild(item);
+        list.append(item);
     });
 }
-
 async function fetchExecutionDetail(id) {
-    if (Diag.isRunning) { toast('info', 'Aguarde a execução atual terminar.'); return; }
-    startExecUI('Carregando', id, null);
+    if (Diag.isRunning) return;
+    startExecUI('Carregando execução', null);
     try {
-        const data = await fetchJSON(`/relatorios/diagnostico/api/execucao/${id}/`);
-        Diag.lastResult = {
-            tool: data.tool,
-            target: data.target,
-            options: data.options,
-            result: data,
-            ts: new Date(data.created_at)
-        };
-        displayResult(Diag.lastResult);
-    } catch(e) {
-        displayError(e.message);
-    } finally {
-        Diag.isRunning = false;
-        stopExecUI(null);
-    }
+        const result = await fetchJSON(api('detail').replace('00000000-0000-0000-0000-000000000000', encodeURIComponent(id)));
+        const source = Diag.history.find(entry => entry.id === id)?.source;
+        displayResult({ tool: result.tool, target: result.target, result, source, ts: new Date(result.created_at) });
+    } catch (error) { displayError(error); }
+    finally { stopExecUI(); }
 }
-
-async function runTool(tool, target, options = {}, source = 'guided', sourceCard = null) {
-    if (Diag.isRunning) { toast('info', 'Aguarde a execução atual terminar.'); return; }
-    
-    const targetless = ['routes', 'interfaces', 'arp_table', 'sockets'];
-    if (!target && !targetless.includes(tool)) {
-        toast('err', 'Informe um alvo antes de executar.'); return;
-    }
-
+function clearResult() {
+    Diag.lastResult = null;
+    Diag.selectedId = null;
+    $('termStructured').replaceChildren();
+    $('termStructured').hidden = true;
+    $('termStructured').style.display = 'none';
+    $('termOutput').hidden = false;
+    setText('termOutput', 'Nenhuma execução selecionada.');
+    setText('termTitle', 'Resultado · aguardando execução');
+    setText('termJson', '');
+    ['termMeta', 'termSummary', 'detStderr'].forEach(id => $(id).style.display = 'none');
+    document.querySelectorAll('.diag-detail-item__val').forEach(el => el.textContent = '—');
+    renderHistory();
+}
+function selectResultTab(name) {
+    Diag.activeTermTab = name;
+    document.querySelectorAll('.diag-term-tab').forEach(tab => {
+        const active = tab.dataset.ttab === name;
+        tab.classList.toggle('diag-term-tab--active', active);
+        tab.setAttribute('aria-selected', String(active));
+        tab.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll('.diag-term-panel').forEach(panel => {
+        const active = panel.id === 'tpanel-' + name;
+        panel.hidden = !active;
+        panel.classList.toggle('diag-term-panel--active', active);
+    });
+}
+function startExecUI(title, button) {
     Diag.isRunning = true;
-    startExecUI(tool, target, sourceCard);
-
+    clearResult();
+    selectResultTab('saida');
+    setText('termTitle', title);
+    setText('termOutput', 'Executando…');
+    setText('execBarLabel', title);
+    $('execBar').style.display = 'flex';
+    $('terminalSection').setAttribute('aria-busy', 'true');
+    Diag.runningButton = button;
+    if (button) {
+        Diag.buttonContent = button.innerHTML;
+        button.textContent = 'Executando…';
+        button.classList.add('diag-button--running');
+    }
+    syncButtons();
+}
+function stopExecUI() {
+    Diag.isRunning = false;
+    $('execBar').style.display = 'none';
+    $('terminalSection').setAttribute('aria-busy', 'false');
+    if (Diag.runningButton) {
+        Diag.runningButton.innerHTML = Diag.buttonContent;
+        Diag.runningButton.classList.remove('diag-button--running');
+    }
+    Diag.runningButton = null;
+    syncButtons();
+}
+function displayError(error) {
+    clearResult();
+    selectResultTab('saida');
+    setText('termTitle', 'Não foi possível concluir o teste');
+    setText('termOutput', error.message || String(error));
+    setText('detStatus', 'ERR');
+    setText('detStderrContent', error.message || String(error));
+    $('detStderr').style.display = 'block';
+    if (error.data) setText('termJson', JSON.stringify(error.data, null, 2));
+}
+async function runTool(tool, target, options = {}, source = 'guided', button = null) {
+    if (Diag.isRunning) { toast('info', 'Aguarde a execução atual terminar.'); return; }
+    target = TARGETLESS.has(tool) ? '' : String(target || '').trim();
+    let invalid = '';
+    if (!Object.hasOwn(TOOL_LABELS, tool)) invalid = 'Ferramenta não permitida.';
+    else if (!TARGETLESS.has(tool) && !target) invalid = 'Informe um destino antes de executar.';
+    else if (target.length > 255) invalid = 'Destino excedeu o limite de 255 caracteres.';
+    else if (tool === 'tcp_connect' && (!Number.isInteger(Number(options.port)) || Number(options.port) < 1 || Number(options.port) > 65535)) invalid = 'Informe uma porta entre 1 e 65535.';
+    if (invalid) { displayError(new Error(invalid)); if (source === 'terminal') consoleLine(invalid); return; }
+    startExecUI((TOOL_LABELS[tool] || tool) + ' → ' + scope(tool, target), button);
+    const entry = { tool, target, source, ts: new Date(), result: null };
     try {
-        const data = await fetchJSON('/relatorios/diagnostico/api/executar/', {
-            method: 'POST',
-            body: JSON.stringify({ tool, target, options, source })
-        });
-        
-        Diag.lastResult = {
-            tool,
-            target,
-            options,
-            result: data,
-            ts: new Date()
-        };
-        displayResult(Diag.lastResult);
-        loadHistory();
-        
-        if (sourceCard && typeof updateQuickCardStatus === 'function') {
-            updateQuickCardStatus(sourceCard, data.status, data.meta?.duration_ms);
-        }
-        
-    } catch (e) {
-        displayError(e.message);
+        entry.result = await fetchJSON(api('execute'), { method: 'POST', body: JSON.stringify({ tool, target, options, source }) });
+        displayResult(entry);
+    } catch (error) {
+        // Preserve real HTTP error payloads, including persisted 503/504 executions.
+        if (error.data) { entry.result = error.data; displayResult(entry); }
+        else displayError(error);
+        if (source === 'terminal' && !entry.result) consoleLine(error.message);
     } finally {
-        Diag.isRunning = false;
-        stopExecUI(sourceCard);
-    }
-}
-
-function startExecUI(tool, target, cardId) {
-    const execBar = document.getElementById('execBar');
-    const execLabel = document.getElementById('execBarLabel');
-    const termOutput = document.getElementById('termOutput');
-    const termStruct = document.getElementById('termStructured');
-    const termTitle = document.getElementById('termTitle');
-    
-    if (termTitle) termTitle.textContent = `${tool} → ${target || 'localhost'} — executando...`;
-    if (termOutput) termOutput.textContent = `Executando ${tool}...`;
-    if (termStruct) { termStruct.style.display = 'none'; termStruct.innerHTML = ''; }
-    
-    document.getElementById('termMeta').style.display = 'none';
-    document.getElementById('termSummary').style.display = 'none';
-    
-    if (execBar) {
-        execBar.style.display = 'flex';
-        execBar.classList.add('diag-exec-bar--indet');
-    }
-    if (execLabel) execLabel.textContent = `Executando ${tool}...`;
-    
-    if (cardId) {
-        const card = document.getElementById(cardId);
-        const btn = card?.querySelector('.diag-quick-card__btn');
-        if (btn) { btn.textContent = 'Rodando...'; btn.classList.add('diag-quick-card__btn--running'); }
-    }
-    
-    document.querySelectorAll('.diag-run-btn').forEach(b => b.classList.add('diag-run-btn--running'));
-    document.querySelectorAll('.diag-quick-card__btn').forEach(b => { b.disabled = true; });
-}
-
-function stopExecUI(cardId) {
-    const execBar = document.getElementById('execBar');
-    if (execBar) {
-        execBar.classList.remove('diag-exec-bar--indet');
-        execBar.style.display = 'none';
-    }
-    if (cardId) {
-        const card = document.getElementById(cardId);
-        const btn = card?.querySelector('.diag-quick-card__btn');
-        if (btn) { btn.textContent = 'Executar'; btn.classList.remove('diag-quick-card__btn--running'); btn.disabled = false; }
-    }
-    document.querySelectorAll('.diag-run-btn').forEach(b => b.classList.remove('diag-run-btn--running'));
-    document.querySelectorAll('.diag-quick-card__btn').forEach(b => { b.disabled = false; });
-}
-
-function displayError(msg) {
-    const termOutput = document.getElementById('termOutput');
-    const termMeta = document.getElementById('termMeta');
-    const termTitle = document.getElementById('termTitle');
-    
-    if (termTitle) termTitle.textContent = 'Falha na execução';
-    if (termOutput) termOutput.textContent = 'Erro: ' + msg;
-    if (termMeta) termMeta.style.display = 'flex';
-    
-    setText('metaStatus', 'ERR');
-    document.getElementById('metaStatus')?.classList.add('diag-term-status--err');
-}
-
-function escapeHTML(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function renderStructuredOutput(tool, structured) {
-    if (!structured) return '';
-    let html = '';
-    
-    if (tool === 'mtr' && structured.hops && structured.hops.length > 0) {
-        html += '<table class="diag-table"><thead><tr><th>#</th><th>Host/IP</th><th>Loss %</th><th>Avg</th><th>Best</th><th>Worst</th></tr></thead><tbody>';
-        structured.hops.forEach(h => {
-            const lossCls = h.loss_percent > 20 ? 'loss-high' : (h.loss_percent > 0 ? 'loss-mid' : '');
-            const msCls = h.avg_ms > 150 ? 'ms-high' : '';
-            html += `<tr>
-                <td>${escapeHTML(h.hop)}</td>
-                <td>${escapeHTML(h.host || h.ip)}</td>
-                <td class="${lossCls}">${escapeHTML(h.loss_percent)}%</td>
-                <td class="${msCls}">${escapeHTML(h.avg_ms)}</td>
-                <td>${escapeHTML(h.best_ms)}</td>
-                <td>${escapeHTML(h.worst_ms)}</td>
-            </tr>`;
-        });
-        html += '</tbody></table>';
-    } 
-    else if (tool === 'routes' && structured.routes) {
-        html += '<table class="diag-table"><thead><tr><th>Destino</th><th>Gateway</th><th>Dev</th><th>Metric</th><th>Protocol</th></tr></thead><tbody>';
-        structured.routes.forEach(r => {
-            html += `<tr>
-                <td>${escapeHTML(r.dst)}</td>
-                <td>${escapeHTML(r.gateway || '-')}</td>
-                <td>${escapeHTML(r.dev || '-')}</td>
-                <td>${escapeHTML(r.metric || '-')}</td>
-                <td>${escapeHTML(r.protocol || '-')}</td>
-            </tr>`;
-        });
-        html += '</tbody></table>';
-    }
-    else if (tool === 'interfaces' && structured.interfaces) {
-        html += '<table class="diag-table"><thead><tr><th>Interface</th><th>State</th><th>MTU</th><th>Address</th></tr></thead><tbody>';
-        structured.interfaces.forEach(i => {
-            const stCls = i.operstate === 'UP' ? 'loss-mid' : (i.operstate === 'DOWN' ? 'loss-high' : '');
-            let addrs = (i.addresses || []).join(', ');
-            html += `<tr>
-                <td>${escapeHTML(i.ifname)}</td>
-                <td class="${stCls}">${escapeHTML(i.operstate)}</td>
-                <td>${escapeHTML(i.mtu)}</td>
-                <td>${escapeHTML(addrs)}</td>
-            </tr>`;
-        });
-        html += '</tbody></table>';
-    }
-    else if (tool === 'arp_table' && structured.arp) {
-        html += '<table class="diag-table"><thead><tr><th>Destino</th><th>Interface</th><th>MAC Address</th><th>State</th></tr></thead><tbody>';
-        structured.arp.forEach(a => {
-            html += `<tr>
-                <td>${escapeHTML(a.dst)}</td>
-                <td>${escapeHTML(a.dev)}</td>
-                <td>${escapeHTML(a.lladdr)}</td>
-                <td>${escapeHTML(a.state)}</td>
-            </tr>`;
-        });
-        html += '</tbody></table>';
-    }
-    else if (tool === 'ping' && structured.loss_percent !== undefined) {
-        html += '<table class="diag-table"><thead><tr><th>Sent</th><th>Recv</th><th>Loss</th><th>Min (ms)</th><th>Avg (ms)</th><th>Max (ms)</th></tr></thead><tbody>';
-        const lossCls = structured.loss_percent > 20 ? 'loss-high' : '';
-        html += `<tr>
-            <td>${escapeHTML(structured.sent)}</td>
-            <td>${escapeHTML(structured.received)}</td>
-            <td class="${lossCls}">${escapeHTML(structured.loss_percent)}%</td>
-            <td>${escapeHTML(structured.min_ms)}</td>
-            <td>${escapeHTML(structured.avg_ms)}</td>
-            <td>${escapeHTML(structured.max_ms)}</td>
-        </tr>`;
-        html += '</tbody></table>';
-    }
-    
-    return html;
-}
-
-function displayResult(entry) {
-    const { tool, target, result, ts } = entry;
-    
-    const termOutput = document.getElementById('termOutput');
-    const termStruct = document.getElementById('termStructured');
-    const termTitle = document.getElementById('termTitle');
-    const termMeta = document.getElementById('termMeta');
-    const termSummary = document.getElementById('termSummary');
-    const termJson = document.getElementById('termJson');
-    
-    setText('metaTool', tool);
-    setText('metaTarget', target || 'localhost');
-    setText('metaTime', ts.toLocaleTimeString('pt-BR'));
-    
-    const metaStatus = document.getElementById('metaStatus');
-    if (metaStatus) {
-        metaStatus.textContent = result.status.toUpperCase();
-        metaStatus.className = `diag-term-status diag-term-status--${result.status}`;
-    }
-    
-    termMeta.style.display = 'flex';
-    termTitle.textContent = `${tool} → ${target || 'localhost'} — ${ts.toLocaleTimeString('pt-BR')}`;
-    
-    termOutput.textContent = (result.stdout || '') + (result.stderr ? `\n\n[STDERR]\n${result.stderr}` : '');
-    
-    if (termStruct) {
-        const html = renderStructuredOutput(tool, result.structured);
-        if (html) {
-            termStruct.innerHTML = html;
-            termStruct.style.display = 'block';
-        } else {
-            termStruct.style.display = 'none';
+        if (entry.result) {
+            const card = button?.closest('.diag-quick-card');
+            if (card) {
+                const status = card.querySelector('.diag-quick-card__status');
+                status.textContent = (entry.result.status || 'err').toUpperCase();
+                status.dataset.status = statusClass(entry.result.status);
+                card.querySelector('.diag-quick-card__time').textContent = duration(elapsed(entry.result));
+            }
+            if (source === 'terminal') consoleLine(humanOutput());
         }
+        stopExecUI();
+        await loadHistory();
     }
-    
-    if (termSummary) {
-        termSummary.style.display = 'flex';
-        termSummary.className = `diag-term-summary diag-term-summary--${result.status}`;
-        setText('termSummaryText', result.summary);
+}
+
+function table(headers, rows) {
+    if (!rows.length) return '<p class="diag-empty">Nenhum registro retornado.</p>';
+    return '<div class="diag-table-scroll"><table class="diag-table"><thead><tr>' +
+        headers.map(header => '<th scope="col">' + escapeHTML(header) + '</th>').join('') +
+        '</tr></thead><tbody>' + rows.map(row => '<tr>' + row.map(cell => '<td>' + escapeHTML(cell) + '</td>').join('') + '</tr>').join('') +
+        '</tbody></table></div>';
+}
+function metrics(items) {
+    return '<dl class="diag-metrics">' + items.map(([label, val]) => '<div><dt>' + escapeHTML(label) + '</dt><dd>' + escapeHTML(val) + '</dd></div>').join('') + '</dl>';
+}
+function unit(val, suffix) { return val == null ? '—' : val + suffix; }
+function renderStructuredOutput(tool, s, entry) {
+    if (!s || typeof s !== 'object') return '';
+    if (tool === 'ping' && s.loss_percent != null) return metrics([
+        ['Enviados', s.sent], ['Recebidos', s.received], ['Perda', unit(s.loss_percent, '%')],
+        ['Mínimo', unit(s.min_ms, ' ms')], ['Média', unit(s.avg_ms, ' ms')], ['Máximo', unit(s.max_ms, ' ms')]
+    ]);
+    if (tool === 'routes' && Array.isArray(s.routes)) return table(['Destino', 'Gateway', 'Interface', 'Métrica', 'Protocolo'],
+        s.routes.map(r => [r.dst, r.gateway, r.dev, r.metric, r.protocol]));
+    if (tool === 'arp_table' && Array.isArray(s.neighbors)) return table(['IP', 'Interface', 'MAC', 'Estado'],
+        s.neighbors.map(n => [n.dst, n.dev, n.lladdr, Array.isArray(n.state) ? n.state.join(', ') : n.state]));
+    if (tool === 'interfaces' && Array.isArray(s.interfaces)) {
+        const addresses = (iface, family) => (iface.addr_info || []).filter(a => a.family === family).map(a => a.local + (a.prefixlen == null ? '' : '/' + a.prefixlen)).join(', ') || '—';
+        return table(['Interface', 'Estado', 'MTU', 'IPv4', 'IPv6'],
+            s.interfaces.map(i => [i.ifname, i.operstate, i.mtu, addresses(i, 'inet'), addresses(i, 'inet6')]));
     }
-    
-    setText('detDuration', `${result.duration_ms || result.meta?.duration_ms || 0}ms`);
-    setText('detExitCode', String(result.exit_code !== undefined ? result.exit_code : (result.meta?.exit_code || 0)));
+    if (tool === 'mtr' && Array.isArray(s.hops)) {
+        const rows = s.hops.map(h => {
+            const loss = h.loss_percent;
+            const cls = loss >= 100 ? 'loss-total' : loss > 20 ? 'loss-high' : loss > 0 ? 'loss-mid' : '';
+            return '<tr><td>' + escapeHTML(h.hop) + '</td><td>' + escapeHTML(h.host || h.ip) +
+                '</td><td class="' + cls + '">' + escapeHTML(unit(loss, '%')) + '</td>' +
+                [h.sent, h.last_ms, h.avg_ms, h.best_ms, h.worst_ms, h.stdev_ms].map(v => '<td>' + escapeHTML(v) + '</td>').join('') + '</tr>';
+        }).join('');
+        return '<div class="diag-mtr-badges"><span>' + s.hops.length + ' hops</span><span>' + escapeHTML(duration(elapsed(entry.result))) +
+            '</span><span class="diag-term-status--' + statusClass(entry.result.status) + '">' + escapeHTML((entry.result.status || '—').toUpperCase()) +
+            '</span></div><div class="diag-table-scroll"><table class="diag-table"><thead><tr>' +
+            ['Hop', 'Host', 'Loss', 'Sent', 'Last (ms)', 'Avg (ms)', 'Best (ms)', 'Worst (ms)', 'StDev (ms)'].map(h => '<th scope="col">' + h + '</th>').join('') +
+            '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+            '<p class="diag-mtr-note">Alguns equipamentos limitam respostas ICMP. Perda em hops intermediários não representa necessariamente perda fim a fim.</p>';
+    }
+    if (['dns_lookup', 'reverse_dns'].includes(tool) && Array.isArray(s.records)) return table(['Registro'], s.records.map(r => [r]));
+    if (tool === 'dns_latency' && 'query_time_ms' in s) return metrics([['Domínio', entry.target], ['Tempo da consulta', unit(s.query_time_ms, ' ms')]]);
+    if (tool === 'tcp_connect' && 'reachable' in s) return metrics([
+        ['Host', entry.target], ['Porta', s.port], ['Estado', s.reachable ? 'Conectado' : 'Não conectado'], ['Duração da tentativa', duration(elapsed(entry.result))]
+    ]);
+    if (tool === 'http_check' && 'status_code' in s) return metrics([
+        ['HTTP', s.status_code], ['Tempo', duration(elapsed(entry.result))], ['Destino final', s.final_url], ['Resultado', entry.result.summary]
+    ]);
+    return '';
+}
+function displayResult(entry) {
+    Diag.lastResult = entry;
+    const { tool, target, result, ts } = entry;
+    Diag.selectedId = result.execution_id || result.id || null;
+    const status = statusClass(result.status);
+    setText('termTitle', (TOOL_LABELS[tool] || tool) + ' → ' + scope(tool, target) + ' · ' + ts.toLocaleTimeString('pt-BR') + ' · ' + (result.status || '—').toUpperCase());
+    setText('metaTool', TOOL_LABELS[tool] || tool);
+    setText('metaTarget', scope(tool, target));
+    setText('metaTime', ts.toLocaleTimeString('pt-BR'));
+    setText('metaStatus', (result.status || '—').toUpperCase());
+    $('metaStatus').className = 'diag-term-status diag-term-status--' + status;
+    $('termMeta').style.display = 'flex';
+    const html = renderStructuredOutput(tool, result.structured, entry);
+    $('termStructured').innerHTML = html; // Renderers escape every external value.
+    $('termStructured').hidden = !html;
+    $('termStructured').style.display = html ? 'block' : 'none';
+    // Machine-readable stdout belongs exclusively in JSON; ping/traceroute/ss remain readable.
+    const machineOutput = ['routes', 'interfaces', 'arp_table', 'mtr'].includes(tool);
+    const stdout = (!html || tool === 'ping') && !machineOutput ? result.stdout || '' : '';
+    $('termOutput').textContent = stdout || (!html ? result.summary || 'Nenhuma saída disponível.' : '');
+    $('termOutput').hidden = !$('termOutput').textContent;
+    $('termSummary').style.display = result.summary ? 'flex' : 'none';
+    $('termSummary').className = 'diag-term-summary diag-term-summary--' + status;
+    setText('termSummaryText', result.status === 'err' ? 'Não foi possível concluir o teste: ' + (result.summary || 'Erro') : result.summary);
+    setText('detDuration', duration(elapsed(result)));
+    setText('detExitCode', result.exit_code ?? result.meta?.exit_code);
     setText('detTool', tool);
-    setText('detTarget', target || '—');
-    setText('detOutputSize', `${(termOutput.textContent.length / 1024).toFixed(2)} KB`);
+    setText('detTarget', scope(tool, target));
+    setText('detSource', result.source || entry.source);
+    setText('detExecution', Diag.selectedId);
+    setText('detStatus', result.status);
+    setText('detOutputSize', ((result.stdout || '').length / 1024).toFixed(2) + ' KB');
     setText('detTimestamp', ts.toLocaleString('pt-BR'));
-    
-    if (termJson) {
-        termJson.textContent = JSON.stringify(result, null, 2);
-    }
+    setText('detStderrContent', result.stderr);
+    $('detStderr').style.display = result.stderr ? 'block' : 'none';
+    setText('termJson', JSON.stringify(result, null, 2));
+    renderHistory();
 }
-
-function handleTerminalCommand(cmdRaw) {
-    const cmdStr = cmdRaw.trim();
-    if (!cmdStr) return;
-    
-    const parts = cmdStr.split(/\s+/);
-    const cmd = parts[0].toLowerCase();
-    const args = parts.slice(1);
-    
-    if (cmd === 'clear') {
-        document.getElementById('termOutput').textContent = 'Terminal limpo.';
-        document.getElementById('termStructured').style.display = 'none';
-        document.getElementById('termMeta').style.display = 'none';
-        document.getElementById('termSummary').style.display = 'none';
+function humanOutput() {
+    const structured = $('termStructured');
+    const rows = [...structured.querySelectorAll('tr')].map(row => [...row.cells].map(cell => cell.textContent).join('\t'));
+    const values = [...structured.querySelectorAll('.diag-metrics > div')].map(item => item.querySelector('dt').textContent + ': ' + item.querySelector('dd').textContent);
+    const notes = [...structured.querySelectorAll('p, .diag-mtr-badges')].map(item => item.textContent);
+    return [$('termTitle').textContent, structured.hidden ? '' : [...values, ...rows, ...notes].join('\n'),
+        $('termOutput').hidden ? '' : $('termOutput').textContent,
+        $('termSummary').style.display === 'none' ? '' : $('termSummaryText').textContent].filter(Boolean).join('\n\n');
+}
+function consoleLine(text) {
+    const output = $('consoleOutput');
+    // Keep the console bounded independently of database history.
+    output.textContent = (output.textContent + (output.textContent ? '\n\n' : '') + text).slice(-48000);
+    output.scrollTop = output.scrollHeight;
+}
+function handleTerminalCommand(raw) {
+    if (Diag.isRunning) { toast('info', 'Aguarde a execução atual terminar.'); return; }
+    const line = raw.trim();
+    if (!line) return;
+    const [command, ...args] = line.split(/\s+/);
+    const cmd = command.toLowerCase();
+    if (cmd === 'clear' && !args.length) { $('consoleOutput').textContent = ''; return; }
+    consoleLine('moonshield> ' + line);
+    if (cmd === 'help' && !args.length) {
+        consoleLine('help\nping <host>    trace <host>    mtr <host>\ndns <domain>   rdns <ip>       tcp <host> <port>\nhttp <url>     routes         arp\nifaces         sockets        history\nclear');
         return;
     }
-    if (cmd === 'history') {
-        document.getElementById('termOutput').textContent = Diag.history.slice(0, 10).map((h, i) => `[${i+1}] ${new Date(h.created_at).toLocaleTimeString()} | ${h.tool} ${h.target || '-'} | ${h.status}`).join('\n') || 'Nenhum historico.';
-        document.getElementById('termStructured').style.display = 'none';
+    if (cmd === 'history' && !args.length) {
+        consoleLine(Diag.history.map(h => (TOOL_LABELS[h.tool] || h.tool) + ' · ' + scope(h.tool, h.target) + ' · ' + h.status + ' · ' + duration(h.duration_ms)).join('\n') || 'Nenhuma execução na lista.');
         return;
     }
-    if (cmd === 'help') {
-        document.getElementById('termOutput').textContent = `Comandos suportados:
-ping <host>       trace <host>        mtr <host>
-dns <domain>      rdns <ip>           tcp <host> <port>
-http <url>        routes              arp
-ifaces            sockets             history
-clear`;
-        document.getElementById('termStructured').style.display = 'none';
-        return;
-    }
-    
-    const map = {
-        'ping': { tool: 'ping', req: true },
-        'trace': { tool: 'traceroute', req: true },
-        'mtr': { tool: 'mtr', req: true },
-        'dns': { tool: 'dns_lookup', req: true },
-        'rdns': { tool: 'reverse_dns', req: true },
-        'tcp': { tool: 'tcp_connect', req: true, opt: 'port' },
-        'http': { tool: 'http_check', req: true },
-        'routes': { tool: 'routes', req: false },
-        'arp': { tool: 'arp_table', req: false },
-        'ifaces': { tool: 'interfaces', req: false },
-        'sockets': { tool: 'sockets', req: false }
-    };
-    
-    const mapped = map[cmd];
-    if (!mapped) {
-        toast('err', 'Comando desconhecido. Digite help.');
-        return;
-    }
-    
-    if (mapped.req && args.length === 0) {
-        toast('err', `O comando ${cmd} exige um alvo.`);
-        return;
-    }
-    
-    let target = args[0] || '';
-    let opts = {};
-    if (mapped.opt === 'port' && args.length > 1) {
-        opts.port = args[1];
-    }
-    
-    runTool(mapped.tool, target, opts, 'terminal', null);
+    const map = { ping: 'ping', trace: 'traceroute', mtr: 'mtr', dns: 'dns_lookup', rdns: 'reverse_dns', tcp: 'tcp_connect', http: 'http_check', routes: 'routes', arp: 'arp_table', ifaces: 'interfaces', sockets: 'sockets' };
+    const tool = Object.hasOwn(map, cmd) ? map[cmd] : null;
+    if (!tool) { consoleLine('Comando não permitido. Digite help.'); return; }
+    const count = TARGETLESS.has(tool) ? 0 : cmd === 'tcp' ? 2 : 1;
+    if (args.length !== count) { consoleLine('Argumentos inválidos. Digite help para consultar a sintaxe.'); return; }
+    const options = cmd === 'tcp' ? { port: Number(args[1]) } : cmd === 'mtr' ? { cycles: 3 } : {};
+    runTool(tool, args[0] || '', options, 'terminal');
 }
-
-function toast(type, msg, duration = 3200) {
-    const container = document.getElementById('diagToast');
-    if (!container) return;
-    const t = document.createElement('div');
-    t.className = `diag-toast diag-toast--${type}`;
-    const icons = { ok: '✓', err: '!', info: 'i' };
-    t.innerHTML = `<span style="font-size:14px;flex-shrink:0">${icons[type] || ''}</span><span>${escapeHTML(msg)}</span>`;
-    container.appendChild(t);
-    requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('visible')));
-    setTimeout(() => {
-        t.classList.add('hiding');
-        t.addEventListener('transitionend', () => t.remove(), { once: true });
-    }, duration);
+function toast(type, msg) {
+    const item = document.createElement('div');
+    item.className = 'diag-toast diag-toast--' + type;
+    item.textContent = msg;
+    $('diagToast').append(item);
+    requestAnimationFrame(() => item.classList.add('visible'));
+    setTimeout(() => item.remove(), 4500);
 }
-
-function exportTxt() {
-    if (!Diag.lastResult) { toast('info', 'Nenhum resultado para exportar.'); return; }
-    const { tool, target, result, ts } = Diag.lastResult;
-    const content = [
-        `MOONSHIELD — Diagnostico de Rede`,
-        `Exportado em: ${ts.toLocaleString('pt-BR')}`,
-        `Host: ${Diag.ctx.hostname || '—'} (${Diag.ctx.ip_local || '—'})`,
-        `=====================================================`,
-        `Ferramenta: ${tool}`,
-        `Alvo:       ${target || '—'}`,
-        `Status:     ${(result.status || '').toUpperCase()}`,
-        `Duracao:    ${result.duration_ms || result.meta?.duration_ms || 0}ms`,
-        `=====================================================`,
-        result.stdout || '',
-        result.stderr ? `\nSTDERR:\n${result.stderr}` : '',
-    ].join('\n');
-
-    download(`moonshield-diag-${tool}-${Date.now()}.txt`, content, 'text/plain');
-    toast('ok', 'TXT exportado!');
-}
-
-function exportJson() {
-    if (!Diag.lastResult) { toast('info', 'Nenhum resultado para exportar.'); return; }
-    download(
-        `moonshield-diag-${Diag.lastResult.tool}-${Date.now()}.json`,
-        JSON.stringify(Diag.lastResult.result, null, 2),
-        'application/json'
-    );
-    toast('ok', 'JSON exportado!');
-}
-
 function download(filename, content, type) {
-    const blob = new Blob([content], { type });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-
+function exportResult(json) {
+    if (!Diag.lastResult) { toast('info', 'Nenhum resultado para exportar.'); return; }
+    const entry = Diag.lastResult;
+    const content = json ? JSON.stringify(entry.result, null, 2) : [
+        'MOONSHIELD — Diagnóstico de Rede', humanOutput(),
+        'Duração: ' + duration(elapsed(entry.result)), 'Execution ID: ' + (Diag.selectedId || '—'),
+        entry.result.stderr ? 'STDERR:\n' + entry.result.stderr : ''
+    ].filter(Boolean).join('\n\n');
+    download('moonshield-diag-' + entry.tool + '-' + Date.now() + (json ? '.json' : '.txt'), content, json ? 'application/json' : 'text/plain');
+}
+async function copyActivePanel() {
+    const text = Diag.activeTermTab === 'saida' ? humanOutput() :
+        Diag.activeTermTab === 'json' ? $('termJson').textContent : $('tpanel-detalhes').innerText;
+    try {
+        if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+        else {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.append(area);
+            area.select();
+            const copied = document.execCommand('copy');
+            area.remove();
+            $('termCopyBtn').focus();
+            if (!copied) throw new Error('Cópia indisponível neste navegador.');
+        }
+        toast('ok', 'Conteúdo copiado.');
+    } catch { toast('err', 'Não foi possível copiar. Selecione o conteúdo para copiar manualmente.'); }
+}
+function initTabs(selector, group, panelPrefix, activeClass, select) {
+    const tabs = [...document.querySelectorAll(selector)];
+    group.setAttribute('role', 'tablist');
+    tabs.forEach((tab, index) => {
+        const name = tab.dataset.ttab || tab.dataset.tab;
+        tab.id = panelPrefix + '-tab-' + name;
+        tab.setAttribute('role', 'tab');
+        tab.setAttribute('aria-controls', panelPrefix + name);
+        const panel = $(panelPrefix + name);
+        panel.setAttribute('role', 'tabpanel');
+        panel.setAttribute('aria-labelledby', tab.id);
+        panel.tabIndex = 0;
+        tab.addEventListener('click', () => select(name));
+        tab.addEventListener('keydown', event => {
+            let next;
+            if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+            if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+            if (event.key === 'Home') next = 0;
+            if (event.key === 'End') next = tabs.length - 1;
+            if (next == null) return;
+            event.preventDefault();
+            tabs[next].click();
+            tabs[next].focus();
+        });
+    });
+    const active = tabs.find(tab => tab.classList.contains(activeClass)) || tabs[0];
+    select(active.dataset.ttab || active.dataset.tab);
+}
 document.addEventListener('DOMContentLoaded', () => {
+    // Associate existing field labels without changing global form styles.
+    document.querySelectorAll('#diagPage .diag-field').forEach(field => {
+        const label = field.querySelector('label'), input = field.querySelector('input, select');
+        if (label && input) label.htmlFor = input.id;
+    });
+    syncButtons();
     loadContext();
     loadHistory();
-
-    /* Quick Cards */
-    document.querySelectorAll('.diag-quick-card__btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            const card = btn.closest('.diag-quick-card');
-            if (!card) return;
-            const tool = card.dataset.tool;
-            let target = card.dataset.target;
-            if (target === 'gateway') target = Diag.ctx.gateway;
-            
-            let opts = {};
-            if (tool === 'ping') opts = { count: 4, timeout: 2 };
-            if (tool === 'dns_lookup') opts = { server: Diag.ctx.dns1 || '8.8.8.8' };
-
-            runTool(tool, target, opts, 'quick', card.id);
-        });
-    });
-
-    /* Guided Tools */
-    document.querySelectorAll('.diag-run-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const tool = btn.dataset.tool;
-            const form = btn.dataset.form;
-            let target = '', opts = {};
-
-            if (form === 'ping') { target = document.getElementById('pingTarget')?.value.trim(); opts = { count: document.getElementById('pingCount')?.value, timeout: document.getElementById('pingTimeout')?.value }; }
-            if (form === 'trace') { target = document.getElementById('traceTarget')?.value.trim(); opts = { hops: document.getElementById('traceHops')?.value }; }
-            if (form === 'ns') { target = document.getElementById('nsTarget')?.value.trim(); const sv = document.getElementById('nsServer')?.value; opts = { server: sv === 'custom' ? document.getElementById('nsCustomServer')?.value.trim() : sv }; }
-            if (form === 'rev') { target = document.getElementById('revTarget')?.value.trim(); }
-            if (form === 'cmp') { target = document.getElementById('cmpTarget')?.value.trim(); }
-            if (form === 'port') { target = document.getElementById('portTarget')?.value.trim(); opts = { port: document.getElementById('portNumber')?.value }; }
-            if (form === 'http') { target = document.getElementById('httpTarget')?.value.trim(); opts = { timeout: document.getElementById('httpTimeout')?.value }; }
-            if (form === 'arpscan') { target = document.getElementById('arpScanTarget')?.value.trim() || Diag.ctx.wan_cidr; }
-            if (form === 'ipconfig') { target = Diag.ctx.hostname; opts = { mode: document.getElementById('ipconfigMode')?.value }; }
-            if (form === 'netstat') { target = ''; opts = { filter: document.getElementById('netstatFilter')?.value, port: document.getElementById('netstatPort')?.value }; }
-            if (form === 'ifaces') { target = ''; }
-
-            runTool(tool, target, opts, 'guided', null);
-        });
-    });
-
-    /* Tabs */
-    document.getElementById('guideTabs')?.addEventListener('click', e => {
-        const tab = e.target.closest('.diag-guide-tab');
-        if (!tab) return;
-        document.querySelectorAll('.diag-guide-tab').forEach(t => t.classList.remove('diag-guide-tab--active'));
-        tab.classList.add('diag-guide-tab--active');
-        document.querySelectorAll('.diag-guide-panel').forEach(p => p.classList.remove('diag-guide-panel--active'));
-        const panel = document.getElementById(`panel-${tab.dataset.tab}`);
-        if (panel) panel.classList.add('diag-guide-panel--active');
-    });
-
-    document.querySelectorAll('.diag-term-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            const ttab = tab.dataset.ttab;
-            document.querySelectorAll('.diag-term-tab').forEach(t => t.classList.remove('diag-term-tab--active'));
-            tab.classList.add('diag-term-tab--active');
-            document.querySelectorAll('.diag-term-panel').forEach(p => p.classList.remove('diag-term-panel--active'));
-            const panel = document.getElementById(`tpanel-${ttab}`);
-            if (panel) panel.classList.add('diag-term-panel--active');
-            Diag.activeTermTab = ttab;
-        });
-    });
-
-    /* Terminal Input */
-    const cliInput = document.getElementById('termCliInput');
-    if (cliInput) {
-        cliInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter') {
-                const cmd = cliInput.value;
-                cliInput.value = '';
-                handleTerminalCommand(cmd);
-            }
-        });
-    }
-
-    /* Actions */
-    document.getElementById('termCopyBtn')?.addEventListener('click', () => {
-        const out = document.getElementById('termOutput')?.textContent;
-        if (!out) return;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(out).then(() => toast('ok', 'Copiado!'));
-        } else {
-            const ta = document.createElement('textarea');
-            ta.value = out;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            toast('ok', 'Copiado (Fallback)!');
+    document.querySelectorAll('.diag-quick-card__btn').forEach(button => button.addEventListener('click', () => {
+        const card = button.closest('.diag-quick-card');
+        const reason = quickUnavailable(card);
+        if (reason) { toast('info', reason); return; }
+        const target = card.dataset.target === 'gateway' ? Diag.ctx.gateway : card.dataset.target;
+        runTool(card.dataset.tool, target, card.dataset.tool === 'ping' ? { count: 4, timeout: 2 } : {}, 'quick', button);
+    }));
+    document.querySelectorAll('.diag-run-btn').forEach(button => button.addEventListener('click', () => {
+        let target = '', options = {};
+        switch (button.dataset.form) {
+            case 'ping': target = value('pingTarget'); options = { count: Number(value('pingCount')), timeout: Number(value('pingTimeout')) }; break;
+            case 'trace': target = value('traceTarget'); options = { max_hops: Number(value('traceHops')) }; break;
+            case 'mtr': target = value('mtrTarget'); options = { cycles: Number(value('mtrCycles')) }; break;
+            case 'ns': target = value('nsTarget'); break;
+            case 'rev': target = value('revTarget'); break;
+            case 'cmp': target = value('cmpTarget'); break;
+            case 'port': target = value('portTarget'); options = { port: Number(value('portNumber')) }; break;
+            case 'http': target = value('httpTarget'); options = { timeout: Number(value('httpTimeout')) }; break;
+            case 'netstat': options = { flags: ['-t', '-u', '-n', value('netstatFilter') === 'listening' ? '-l' : '-a'] }; break;
         }
+        runTool(button.dataset.tool, target, options, 'guided', button);
+    }));
+    initTabs('.diag-term-tab', document.querySelector('.diag-term-tabs'), 'tpanel-', 'diag-term-tab--active', selectResultTab);
+    initTabs('.diag-guide-tab', $('guideTabs'), 'panel-', 'diag-guide-tab--active', name => {
+        document.querySelectorAll('.diag-guide-tab').forEach(tab => {
+            const active = tab.dataset.tab === name;
+            tab.classList.toggle('diag-guide-tab--active', active);
+            tab.setAttribute('aria-selected', String(active));
+            tab.tabIndex = active ? 0 : -1;
+        });
+        document.querySelectorAll('.diag-guide-panel').forEach(panel => {
+            const active = panel.id === 'panel-' + name;
+            panel.hidden = !active;
+            panel.classList.toggle('diag-guide-panel--active', active);
+        });
     });
-
-    document.getElementById('termSaveBtn')?.addEventListener('click', exportTxt);
-    document.getElementById('btnExportTxt')?.addEventListener('click', exportTxt);
-    document.getElementById('btnExportJson')?.addEventListener('click', exportJson);
-    
-    document.getElementById('termClearBtn')?.addEventListener('click', () => {
-        document.getElementById('termOutput').textContent = 'Terminal limpo.';
-        document.getElementById('termStructured').style.display = 'none';
-        document.getElementById('termMeta').style.display = 'none';
-        document.getElementById('termSummary').style.display = 'none';
+    $('termCliInput').addEventListener('keydown', event => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        if (Diag.isRunning) { toast('info', 'Aguarde a execução atual terminar.'); return; }
+        handleTerminalCommand(event.target.value);
+        event.target.value = '';
     });
-
-    document.getElementById('clearHistoryBtn')?.addEventListener('click', () => {
+    $('termCopyBtn').addEventListener('click', copyActivePanel);
+    $('termSaveBtn').addEventListener('click', () => exportResult(false));
+    $('btnExportTxt').addEventListener('click', () => exportResult(false));
+    $('btnExportJson').addEventListener('click', () => exportResult(true));
+    $('termClearBtn').addEventListener('click', () => { if (!Diag.isRunning) clearResult(); });
+    $('clearHistoryBtn').addEventListener('click', () => {
         Diag.history = [];
         renderHistory();
-        toast('info', 'Historico visual limpo');
+        toast('info', 'Lista visual limpa. O histórico permanece salvo.');
     });
-
-    document.getElementById('ctxRefreshBtn')?.addEventListener('click', () => {
-        const icon = document.getElementById('ctxRefreshIcon');
-        if (icon) icon.style.animation = 'spin .7s linear infinite';
-        loadContext().then(() => {
-            if (icon) icon.style.animation = '';
-            toast('ok', 'Contexto atualizado');
-        });
+    $('ctxRefreshBtn').addEventListener('click', async () => {
+        $('ctxRefreshBtn').disabled = true;
+        try { if (await loadContext()) toast('ok', 'Contexto atualizado.'); }
+        finally { $('ctxRefreshBtn').disabled = false; }
     });
-
-    /* Custom DNS server toggle */
-    document.getElementById('nsServer')?.addEventListener('change', e => {
-        const wrap = document.getElementById('nsCustomWrap');
-        if (wrap) wrap.style.display = e.target.value === 'custom' ? '' : 'none';
-    });
-
-    /* Port presets */
-    document.querySelectorAll('.diag-port-preset').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const portInput = document.getElementById('portNumber');
-            if (portInput) portInput.value = btn.dataset.port;
-            document.querySelectorAll('.diag-port-preset').forEach(b => b.classList.remove('diag-port-preset--active'));
-            btn.classList.add('diag-port-preset--active');
-        });
-    });
-
-    /* AutoCheck disable for now */
-    document.getElementById('autoCheckRunBtn')?.addEventListener('click', () => {
-        toast('info', 'Diagnostico Automático será implementado na Etapa 3.');
-    });
+    document.querySelectorAll('.diag-port-preset').forEach(button => button.addEventListener('click', () => {
+        $('portNumber').value = button.dataset.port;
+        document.querySelectorAll('.diag-port-preset').forEach(item => item.classList.toggle('diag-port-preset--active', item === button));
+    }));
 });

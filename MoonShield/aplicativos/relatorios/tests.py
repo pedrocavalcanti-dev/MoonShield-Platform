@@ -223,7 +223,7 @@ class RelatoriosDiagnosticoTests(TestCase):
     def test_live_start(self, mock_req):
         mock_req.return_value = {"dados": {"ok": True, "session_id": "123", "tool": "ping", "status": "running"}}
 
-        self.client.force_login(self.usuario)
+        self.client.force_login(self.user)
         res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
             "tool": "ping", "target": "8.8.8.8"
         }), content_type="application/json")
@@ -237,7 +237,7 @@ class RelatoriosDiagnosticoTests(TestCase):
     def test_live_start_agent_offline(self, mock_req):
         mock_req.side_effect = ConnectionError("Agent offline")
 
-        self.client.force_login(self.usuario)
+        self.client.force_login(self.user)
         res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
             "tool": "ping", "target": "8.8.8.8"
         }), content_type="application/json")
@@ -247,7 +247,7 @@ class RelatoriosDiagnosticoTests(TestCase):
 
     def test_live_start_invalid_tool(self):
         # We don't even need to mock, it should be blocked by the view
-        self.client.force_login(self.usuario)
+        self.client.force_login(self.user)
         res = self.client.post("/relatorios/diagnostico/api/live/iniciar/", json.dumps({
             "tool": "nmap", "target": "8.8.8.8"
         }), content_type="application/json")
@@ -259,7 +259,7 @@ class RelatoriosDiagnosticoTests(TestCase):
     def test_live_status(self, mock_req):
         mock_req.return_value = {"dados": {"ok": True, "status": "running", "structured": {}}}
 
-        self.client.force_login(self.usuario)
+        self.client.force_login(self.user)
         res = self.client.get("/relatorios/diagnostico/api/live/123e4567-e89b-12d3-a456-426614174000/")
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["ok"])
@@ -273,7 +273,7 @@ class RelatoriosDiagnosticoTests(TestCase):
             "stdout": "done", "stderr": "", "structured": {"sent": 5}
         }}
 
-        self.client.force_login(self.usuario)
+        self.client.force_login(self.user)
 
         count_before = ExecucaoDiagnostico.objects.count()
 

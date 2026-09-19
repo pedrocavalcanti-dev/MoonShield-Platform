@@ -235,28 +235,47 @@
     <!-- ABA AVANÇADO -->
     <div class="diag-tab-content" id="tab-avancado" role="tabpanel" style="display:none;">
 
-      <section class="diag-section">
-        <div class="diag-section__hdr">
-          <span class="diag-section__title">Análise de Rota</span>
-        </div>
-        <div class="diag-tool-grid">
+      <section class="diag-section diag-route" id="routeSec" aria-labelledby="routeHeading">
+        <div class="diag-section__hdr" style="flex-direction: column; align-items: stretch; gap: 1rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 class="diag-section__title" id="routeHeading" style="margin:0;">Análise de Rota</h2>
+            <div class="diag-live-status-badge" id="routeLiveBadge" style="display:none; align-items:center; background: rgba(110, 231, 183, 0.1); color: var(--diag-ok, #6ee7b7); padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid rgba(110, 231, 183, 0.2);">
+              <span style="display:inline-block; width:8px; height:8px; background:var(--diag-ok, #6ee7b7); border-radius:50%; margin-right:6px; animation: pulse 1.5s infinite;"></span> AO VIVO <span id="routeLiveTime" style="margin-left: 8px;">00:00:00</span>
+            </div>
+          </div>
 
-        </div>
-      </section>
-
-
-      <section class="diag-section diag-live-ping" id="pingLiveSec">
-        <div class="diag-section__hdr">
-          <span class="diag-section__title">Ping Ao Vivo</span>
-          <div class="diag-live-status-badge" id="pingLiveBadge" style="display:none; align-items:center; background: rgba(110, 231, 183, 0.1); color: var(--diag-ok, #6ee7b7); padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid rgba(110, 231, 183, 0.2);">
-            <span style="display:inline-block; width:8px; height:8px; background:var(--diag-ok, #6ee7b7); border-radius:50%; margin-right:6px; animation: pulse 1.5s infinite;"></span> AO VIVO <span id="pingLiveTime" style="margin-left: 8px;">00:00:00</span>
+          <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
+            <div>
+              <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-dim, #666); margin-bottom: 6px; display: block; letter-spacing: 0.5px;">Ferramenta</span>
+              <div class="diag-mtr-mode-switch" id="routeToolSwitch">
+                <button class="diag-mtr-mode-btn diag-mtr-mode-btn--active" data-tool="ping">Ping</button>
+                <button class="diag-mtr-mode-btn" data-tool="traceroute">Traceroute</button>
+                <button class="diag-mtr-mode-btn" data-tool="mtr">MTR</button>
+              </div>
+            </div>
+            <div>
+              <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-dim, #666); margin-bottom: 6px; display: block; letter-spacing: 0.5px;">Modo</span>
+              <div class="diag-mtr-mode-switch" id="routeModeSwitch">
+                <button class="diag-mtr-mode-btn diag-mtr-mode-btn--active" data-mode="teste">Teste</button>
+                <button class="diag-mtr-mode-btn" data-mode="live">Ao vivo</button>
+              </div>
+            </div>
           </div>
         </div>
-        <p class="diag-field-hint">Mede a disponibilidade e tempo de resposta de forma contínua.</p>
-        <div class="diag-mtr__form" id="pingLiveForm">
-          <div class="diag-field"><label for="pingLiveTarget">Destino</label><input class="diag-input" id="pingLiveTarget" placeholder="IP ou domínio" type="text"></div>
-          <button class="diag-run-btn" id="pingLiveStartBtn">Iniciar</button>
-          <button class="diag-run-btn" id="pingLiveStopBtn" disabled style="opacity: 0.5;">Parar</button>
+
+        <div class="diag-mtr__form" id="routeForm" style="margin-top: 1rem;">
+          <div class="diag-field"><label for="routeTarget">Destino</label><input class="diag-input" id="routeTarget" placeholder="IP ou domínio" type="text"></div>
+
+          <div class="diag-field" id="routeCyclesField" style="display:none;"><label for="routeCycles">Ciclos</label><select class="diag-select" id="routeCycles"><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></div>
+
+          <button class="diag-run-btn" id="routeTestBtn" data-tool="ping" data-form="route">Executar</button>
+          <button class="diag-run-btn" id="routeLiveStartBtn" style="display:none;">Iniciar</button>
+          <button class="diag-run-btn" id="routeLiveStopBtn" disabled style="display:none; opacity: 0.5;">Parar</button>
+        </div>
+
+        <div id="routeLiveTracerouteMsg" style="display:none; margin-top: 16px; padding: 16px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); border-radius: 8px; color: #60a5fa; font-size: 14px;">
+            Para análise contínua de rota, utilize MTR.
+            <div style="margin-top: 12px;"><button class="diag-run-btn" id="routeUseMtrBtn" style="width: auto; padding: 4px 16px; font-size: 13px;">Usar MTR</button></div>
         </div>
 
         <div class="diag-live-metrics" id="pingLiveMetrics" style="display:none; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 16px; margin-top: 16px; padding: 16px; background: var(--bg-soft, #f9f9f9); border-radius: 8px; border: 1px solid var(--border-soft, #ddd);">
@@ -268,34 +287,12 @@
             <div><span style="font-size: 12px; color: var(--text-dim, #666);">Mínimo</span><div id="plMin" style="font-size: 18px; font-weight: 600;">0 ms</div></div>
             <div><span style="font-size: 12px; color: var(--text-dim, #666);">Máximo</span><div id="plMax" style="font-size: 18px; font-weight: 600;">0 ms</div></div>
         </div>
-      </section>
 
-      <section class="diag-section diag-mtr" aria-labelledby="mtrHeading">
-      <div class="diag-section__hdr">
-        <h2 class="diag-section__title" id="mtrHeading">Análise MTR</h2>
-        <div class="diag-mtr-mode-switch">
-          <button class="diag-mtr-mode-btn diag-mtr-mode-btn--active" data-mode="teste">Teste</button>
-          <button class="diag-mtr-mode-btn" data-mode="live">Ao vivo</button>
-        </div>
-      </div>
-      <p class="diag-field-hint">Analise latência, perda e caminho até o destino.</p>
-      <div class="diag-mtr__form">
-        <div class="diag-field"><label for="mtrTarget">Destino</label><input class="diag-input" id="mtrTarget" placeholder="IP ou domínio" type="text"></div>
-        <div class="diag-field"><label for="mtrCycles">Ciclos</label><select class="diag-select" id="mtrCycles"><option value="3">3</option><option value="5">5</option><option value="10">10</option></select></div>
-        <button class="diag-run-btn" data-tool="mtr" data-form="mtr" id="mtrTestBtn">Executar MTR</button>
-        <button class="diag-run-btn" id="mtrLiveStartBtn" style="display:none;">Iniciar</button>
-        <button class="diag-run-btn" id="mtrLiveStopBtn" disabled style="display:none; opacity: 0.5;">Parar</button>
-      </div>
-      <div class="diag-live-status-badge" id="mtrLiveBadge" style="display:none; align-items: center; justify-content: center; width: 100%; margin-top: 16px; padding: 12px; background: var(--bg-soft, #f9f9f9); border-radius: 8px; border: 1px solid var(--border-soft, #ddd); font-size: 14px;">
-            <span style="display:inline-block; width:8px; height:8px; background:var(--diag-ok, #6ee7b7); border-radius:50%; margin-right:6px; animation: pulse 1.5s infinite;"></span> <strong style="color:var(--diag-ok, #6ee7b7); margin-right: 16px;">AO VIVO</strong>
-            <span id="mtrLiveTime" style="margin-right: 16px; font-weight: 600;">00:00:00</span>
-            <span id="mtrLiveSamples" style="margin-right: 16px; color: var(--text-dim, #666);">0 amostras</span>
+        <div id="mtrLiveMetrics" style="display:none; margin-top: 16px; padding: 12px; background: var(--bg-soft, #f9f9f9); border-radius: 8px; border: 1px solid var(--border-soft, #ddd); font-size: 14px; text-align: center;">
+            <span id="mtrLiveSamples" style="margin-right: 24px; color: var(--text-dim, #666);">0 amostras</span>
             <span id="mtrLiveHops" style="color: var(--text-dim, #666);">0 hops</span>
-      </div>
-
-
-
-    </section>
+        </div>
+      </section>
 
       <section class="diag-section">
         <div class="diag-section__hdr">

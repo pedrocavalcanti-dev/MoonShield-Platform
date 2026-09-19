@@ -119,6 +119,9 @@ ACOES = frozenset({
     # Diagnóstico de Rede.
     #
     "diagnostic.execute",
+    "diagnostic.live.start",
+    "diagnostic.live.status",
+    "diagnostic.live.stop",
 })
 
 

@@ -41,11 +41,15 @@
   }
 
   async function loadSysInfo() {
-    const data = await n().apiFetch(n().endpoint("sysinfoUrl"));
-    const info = data.sysinfo || {};
-    const labels = [["Hostname", info.hostname], ["Sistema operacional", info.so], ["IP do appliance", info.ip_local], ["Timezone", info.timezone], ["Uptime", info.uptime], ["Python", info.python], ["Django", info.django], ["RAM", info.ram]];
     const container = $("sysInfoGrid");
-    if (container) container.innerHTML = labels.map(([label, value]) => `<div class="cfg-info-card"><p class="cfg-info-card__label">${label}</p><p class="cfg-info-card__val">${escapeHtml(value)}</p></div>`).join("");
+    try {
+      const data = await n().apiFetch(n().endpoint("sysinfoUrl"));
+      const info = data.sysinfo || {};
+      const labels = [["Hostname", info.hostname], ["Sistema operacional", info.so], ["IP do appliance", info.ip_local], ["Timezone", info.timezone], ["Uptime", info.uptime], ["Python", info.python], ["Django", info.django], ["RAM", info.ram]];
+      if (container) container.innerHTML = labels.map(([label, value]) => `<div class="cfg-info-card"><p class="cfg-info-card__label">${label}</p><p class="cfg-info-card__val">${escapeHtml(value)}</p></div>`).join("");
+    } catch (e) {
+      if (container) container.innerHTML = '<p class="cfg-hint" style="grid-column: 1/-1;">Informa&ccedil;&otilde;es do servidor indispon&iacute;veis.</p>';
+    }
   }
 
   function renderDiagnostics() {
@@ -158,6 +162,7 @@
     try {
       await n().loadConfig();
       await n().loadServicosStatus();
+      await loadSysInfo();
       window.CfgConexoes.refreshFromState();
       renderNetworkSummary();
       renderDiagnostics();

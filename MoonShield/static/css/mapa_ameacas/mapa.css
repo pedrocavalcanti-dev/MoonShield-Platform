@@ -46,7 +46,10 @@
     -webkit-tap-highlight-color: transparent;
 }
 
-.tm-v2 [hidden] {
+.tm-v2 [hidden],
+.tm-v2__modal-backdrop[hidden],
+.tm-v2__drawer-backdrop[hidden],
+.tm-v2__toast[hidden] {
     display: none !important;
 }
 

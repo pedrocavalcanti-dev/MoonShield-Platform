@@ -1573,9 +1573,13 @@
 
             const renderer = getRenderer();
             if (renderer && typeof renderer.setNode === 'function') {
-                renderer.setNode({ latitude: lat, longitude: lon });
-                if (renderer.map && typeof renderer.map.flyTo === 'function') {
-                    renderer.map.flyTo({ center: [lon, lat], zoom: 4, duration: 2000 });
+                renderer.setNode({
+                    ...(state.node || {}),
+                    latitude: lat,
+                    longitude: lon
+                });
+                if (typeof renderer.focusNode === 'function') {
+                    renderer.focusNode();
                 }
             }
             

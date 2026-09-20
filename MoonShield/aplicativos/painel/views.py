@@ -101,7 +101,8 @@ def _series_ataques(qs, periodo_cfg: dict, agora: datetime) -> dict:
         else:
             key = ts.replace(hour=0, minute=0, second=0, microsecond=0)
         bucket_idx[key] = i
-        labels.append(ts.strftime(label_fmt))
+        ts_local = timezone.localtime(ts)
+        labels.append(ts_local.strftime(label_fmt))
 
     crit = [0] * n_buckets
     high = [0] * n_buckets
@@ -154,13 +155,19 @@ def _timeline_60min(qs_base) -> dict:
     from django.utils import timezone
     from django.db.models.functions import TruncMinute
     from django.db.models import Count
+    from datetime import timedelta
 
     agora = timezone.now()
-    inicio = agora - timedelta(hours=1)
+    # Align to nearest 5 minutes down
+    agora_aligned = agora.replace(second=0, microsecond=0, minute=(agora.minute // 5) * 5)
+    
+    n_buckets = 12
+    step = timedelta(minutes=5)
+    inicio = agora_aligned - step * (n_buckets - 1)
+    
+    # Filter using unaligned start just to be safe, but buckets are aligned
     qs60 = qs_base.filter(last_seen__gte=inicio)
 
-    n_buckets = 12  # 60min / 5min = 12 pontos
-    step = timedelta(minutes=5)
     labels = []
     crit = [0] * n_buckets
     high = [0] * n_buckets
@@ -170,7 +177,9 @@ def _timeline_60min(qs_base) -> dict:
     for i in range(n_buckets):
         ts = inicio + step * i
         bucket_starts.append(ts)
-        labels.append(ts.strftime("%H:%M"))
+        # Use localtime for labels if timezone is active
+        ts_local = timezone.localtime(ts)
+        labels.append(ts_local.strftime("%H:%M"))
 
     for sev_key, target in [("critico", crit), ("alto", high), ("medio", med)]:
         rows = (
@@ -183,13 +192,16 @@ def _timeline_60min(qs_base) -> dict:
             ts = row["bucket_ts"]
             if ts is None:
                 continue
-            if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
-                ts = ts.replace(tzinfo=None)
-            # Arredonda para múltiplo de 5 min
+            
+            # Make sure ts is aware for comparison
+            if timezone.is_naive(ts):
+                ts = timezone.make_aware(ts)
+
+            # Round to 5 min
             rounded = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
+            
             for i, bs in enumerate(bucket_starts):
-                bs_naive = bs.replace(tzinfo=None) if hasattr(bs, "tzinfo") else bs
-                if abs((rounded - bs_naive).total_seconds()) <= 300:
+                if abs((rounded - bs).total_seconds()) < 60:
                     target[i] += row["n"]
                     break
 

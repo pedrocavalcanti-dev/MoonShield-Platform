@@ -98,23 +98,29 @@ document.addEventListener("DOMContentLoaded", () => {
             [root.querySelector(".fw-grid"), "chart"],
         ];
 
-        loadingTargets.forEach(([target, variant]) => {
-            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
-            else window.MoonShieldLoading?.setRefreshing(target, true);
-        });
+        const cacheKey = `moonshield:firewall:${state.period}`;
+        const cached = window.MoonShieldLoading?.cache?.get(cacheKey);
+
+        let hasSnapshot = false;
+        if (cached && firstLoad) {
+            applyData(cached);
+            state.hasLoadedOnce = true;
+            hasSnapshot = true;
+        }
+
+        if (!hasSnapshot) {
+            loadingTargets.forEach(([target, variant]) => {
+                if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+                else window.MoonShieldLoading?.setRefreshing(target, true);
+            });
+        } else {
+            loadingTargets.forEach(([target]) => window.MoonShieldLoading?.setRefreshing(target, true));
+        }
         setRefreshing(true);
 
-        let data = null;
-
         try {
-            /*
-             * Primeiro carregamos /api/data/.
-             *
-             * Isso é intencional: o endpoint informa o modo atual.
-             * Em SIMULAÇÃO não devemos consultar /api/status/, porque o
-             * MoonShield-Agent real pode nem existir nesse host.
-             */
-            data = await loadData(state.period);
+            const data = await loadData(state.period);
+            window.MoonShieldLoading?.cache?.set(cacheKey, data);
 
             if (isSimulationData(data)) {
                 renderSimulationState(data);
@@ -122,12 +128,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            /*
-             * Modo REAL:
-             * /api/data/ já traz `firewall` como estado consolidado.
-             * Renderizamos esse estado imediatamente e depois tentamos o
-             * endpoint dedicado /api/status/ para obter a leitura mais recente.
-             */
             if (isUsableFirewallStatus(data?.firewall)) {
                 state.status = data.firewall;
                 renderStatus(data.firewall);
@@ -136,52 +136,32 @@ document.addEventListener("DOMContentLoaded", () => {
             try {
                 await loadStatus();
             } catch (error) {
-                console.error("Firewall status:", error);
-
-                /*
-                 * Nunca transformar um Firewall operacional em
-                 * "não configurado" só porque /api/status/ falhou uma vez.
-                 */
-                if (isUsableFirewallStatus(data?.firewall)) {
-                    state.status = data.firewall;
-                    renderStatus(data.firewall);
-                } else {
+                if (!isUsableFirewallStatus(data?.firewall)) {
                     renderStatusError(error);
                 }
             }
 
+            updateTimestamp();
         } catch (error) {
-            console.error("Firewall data:", error);
-
-            if (firstLoad) {
-                loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: error.message }));
-            }
-
-            /*
-             * Se já temos um estado real operacional em memória, preserva a
-             * tela e apenas informa a falha de atualização via toast.
-             */
-            if (state.mode === "real" && isUsableFirewallStatus(state.status)) {
-                renderStatus(state.status);
-            } else if (state.mode !== "simulacao") {
-                renderStatusError(error);
-            }
-
-            showToast("Não foi possível atualizar os dados do Firewall.", "err");
+            console.error(error);
+            showToast("Falha ao atualizar.", "err");
         } finally {
-            state.hasLoadedOnce = true;
             loadingTargets.forEach(([target]) => {
-                if (firstLoad) window.MoonShieldLoading?.finish(target);
+                if (firstLoad && !hasSnapshot) window.MoonShieldLoading?.finish(target);
                 else window.MoonShieldLoading?.setRefreshing(target, false);
             });
-            updateTimestamp();
             setRefreshing(false);
+            state.hasLoadedOnce = true;
         }
     }
 
     async function loadData(period) {
         const data = await apiJson(`${URLS.data}?period=${encodeURIComponent(period)}`);
+        applyData(data);
+        return data;
+    }
 
+    function applyData(data) {
         state.lastData = data;
         state.logs = Array.isArray(data.logs) ? data.logs : [];
         state.sync = data.sync || null;

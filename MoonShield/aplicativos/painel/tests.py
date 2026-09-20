@@ -361,3 +361,46 @@ class TestSensoresTimezoneBug(TestCase):
         # Default period in /api/sensores/ is usually 24h which generates 24 buckets.
         # Ensure we have precisely 24 buckets generated.
         self.assertEqual(len(series["labels"]), 24)
+
+    def test_1h_period_filters_correctly(self):
+        from incidentes.models import Incidente
+        from django.utils import timezone
+        from datetime import timedelta
+        Incidente.objects.all().delete()
+        now = timezone.now()
+        # Incidente A: 20 minutos atrás (deve aparecer em 1h)
+        Incidente.objects.create(src_ip='1.2.3.4', severidade_jg='critico', last_seen=now - timedelta(minutes=20), first_seen=now - timedelta(minutes=20))
+        # Incidente B: 2 horas atrás (NÃO deve aparecer em 1h)
+        Incidente.objects.create(src_ip='5.6.7.8', severidade_jg='alto', last_seen=now - timedelta(hours=2), first_seen=now - timedelta(hours=2))
+
+        # Test via view
+        from painel.views import _overview_real, _get_cfg
+        result = _overview_real(_get_cfg(), period="1h", sev="all")
+
+        feed = result["feed"]
+        self.assertEqual(len(feed), 1)
+        self.assertIn('1.2.3.4', str(feed[0]['src']))
+
+        top_ips = result["intel"]["top_ips"]
+        self.assertEqual(len(top_ips), 1)
+        self.assertEqual(top_ips[0]['ip'], '1.2.3.4')
+
+    def test_timeline_60min_alignment_and_filtering(self):
+        from incidentes.models import Incidente
+        from django.utils import timezone
+        from datetime import timedelta
+        Incidente.objects.all().delete()
+        now = timezone.now()
+        Incidente.objects.create(src_ip='10.0.0.1', severidade_jg='critico', last_seen=now - timedelta(minutes=2), first_seen=now - timedelta(minutes=2))
+        Incidente.objects.create(src_ip='10.0.0.2', severidade_jg='alto', last_seen=now - timedelta(minutes=12), first_seen=now - timedelta(minutes=12))
+        Incidente.objects.create(src_ip='10.0.0.3', severidade_jg='medio', last_seen=now - timedelta(minutes=35), first_seen=now - timedelta(minutes=35))
+        Incidente.objects.create(src_ip='10.0.0.4', severidade_jg='critico', last_seen=now - timedelta(hours=2), first_seen=now - timedelta(hours=2))
+
+        from painel.views import _overview_real, _get_cfg
+        result = _overview_real(_get_cfg(), period="1h", sev="all")
+
+        tl = result["charts"]["timeline"]
+        self.assertEqual(len(tl["labels"]), 12)
+        self.assertEqual(sum(tl["crit"]), 1)
+        self.assertEqual(sum(tl["high"]), 1)
+        self.assertEqual(sum(tl["med"]), 1)

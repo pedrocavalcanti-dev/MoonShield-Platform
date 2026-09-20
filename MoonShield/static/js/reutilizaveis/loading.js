@@ -65,5 +65,53 @@
     return element;
   }
 
-  window.MoonShieldLoading = { start, finish, error, setPageLoading, setRefreshing };
+  const CACHE_TTL_MS = 120 * 1000;
+  const cache = {
+      get(key) {
+          try {
+              const str = sessionStorage.getItem(key);
+              if (!str) return null;
+              const payload = JSON.parse(str);
+              if (!payload || payload.version !== 1) return null;
+              if (Date.now() - payload.savedAt > CACHE_TTL_MS) {
+                  sessionStorage.removeItem(key);
+                  return null;
+              }
+              return payload.data;
+          } catch (e) {
+              return null;
+          }
+      },
+      set(key, data) {
+          try {
+              sessionStorage.setItem(key, JSON.stringify({
+                  version: 1,
+                  savedAt: Date.now(),
+                  data: data
+              }));
+          } catch (e) {}
+      },
+      remove(key) {
+          try { sessionStorage.removeItem(key); } catch (e) {}
+      }
+  };
+
+  const visibility = {
+      _callbacks: [],
+      onVisible(cb) {
+          if (this._callbacks.length === 0) {
+              document.addEventListener('visibilitychange', () => {
+                  if (document.visibilityState === 'visible') {
+                      this._callbacks.forEach(fn => fn());
+                  }
+              });
+          }
+          this._callbacks.push(cb);
+      },
+      isHidden() {
+          return document.visibilityState === 'hidden';
+      }
+  };
+
+  window.MoonShieldLoading = { start, finish, error, setPageLoading, setRefreshing, cache, visibility };
 })();

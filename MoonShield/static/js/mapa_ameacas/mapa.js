@@ -456,42 +456,74 @@
     async function fetchOverview(seq) {
         const params = buildFilterParams();
         const data = await fetchJson(urlWithParams(ENDPOINTS.overview, params));
-        if (seq !== state.refreshSeq) return;
+        if (seq !== state.refreshSeq) return null;
         if (!data || data.ok === false) throw new Error('Overview retornou ok=false.');
         applyOverview(data);
+        return data;
     }
 
     async function fetchFeed(seq) {
         const params = buildFilterParams();
         const data = await fetchJson(urlWithParams(ENDPOINTS.feed, params));
-        if (seq !== state.refreshSeq) return;
+        if (seq !== state.refreshSeq) return null;
         if (!data || data.ok === false) throw new Error('Feed retornou ok=false.');
         applyFeed(data);
+        return data;
     }
 
     async function fetchFacets(seq) {
         const params = buildFilterParams({ limit: false });
         const data = await fetchJson(urlWithParams(ENDPOINTS.facets, params));
-        if (seq !== state.refreshSeq) return;
+        if (seq !== state.refreshSeq) return null;
         if (!data || data.ok === false) throw new Error('Facets retornou ok=false.');
         applyFacets(data.facets || data.filter_facets || {});
+        return data;
+    }
+
+    function getCacheKey() {
+        const params = buildFilterParams();
+        return `moonshield:mapa:${params.toString()}`;
     }
 
     async function refreshAll(options) {
         const opts = options || {};
         if (!opts.force && !state.live) return;
+        if (!opts.force && window.MoonShieldLoading?.visibility?.isHidden()) {
+            schedulePolling();
+            return;
+        }
 
         const firstLoad = !state.hasLoadedOnce;
+        const cacheKey = getCacheKey();
+        let hasSnapshot = false;
+
+        if (firstLoad) {
+            const cached = window.MoonShieldLoading?.cache?.get(cacheKey);
+            if (cached) {
+                if (cached.overview) applyOverview(cached.overview);
+                if (cached.feed) applyFeed(cached.feed);
+                if (cached.facets) applyFacets(cached.facets);
+                state.hasLoadedOnce = true;
+                hasSnapshot = true;
+            }
+        }
+
         const loadingTargets = [
             [els.app?.querySelector('.tm-v2__summary'), 'card'],
             [els.panelFilters, 'list'],
             [els.eventsPanel, 'table']
         ];
 
-        loadingTargets.forEach(([target, variant]) => {
-            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
-            else window.MoonShieldLoading?.setRefreshing(target, true);
-        });
+        if (!hasSnapshot) {
+            loadingTargets.forEach(([target, variant]) => {
+                if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+                else window.MoonShieldLoading?.setRefreshing(target, true);
+            });
+        } else {
+            loadingTargets.forEach(([target]) => {
+                window.MoonShieldLoading?.setRefreshing(target, true);
+            });
+        }
 
         const seq = ++state.refreshSeq;
         const tasks = [
@@ -506,20 +538,29 @@
         const successCount = results.filter((item) => item.status === 'fulfilled').length;
         if (successCount > 0) setApiHealthy(true);
 
-        if (successCount === 0) {
+        if (successCount === 0 && !hasSnapshot) {
             setBanner(els.bannerError, true);
             loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: 'Falha ao atualizar dados do mapa.' }));
         }
 
-        results.forEach((item) => {
+        const cachedData = {};
+        results.forEach((item, i) => {
             if (item.status === 'rejected') {
                 console.warn('[ThreatMap] Falha parcial de atualização:', item.reason);
+            } else if (item.status === 'fulfilled' && item.value) {
+                if (i === 0) cachedData.overview = item.value;
+                if (i === 1) cachedData.feed = item.value;
+                if (i === 2) cachedData.facets = item.value;
             }
         });
 
+        if (successCount > 0) {
+            window.MoonShieldLoading?.cache?.set(cacheKey, cachedData);
+        }
+
         state.hasLoadedOnce = true;
         loadingTargets.forEach(([target]) => {
-            if (firstLoad) window.MoonShieldLoading?.finish(target);
+            if (firstLoad && !hasSnapshot) window.MoonShieldLoading?.finish(target);
             else window.MoonShieldLoading?.setRefreshing(target, false);
         });
         schedulePolling();

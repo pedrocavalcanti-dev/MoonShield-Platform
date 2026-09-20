@@ -208,7 +208,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if ($('alertTable')) {
     loadIncidentes();
     loadStats();
-    setInterval(() => { loadIncidentes(); loadStats(); }, 15000);
+    setInterval(() => {
+        if (window.MoonShieldLoading?.visibility?.isHidden()) return;
+        loadIncidentes(); loadStats();
+    }, 15000);
+    window.MoonShieldLoading?.visibility?.onVisible(() => {
+        if (_state._incidentesCarregados) {
+            loadIncidentes();
+            loadStats();
+        }
+    });
 
     $('btnRefresh')?.addEventListener('click', () => {
       const icon = $('refreshIcon');
@@ -376,7 +385,7 @@ function initSort() {
 }
 
 // ─── Hash robusto ─────────────────────────────────────────────────────────────
-function _calcHash(eventos) {
+function _payloadFingerprint(eventos) {
   if (!eventos.length) return 'empty';
   return eventos.slice(0, 30).map(ev => [
     ev.id || '',
@@ -394,13 +403,28 @@ function _calcHash(eventos) {
 async function loadIncidentes() {
   const alvo = $('alertTable')?.closest('.jg-feed-container') || $('alertTable')?.parentElement;
   const primeiroCarregamento = !_state._incidentesCarregados;
-  if (primeiroCarregamento) window.MoonShieldLoading?.start(alvo, { variant: 'table' });
-  else window.MoonShieldLoading?.setRefreshing(alvo, true);
-  try {
-    const agr = _state.agrupado ? 1 : 0;
-    const url = `/incidentes/api/data/?count=100&horas=${_state.horas}&preset=${_state.presetAtivo}&agrupado=${agr}`;
-    const data = await _fetchJson(url);
+  
+  const agr = _state.agrupado ? 1 : 0;
+  const url = `/incidentes/api/data/?count=100&horas=${_state.horas}&preset=${_state.presetAtivo}&agrupado=${agr}`;
+  const cacheKey = `moonshield:incidentes:data:${_state.horas}:${_state.presetAtivo}:${agr}`;
+  const cached = window.MoonShieldLoading?.cache?.get(cacheKey);
 
+  let hasSnapshot = false;
+  if (cached && (primeiroCarregamento || _state._lastHash !== cached.hash)) {
+      _state.allEvents = cached.events || [];
+      _state._lastHash = cached.hash || '';
+      _state._incidentesCarregados = true;
+      updateBadges();
+      applyFilters();
+      updateInsights();
+      hasSnapshot = true;
+  }
+
+  if (primeiroCarregamento && !hasSnapshot) window.MoonShieldLoading?.start(alvo, { variant: 'table' });
+  else window.MoonShieldLoading?.setRefreshing(alvo, true);
+
+  try {
+    const data = await _fetchJson(url);
     if (!data.ok) throw new Error(data.error || 'Falha ao consultar incidentes');
 
     const eventos = (data.eventos || data.events || []).map(ev => ({
@@ -409,7 +433,7 @@ async function loadIncidentes() {
       timestamp: ev.last_seen ?? ev.timestamp,
     }));
 
-    const novoHash = _calcHash(eventos);
+    const novoHash = _payloadFingerprint(eventos);
     const dadosMudaram = novoHash !== _state._lastHash;
     _state._lastHash = novoHash;
 
@@ -438,7 +462,17 @@ async function loadIncidentes() {
 async function loadStats() {
   const alvo = qs('.jg-kpis');
   const primeiroCarregamento = !_state._statsCarregados;
-  if (primeiroCarregamento) window.MoonShieldLoading?.start(alvo, { variant: 'card' });
+  const cacheKey = 'moonshield:incidentes:stats';
+  const cached = window.MoonShieldLoading?.cache?.get(cacheKey);
+
+  let hasSnapshot = false;
+  if (cached && primeiroCarregamento) {
+      _renderStats(cached);
+      _state._statsCarregados = true;
+      hasSnapshot = true;
+  }
+
+  if (primeiroCarregamento && !hasSnapshot) window.MoonShieldLoading?.start(alvo, { variant: 'card' });
   else window.MoonShieldLoading?.setRefreshing(alvo, true);
   try {
     const data = await _fetchJson('/incidentes/api/stats/');
@@ -876,4 +910,20 @@ function updatePorts() {
       <span class="jg-port-count">${cnt}</span>
     </div>`).join('')
     || '<p style="color:var(--text-dim);font-size:11px;padding:4px 6px">—</p>';
+}
+
+function _renderStats(data) {
+    const u = data.ultimas_24h || {};
+    const t = data.total || {};
+
+    setEl('kpiAmeacasTotais', t.incidentes ?? '-');
+    const tcp = t.pct_tcp ?? '-';
+    const udp = t.pct_udp ?? '-';
+    setEl('kpiPortas', `${tcp}% TCP / ${udp}% UDP`);
+
+    setEl('kpiAmeacas24h', u.incidentes ?? '-');
+    const criticos = u.criticos_incidentes ?? u.criticos ?? '-';
+    setEl('kpiCriticos', criticos);
+    const novos = u.novos_incidentes ?? u.novos ?? '-';
+    setEl('kpiNovos', novos);
 }

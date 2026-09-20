@@ -1257,9 +1257,20 @@ document.addEventListener('DOMContentLoaded', () => {
          quando o AdGuard voltar a ficar disponível
   ═══════════════════════════════════════════════════════ */
   setInterval(() => {
+    if (window.MoonShieldLoading?.visibility?.isHidden()) return;
     loadNocData();
   }, 30_000);
-  setInterval(pollQuerylog, 4_000);
+  setInterval(() => {
+    if (window.MoonShieldLoading?.visibility?.isHidden()) return;
+    pollQuerylog();
+  }, 4_000);
+
+  window.MoonShieldLoading?.visibility?.onVisible(() => {
+      if (state.hasLoadedOnce) {
+          loadNocData();
+          pollQuerylog();
+      }
+  });
 
   /* ═══════════════════════════════════════════════════════
      TOAST & LIVE TIME

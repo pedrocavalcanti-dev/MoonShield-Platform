@@ -666,7 +666,16 @@ document.addEventListener('DOMContentLoaded', () => {
     $('devRefreshBtn').addEventListener('click', () => doScan(false));
 
     // Auto-refresh silencioso (usa cache)
-    setInterval(() => doScan(false), SCAN_TTL_MS);
+    
+    setInterval(() => {
+        if (window.MoonShieldLoading?.visibility?.isHidden()) return;
+        doScan(false);
+    }, SCAN_TTL_MS);
+
+    window.MoonShieldLoading?.visibility?.onVisible(() => {
+        if (hasLoadedOnce && !scanInFlight) doScan(false);
+    });
+
 
     /* ══════════════════════════════════════════════════════
        DRAWER

@@ -196,14 +196,41 @@
     async function renderDashboard({ silent = false } = {}) {
       const sequence = state.overviewRequest + 1;
       const firstLoad = state.lastData === null;
-      if (firstLoad) setLoading(true);
-      else window.MoonShieldLoading?.setRefreshing(shell, true);
+      
+      const sevParam = SEV_TO_BACKEND[state.sev] || "all";
+      const cacheKey = `moonshield:dashboard:${state.period}:${sevParam}`;
+      const cached = window.MoonShieldLoading?.cache?.get(cacheKey);
+
+      if (cached && (firstLoad || state.lastFilter !== cacheKey)) {
+          state.lastData = cached;
+          applyData(cached);
+          hideBanner();
+      }
+      state.lastFilter = cacheKey;
+
+      if (state.lastData === null && !silent) setLoading(true);
+      else if (!silent) window.MoonShieldLoading?.setRefreshing(shell, true);
+      
       try {
         const data = await fetchOverview(sequence);
         if (sequence !== state.overviewRequest) return;
         state.lastData = data;
         hideBanner();
 
+        applyData(data);
+        window.MoonShieldLoading?.cache?.set(cacheKey, data);
+      } catch (error) {
+        if (error?.name === "AbortError" || sequence !== state.overviewRequest) return;
+        console.error("[MoonShield Dashboard] Falha ao carregar overview", error);
+        if (!state.lastData) showBanner("Alguns dados do Dashboard não puderam ser carregados agora.");
+      } finally {
+        if (sequence !== state.overviewRequest) return;
+        if (state.lastData === null && !silent) setLoading(false);
+        else window.MoonShieldLoading?.setRefreshing(shell, false);
+      }
+    }
+
+    function applyData(data) {
         renderHeader(data);
         renderKpis(data);
         renderMainCharts(data);
@@ -213,15 +240,6 @@
         renderTopIPs(data.intel?.top_ips || []);
         renderCategories(data.intel?.categorias || []);
         renderHealth(data);
-      } catch (error) {
-        if (error?.name === "AbortError" || sequence !== state.overviewRequest) return;
-        console.error("[MoonShield Dashboard] Falha ao carregar overview", error);
-        showBanner("Alguns dados do Dashboard não puderam ser carregados agora.");
-      } finally {
-        if (sequence !== state.overviewRequest) return;
-        if (firstLoad) setLoading(false);
-        else window.MoonShieldLoading?.setRefreshing(shell, false);
-      }
     }
 
     function renderHeader(data) {
@@ -873,6 +891,14 @@
       state.pollTimer = setInterval(() => {
         if (document.hidden || state.loading) return;
         renderDashboard({ silent: true });
+      }, 30000);
+      
+      if (window.MoonShieldLoading?.visibility) {
+          window.MoonShieldLoading.visibility.onVisible(() => {
+              if (!state.loading) renderDashboard({ silent: true });
+          });
+      }
+    });
       }, 30000);
     }
 

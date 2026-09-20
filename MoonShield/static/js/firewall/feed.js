@@ -209,8 +209,17 @@ document.addEventListener("DOMContentLoaded", () => {
         window.clearInterval(state.pollTimer);
 
         state.pollTimer = window.setInterval(() => {
-            if (!state.paused) {
+            if (!state.paused && !window.MoonShieldLoading?.visibility?.isHidden()) {
                 poll().catch(() => {});
+            }
+        }, 2000);
+
+        window.MoonShieldLoading?.visibility?.onVisible(() => {
+            if (!state.paused && state.hasLoadedOnce) {
+                poll().catch(() => {});
+            }
+        });
+    });
             }
         }, 2000);
     }

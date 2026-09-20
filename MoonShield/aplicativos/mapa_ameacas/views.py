@@ -33,6 +33,22 @@ def _lista_filtro(request, name, allowed, default):
     return sorted(values.intersection(allowed)) or default
 
 
+def _normalizar_multifiltro(request, name):
+    """Lê parâmetros repetidos como contrato principal e CSV como compatibilidade."""
+    values = []
+    seen = set()
+    raw_values = request.GET.getlist(name)
+    for raw_value in raw_values:
+        candidatos = raw_value.split(",") if len(raw_values) == 1 else [raw_value]
+        for value in candidatos:
+            value = value.strip()
+            key = value.casefold()
+            if value and key != "all" and key not in seen:
+                values.append(value)
+                seen.add(key)
+    return values
+
+
 def _parametros_feed(request):
     periodo = request.GET.get("period", "24h")
     horas = _PERIODOS.get(periodo, _PERIODOS["24h"])
@@ -45,8 +61,8 @@ def _parametros_feed(request):
         start_time=timezone.now() - timedelta(hours=horas),
         severities=_lista_filtro(request, "sev", _SEVERIDADES, list(_SEVERIDADES)),
         sources=_lista_filtro(request, "source", _FONTES, list(_FONTES)),
-        category=request.GET.get("category"),
-        country=request.GET.get("country"),
+        category=_normalizar_multifiltro(request, "category"),
+        country=_normalizar_multifiltro(request, "country"),
         query=(request.GET.get("query") or "")[:160],
         protocol=request.GET.get("protocol"),
         direction=request.GET.get("direction"),

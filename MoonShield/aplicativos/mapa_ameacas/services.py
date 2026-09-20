@@ -39,6 +39,23 @@ def _coordenadas_validas(latitude, longitude) -> bool:
     )
 
 
+def _normalizar_multifiltro(values, normalizer):
+    """Normaliza listas ou valor unico sem alterar a semantica do filtro."""
+    if values is None:
+        return []
+    if isinstance(values, str):
+        values = [values]
+    resultado = []
+    vistos = set()
+    for value in values:
+        value = str(value).strip()
+        normalizado = normalizer(value)
+        if value and normalizado != "all" and normalizado not in vistos:
+            resultado.append(normalizado)
+            vistos.add(normalizado)
+    return resultado
+
+
 class FeedNormalizer:
     """Consolida IDS, Firewall e DNS sem criar uma segunda SSOT de rede."""
 
@@ -47,8 +64,8 @@ class FeedNormalizer:
         start_time: datetime,
         severities: list | None = None,
         sources: list | None = None,
-        category: str | None = None,
-        country: str | None = None,
+        category: list[str] | str | None = None,
+        country: list[str] | str | None = None,
         query: str | None = None,
         protocol: str | None = None,
         direction: str | None = None,
@@ -57,8 +74,8 @@ class FeedNormalizer:
         self.start_time = start_time
         self.severities = {str(value).lower() for value in (severities or ["all"])}
         self.sources = {str(value).lower() for value in (sources or ["all"])}
-        self.category = (category or "all").strip().lower()
-        self.country = (country or "all").strip().upper()
+        self.categories = _normalizar_multifiltro(category, str.lower)
+        self.countries = _normalizar_multifiltro(country, str.upper)
         self.query = (query or "").strip()
         self.protocol = (protocol or "all").strip().upper()
         self.direction = (direction or "all").strip().lower()
@@ -164,9 +181,9 @@ class FeedNormalizer:
     def _matches_filters(self, event: dict) -> bool:
         if "all" not in self.severities and event["severity"] not in self.severities:
             return False
-        if self.category != "all" and event["category"].lower() != self.category:
+        if self.categories and event["category"].lower() not in self.categories:
             return False
-        if self.country != "ALL" and (event.get("country_code") or "").upper() != self.country:
+        if self.countries and (event.get("country_code") or "").upper() not in self.countries:
             return False
         if self.protocol != "ALL" and (event.get("protocol") or "").upper() != self.protocol:
             return False

@@ -257,3 +257,110 @@ class ThreatMapBackendTests(TestCase):
         )
 
         self.assertEqual(payload["facets"]["directions"], {"inbound": 1})
+
+    def _multifilter_events(self):
+        self._geo()
+        self._geo(
+            "1.1.1.1",
+            pais="Germany",
+            pais_codigo="DE",
+            cidade="Frankfurt",
+            latitude=50.1109,
+            longitude=8.6821,
+            asn_number="AS13335",
+            asn_org="Cloudflare",
+        )
+        self._alert(
+            src_ip="8.8.8.8",
+            dest_ip="192.168.10.50",
+            signature="Recon US",
+            category="recon",
+        )
+        self._alert(
+            src_ip="1.1.1.1",
+            dest_ip="192.168.10.50",
+            signature="Web DE",
+            category="web_attack",
+        )
+
+    def test_category_single_and_multiple_use_or_semantics(self):
+        self._multifilter_events()
+
+        single = FeedNormalizer(
+            self.start_time, sources=["ids"], category="recon"
+        ).get_all_events()
+        multiple = FeedNormalizer(
+            self.start_time, sources=["ids"], category=["recon", "web_attack"]
+        ).get_all_events()
+
+        self.assertEqual([event["category"] for event in single], ["recon"])
+        self.assertEqual({event["category"] for event in multiple}, {"recon", "web_attack"})
+
+    def test_country_single_and_multiple_use_or_semantics(self):
+        self._multifilter_events()
+
+        single = FeedNormalizer(
+            self.start_time, sources=["ids"], country="US"
+        ).get_all_events()
+        multiple = FeedNormalizer(
+            self.start_time, sources=["ids"], country=["US", "DE"]
+        ).get_all_events()
+
+        self.assertEqual([event["country_code"] for event in single], ["US"])
+        self.assertEqual({event["country_code"] for event in multiple}, {"US", "DE"})
+
+    def test_multi_dimensions_are_or_within_and_between_dimensions(self):
+        self._multifilter_events()
+
+        events = FeedNormalizer(
+            self.start_time,
+            sources=["ids"],
+            category=["recon", "web_attack"],
+            country=["DE"],
+        ).get_all_events()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["signature"], "Web DE")
+
+    def test_empty_and_duplicate_multifilters_do_not_change_the_recorte(self):
+        self._multifilter_events()
+
+        empty = FeedNormalizer(
+            self.start_time, sources=["ids"], category=[], country=[]
+        ).get_all_events()
+        duplicates = FeedNormalizer(
+            self.start_time,
+            sources=["ids"],
+            category=["recon", "recon"],
+            country=["US", "US"],
+        ).get_all_events()
+
+        self.assertEqual(len(empty), 2)
+        self.assertEqual(len(duplicates), 1)
+        self.assertEqual(duplicates[0]["signature"], "Recon US")
+
+    def test_endpoints_accept_repeated_and_csv_multifilters(self):
+        self._multifilter_events()
+
+        repeated = (
+            "?source=ids&category=recon&category=web_attack&country=US&country=DE"
+        )
+        overview = json.loads(
+            api_map_overview(self._request(f"/mapa/api/overview/{repeated}")).content
+        )
+        feed = json.loads(
+            api_map_feed(self._request(f"/mapa/api/feed/{repeated}")).content
+        )
+        facets = json.loads(
+            api_map_facets(self._request(f"/mapa/api/facets/{repeated}")).content
+        )
+        csv_feed = json.loads(
+            api_map_feed(
+                self._request("/mapa/api/feed/?source=ids&category=recon,web_attack&country=US,DE")
+            ).content
+        )
+
+        self.assertEqual(overview["kpis"]["events"], 2)
+        self.assertEqual(len(feed["events"]), 2)
+        self.assertEqual(facets["facets"]["categories"], {"recon": 1, "web_attack": 1})
+        self.assertEqual(len(csv_feed["events"]), 2)

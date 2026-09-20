@@ -326,7 +326,9 @@ class TestSensoresTimezoneBug(TestCase):
                 fingerprint=f"evt_{i}",
                 first_seen=agora - timedelta(minutes=i*10),
                 last_seen=agora - timedelta(minutes=i*10),
-                severidade_jg="alto"
+                severidade_jg="alto",
+                src_ip="192.0.2.10",
+                signature="Teste Legado"
             )
 
         # Requisição ao endpoint global (api_sensores chama _overview_real)

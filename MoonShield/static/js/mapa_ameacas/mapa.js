@@ -1,36 +1,29 @@
 (function () {
     'use strict';
 
-    // URL real gerada pelo Django em mapa.html via {% url %}
-    const _tmCfgEl = document.getElementById('tm-config-data');
-    const _tmCfg = _tmCfgEl ? JSON.parse(_tmCfgEl.textContent) : {};
-    const LOCATION_ENDPOINT = _tmCfg.setLocationUrl || '/mapa/api/location/';
+    const cfgEl = document.getElementById('tm-config-data');
+    let CONFIG = {};
+    try {
+        CONFIG = cfgEl ? JSON.parse(cfgEl.textContent || '{}') : {};
+    } catch (error) {
+        console.error('[ThreatMap] Configuração JSON inválida.', error);
+    }
 
-    // State
-    const STATE = {
-        filters: { period: '24h', sev: 'all', source: 'all', category: '', country: '', query: '' },
-        settings: { rotSpeed: 0.05, trailDuration: 15000, maxEvents: 200 },
-        seenIds: new Set(),
-        feedQueue: [], // stores event ids currently in the feed
-        isPaused: false,
-        selectedEventId: null,
-        lastFetch: 0,
-        lastFetchOk: 0,
-        pollingTimer: null,
-        abortController: null,
-        eventsCache: new Map(), // ID -> event data
-        isGlobe: true,
-        panelsHidden: false,
-        cinemaMode: false,
-        pendingBrowserLocation: null
+    const ENDPOINTS = {
+        overview: CONFIG.overviewUrl || '/mapa/api/overview/',
+        feed: CONFIG.feedUrl || '/mapa/api/feed/',
+        facets: CONFIG.facetsUrl || '/mapa/api/facets/',
+        search: CONFIG.searchUrl || '/mapa/api/search/',
+        location: CONFIG.setLocationUrl || '/mapa/api/location/',
+        incidents: CONFIG.incidentsUrl || '/incidentes/',
+        investigate: CONFIG.investigateIpUrl || '/incidentes/investigar/__IP__/'
     };
 
-    // Constants
-    const MAX_FEED_ITEMS = 80;
-    const MAX_SEEN_IDS = 1000;
     const POLL_INTERVAL = 5000;
     const STALE_AFTER_MS = 30000;
-    const SEV_ORDER = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+    const FILTERS_STORAGE_KEY = 'moonshield.threatmap.v2.filtersCollapsed';
+    const PREFS_STORAGE_KEY = 'moonshield.threatmap.v2.settings';
+    const MAX_FEED_DOM = 80;
 
     const SOURCE_LABELS = {
         ids: 'IDS / Suricata',
@@ -38,1016 +31,1757 @@
         dns: 'DNS / AdGuard'
     };
 
-    const DIR_LABELS = {
-        'inbound': 'ENTRADA',
-        'outbound': 'SAÍDA',
-        'internal': 'INTERNO',
-        'unknown': 'INDEFINIDO'
+    const SEVERITY_LABELS = {
+        critical: 'Crítico',
+        high: 'Alto',
+        medium: 'Médio',
+        low: 'Baixo',
+        info: 'Info'
     };
 
-    // ---------------------------------------------------------------
-    // UI Elements
-    // ---------------------------------------------------------------
+    const DIRECTION_LABELS = {
+        inbound: 'Entrada',
+        outbound: 'Saída',
+        internal: 'Interno',
+        external: 'Externo',
+        unknown: 'Indefinido'
+    };
+
+    const ZONE_LABELS = {
+        LAN: 'LAN',
+        WAN: 'WAN',
+        MGMT: 'MGMT',
+        DMZ: 'DMZ',
+        CUSTOM: 'CUSTOM'
+    };
+
+    const state = {
+        live: true,
+        isGlobe: true,
+        panelsHidden: false,
+        filtersCollapsed: false,
+        mobileFiltersOpen: false,
+        mobileEventsOpen: false,
+        rightMode: 'events',
+        filters: {
+            period: '24h',
+            sev: 'all',
+            source: 'all',
+            categories: [],
+            countries: [],
+            protocol: 'all',
+            direction: 'all',
+            zone: 'all'
+        },
+        draft: {
+            categories: new Set(),
+            countries: new Set()
+        },
+        settings: {
+            maxEvents: 200,
+            trailDuration: 15000,
+            rotSpeed: 0.05
+        },
+        overview: null,
+        feed: [],
+        facets: {
+            severities: {},
+            sources: {},
+            categories: {},
+            countries: {},
+            protocols: {},
+            directions: {},
+            zones: {}
+        },
+        node: null,
+        selectedEvent: null,
+        searchResult: null,
+        pollTimer: null,
+        staleTimer: null,
+        lastSuccessAt: 0,
+        refreshSeq: 0,
+        searchController: null,
+        toastTimer: null,
+        settingsInitialized: false,
+        currentPopover: null,
+        popoverTrigger: null,
+        resizeTimer: null
+    };
+
+    const $ = (id) => document.getElementById(id);
+
     const els = {
-        mapContainer: document.getElementById('map'),
-        feedContainer: document.getElementById('feed-container'),
-        feedEmptyState: document.getElementById('feed-empty-state'),
-        feedCount: document.getElementById('feed-count'),
-        detailsPanel: document.getElementById('details-panel'),
-        facetsContainer: document.getElementById('facets-container'),
+        app: $('tm-app'),
+        mainGrid: $('main-grid'),
+        map: $('map'),
 
-        kpiEvents: document.getElementById('kpi-events'),
-        kpiRate: document.getElementById('kpi-rate'),
-        kpiCritical: document.getElementById('kpi-critical'),
-        kpiGeo: document.getElementById('kpi-geo'),
-        kpiTopCountry: document.getElementById('kpi-top-country'),
+        kpiEvents: $('kpi-events'),
+        kpiRate: $('kpi-rate'),
+        kpiCritical: $('kpi-critical'),
+        kpiGeo: $('kpi-geo'),
+        kpiTopCountry: $('kpi-top-country'),
 
-        filterPeriod: document.getElementById('filter-period'),
-        filterSev: document.getElementById('filter-sev'),
-        filterSource: document.getElementById('filter-source'),
-        searchInput: document.getElementById('search-input'),
+        healthIds: $('health-ids'),
+        healthFirewall: $('health-firewall'),
+        healthDns: $('health-dns'),
 
-        btnPause: document.getElementById('btn-pause'),
-        btnClear: document.getElementById('btn-clear'),
-        btnSettings: document.getElementById('btn-settings'),
-        settingsPopover: document.getElementById('settings-popover'),
-        settingMaxEvents: document.getElementById('setting-max-events'),
-        settingTrail: document.getElementById('setting-trail'),
-        settingRot: document.getElementById('setting-rot'),
+        btnPause: $('btn-pause'),
+        btnProjection: $('btn-projection'),
+        btnTogglePanels: $('btn-toggle-panels'),
+        btnCinema: $('btn-cinema'),
+        btnClear: $('btn-clear'),
+        btnSettings: $('btn-settings'),
+        settingsPopover: $('settings-popover'),
+        settingMaxEvents: $('setting-max-events'),
+        settingTrail: $('setting-trail'),
+        settingRot: $('setting-rot'),
 
-        btnProjection: document.getElementById('btn-projection'),
-        projectionTag: document.getElementById('projection-tag'),
-        btnTogglePanels: document.getElementById('btn-toggle-panels'),
-        btnCinema: document.getElementById('btn-cinema'),
-        btnExitCinema: document.getElementById('btn-exit-cinema'),
+        panelFilters: $('panel-filters'),
+        btnCollapseFilters: $('btn-collapse-filters'),
+        filterPeriod: $('filter-period'),
+        filterSev: $('filter-sev'),
+        filterSource: $('filter-source'),
+        btnCategories: $('btn-categories'),
+        categoriesLabel: $('categories-label'),
+        categoriesPopover: $('categories-popover'),
+        categoriesSearch: $('categories-search'),
+        categoriesOptions: $('categories-options'),
+        btnCountries: $('btn-countries'),
+        countriesLabel: $('countries-label'),
+        countriesPopover: $('countries-popover'),
+        countriesSearch: $('countries-search'),
+        countriesOptions: $('countries-options'),
+        btnMoreFilters: $('btn-more-filters'),
+        moreFiltersPopover: $('more-filters-popover'),
+        filterProtocol: $('filter-protocol'),
+        filterDirection: $('filter-direction'),
+        filterZone: $('filter-zone'),
+        activeFiltersBar: $('active-filters-bar'),
+        btnResetFilters: $('btn-reset-filters'),
 
-        mainGrid: document.getElementById('main-grid'),
-        tmApp: document.getElementById('tm-app'),
+        panelEvents: $('panel-events'),
+        eventsPanel: $('events-panel'),
+        detailsPanel: $('details-panel'),
+        feedCount: $('feed-count'),
+        feedContainer: $('feed-container'),
+        feedEmptyState: $('feed-empty-state'),
 
-        healthIds: document.getElementById('health-ids'),
-        healthFw: document.getElementById('health-firewall'),
-        healthDns: document.getElementById('health-dns'),
+        searchForm: $('search-form'),
+        searchInput: $('search-input'),
 
-        noLocationWarning: document.getElementById('no-location-warning'),
-        btnOpenLocationModal: document.getElementById('btn-open-location-modal'),
+        btnMobileFilters: $('btn-mobile-filters'),
+        btnMobileEvents: $('btn-mobile-events'),
+        drawerBackdrop: $('drawer-backdrop'),
 
-        bannerError: document.getElementById('banner-error'),
-        bannerStale: document.getElementById('banner-stale'),
+        bannerError: $('banner-error'),
+        bannerStale: $('banner-stale'),
+        mapFailure: $('map-failure'),
+        noLocationWarning: $('no-location-warning'),
 
-        activeFiltersBar: document.getElementById('active-filters-bar'),
+        btnOpenLocationModal: $('btn-open-location-modal'),
+        locationModal: $('location-modal'),
+        btnCloseLocation: $('btn-close-location'),
+        btnCancelLocation: $('btn-cancel-location'),
+        btnSaveLocation: $('btn-save-location'),
+        btnUseBrowser: $('btn-use-browser'),
+        browserUnavailableMsg: $('browser-unavailable-msg'),
+        browserConfirmBox: $('browser-confirm-box'),
+        browserConfirmLat: $('browser-confirm-lat'),
+        browserConfirmLon: $('browser-confirm-lon'),
+        btnConfirmBrowserLocation: $('btn-confirm-browser-location'),
+        locLat: $('loc-lat'),
+        locLon: $('loc-lon'),
+        locError: $('loc-error'),
 
-        // Location modal
-        locationModal: document.getElementById('location-modal'),
-        btnCloseLocation: document.getElementById('btn-close-location'),
-        btnCancelLocation: document.getElementById('btn-cancel-location'),
-        btnSaveLocation: document.getElementById('btn-save-location'),
-        btnUseBrowser: document.getElementById('btn-use-browser'),
-        browserUnavailableMsg: document.getElementById('browser-unavailable-msg'),
-        browserConfirmBox: document.getElementById('browser-confirm-box'),
-        browserConfirmLat: document.getElementById('browser-confirm-lat'),
-        browserConfirmLon: document.getElementById('browser-confirm-lon'),
-        btnConfirmBrowserLocation: document.getElementById('btn-confirm-browser-location'),
-        locLat: document.getElementById('loc-lat'),
-        locLon: document.getElementById('loc-lon'),
-        locError: document.getElementById('loc-error')
+        toast: $('tm-toast')
     };
 
-    // ---------------------------------------------------------------
-    // Utils
-    // ---------------------------------------------------------------
-    const escapeHTML = (str) => {
-        if (str == null) return '';
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    };
+    function createEl(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = String(text);
+        return node;
+    }
 
-    const debounce = (func, wait) => {
-        let timeout;
-        return function (...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
-    };
+    function hasFiniteNumber(value) {
+        if (value === null || value === undefined || value === '') return false;
+        const num = Number(value);
+        return Number.isFinite(num);
+    }
 
-    // Robust timestamp formatter.
-    // Supports: ISO datetime, unix seconds, unix milliseconds,
-    // numeric strings, and float unix-seconds strings.
-    // Never returns "Invalid Date" and never falls back to "now".
-    function parseTimestampToDate(value) {
+    function asNumber(value) {
+        return hasFiniteNumber(value) ? Number(value) : null;
+    }
+
+    function textOrDash(value) {
+        if (value === null || value === undefined || value === '') return '—';
+        return String(value);
+    }
+
+    function parseTimestamp(value) {
         if (value === null || value === undefined || value === '') return null;
 
-        let ms = null;
-
-        if (typeof value === 'number' && !isNaN(value)) {
-            ms = Math.abs(value) < 1e12 ? value * 1000 : value;
-        } else if (typeof value === 'string') {
-            const trimmed = value.trim();
-            if (trimmed === '') return null;
-            if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
-                const num = parseFloat(trimmed);
-                ms = Math.abs(num) < 1e12 ? num * 1000 : num;
-            } else {
-                const parsed = Date.parse(trimmed);
-                ms = isNaN(parsed) ? null : parsed;
+        if (typeof value === 'string') {
+            const simpleTime = value.trim();
+            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(simpleTime)) {
+                return { simpleTime };
             }
         }
 
-        if (ms == null || isNaN(ms)) return null;
-        const d = new Date(ms);
-        return isNaN(d.getTime()) ? null : d;
+        let millis = null;
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            millis = Math.abs(value) < 1e12 ? value * 1000 : value;
+        } else if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+                const num = Number(trimmed);
+                millis = Math.abs(num) < 1e12 ? num * 1000 : num;
+            } else {
+                const parsed = Date.parse(trimmed);
+                if (!Number.isNaN(parsed)) millis = parsed;
+            }
+        }
+
+        if (millis === null) return null;
+        const date = new Date(millis);
+        return Number.isNaN(date.getTime()) ? null : { date };
     }
 
-    function formatTimestamp(value, mode) {
-        const d = parseTimestampToDate(value);
-        if (!d) return '—';
-        if (mode === 'full') {
-            return d.toLocaleString('pt-BR');
-        }
-        return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    function formatTimestamp(value, full) {
+        const parsed = parseTimestamp(value);
+        if (!parsed) return '—';
+        if (parsed.simpleTime) return parsed.simpleTime;
+        if (full) return parsed.date.toLocaleString('pt-BR');
+        return parsed.date.toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
     }
 
     function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
-                }
+        if (!document.cookie) return null;
+        const chunks = document.cookie.split(';');
+        for (const chunk of chunks) {
+            const cookie = chunk.trim();
+            if (cookie.startsWith(`${name}=`)) {
+                return decodeURIComponent(cookie.slice(name.length + 1));
             }
         }
-        return cookieValue;
+        return null;
     }
 
-    function updateActiveFiltersUI() {
-        if (!els.activeFiltersBar) return;
-        const active = [];
-        if (STATE.filters.category) active.push({ key: 'category', val: STATE.filters.category, label: `Categoria: ${STATE.filters.category}` });
-        if (STATE.filters.country) active.push({ key: 'country', val: STATE.filters.country, label: `País: ${STATE.filters.country}` });
+    function normalizeFacet(raw) {
+        if (!raw) return {};
+        if (!Array.isArray(raw)) return raw;
 
-        if (active.length > 0) {
-            els.activeFiltersBar.style.display = 'flex';
-            els.activeFiltersBar.innerHTML = '';
-            active.forEach(f => {
-                const tag = document.createElement('div');
-                tag.className = 'filter-tag';
-                const label = document.createElement('span');
-                label.textContent = f.label;
-                const closeBtn = document.createElement('button');
-                closeBtn.textContent = '×';
-                closeBtn.setAttribute('aria-label', 'Remover filtro');
-                closeBtn.onclick = () => {
-                    STATE.filters[f.key] = '';
-                    fetchData();
-                };
-                tag.appendChild(label);
-                tag.appendChild(closeBtn);
-                els.activeFiltersBar.appendChild(tag);
-            });
-        } else {
-            els.activeFiltersBar.style.display = 'none';
+        const out = {};
+        raw.forEach((item) => {
+            if (typeof item === 'string') {
+                out[item] = 0;
+                return;
+            }
+            if (!item || typeof item !== 'object') return;
+            const key = item.value ?? item.code ?? item.name ?? item.label;
+            if (key === null || key === undefined || key === '') return;
+            out[String(key)] = Number(item.count ?? 0) || 0;
+        });
+        return out;
+    }
+
+    function getRenderer() {
+        return window.MoonShieldThreatMapRenderer || null;
+    }
+
+    function rendererResize() {
+        const renderer = getRenderer();
+        if (!renderer || typeof renderer.resize !== 'function') return;
+
+        window.clearTimeout(state.resizeTimer);
+        requestAnimationFrame(() => {
+            renderer.resize();
+            state.resizeTimer = window.setTimeout(() => renderer.resize(), 280);
+        });
+    }
+
+    function showToast(message, timeout) {
+        if (!els.toast) return;
+        window.clearTimeout(state.toastTimer);
+        els.toast.textContent = message;
+        els.toast.hidden = false;
+        state.toastTimer = window.setTimeout(() => {
+            els.toast.hidden = true;
+        }, timeout || 2600);
+    }
+
+    function setBanner(el, show) {
+        if (!el) return;
+        el.hidden = !show;
+    }
+
+    function setApiHealthy(ok) {
+        if (ok) {
+            state.lastSuccessAt = Date.now();
+            setBanner(els.bannerError, false);
+            setBanner(els.bannerStale, false);
         }
     }
 
-    // ---------------------------------------------------------------
-    // Polling & Data Fetch
-    // ---------------------------------------------------------------
-    async function fetchData() {
-        if (STATE.isPaused) return;
-
-        if (STATE.abortController) {
-            STATE.abortController.abort();
+    function updateStaleBanner() {
+        if (!state.live || !state.lastSuccessAt) {
+            setBanner(els.bannerStale, false);
+            return;
         }
-        STATE.abortController = new AbortController();
+        setBanner(els.bannerStale, Date.now() - state.lastSuccessAt > STALE_AFTER_MS);
+    }
 
+    function sourceLabel(key) {
+        return SOURCE_LABELS[key] || String(key || '').toUpperCase() || '—';
+    }
+
+    function severityLabel(key) {
+        return SEVERITY_LABELS[key] || textOrDash(key);
+    }
+
+    function directionLabel(key) {
+        return DIRECTION_LABELS[key] || textOrDash(key);
+    }
+
+    function zoneLabel(key) {
+        return ZONE_LABELS[key] || textOrDash(key);
+    }
+
+    function getExternalGeo(ev) {
+        if (!ev || typeof ev !== 'object') return null;
+
+        const ext = ev.external_geo || {};
+        const lat = asNumber(ev.latitude ?? ext.latitude);
+        const lon = asNumber(ev.longitude ?? ext.longitude);
+
+        if (lat === null || lon === null || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            return null;
+        }
+
+        return {
+            latitude: lat,
+            longitude: lon,
+            country: ev.country ?? ext.country ?? null,
+            country_code: ev.country_code ?? ext.country_code ?? null,
+            city: ev.city ?? ext.city ?? null,
+            asn: ev.asn ?? ext.asn ?? null,
+            org: ev.org ?? ext.org ?? null
+        };
+    }
+
+    function eventHasGeo(ev) {
+        if (!ev || typeof ev !== 'object') return false;
+        if (ev.has_geo === false || ev.geolocatable === false) return false;
+        return !!getExternalGeo(ev);
+    }
+
+    function nodeHasGeo(node) {
+        if (!node) return false;
+        const lat = asNumber(node.latitude);
+        const lon = asNumber(node.longitude);
+        return lat !== null && lon !== null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    function eventLocationLabel(ev) {
+        const geo = getExternalGeo(ev);
+        if (!geo) return 'Sem GEO';
+        const chunks = [];
+        if (geo.city) chunks.push(geo.city);
+        if (geo.country || geo.country_code) chunks.push(geo.country || geo.country_code);
+        return chunks.length ? chunks.join(' · ') : 'Geolocalizado';
+    }
+
+    function buildFilterParams(options) {
+        const opts = options || {};
         const params = new URLSearchParams();
-        params.append('period', STATE.filters.period);
-        params.append('sev', STATE.filters.sev);
-        params.append('source', STATE.filters.source);
-        if (STATE.filters.category) params.append('category', STATE.filters.category);
-        if (STATE.filters.country) params.append('country', STATE.filters.country);
-        if (STATE.filters.query) params.append('query', STATE.filters.query);
-        params.append('limit', STATE.settings.maxEvents);
 
-        try {
-            const response = await fetch(`/mapa/api/overview/?${params.toString()}`, {
-                signal: STATE.abortController.signal,
-                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        params.set('period', state.filters.period || '24h');
+        params.set('sev', state.filters.sev || 'all');
+        params.set('source', state.filters.source || 'all');
 
-            const data = await response.json();
-            if (data.ok) {
-                processData(data);
-                STATE.lastFetchOk = Date.now();
-                setErrorBanner(false);
-                setStaleBanner(false);
-            } else {
-                setErrorBanner(false); // API 200 but ok:false — do not show a hard error banner
-            }
-        } catch (e) {
-            if (e.name !== 'AbortError') {
-                console.error('Fetch API falhou', e);
-                if (Date.now() - STATE.lastFetchOk > STALE_AFTER_MS && !STATE.isPaused) {
-                    setStaleBanner(true);
-                }
-            }
-        } finally {
-            STATE.abortController = null;
-            if (!STATE.isPaused) {
-                STATE.pollingTimer = setTimeout(fetchData, POLL_INTERVAL);
-            }
+        if (state.filters.protocol !== 'all') params.set('protocol', state.filters.protocol);
+        if (state.filters.direction !== 'all') params.set('direction', state.filters.direction);
+        if (state.filters.zone !== 'all') params.set('zone', state.filters.zone);
+
+        state.filters.categories.forEach((value) => params.append('category', value));
+        state.filters.countries.forEach((value) => params.append('country', value));
+
+        if (opts.limit !== false) {
+            params.set('limit', String(state.settings.maxEvents || 200));
         }
+
+        return params;
     }
 
-    function setErrorBanner(show) {
-        if (els.bannerError) els.bannerError.style.display = show ? 'block' : 'none';
+    function urlWithParams(baseUrl, params) {
+        const query = params.toString();
+        if (!query) return baseUrl;
+        return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${query}`;
     }
-    function setStaleBanner(show) {
-        if (els.bannerStale) els.bannerStale.style.display = show ? 'block' : 'none';
+
+    async function fetchJson(url, options) {
+        const response = await fetch(url, Object.assign({
+            credentials: 'same-origin',
+            headers: {
+                Accept: 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        }, options || {}));
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            throw new Error('Resposta não-JSON recebida.');
+        }
+
+        return response.json();
     }
 
-    function processData(data) {
-        if (data.config) {
-            STATE.settings.trailDuration = data.config.trail_duration || 15000;
-            STATE.settings.maxEvents = data.config.max_events || 200;
-            STATE.settings.rotSpeed = data.config.rot_speed || 0.05;
+    async function fetchOverview(seq) {
+        const params = buildFilterParams();
+        const data = await fetchJson(urlWithParams(ENDPOINTS.overview, params));
+        if (seq !== state.refreshSeq) return;
+        if (!data || data.ok === false) throw new Error('Overview retornou ok=false.');
+        applyOverview(data);
+    }
 
-            if (window.MoonShieldThreatMapRenderer) {
-                window.MoonShieldThreatMapRenderer.setTrailDuration(STATE.settings.trailDuration);
-                window.MoonShieldThreatMapRenderer.setRotationSpeed(STATE.settings.rotSpeed);
-            }
+    async function fetchFeed(seq) {
+        const params = buildFilterParams();
+        const data = await fetchJson(urlWithParams(ENDPOINTS.feed, params));
+        if (seq !== state.refreshSeq) return;
+        if (!data || data.ok === false) throw new Error('Feed retornou ok=false.');
+        applyFeed(data);
+    }
+
+    async function fetchFacets(seq) {
+        const params = buildFilterParams({ limit: false });
+        const data = await fetchJson(urlWithParams(ENDPOINTS.facets, params));
+        if (seq !== state.refreshSeq) return;
+        if (!data || data.ok === false) throw new Error('Facets retornou ok=false.');
+        applyFacets(data.facets || data.filter_facets || {});
+    }
+
+    async function refreshAll(options) {
+        const opts = options || {};
+        if (!opts.force && !state.live) return;
+
+        const seq = ++state.refreshSeq;
+        const tasks = [
+            fetchOverview(seq),
+            fetchFeed(seq),
+            fetchFacets(seq)
+        ];
+
+        const results = await Promise.allSettled(tasks);
+        if (seq !== state.refreshSeq) return;
+
+        const successCount = results.filter((item) => item.status === 'fulfilled').length;
+        if (successCount > 0) setApiHealthy(true);
+
+        if (successCount === 0) {
+            setBanner(els.bannerError, true);
         }
 
-        const node = data.node || {};
-        const nodeHasCoords = node.latitude != null && node.longitude != null;
-
-        if (window.MoonShieldThreatMapRenderer) {
-            window.MoonShieldThreatMapRenderer.setNode(node);
-        }
-        if (els.noLocationWarning) {
-            els.noLocationWarning.classList.toggle('visible', !nodeHasCoords);
-        }
-
-        const newEvents = [];
-        const renderEvents = [];
-
-        (data.events || []).forEach(ev => {
-            STATE.eventsCache.set(ev.id, ev);
-
-            if (!STATE.seenIds.has(ev.id)) {
-                newEvents.push(ev);
-                STATE.seenIds.add(ev.id);
-            }
-
-            // Map rendering / geo-KPI eligibility:
-            // geolocatable === true, direction inbound/outbound,
-            // valid external_geo coords, valid node coords.
-            const hasValidExternalGeo = ev.geolocatable === true
-                && (ev.direction === 'inbound' || ev.direction === 'outbound')
-                && ev.external_geo
-                && ev.external_geo.latitude != null
-                && ev.external_geo.longitude != null;
-
-            if (hasValidExternalGeo && nodeHasCoords) {
-                let src_lat, src_lon, dest_lat, dest_lon;
-                if (ev.direction === 'inbound') {
-                    src_lat = ev.external_geo.latitude;
-                    src_lon = ev.external_geo.longitude;
-                    dest_lat = node.latitude;
-                    dest_lon = node.longitude;
-                } else {
-                    src_lat = node.latitude;
-                    src_lon = node.longitude;
-                    dest_lat = ev.external_geo.latitude;
-                    dest_lon = ev.external_geo.longitude;
-                }
-
-                renderEvents.push({
-                    id: ev.id,
-                    severity: ev.severity,
-                    count: ev.count,
-                    src_lat, src_lon,
-                    dest_lat, dest_lon,
-                    external_lat: ev.external_geo.latitude,
-                    external_lon: ev.external_geo.longitude
-                });
+        results.forEach((item) => {
+            if (item.status === 'rejected') {
+                console.warn('[ThreatMap] Falha parcial de atualização:', item.reason);
             }
         });
 
-        // FIFO for seenIds
-        if (STATE.seenIds.size > MAX_SEEN_IDS) {
-            const arr = Array.from(STATE.seenIds);
-            const toRemove = arr.slice(0, arr.length - MAX_SEEN_IDS);
-            toRemove.forEach(id => {
-                STATE.seenIds.delete(id);
-                STATE.eventsCache.delete(id);
-            });
-        }
-
-        if (window.MoonShieldThreatMapRenderer) {
-            window.MoonShieldThreatMapRenderer.setEvents(renderEvents);
-        }
-
-        updateKPIs(data.kpis, data.total, renderEvents.length);
-        updateHealth(data.source_health);
-        updateFacets(data.facets);
-        updateActiveFiltersUI();
-
-        if (newEvents.length > 0) {
-            appendFeed(newEvents);
-        }
-        updateFeedEmptyState();
+        schedulePolling();
     }
 
-    // ---------------------------------------------------------------
-    // KPIs
-    // ---------------------------------------------------------------
-    function updateKPIs(kpis, total, geoCount) {
-        kpis = kpis || {};
+    function schedulePolling() {
+        window.clearTimeout(state.pollTimer);
+        if (!state.live) return;
+        state.pollTimer = window.setTimeout(() => {
+            refreshAll().catch((error) => {
+                console.error('[ThreatMap] Polling falhou.', error);
+            });
+        }, POLL_INTERVAL);
+    }
 
-        const eventsVal = (kpis.matched_total != null) ? kpis.matched_total : (total != null ? total : 0);
-        if (els.kpiEvents) els.kpiEvents.textContent = String(eventsVal);
+    function applyOverview(data) {
+        state.overview = data;
+        state.node = data.node || state.node;
 
-        if (els.kpiRate) els.kpiRate.textContent = `${kpis.rate || 0} evt/min`;
-
-        if (els.kpiCritical) els.kpiCritical.textContent = (kpis.critical != null) ? String(kpis.critical) : '0';
-
-        // Geo KPI is computed client-side from actually-routable events.
-        // A value of zero is valid and must render as "0", never "--".
-        if (els.kpiGeo) els.kpiGeo.textContent = String(geoCount || 0);
-
+        const kpis = data.kpis || {};
+        if (els.kpiEvents) {
+            const total = kpis.events ?? kpis.matched_total ?? data.total ?? 0;
+            els.kpiEvents.textContent = String(total);
+        }
+        if (els.kpiRate) {
+            const rate = Number(kpis.rate ?? 0);
+            els.kpiRate.textContent = `${Number.isFinite(rate) ? rate : 0} evt/min`;
+        }
+        if (els.kpiCritical) els.kpiCritical.textContent = String(kpis.critical ?? 0);
+        if (els.kpiGeo) els.kpiGeo.textContent = String(kpis.geo_on_map ?? 0);
         if (els.kpiTopCountry) {
-            const tc = kpis.top_country;
-            els.kpiTopCountry.textContent = (!tc || tc === '--') ? '—' : tc;
+            const top = kpis.top_country;
+            if (!top) {
+                els.kpiTopCountry.textContent = '—';
+            } else if (typeof top === 'object') {
+                els.kpiTopCountry.textContent = textOrDash(top.name ?? top.country ?? top.code);
+            } else {
+                els.kpiTopCountry.textContent = String(top);
+            }
+        }
+
+        updateHealth(data.source_health || {});
+
+        if (data.config && !state.settingsInitialized) {
+            const cfg = data.config;
+            if (Number.isFinite(Number(cfg.max_events))) state.settings.maxEvents = Number(cfg.max_events);
+            if (Number.isFinite(Number(cfg.trail_duration))) state.settings.trailDuration = Number(cfg.trail_duration);
+            if (Number.isFinite(Number(cfg.rot_speed))) state.settings.rotSpeed = Number(cfg.rot_speed);
+            loadLocalSettings();
+            state.settingsInitialized = true;
+            syncSettingsControls();
+            applyRendererSettings();
+        }
+
+        const renderer = getRenderer();
+        if (renderer && state.node) renderer.setNode(state.node);
+
+        if (els.noLocationWarning) {
+            els.noLocationWarning.classList.toggle('visible', !nodeHasGeo(state.node));
         }
     }
 
     function updateHealth(health) {
-        if (!health) return;
-        const setH = (el, status) => {
-            if (!el) return;
-            const s = status || 'unknown';
-            el.className = 'health-indicator ' + s;
-            el.title = el.title.split(' — ')[0] + ' — ' + s;
-        };
-        setH(els.healthIds, health.ids);
-        setH(els.healthFw, health.firewall);
-        setH(els.healthDns, health.dns);
+        updateHealthOne(els.healthIds, health.ids);
+        updateHealthOne(els.healthFirewall, health.firewall);
+        updateHealthOne(els.healthDns, health.dns);
     }
 
-    // ---------------------------------------------------------------
-    // Facets
-    // ---------------------------------------------------------------
-    function updateFacets(facets) {
-        if (!facets || !els.facetsContainer) return;
-
-        let html = '';
-
-        const renderList = (title, items, type, emptyText, labelMap) => {
-            let res = `<div class="facet-group"><h4>${title}</h4><ul>`;
-            const entries = Object.entries(items || {});
-            const sorted = entries.sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-            if (sorted.length === 0) {
-                res += `<li><span class="text-muted">${escapeHTML(emptyText)}</span></li>`;
-            }
-
-            sorted.forEach(([k, v]) => {
-                const label = (labelMap && labelMap[k]) ? labelMap[k] : k;
-                res += `<li class="facet-item" data-type="${type}" data-val="${escapeHTML(k)}">
-                    <span class="facet-name">${escapeHTML(label)}</span>
-                    <span class="facet-count">${v}</span>
-                </li>`;
-            });
-            res += `</ul></div>`;
-            return res;
-        };
-
-        html += renderList('Categorias', facets.categories, 'category', 'Nenhum dado');
-        // countries={} is a valid state (not a failure) when no event is geolocatable
-        html += renderList('Países', facets.countries, 'country', 'Nenhum evento geolocalizável');
-        html += renderList('Fontes', facets.sources, 'source', 'Nenhum dado', SOURCE_LABELS);
-
-        els.facetsContainer.innerHTML = html;
-
-        els.facetsContainer.querySelectorAll('.facet-item').forEach(el => {
-            el.addEventListener('click', () => {
-                const type = el.getAttribute('data-type');
-                const val = el.getAttribute('data-val');
-                if (type === 'source') {
-                    if (els.filterSource) els.filterSource.value = val;
-                    STATE.filters.source = val;
-                } else {
-                    STATE.filters[type] = val;
-                }
-                fetchData();
-            });
-        });
+    function updateHealthOne(el, status) {
+        if (!el) return;
+        const normalized = ['online', 'degraded', 'offline'].includes(status) ? status : 'unknown';
+        el.classList.remove('online', 'degraded', 'offline', 'unknown');
+        el.classList.add(normalized);
+        const base = el.id === 'health-ids' ? 'IDS / Suricata' : el.id === 'health-firewall' ? 'Firewall' : 'DNS / AdGuard';
+        el.title = `${base} — ${normalized}`;
     }
 
-    // ---------------------------------------------------------------
-    // Feed
-    // ---------------------------------------------------------------
-    function updateFeedEmptyState() {
-        const hasItems = STATE.feedQueue.length > 0;
-        if (els.feedEmptyState) els.feedEmptyState.style.display = hasItems ? 'none' : 'block';
-        if (els.feedCount) {
-            const n = STATE.feedQueue.length;
-            els.feedCount.textContent = n === 1 ? '1 evento' : `${n} eventos`;
+    function applyFeed(data) {
+        const rawEvents = Array.isArray(data.events) ? data.events : [];
+        state.feed = rawEvents.filter(eventHasGeo).slice(0, MAX_FEED_DOM);
+
+        renderFeed();
+        updateRendererEvents();
+
+        if (data.source_health) updateHealth(data.source_health);
+    }
+
+    function updateRendererEvents() {
+        const renderer = getRenderer();
+        if (!renderer) return;
+
+        if (!nodeHasGeo(state.node)) {
+            renderer.setEvents([]);
+            return;
         }
+
+        const nodeLat = Number(state.node.latitude);
+        const nodeLon = Number(state.node.longitude);
+        const renderEvents = [];
+
+        state.feed.forEach((ev) => {
+            const geo = getExternalGeo(ev);
+            if (!geo) return;
+
+            if (ev.direction === 'inbound') {
+                renderEvents.push({
+                    id: String(ev.id),
+                    severity: ev.severity || 'low',
+                    count: Number(ev.count || 1),
+                    src_lat: geo.latitude,
+                    src_lon: geo.longitude,
+                    dest_lat: nodeLat,
+                    dest_lon: nodeLon,
+                    external_lat: geo.latitude,
+                    external_lon: geo.longitude
+                });
+            } else if (ev.direction === 'outbound') {
+                renderEvents.push({
+                    id: String(ev.id),
+                    severity: ev.severity || 'low',
+                    count: Number(ev.count || 1),
+                    src_lat: nodeLat,
+                    src_lon: nodeLon,
+                    dest_lat: geo.latitude,
+                    dest_lon: geo.longitude,
+                    external_lat: geo.latitude,
+                    external_lon: geo.longitude
+                });
+            }
+        });
+
+        renderer.setEvents(renderEvents);
     }
 
-    function appendFeed(events) {
-        if (!els.feedContainer) return;
+    function renderFeed() {
+        if (!els.feedContainer || !els.feedEmptyState || !els.feedCount) return;
 
-        events = events.slice().sort((a, b) => (SEV_ORDER[b.severity] || 0) - (SEV_ORDER[a.severity] || 0));
+        els.feedContainer.replaceChildren();
+        els.feedCount.textContent = `${state.feed.length} ${state.feed.length === 1 ? 'evento' : 'eventos'}`;
 
+        if (!state.feed.length) {
+            els.feedEmptyState.hidden = false;
+            return;
+        }
+
+        els.feedEmptyState.hidden = true;
         const fragment = document.createDocumentFragment();
 
-        events.forEach(ev => {
-            const div = document.createElement('div');
-            div.className = `feed-item sev-${ev.severity || 'low'}`;
-            div.setAttribute('data-id', ev.id);
-            div.setAttribute('tabindex', '0');
-            div.setAttribute('role', 'button');
+        state.feed.forEach((ev) => {
+            const card = createEl('button', `tm-v2__event-card sev-${ev.severity || 'low'}`);
+            card.type = 'button';
+            card.dataset.eventId = String(ev.id ?? '');
 
-            const timeStr = formatTimestamp(ev.timestamp);
-            const sourceLabel = SOURCE_LABELS[ev.source] || (ev.source ? ev.source.toUpperCase() : 'UNK');
-            const sevLabel = (ev.severity || 'low').toUpperCase();
+            const head = createEl('div', 'tm-v2__event-head');
+            const sev = createEl('span', `tm-v2__event-sev sev-${ev.severity || 'low'}`, severityLabel(ev.severity));
+            const src = createEl('span', '', sourceLabel(ev.source));
+            const time = createEl('time', '', formatTimestamp(ev.ts || ev.timestamp));
+            head.append(sev, src, time);
 
-            let labelText = ev.signature || ev.action || ev.category || 'Alerta';
-            if (labelText.length > 60) labelText = labelText.substring(0, 57) + '...';
+            const route = createEl('div', 'tm-v2__event-ip');
+            const from = ev.external_ip || ev.src_ip || ev.domain || '—';
+            const to = ev.dst_ip || (state.node && state.node.name) || 'MoonShield';
+            route.textContent = `${from} → ${to}`;
 
-            let html = `<div class="feed-item-header">
-                <span class="feed-sev sev-text-${ev.severity || 'low'}">${sevLabel}</span>
-                <span class="feed-source">${escapeHTML(sourceLabel)}</span>
-                <span class="feed-time">${timeStr}</span>
-            </div>`;
+            const title = createEl('div', 'tm-v2__event-title', ev.signature || ev.action || ev.category || 'Evento de segurança');
+            const location = createEl('div', 'tm-v2__event-location', eventLocationLabel(ev));
 
-            if (ev.src_ip || ev.dst_ip || ev.domain) {
-                const dest = ev.dst_ip ? escapeHTML(ev.dst_ip) : (ev.domain ? escapeHTML(ev.domain) : '');
-                html += `<div class="feed-ips">`;
-                if (ev.src_ip) html += `<span>${escapeHTML(ev.src_ip)}</span>`;
-                if (ev.src_ip && dest) html += `<span class="feed-arrow">\u2192</span>`;
-                if (dest) html += `<span>${dest}</span>`;
-                html += `</div>`;
-            }
-
-            html += `<div class="feed-title">${escapeHTML(labelText)}</div>`;
-
-            const dirLabel = DIR_LABELS[ev.direction] || DIR_LABELS.unknown;
-            const geoLabel = ev.geolocatable === false ? 'SEM GEO' : '';
-            html += `<div class="feed-meta"><span>${dirLabel}</span>`;
-            if (geoLabel) html += `<span class="dot-sep">\u00b7</span><span>${geoLabel}</span>`;
-            if (ev.count > 1) html += `<span class="feed-badge count">\u00d7${ev.count}</span>`;
-            html += `</div>`;
-
-            div.innerHTML = html;
-            fragment.appendChild(div);
-
-            STATE.feedQueue.unshift(ev.id);
+            card.append(head, route, title, location);
+            card.addEventListener('click', () => openContext(ev, { source: 'event' }));
+            fragment.appendChild(card);
         });
 
-        els.feedContainer.insertBefore(fragment, els.feedContainer.firstChild);
+        els.feedContainer.appendChild(fragment);
+    }
 
-        while (STATE.feedQueue.length > MAX_FEED_ITEMS) {
-            const idToRemove = STATE.feedQueue.pop();
-            const el = els.feedContainer.querySelector(`[data-id="${idToRemove}"]`);
-            if (el) el.remove();
+    function applyFacets(facets) {
+        state.facets = {
+            severities: normalizeFacet(facets.severities),
+            sources: normalizeFacet(facets.sources),
+            categories: normalizeFacet(facets.categories),
+            countries: normalizeFacet(facets.countries),
+            protocols: normalizeFacet(facets.protocols),
+            directions: normalizeFacet(facets.directions),
+            zones: normalizeFacet(facets.zones)
+        };
+
+        populateSourceSelect();
+        populateAdvancedSelects();
+        renderMultiOptions('categories');
+        renderMultiOptions('countries');
+        updateMultiLabels();
+    }
+
+    function populateSelect(select, facet, allLabel, labelFn) {
+        if (!select) return;
+        const current = select.value;
+        select.replaceChildren();
+
+        const allOpt = createEl('option', '', allLabel);
+        allOpt.value = 'all';
+        select.appendChild(allOpt);
+
+        Object.entries(facet || {})
+            .sort((a, b) => Number(b[1]) - Number(a[1]) || String(a[0]).localeCompare(String(b[0])))
+            .forEach(([key, count]) => {
+                const option = createEl('option');
+                option.value = key;
+                const label = labelFn ? labelFn(key) : key;
+                option.textContent = `${label}${Number(count) ? ` · ${count}` : ''}`;
+                select.appendChild(option);
+            });
+
+        const exists = Array.from(select.options).some((option) => option.value === current);
+        select.value = exists ? current : 'all';
+    }
+
+    function populateSourceSelect() {
+        const desired = state.filters.source;
+        populateSelect(els.filterSource, state.facets.sources, 'Todas as fontes', sourceLabel);
+        const exists = Array.from(els.filterSource?.options || []).some((option) => option.value === desired);
+        if (els.filterSource) els.filterSource.value = exists ? desired : 'all';
+        if (!exists && desired !== 'all') state.filters.source = 'all';
+    }
+
+    function populateAdvancedSelects() {
+        populateSelect(els.filterProtocol, state.facets.protocols, 'Todos', (v) => String(v).toUpperCase());
+        populateSelect(els.filterDirection, state.facets.directions, 'Todas', directionLabel);
+        populateSelect(els.filterZone, state.facets.zones, 'Todas', zoneLabel);
+
+        restoreSelectValue(els.filterProtocol, state.filters.protocol, 'protocol');
+        restoreSelectValue(els.filterDirection, state.filters.direction, 'direction');
+        restoreSelectValue(els.filterZone, state.filters.zone, 'zone');
+    }
+
+    function restoreSelectValue(select, desired, filterKey) {
+        if (!select) return;
+        const exists = Array.from(select.options).some((option) => option.value === desired);
+        if (exists) {
+            select.value = desired;
+        } else {
+            select.value = 'all';
+            if (desired !== 'all') state.filters[filterKey] = 'all';
         }
     }
 
-    function showDetails(eventId) {
+    function facetEntries(kind) {
+        const facet = state.facets[kind] || {};
+        return Object.entries(facet).sort((a, b) => Number(b[1]) - Number(a[1]) || String(a[0]).localeCompare(String(b[0])));
+    }
+
+    function renderMultiOptions(kind, searchTerm) {
+        const isCategories = kind === 'categories';
+        const container = isCategories ? els.categoriesOptions : els.countriesOptions;
+        if (!container) return;
+
+        const term = String(searchTerm || '').trim().toLocaleLowerCase('pt-BR');
+        const draftSet = state.draft[kind];
+        container.replaceChildren();
+
+        const entries = facetEntries(kind).filter(([key]) => String(key).toLocaleLowerCase('pt-BR').includes(term));
+
+        if (!entries.length) {
+            const empty = createEl(
+                'div',
+                'tm-v2__multi-empty',
+                isCategories
+                    ? 'Nenhuma categoria disponível para este recorte.'
+                    : 'Nenhum país disponível neste período.'
+            );
+            container.appendChild(empty);
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        entries.forEach(([key, count]) => {
+            const label = createEl('label', 'tm-v2__multi-option');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = key;
+            checkbox.checked = draftSet.has(key);
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) draftSet.add(key);
+                else draftSet.delete(key);
+            });
+
+            const name = createEl('span', '', key);
+            const amount = createEl('small', '', count);
+            label.append(checkbox, name, amount);
+            fragment.appendChild(label);
+        });
+        container.appendChild(fragment);
+    }
+
+    function updateMultiLabels() {
+        if (els.categoriesLabel) {
+            els.categoriesLabel.textContent = selectionLabel(state.filters.categories, 'Todas as categorias');
+        }
+        if (els.countriesLabel) {
+            els.countriesLabel.textContent = selectionLabel(state.filters.countries, 'Todos os países');
+        }
+    }
+
+    function selectionLabel(values, fallback) {
+        if (!values.length) return fallback;
+        if (values.length === 1) return values[0];
+        return `${values.length} selecionados`;
+    }
+
+    function syncDraft(kind) {
+        state.draft[kind] = new Set(state.filters[kind]);
+        if (kind === 'categories') {
+            if (els.categoriesSearch) els.categoriesSearch.value = '';
+            renderMultiOptions(kind);
+        } else {
+            if (els.countriesSearch) els.countriesSearch.value = '';
+            renderMultiOptions(kind);
+        }
+    }
+
+    function applyMulti(kind) {
+        state.filters[kind] = Array.from(state.draft[kind]);
+        updateMultiLabels();
+        renderActiveFilters();
+        closePopovers();
+        refreshAll({ force: true }).catch(console.error);
+    }
+
+    function clearMultiDraft(kind) {
+        state.draft[kind].clear();
+        renderMultiOptions(kind);
+    }
+
+    function renderActiveFilters() {
+        if (!els.activeFiltersBar) return;
+        els.activeFiltersBar.replaceChildren();
+
+        const chips = [];
+        if (state.filters.sev !== 'all') chips.push({ kind: 'sev', value: state.filters.sev, label: severityLabel(state.filters.sev) });
+        if (state.filters.source !== 'all') chips.push({ kind: 'source', value: state.filters.source, label: sourceLabel(state.filters.source) });
+        if (state.filters.protocol !== 'all') chips.push({ kind: 'protocol', value: state.filters.protocol, label: String(state.filters.protocol).toUpperCase() });
+        if (state.filters.direction !== 'all') chips.push({ kind: 'direction', value: state.filters.direction, label: directionLabel(state.filters.direction) });
+        if (state.filters.zone !== 'all') chips.push({ kind: 'zone', value: state.filters.zone, label: zoneLabel(state.filters.zone) });
+        state.filters.categories.forEach((value) => chips.push({ kind: 'categories', value, label: value }));
+        state.filters.countries.forEach((value) => chips.push({ kind: 'countries', value, label: value }));
+
+        if (!chips.length) {
+            els.activeFiltersBar.appendChild(createEl('span', 'tm-v2__no-filters', 'Nenhum filtro adicional'));
+            return;
+        }
+
+        chips.forEach((chip) => {
+            const wrap = createEl('span', 'tm-v2__chip');
+            const label = createEl('span', '', chip.label);
+            const remove = createEl('button', '', '×');
+            remove.type = 'button';
+            remove.setAttribute('aria-label', `Remover filtro ${chip.label}`);
+            remove.addEventListener('click', () => removeFilterChip(chip));
+            wrap.append(label, remove);
+            els.activeFiltersBar.appendChild(wrap);
+        });
+    }
+
+    function removeFilterChip(chip) {
+        if (chip.kind === 'categories' || chip.kind === 'countries') {
+            state.filters[chip.kind] = state.filters[chip.kind].filter((value) => value !== chip.value);
+            syncDraft(chip.kind);
+            updateMultiLabels();
+        } else {
+            state.filters[chip.kind] = 'all';
+            syncFilterControls();
+        }
+        renderActiveFilters();
+        refreshAll({ force: true }).catch(console.error);
+    }
+
+    function resetFilters() {
+        state.filters = {
+            period: '24h',
+            sev: 'all',
+            source: 'all',
+            categories: [],
+            countries: [],
+            protocol: 'all',
+            direction: 'all',
+            zone: 'all'
+        };
+        syncFilterControls();
+        syncDraft('categories');
+        syncDraft('countries');
+        updateMultiLabels();
+        renderActiveFilters();
+        refreshAll({ force: true }).catch(console.error);
+    }
+
+    function syncFilterControls() {
+        if (els.filterPeriod) els.filterPeriod.value = state.filters.period;
+        if (els.filterSev) els.filterSev.value = state.filters.sev;
+        if (els.filterSource) els.filterSource.value = state.filters.source;
+        if (els.filterProtocol) els.filterProtocol.value = state.filters.protocol;
+        if (els.filterDirection) els.filterDirection.value = state.filters.direction;
+        if (els.filterZone) els.filterZone.value = state.filters.zone;
+    }
+
+    function openContext(data, options) {
+        if (!els.eventsPanel || !els.detailsPanel) return;
+        const opts = options || {};
+        state.selectedEvent = opts.source === 'event' ? data : null;
+        state.searchResult = opts.source === 'search' ? data : null;
+        state.rightMode = 'context';
+
+        els.eventsPanel.hidden = true;
+        els.detailsPanel.hidden = false;
+        renderContext(data, opts);
+        ensureMobileEventsVisible();
+    }
+
+    function closeContext() {
+        state.selectedEvent = null;
+        state.searchResult = null;
+        state.rightMode = 'events';
+
+        if (els.eventsPanel) els.eventsPanel.hidden = false;
+        if (els.detailsPanel) {
+            els.detailsPanel.hidden = true;
+            els.detailsPanel.replaceChildren();
+        }
+    }
+
+    function mergedContext(raw) {
+        if (!raw || typeof raw !== 'object') return {};
+        if (!raw.context || typeof raw.context !== 'object') return raw;
+        return Object.assign({}, raw.context, raw);
+    }
+
+    function renderContext(raw, options) {
         if (!els.detailsPanel) return;
-        const ev = STATE.eventsCache.get(eventId);
-        if (!ev) return;
+        const data = mergedContext(raw);
+        const opts = options || {};
+        els.detailsPanel.replaceChildren();
 
-        STATE.selectedEventId = eventId;
-        document.querySelectorAll('.feed-item').forEach(el => el.classList.remove('selected'));
-        const fItem = els.feedContainer.querySelector(`[data-id="${eventId}"]`);
-        if (fItem) fItem.classList.add('selected');
+        const inner = createEl('div', 'tm-v2__context-inner');
 
-        const sev = ev.severity || 'low';
-        let html = `<div class="details-header">
-            <h3>${escapeHTML(ev.signature || ev.action || 'Detalhes do Evento')}</h3>
-            <span class="badge ${sev}">${sev.toUpperCase()}</span>
-        </div>
-        <div class="details-body">
-            <table class="tech-table">
-                <tr><td>Source</td><td>${escapeHTML(SOURCE_LABELS[ev.source] || ev.source || '—')}</td></tr>
-                <tr><td>Timestamp</td><td class="font-mono">${formatTimestamp(ev.timestamp, 'full')}</td></tr>
-                <tr><td>Count</td><td class="font-mono">${ev.count != null ? ev.count : '—'}</td></tr>
-                <tr><td>Direction</td><td>${DIR_LABELS[ev.direction] || DIR_LABELS.unknown}${ev.geolocatable === false ? ' · SEM GEO' : ''}</td></tr>
-                ${ev.protocol ? `<tr><td>Protocol</td><td class="font-mono">${escapeHTML(ev.protocol)}</td></tr>` : ''}
-                ${ev.rule_id ? `<tr><td>Rule ID</td><td class="font-mono">${escapeHTML(ev.rule_id.toString())}</td></tr>` : ''}
-                ${ev.category ? `<tr><td>Category</td><td>${escapeHTML(ev.category)}</td></tr>` : ''}
-                ${ev.domain ? `<tr><td>Domain</td><td class="font-mono">${escapeHTML(ev.domain)}</td></tr>` : ''}
-            </table>
+        const head = createEl('div', 'tm-v2__context-head');
+        const back = createEl('button', 'tm-v2__back-btn', '←');
+        back.type = 'button';
+        back.setAttribute('aria-label', 'Voltar aos eventos');
+        back.addEventListener('click', closeContext);
 
-            <h4>Origem</h4>
-            <table class="tech-table">
-                <tr><td>IP</td><td class="font-mono">${escapeHTML(ev.src_ip || '—')}</td></tr>
-                ${ev.src_port ? `<tr><td>Port</td><td class="font-mono">${escapeHTML(ev.src_port.toString())}</td></tr>` : ''}
-                ${ev.src_geo ? `<tr><td>Country</td><td>${escapeHTML(ev.src_geo.country_code || '—')}</td></tr>` : ''}
-            </table>
+        const titleWrap = createEl('div');
+        titleWrap.append(
+            createEl('span', '', opts.source === 'search' ? 'Resultado da busca' : 'Evento selecionado'),
+            createEl('h2', '', opts.source === 'search' ? textOrDash(data.value || data.ip || data.src_ip || data.external_ip) : 'Contexto')
+        );
 
-            <h4>Destino</h4>
-            <table class="tech-table">
-                <tr><td>IP</td><td class="font-mono">${escapeHTML(ev.dst_ip || '—')}</td></tr>
-                ${ev.dst_port ? `<tr><td>Port</td><td class="font-mono">${escapeHTML(ev.dst_port.toString())}</td></tr>` : ''}
-                ${ev.dst_geo ? `<tr><td>Country</td><td>${escapeHTML(ev.dst_geo.country_code || '—')}</td></tr>` : ''}
-            </table>
-        </div>
-        <div class="details-actions">`;
-
-        if (ev.incident_id) {
-            html += `<a href="/incidentes/${encodeURIComponent(ev.incident_id)}/" class="btn btn-primary btn-sm" target="_blank" rel="noopener">Ver no SOC</a>`;
-        }
-        html += `<button class="btn btn-outline btn-sm" id="btn-copy-ioc">Copy IOC</button>`;
-        html += `<button class="btn btn-outline btn-sm" id="btn-focus-map">Focar no Mapa</button>`;
-        html += `</div>`;
-
-        els.detailsPanel.innerHTML = html;
-        els.detailsPanel.classList.add('visible');
-
-        const btnFocus = document.getElementById('btn-focus-map');
-        if (btnFocus && window.MoonShieldThreatMapRenderer) {
-            btnFocus.onclick = () => {
-                if (ev.geolocatable && ev.external_geo && ev.external_geo.latitude != null) {
-                    window.MoonShieldThreatMapRenderer.focusEvent({
-                        external_lon: ev.external_geo.longitude,
-                        external_lat: ev.external_geo.latitude
-                    });
-                }
-            };
+        head.append(back, titleWrap);
+        if (data.severity) {
+            head.appendChild(createEl('span', `tm-v2__severity-pill sev-${data.severity}`, severityLabel(data.severity)));
         }
 
-        const btnCopy = document.getElementById('btn-copy-ioc');
-        if (btnCopy) {
-            const ioc = ev.external_ip || ev.domain || ev.dst_ip || ev.src_ip || '';
-            if (!ioc) {
-                btnCopy.disabled = true;
-                btnCopy.textContent = 'Sem IOC';
-            } else {
-                btnCopy.onclick = async () => {
-                    const originalText = btnCopy.textContent;
-                    const success = await copyText(ioc);
-                    btnCopy.textContent = success ? 'Copiado' : 'Falha ao copiar';
-                    setTimeout(() => {
-                        const btn = document.getElementById('btn-copy-ioc');
-                        if (btn && btn.textContent === 'Copiado' || btn && btn.textContent === 'Falha ao copiar') {
-                            btn.textContent = originalText;
-                        }
-                    }, 1500);
-                };
-            }
+        const body = createEl('div', 'tm-v2__context-body');
+        const title = data.signature || data.title || data.action || data.category || (opts.source === 'search' ? textOrDash(data.value || data.ip) : 'Evento de segurança');
+        body.appendChild(createEl('h3', 'tm-v2__context-title', title));
+
+        const badges = createEl('div', 'tm-v2__context-badges');
+        if (data.source) badges.appendChild(createEl('span', 'tm-v2__mini-badge', sourceLabel(data.source)));
+        if (data.protocol) badges.appendChild(createEl('span', 'tm-v2__mini-badge', String(data.protocol).toUpperCase()));
+        if (data.direction || data.flow_scope) badges.appendChild(createEl('span', 'tm-v2__mini-badge', directionLabel(data.direction || data.flow_scope)));
+        if (data.role || data.src_role) badges.appendChild(createEl('span', 'tm-v2__mini-badge', data.role || data.src_role));
+        if (badges.childElementCount) body.appendChild(badges);
+
+        appendDetailSection(body, 'Evento', [
+            ['Timestamp', formatTimestamp(data.ts || data.timestamp, true)],
+            ['Ocorrências', data.count ?? '—'],
+            ['Direção', directionLabel(data.direction || data.flow_scope)],
+            ['Protocolo', data.protocol ? String(data.protocol).toUpperCase() : '—'],
+            ['Rule ID', data.rule_id ?? data.sid ?? '—'],
+            ['Categoria', data.category ?? '—']
+        ]);
+
+        const srcGeo = data.src_geo || {};
+        const externalGeo = data.external_geo || {};
+        appendDetailSection(body, 'Origem', [
+            ['IP', data.src_ip ?? data.external_ip ?? data.ip ?? data.value ?? '—'],
+            ['País', data.country ?? srcGeo.country ?? srcGeo.country_code ?? externalGeo.country ?? externalGeo.country_code ?? '—'],
+            ['Cidade', data.city ?? srcGeo.city ?? externalGeo.city ?? '—'],
+            ['ASN', data.asn ?? srcGeo.asn ?? externalGeo.asn ?? '—'],
+            ['Organização', data.org ?? data.organization ?? srcGeo.org ?? externalGeo.org ?? '—'],
+            ['Scope', data.src_scope ?? data.scope ?? (data.has_geo === false ? 'internal' : '—')],
+            ['Role', data.src_role ?? data.role ?? '—']
+        ]);
+
+        if (data.dst_ip || data.dst_port || data.dst_scope || data.dst_role) {
+            appendDetailSection(body, 'Destino', [
+                ['IP', data.dst_ip ?? '—'],
+                ['Porta', data.dst_port ?? '—'],
+                ['Scope', data.dst_scope ?? '—'],
+                ['Role', data.dst_role ?? '—']
+            ]);
         }
+
+        const hasGeo = data.has_geo === true || data.geolocatable === true || !!getExternalGeo(data);
+        if (!hasGeo) {
+            const section = createEl('div', 'tm-v2__context-section');
+            section.appendChild(createEl('h3', '', 'Geolocalização'));
+            section.appendChild(createEl('div', 'tm-v2__mini-badge', 'Sem geolocalização pública'));
+            body.appendChild(section);
+        }
+
+        const actions = createEl('div', 'tm-v2__context-actions');
+        const incidentLink = createEl('a', 'tm-v2__action-link', 'Ver no SOC');
+        incidentLink.href = data.incident_id ? `${ENDPOINTS.incidents}${encodeURIComponent(data.incident_id)}/` : ENDPOINTS.incidents;
+        actions.appendChild(incidentLink);
+
+        const investigateIp = data.src_ip || data.external_ip || data.ip || data.value;
+        if (investigateIp && looksLikeIp(String(investigateIp))) {
+            const investigate = createEl('a', 'tm-v2__small-btn', 'Investigar IP');
+            investigate.href = ENDPOINTS.investigate.replace('__IP__', encodeURIComponent(String(investigateIp)));
+            actions.appendChild(investigate);
+        }
+
+        const geo = getExternalGeo(data);
+        if (geo && getRenderer()) {
+            const focus = createEl('button', 'tm-v2__action-link', 'Focar no mapa');
+            focus.type = 'button';
+            focus.addEventListener('click', () => {
+                getRenderer().focusEvent({
+                    external_lon: geo.longitude,
+                    external_lat: geo.latitude
+                });
+            });
+            actions.appendChild(focus);
+        }
+
+        body.appendChild(actions);
+        inner.append(head, body);
+        els.detailsPanel.appendChild(inner);
     }
 
-    async function copyText(text) {
-        if (navigator.clipboard && window.isSecureContext) {
-            try {
-                await navigator.clipboard.writeText(text);
-                return true;
-            } catch (e) {
-                console.warn('Clipboard API failed', e);
-            }
+    function appendDetailSection(parent, title, rows) {
+        const usefulRows = rows.filter(([, value]) => value !== null && value !== undefined && value !== '');
+        if (!usefulRows.length) return;
+
+        const section = createEl('section', 'tm-v2__context-section');
+        section.appendChild(createEl('h3', '', title));
+
+        const dl = createEl('dl', 'tm-v2__detail-list');
+        usefulRows.forEach(([label, value]) => {
+            const row = createEl('div', 'tm-v2__detail-row');
+            row.append(createEl('dt', '', label), createEl('dd', '', textOrDash(value)));
+            dl.appendChild(row);
+        });
+
+        section.appendChild(dl);
+        parent.appendChild(section);
+    }
+
+    function looksLikeIp(value) {
+        const v = String(value || '').trim();
+        return /^(\d{1,3}\.){3}\d{1,3}$/.test(v) || v.includes(':');
+    }
+
+    function extractSearchResult(data) {
+        if (!data || data.ok === false) return null;
+
+        let result = data.result ?? data.match ?? data.item ?? null;
+        if (!result && Array.isArray(data.results)) result = data.results[0] || null;
+        if (!result && Array.isArray(data.events)) result = data.events[0] || null;
+
+        if (!result) {
+            const hasRecognizableFields = ['has_geo', 'value', 'ip', 'src_ip', 'domain', 'signature', 'asn', 'context']
+                .some((key) => Object.prototype.hasOwnProperty.call(data, key));
+            if (hasRecognizableFields) result = data;
         }
+
+        return result;
+    }
+
+    async function runSearch(query) {
+        const q = String(query || '').trim();
+        if (!q) return;
+
+        if (state.searchController) state.searchController.abort();
+        state.searchController = new AbortController();
+
+        const params = new URLSearchParams();
+        params.set('q', q);
 
         try {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            ta.style.position = 'fixed';
-            ta.style.top = '-9999px';
-            document.body.appendChild(ta);
-            ta.select();
-            const res = document.execCommand('copy');
-            document.body.removeChild(ta);
-            return res;
-        } catch (e) {
-            return false;
+            const data = await fetchJson(urlWithParams(ENDPOINTS.search, params), {
+                signal: state.searchController.signal
+            });
+            const result = extractSearchResult(data);
+
+            if (!result) {
+                showToast('Nenhum resultado encontrado.');
+                return;
+            }
+
+            const merged = mergedContext(result);
+            const geo = getExternalGeo(merged);
+            const hasGeo = merged.has_geo === true || merged.geolocatable === true || !!geo;
+
+            openContext(merged, { source: 'search' });
+
+            if (hasGeo && geo && getRenderer()) {
+                getRenderer().focusEvent({
+                    external_lon: geo.longitude,
+                    external_lat: geo.latitude
+                });
+            } else {
+                const role = merged.role || merged.src_role || '';
+                showToast(role ? `IP interno · ${role} — sem posição geográfica.` : 'Resultado sem posição geográfica pública.');
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.warn('[ThreatMap] Busca falhou.', error);
+                showToast('Não foi possível concluir a busca.');
+            }
+        } finally {
+            state.searchController = null;
         }
     }
 
-    // ---------------------------------------------------------------
-    // Location modal / geolocation
-    // ---------------------------------------------------------------
+    function toggleLive() {
+        state.live = !state.live;
+        if (els.btnPause) {
+            els.btnPause.classList.toggle('is-live', state.live);
+            els.btnPause.classList.toggle('is-paused', !state.live);
+            els.btnPause.setAttribute('aria-pressed', String(!state.live));
+            const label = els.btnPause.querySelector('.status-label');
+            if (label) label.textContent = state.live ? 'LIVE' : 'PAUSADO';
+        }
+
+        const renderer = getRenderer();
+        if (renderer) renderer.setPaused(!state.live);
+
+        window.clearTimeout(state.pollTimer);
+        if (state.live) refreshAll({ force: true }).catch(console.error);
+    }
+
+    function toggleProjection() {
+        state.isGlobe = !state.isGlobe;
+        const renderer = getRenderer();
+        if (renderer) renderer.setProjection(state.isGlobe ? 'globe' : 'mercator');
+        if (els.btnProjection) {
+            els.btnProjection.classList.toggle('is-active', !state.isGlobe);
+            els.btnProjection.setAttribute('aria-pressed', String(state.isGlobe));
+            els.btnProjection.title = state.isGlobe ? 'Usando globo 3D' : 'Usando mapa 2D';
+        }
+    }
+
+    function togglePanels() {
+        state.panelsHidden = !state.panelsHidden;
+        if (els.app) els.app.classList.toggle('panels-hidden', state.panelsHidden);
+        if (els.btnTogglePanels) {
+            els.btnTogglePanels.classList.toggle('is-active', state.panelsHidden);
+            els.btnTogglePanels.setAttribute('aria-pressed', String(state.panelsHidden));
+        }
+        rendererResize();
+    }
+
+    function toggleCinema() {
+        if (!els.app) return;
+        const active = !els.app.classList.contains('cinema-mode');
+        els.app.classList.toggle('cinema-mode', active);
+        if (els.btnCinema) {
+            els.btnCinema.classList.toggle('is-active', active);
+            els.btnCinema.setAttribute('aria-pressed', String(active));
+        }
+        rendererResize();
+    }
+
+    function clearVisualSelection() {
+        closeContext();
+        state.searchResult = null;
+        if (els.searchInput) els.searchInput.value = '';
+        const renderer = getRenderer();
+        if (renderer) {
+            renderer.clear();
+            updateRendererEvents();
+            renderer.resetView();
+        }
+    }
+
+    function toggleFiltersCollapsed() {
+        if (window.matchMedia('(max-width: 920px)').matches) {
+            state.mobileFiltersOpen = !state.mobileFiltersOpen;
+            state.mobileEventsOpen = false;
+            updateMobileDrawers();
+            return;
+        }
+
+        state.filtersCollapsed = !state.filtersCollapsed;
+        updateFilterPanelState();
+        saveFiltersCollapsed();
+        rendererResize();
+    }
+
+    function updateFilterPanelState() {
+        if (!els.app || !els.btnCollapseFilters) return;
+        els.app.classList.toggle('filters-collapsed', state.filtersCollapsed);
+        els.app.classList.toggle('filters-user-open', !state.filtersCollapsed);
+        els.btnCollapseFilters.setAttribute('aria-expanded', String(!state.filtersCollapsed));
+        els.btnCollapseFilters.setAttribute('aria-label', state.filtersCollapsed ? 'Expandir filtros' : 'Recolher filtros');
+    }
+
+    function loadFiltersCollapsed() {
+        try {
+            const stored = localStorage.getItem(FILTERS_STORAGE_KEY);
+            if (stored === '1') state.filtersCollapsed = true;
+            else if (stored === '0') state.filtersCollapsed = false;
+            else state.filtersCollapsed = window.matchMedia('(max-width: 1180px)').matches;
+        } catch (_) {
+            state.filtersCollapsed = window.matchMedia('(max-width: 1180px)').matches;
+        }
+    }
+
+    function saveFiltersCollapsed() {
+        try {
+            localStorage.setItem(FILTERS_STORAGE_KEY, state.filtersCollapsed ? '1' : '0');
+        } catch (_) {
+            // Storage indisponível não pode quebrar o mapa.
+        }
+    }
+
+    function loadLocalSettings() {
+        try {
+            const raw = localStorage.getItem(PREFS_STORAGE_KEY);
+            if (!raw) return;
+            const saved = JSON.parse(raw);
+            if ([50, 100, 150, 200].includes(Number(saved.maxEvents))) state.settings.maxEvents = Number(saved.maxEvents);
+            if ([5000, 15000, 30000].includes(Number(saved.trailDuration))) state.settings.trailDuration = Number(saved.trailDuration);
+            if ([0, 0.02, 0.05, 0.1].includes(Number(saved.rotSpeed))) state.settings.rotSpeed = Number(saved.rotSpeed);
+        } catch (_) {
+            // Preferências inválidas são ignoradas.
+        }
+    }
+
+    function saveLocalSettings() {
+        try {
+            localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(state.settings));
+        } catch (_) {
+            // Storage indisponível não pode quebrar o mapa.
+        }
+    }
+
+    function syncSettingsControls() {
+        if (els.settingMaxEvents) els.settingMaxEvents.value = String(state.settings.maxEvents);
+        if (els.settingTrail) els.settingTrail.value = String(state.settings.trailDuration);
+        if (els.settingRot) els.settingRot.value = String(state.settings.rotSpeed);
+    }
+
+    function applyRendererSettings() {
+        const renderer = getRenderer();
+        if (!renderer) return;
+        renderer.setTrailDuration(state.settings.trailDuration);
+        renderer.setRotationSpeed(state.settings.rotSpeed);
+    }
+
+    function toggleMobileFilters() {
+        state.mobileFiltersOpen = !state.mobileFiltersOpen;
+        state.mobileEventsOpen = false;
+        updateMobileDrawers();
+    }
+
+    function toggleMobileEvents() {
+        state.mobileEventsOpen = !state.mobileEventsOpen;
+        state.mobileFiltersOpen = false;
+        updateMobileDrawers();
+    }
+
+    function ensureMobileEventsVisible() {
+        if (!window.matchMedia('(max-width: 920px)').matches) return;
+        state.mobileEventsOpen = true;
+        state.mobileFiltersOpen = false;
+        updateMobileDrawers();
+    }
+
+    function closeMobileDrawers() {
+        state.mobileFiltersOpen = false;
+        state.mobileEventsOpen = false;
+        updateMobileDrawers();
+    }
+
+    function updateMobileDrawers() {
+        if (!els.app) return;
+        els.app.classList.toggle('mobile-filters-open', state.mobileFiltersOpen);
+        els.app.classList.toggle('mobile-events-open', state.mobileEventsOpen);
+
+        if (els.btnMobileFilters) els.btnMobileFilters.setAttribute('aria-expanded', String(state.mobileFiltersOpen));
+        if (els.btnMobileEvents) els.btnMobileEvents.setAttribute('aria-expanded', String(state.mobileEventsOpen));
+
+        const anyOpen = state.mobileFiltersOpen || state.mobileEventsOpen;
+        if (els.drawerBackdrop) els.drawerBackdrop.hidden = !anyOpen;
+        rendererResize();
+    }
+
+    function positionPopover(popover, trigger) {
+        if (!popover || !trigger || popover === els.settingsPopover) return;
+        popover.hidden = false;
+
+        requestAnimationFrame(() => {
+            const triggerRect = trigger.getBoundingClientRect();
+            const popRect = popover.getBoundingClientRect();
+            const viewportW = document.documentElement.clientWidth;
+            const viewportH = document.documentElement.clientHeight;
+            const margin = 10;
+
+            let left = triggerRect.right + 8;
+            let top = triggerRect.top;
+
+            if (left + popRect.width > viewportW - margin) {
+                left = triggerRect.left - popRect.width - 8;
+            }
+            if (left < margin) left = Math.max(margin, triggerRect.left);
+            if (top + popRect.height > viewportH - margin) {
+                top = viewportH - popRect.height - margin;
+            }
+            if (top < margin) top = margin;
+
+            popover.style.left = `${Math.round(left)}px`;
+            popover.style.top = `${Math.round(top)}px`;
+        });
+    }
+
+    function openPopover(popover, trigger, kind) {
+        if (!popover || !trigger) return;
+
+        if (state.currentPopover === popover && !popover.hidden) {
+            closePopovers();
+            return;
+        }
+
+        closePopovers(false);
+        state.currentPopover = popover;
+        state.popoverTrigger = trigger;
+
+        if (kind === 'categories' || kind === 'countries') syncDraft(kind);
+
+        popover.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+
+        if (popover === els.settingsPopover) {
+            // Posicionamento é controlado pelo CSS dentro do wrapper.
+        } else {
+            positionPopover(popover, trigger);
+        }
+    }
+
+    function closePopovers(returnFocus) {
+        const shouldReturnFocus = returnFocus !== false;
+        const popovers = [
+            els.categoriesPopover,
+            els.countriesPopover,
+            els.moreFiltersPopover,
+            els.settingsPopover
+        ];
+
+        popovers.forEach((popover) => {
+            if (popover) {
+                popover.hidden = true;
+                if (popover !== els.settingsPopover) {
+                    popover.style.left = '';
+                    popover.style.top = '';
+                }
+            }
+        });
+
+        [els.btnCategories, els.btnCountries, els.btnMoreFilters, els.btnSettings].forEach((button) => {
+            if (button) button.setAttribute('aria-expanded', 'false');
+        });
+
+        const previousTrigger = state.popoverTrigger;
+        state.currentPopover = null;
+        state.popoverTrigger = null;
+
+        if (shouldReturnFocus && previousTrigger && document.contains(previousTrigger)) {
+            previousTrigger.focus({ preventScroll: true });
+        }
+    }
+
+    function isInsideOpenPopover(target) {
+        return !!(state.currentPopover && !state.currentPopover.hidden && state.currentPopover.contains(target));
+    }
+
     function openLocationModal() {
         if (!els.locationModal) return;
-        hideLocError();
-        if (els.browserConfirmBox) els.browserConfirmBox.style.display = 'none';
-        STATE.pendingBrowserLocation = null;
 
-        const secure = !!(window.isSecureContext && 'geolocation' in navigator);
-        if (els.btnUseBrowser) els.btnUseBrowser.disabled = !secure;
-        if (els.browserUnavailableMsg) els.browserUnavailableMsg.style.display = secure ? 'none' : 'block';
+        hideLocationError();
+        state.pendingBrowserLocation = null;
+        if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
 
-        els.locationModal.style.display = 'flex';
+        const canBrowserGeo = !!(window.isSecureContext && navigator.geolocation);
+        if (els.btnUseBrowser) els.btnUseBrowser.disabled = !canBrowserGeo;
+        if (els.browserUnavailableMsg) els.browserUnavailableMsg.hidden = canBrowserGeo;
+
+        els.locationModal.hidden = false;
+        if (els.locLat) els.locLat.focus();
     }
 
     function closeLocationModal() {
         if (!els.locationModal) return;
-        els.locationModal.style.display = 'none';
-        if (els.locLat) els.locLat.value = '';
-        if (els.locLon) els.locLon.value = '';
-        hideLocError();
-        STATE.pendingBrowserLocation = null;
-        if (els.browserConfirmBox) els.browserConfirmBox.style.display = 'none';
+        els.locationModal.hidden = true;
+        state.pendingBrowserLocation = null;
+        if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
+        hideLocationError();
     }
 
-    function showLocError(msg) {
+    function showLocationError(message) {
         if (!els.locError) return;
-        els.locError.textContent = msg;
-        els.locError.style.display = 'block';
+        els.locError.textContent = message;
+        els.locError.hidden = false;
     }
-    function hideLocError() {
+
+    function hideLocationError() {
         if (!els.locError) return;
-        els.locError.style.display = 'none';
         els.locError.textContent = '';
+        els.locError.hidden = true;
     }
 
-    function handleUseBrowserLocation() {
-        hideLocError();
-        // Geolocation is only ever requested after this explicit click —
-        // never automatically on page load.
-        if (!window.isSecureContext || !('geolocation' in navigator)) {
-            if (els.browserUnavailableMsg) els.browserUnavailableMsg.style.display = 'block';
+    function requestBrowserLocation() {
+        hideLocationError();
+
+        if (!window.isSecureContext || !navigator.geolocation) {
+            if (els.browserUnavailableMsg) els.browserUnavailableMsg.hidden = false;
             return;
         }
 
-        const originalLabel = els.btnUseBrowser.innerHTML;
-        els.btnUseBrowser.disabled = true;
-
+        if (els.btnUseBrowser) els.btnUseBrowser.disabled = true;
         navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                els.btnUseBrowser.disabled = false;
-                els.btnUseBrowser.innerHTML = originalLabel;
-                STATE.pendingBrowserLocation = {
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude
+            (position) => {
+                if (els.btnUseBrowser) els.btnUseBrowser.disabled = false;
+                state.pendingBrowserLocation = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
                 };
-                if (els.browserConfirmLat) els.browserConfirmLat.textContent = pos.coords.latitude.toFixed(6);
-                if (els.browserConfirmLon) els.browserConfirmLon.textContent = pos.coords.longitude.toFixed(6);
-                if (els.browserConfirmBox) els.browserConfirmBox.style.display = 'flex';
+                if (els.browserConfirmLat) els.browserConfirmLat.textContent = position.coords.latitude.toFixed(6);
+                if (els.browserConfirmLon) els.browserConfirmLon.textContent = position.coords.longitude.toFixed(6);
+                if (els.browserConfirmBox) els.browserConfirmBox.hidden = false;
             },
             () => {
-                els.btnUseBrowser.disabled = false;
-                els.btnUseBrowser.innerHTML = originalLabel;
-                showLocError('Não foi possível obter a localização do navegador.');
+                if (els.btnUseBrowser) els.btnUseBrowser.disabled = false;
+                showLocationError('Não foi possível obter a localização do navegador.');
             },
             { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
         );
     }
 
-    async function submitLocation(lat, lon, source) {
-        source = source || 'manual';
-        hideLocError();
-        if (typeof lat !== 'number' || typeof lon !== 'number' || isNaN(lat) || isNaN(lon)) {
-            showLocError('Coordenadas inválidas.');
+    async function submitLocation(latitude, longitude, source) {
+        const lat = Number(latitude);
+        const lon = Number(longitude);
+
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+            showLocationError('Latitude deve estar entre -90 e 90.');
             return;
         }
-        if (lat < -90 || lat > 90) {
-            showLocError('Latitude deve estar entre -90 e 90.');
-            return;
-        }
-        if (lon < -180 || lon > 180) {
-            showLocError('Longitude deve estar entre -180 e 180.');
+        if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+            showLocationError('Longitude deve estar entre -180 e 180.');
             return;
         }
 
-        const btnSave = els.btnSaveLocation;
-        const originalLabel = btnSave ? btnSave.textContent : '';
-        if (btnSave) {
-            btnSave.disabled = true;
-            btnSave.textContent = 'Salvando...';
-        }
+        hideLocationError();
+        if (els.btnSaveLocation) els.btnSaveLocation.disabled = true;
 
         try {
-            const resp = await fetch(LOCATION_ENDPOINT, {
+            const response = await fetch(ENDPOINTS.location, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
+                    Accept: 'application/json',
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken') || '',
-                    'X-Requested-With': 'XMLHttpRequest'
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCookie('csrftoken') || ''
                 },
-                body: JSON.stringify({ latitude: lat, longitude: lon, source: source })
+                body: JSON.stringify({
+                    latitude: lat,
+                    longitude: lon,
+                    source: source || 'manual'
+                })
             });
 
-            let respData = {};
-            try { respData = await resp.json(); } catch (_) {}
-
-            if (!resp.ok) {
-                const errMsg = respData.erro || `Erro ${resp.status} ao salvar.`;
-                showLocError(errMsg);
-                console.error('submitLocation falhou:', resp.status);
-                return;
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+                throw new Error(data.erro || data.error || `HTTP ${response.status}`);
             }
 
             closeLocationModal();
-            fetchData();
-        } catch (e) {
-            showLocError('Falha de rede ao salvar a localização. Tente novamente.');
-            console.error('submitLocation network error:', e.message);
+            showToast('Localização do appliance atualizada.');
+            await refreshAll({ force: true });
+        } catch (error) {
+            console.warn('[ThreatMap] Falha ao salvar localização.', error);
+            showLocationError(error.message || 'Falha ao salvar localização.');
         } finally {
-            if (btnSave) {
-                btnSave.disabled = false;
-                btnSave.textContent = originalLabel;
+            if (els.btnSaveLocation) els.btnSaveLocation.disabled = false;
+        }
+    }
+
+    function handleResize() {
+        if (!window.matchMedia('(max-width: 920px)').matches) {
+            if (state.mobileFiltersOpen || state.mobileEventsOpen) {
+                state.mobileFiltersOpen = false;
+                state.mobileEventsOpen = false;
+                updateMobileDrawers();
             }
         }
-    }
-
-    function saveManualLocation() {
-        const lat = parseFloat(els.locLat ? els.locLat.value : '');
-        const lon = parseFloat(els.locLon ? els.locLon.value : '');
-        submitLocation(lat, lon, 'manual');
-    }
-
-    function confirmBrowserLocation() {
-        if (!STATE.pendingBrowserLocation) return;
-        submitLocation(STATE.pendingBrowserLocation.latitude, STATE.pendingBrowserLocation.longitude, 'browser');
-    }
-
-    // ---------------------------------------------------------------
-    // Toolbar: projection / panels / cinema / settings
-    // ---------------------------------------------------------------
-    function toggleProjection() {
-        STATE.isGlobe = !STATE.isGlobe;
-        const mode = STATE.isGlobe ? 'globe' : 'mercator';
-        if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setProjection(mode);
-        if (els.projectionTag) els.projectionTag.textContent = STATE.isGlobe ? '3D' : '2D';
-        if (els.btnProjection) els.btnProjection.classList.toggle('active', !STATE.isGlobe);
-    }
-
-    function _triggerResize() {
-        // Dispara resize imediatamente (depois do rAF para layout calculado)
-        // e novamente após a transição CSS (~300ms) para evitar canvas vazio.
-        if (!window.MoonShieldThreatMapRenderer) return;
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                window.MoonShieldThreatMapRenderer.resize();
-                setTimeout(() => window.MoonShieldThreatMapRenderer.resize(), 320);
-            });
-        });
-    }
-
-    function togglePanels() {
-        STATE.panelsHidden = !STATE.panelsHidden;
-        if (els.mainGrid) els.mainGrid.classList.toggle('panels-hidden', STATE.panelsHidden);
-        if (els.btnTogglePanels) els.btnTogglePanels.classList.toggle('active', STATE.panelsHidden);
-        _triggerResize();
-    }
-
-    function enterCinemaMode() {
-        STATE.cinemaMode = true;
-        els.tmApp.classList.add('cinema-mode');
-        if (els.btnCinema) {
-            els.btnCinema.classList.add('active');
-            els.btnCinema.setAttribute('aria-pressed', 'true');
-        }
-        if (els.btnExitCinema) els.btnExitCinema.style.display = 'flex';
-        _triggerResize();
-    }
-
-    function exitCinemaMode() {
-        STATE.cinemaMode = false;
-        els.tmApp.classList.remove('cinema-mode');
-        if (els.btnCinema) {
-            els.btnCinema.classList.remove('active');
-            els.btnCinema.setAttribute('aria-pressed', 'false');
-        }
-        if (els.btnExitCinema) els.btnExitCinema.style.display = 'none';
-        _triggerResize();
-    }
-
-    // ---------------------------------------------------------------
-    // Persistence
-    // ---------------------------------------------------------------
-    const PREFS_KEY = 'moonshield.threatmap.preferences';
-
-    function loadPreferences() {
-        try {
-            const stored = localStorage.getItem(PREFS_KEY);
-            if (stored) {
-                const prefs = JSON.parse(stored);
-                // Validate period
-                if (['1h', '24h', '7d', '30d'].includes(prefs.period)) {
-                    STATE.filters.period = prefs.period;
-                    if (els.filterPeriod) els.filterPeriod.value = prefs.period;
-                }
-                // Validate sev
-                if (['all', 'critical', 'high', 'medium', 'low', 'info'].includes(prefs.sev)) {
-                    STATE.filters.sev = prefs.sev;
-                    if (els.filterSev) els.filterSev.value = prefs.sev;
-                }
-                // Validate source
-                if (['all', 'ids', 'firewall', 'dns'].includes(prefs.source)) {
-                    STATE.filters.source = prefs.source;
-                    if (els.filterSource) els.filterSource.value = prefs.source;
-                }
-                // Settings
-                if (prefs.maxEvents) {
-                    STATE.settings.maxEvents = parseInt(prefs.maxEvents, 10);
-                    if (els.settingMaxEvents) els.settingMaxEvents.value = prefs.maxEvents;
-                }
-                if (prefs.trailDuration) {
-                    STATE.settings.trailDuration = parseInt(prefs.trailDuration, 10);
-                    if (els.settingTrail) els.settingTrail.value = prefs.trailDuration;
-                }
-                if (prefs.rotSpeed !== undefined) {
-                    STATE.settings.rotSpeed = parseFloat(prefs.rotSpeed);
-                    if (els.settingRot) els.settingRot.value = prefs.rotSpeed;
-                }
-            }
-        } catch (e) {
-            console.warn('Failed to load Threat Map preferences:', e);
+        rendererResize();
+        if (state.currentPopover && state.popoverTrigger && state.currentPopover !== els.settingsPopover) {
+            positionPopover(state.currentPopover, state.popoverTrigger);
         }
     }
 
-    function savePreferences() {
-        try {
-            const prefs = {
-                period: STATE.filters.period,
-                sev: STATE.filters.sev,
-                source: STATE.filters.source,
-                maxEvents: STATE.settings.maxEvents,
-                trailDuration: STATE.settings.trailDuration,
-                rotSpeed: STATE.settings.rotSpeed
-            };
-            localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-        } catch (e) {
-            console.warn('Failed to save Threat Map preferences:', e);
-        }
-    }
-
-    // ---------------------------------------------------------------
-    // Listeners
-    // ---------------------------------------------------------------
-    function setupListeners() {
-        if (els.filterPeriod) els.filterPeriod.addEventListener('change', (e) => { STATE.filters.period = e.target.value; savePreferences(); fetchData(); });
-        if (els.filterSev) els.filterSev.addEventListener('change', (e) => { STATE.filters.sev = e.target.value; savePreferences(); fetchData(); });
-        if (els.filterSource) els.filterSource.addEventListener('change', (e) => { STATE.filters.source = e.target.value; savePreferences(); fetchData(); });
-        if (els.searchInput) els.searchInput.addEventListener('input', debounce((e) => { STATE.filters.query = e.target.value; fetchData(); }, 300));
-
-        if (els.btnPause) {
-
-            els.btnPause.addEventListener('click', () => {
-                STATE.isPaused = !STATE.isPaused;
-                els.btnPause.classList.toggle('status-live', !STATE.isPaused);
-                els.btnPause.classList.toggle('status-paused', STATE.isPaused);
-                els.btnPause.setAttribute('aria-pressed', String(STATE.isPaused));
-                const label = els.btnPause.querySelector('.status-label');
-                if (label) label.textContent = STATE.isPaused ? 'PAUSADO' : 'LIVE';
-                if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setPaused(STATE.isPaused);
-                if (!STATE.isPaused) fetchData();
+    function bindListeners() {
+        if (els.filterPeriod) {
+            els.filterPeriod.addEventListener('change', () => {
+                state.filters.period = els.filterPeriod.value;
+                refreshAll({ force: true }).catch(console.error);
             });
         }
 
-        if (els.btnClear) {
-            els.btnClear.addEventListener('click', () => {
-                if (els.detailsPanel) els.detailsPanel.classList.remove('visible');
-                STATE.selectedEvent = null;
-                document.querySelectorAll('.feed-item.active').forEach(el => el.classList.remove('active'));
-
-                if (window.MoonShieldThreatMapRenderer) {
-                    window.MoonShieldThreatMapRenderer.clear();
-                    window.MoonShieldThreatMapRenderer.resetView();
-                }
+        if (els.filterSev) {
+            els.filterSev.addEventListener('change', () => {
+                state.filters.sev = els.filterSev.value;
+                renderActiveFilters();
+                refreshAll({ force: true }).catch(console.error);
             });
         }
 
-        if (els.feedContainer) {
-            els.feedContainer.addEventListener('click', (e) => {
-                const item = e.target.closest('.feed-item');
-                if (item) showDetails(item.getAttribute('data-id'));
-            });
-            els.feedContainer.addEventListener('keydown', (e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                const item = e.target.closest('.feed-item');
-                if (item) { e.preventDefault(); showDetails(item.getAttribute('data-id')); }
+        if (els.filterSource) {
+            els.filterSource.addEventListener('change', () => {
+                state.filters.source = els.filterSource.value;
+                renderActiveFilters();
+                refreshAll({ force: true }).catch(console.error);
             });
         }
 
-        // Toolbar
-        if (els.btnProjection) els.btnProjection.addEventListener('click', toggleProjection);
-        if (els.btnTogglePanels) els.btnTogglePanels.addEventListener('click', togglePanels);
-        if (els.btnCinema) els.btnCinema.addEventListener('click', () => {
-            if (STATE.cinemaMode) exitCinemaMode();
-            else enterCinemaMode();
-        });
-        if (els.btnExitCinema) els.btnExitCinema.addEventListener('click', exitCinemaMode);
+        if (els.filterProtocol) {
+            els.filterProtocol.addEventListener('change', () => {
+                state.filters.protocol = els.filterProtocol.value;
+                renderActiveFilters();
+                refreshAll({ force: true }).catch(console.error);
+            });
+        }
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && STATE.cinemaMode) {
-                exitCinemaMode();
-            }
-        });
+        if (els.filterDirection) {
+            els.filterDirection.addEventListener('change', () => {
+                state.filters.direction = els.filterDirection.value;
+                renderActiveFilters();
+                refreshAll({ force: true }).catch(console.error);
+            });
+        }
+
+        if (els.filterZone) {
+            els.filterZone.addEventListener('change', () => {
+                state.filters.zone = els.filterZone.value;
+                renderActiveFilters();
+                refreshAll({ force: true }).catch(console.error);
+            });
+        }
+
+        if (els.btnCategories) {
+            els.btnCategories.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openPopover(els.categoriesPopover, els.btnCategories, 'categories');
+            });
+        }
+
+        if (els.btnCountries) {
+            els.btnCountries.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openPopover(els.countriesPopover, els.btnCountries, 'countries');
+            });
+        }
+
+        if (els.btnMoreFilters) {
+            els.btnMoreFilters.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openPopover(els.moreFiltersPopover, els.btnMoreFilters);
+            });
+        }
 
         if (els.btnSettings) {
-            els.btnSettings.addEventListener('click', (e) => {
-                e.stopPropagation();
-                els.settingsPopover.classList.toggle('visible');
+            els.btnSettings.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openPopover(els.settingsPopover, els.btnSettings);
             });
         }
-        document.addEventListener('click', (e) => {
-            if (els.settingsPopover && els.settingsPopover.classList.contains('visible')) {
-                if (!els.settingsPopover.contains(e.target) && e.target !== els.btnSettings) {
-                    els.settingsPopover.classList.remove('visible');
-                }
-            }
-        });
-        if (els.settingMaxEvents) els.settingMaxEvents.addEventListener('change', (e) => {
-            STATE.settings.maxEvents = parseInt(e.target.value, 10) || 200;
-            savePreferences();
-            fetchData();
-        });
-        if (els.settingTrail) els.settingTrail.addEventListener('change', (e) => {
-            STATE.settings.trailDuration = parseInt(e.target.value, 10) || 15000;
-            savePreferences();
-            if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setTrailDuration(STATE.settings.trailDuration);
-        });
-        if (els.settingRot) els.settingRot.addEventListener('change', (e) => {
-            STATE.settings.rotSpeed = parseFloat(e.target.value) || 0;
-            savePreferences();
-            if (window.MoonShieldThreatMapRenderer) window.MoonShieldThreatMapRenderer.setRotationSpeed(STATE.settings.rotSpeed);
+
+        if (els.categoriesSearch) {
+            els.categoriesSearch.addEventListener('input', () => renderMultiOptions('categories', els.categoriesSearch.value));
+        }
+
+        if (els.countriesSearch) {
+            els.countriesSearch.addEventListener('input', () => renderMultiOptions('countries', els.countriesSearch.value));
+        }
+
+        document.querySelectorAll('[data-clear-multi]').forEach((button) => {
+            button.addEventListener('click', () => clearMultiDraft(button.dataset.clearMulti));
         });
 
-        // Location modal
+        document.querySelectorAll('[data-apply-multi]').forEach((button) => {
+            button.addEventListener('click', () => applyMulti(button.dataset.applyMulti));
+        });
+
+        document.querySelectorAll('[data-close-popover]').forEach((button) => {
+            button.addEventListener('click', () => closePopovers());
+        });
+
+        if (els.btnResetFilters) els.btnResetFilters.addEventListener('click', resetFilters);
+        if (els.btnPause) els.btnPause.addEventListener('click', toggleLive);
+        if (els.btnProjection) els.btnProjection.addEventListener('click', toggleProjection);
+        if (els.btnTogglePanels) els.btnTogglePanels.addEventListener('click', togglePanels);
+        if (els.btnCinema) els.btnCinema.addEventListener('click', toggleCinema);
+        if (els.btnClear) els.btnClear.addEventListener('click', clearVisualSelection);
+        if (els.btnCollapseFilters) els.btnCollapseFilters.addEventListener('click', toggleFiltersCollapsed);
+
+        if (els.settingMaxEvents) {
+            els.settingMaxEvents.addEventListener('change', () => {
+                state.settings.maxEvents = Number(els.settingMaxEvents.value) || 200;
+                saveLocalSettings();
+                refreshAll({ force: true }).catch(console.error);
+            });
+        }
+
+        if (els.settingTrail) {
+            els.settingTrail.addEventListener('change', () => {
+                state.settings.trailDuration = Number(els.settingTrail.value) || 15000;
+                saveLocalSettings();
+                applyRendererSettings();
+            });
+        }
+
+        if (els.settingRot) {
+            els.settingRot.addEventListener('change', () => {
+                state.settings.rotSpeed = Number(els.settingRot.value) || 0;
+                saveLocalSettings();
+                applyRendererSettings();
+            });
+        }
+
+        if (els.searchForm) {
+            els.searchForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                runSearch(els.searchInput ? els.searchInput.value : '').catch(console.error);
+            });
+        }
+
+        if (els.btnMobileFilters) els.btnMobileFilters.addEventListener('click', toggleMobileFilters);
+        if (els.btnMobileEvents) els.btnMobileEvents.addEventListener('click', toggleMobileEvents);
+        if (els.drawerBackdrop) els.drawerBackdrop.addEventListener('click', closeMobileDrawers);
+
         if (els.btnOpenLocationModal) els.btnOpenLocationModal.addEventListener('click', openLocationModal);
         if (els.btnCloseLocation) els.btnCloseLocation.addEventListener('click', closeLocationModal);
         if (els.btnCancelLocation) els.btnCancelLocation.addEventListener('click', closeLocationModal);
-        if (els.locationModal) els.locationModal.addEventListener('click', (e) => {
-            if (e.target === els.locationModal) closeLocationModal();
-        });
-        if (els.btnUseBrowser) els.btnUseBrowser.addEventListener('click', handleUseBrowserLocation);
-        if (els.btnConfirmBrowserLocation) els.btnConfirmBrowserLocation.addEventListener('click', confirmBrowserLocation);
-        if (els.btnSaveLocation) els.btnSaveLocation.addEventListener('click', saveManualLocation);
-
-        // Theme changes observer
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.attributeName === 'data-theme') {
-                    const newTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-                    if (window.MoonShieldThreatMapRenderer) {
-                        window.MoonShieldThreatMapRenderer.setTheme(newTheme);
-                    }
-                }
+        if (els.locationModal) {
+            els.locationModal.addEventListener('click', (event) => {
+                if (event.target === els.locationModal) closeLocationModal();
             });
+        }
+
+        if (els.btnUseBrowser) els.btnUseBrowser.addEventListener('click', requestBrowserLocation);
+        if (els.btnConfirmBrowserLocation) {
+            els.btnConfirmBrowserLocation.addEventListener('click', () => {
+                if (!state.pendingBrowserLocation) return;
+                submitLocation(
+                    state.pendingBrowserLocation.latitude,
+                    state.pendingBrowserLocation.longitude,
+                    'browser'
+                ).catch(console.error);
+            });
+        }
+
+        if (els.btnSaveLocation) {
+            els.btnSaveLocation.addEventListener('click', () => {
+                submitLocation(
+                    els.locLat ? els.locLat.value : '',
+                    els.locLon ? els.locLon.value : '',
+                    'manual'
+                ).catch(console.error);
+            });
+        }
+
+        document.addEventListener('click', (event) => {
+            if (!state.currentPopover) return;
+            if (isInsideOpenPopover(event.target)) return;
+            if (state.popoverTrigger && state.popoverTrigger.contains(event.target)) return;
+            closePopovers(false);
         });
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-        // Stale-data watchdog (only when not paused and API hasn't been ok in a while)
-        setInterval(() => {
-            if (!STATE.isPaused && STATE.lastFetchOk && (Date.now() - STATE.lastFetchOk > STALE_AFTER_MS)) {
-                setStaleBanner(true);
-            }
-        }, 5000);
-    }
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
 
-    function boot() {
-        setupListeners();
-        updateFeedEmptyState();
-        loadPreferences();
-
-        // Iniciar polling independentemente do Mapbox
-        fetchData();
-
-        const initialTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-
-        if (window.MoonShieldThreatMapRenderer && els.mapContainer) {
-            const tokenEl = document.getElementById('mapbox-token-data');
-            let mapboxToken = '';
-
-            try {
-                mapboxToken = tokenEl ? JSON.parse(tokenEl.textContent) : '';
-            } catch (error) {
-                // Silencioso por design
-            }
-
-            if (!mapboxToken) {
-                const mapFailureEl = document.getElementById('map-failure');
-                if (mapFailureEl) mapFailureEl.style.display = 'flex';
+            if (state.currentPopover) {
+                closePopovers();
                 return;
             }
 
-            window.MoonShieldThreatMapRenderer.init({
-                containerId: 'map',
-                token: mapboxToken,
-                theme: initialTheme,
-                onReady: () => {
-                    // mapbox ready
-                },
-                onError: () => {
-                    const mapFailureEl = document.getElementById('map-failure');
-                    if (mapFailureEl) mapFailureEl.style.display = 'flex';
-                }
-            });
+            if (els.locationModal && !els.locationModal.hidden) {
+                closeLocationModal();
+                return;
+            }
+
+            if (state.mobileFiltersOpen || state.mobileEventsOpen) {
+                closeMobileDrawers();
+                return;
+            }
+
+            if (els.app && els.app.classList.contains('cinema-mode')) {
+                toggleCinema();
+            }
+        });
+
+        window.addEventListener('resize', handleResize);
+
+        const themeObserver = new MutationObserver((mutations) => {
+            if (!mutations.some((mutation) => mutation.attributeName === 'data-theme')) return;
+            const renderer = getRenderer();
+            if (renderer) {
+                renderer.setTheme(document.documentElement.getAttribute('data-theme') || 'light');
+            }
+        });
+        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+        if (window.ResizeObserver) {
+            const observed = document.querySelector('main') || els.app?.parentElement;
+            if (observed) {
+                const resizeObserver = new ResizeObserver(() => rendererResize());
+                resizeObserver.observe(observed);
+            }
         }
+
+        state.staleTimer = window.setInterval(updateStaleBanner, 5000);
+    }
+
+    function initRenderer() {
+        const renderer = getRenderer();
+        if (!renderer || !els.map) {
+            if (els.mapFailure) els.mapFailure.hidden = false;
+            return;
+        }
+
+        const tokenEl = $('mapbox-token-data');
+        let token = '';
+        try {
+            token = tokenEl ? JSON.parse(tokenEl.textContent || '""') : '';
+        } catch (_) {
+            token = '';
+        }
+
+        if (!token) {
+            if (els.mapFailure) els.mapFailure.hidden = false;
+            return;
+        }
+
+        renderer.init({
+            containerId: 'map',
+            token,
+            theme: document.documentElement.getAttribute('data-theme') || 'light',
+            onReady: () => {
+                if (els.mapFailure) els.mapFailure.hidden = true;
+                applyRendererSettings();
+                if (state.node) renderer.setNode(state.node);
+                updateRendererEvents();
+                rendererResize();
+            },
+            onError: (error) => {
+                console.warn('[ThreatMap] Mapbox indisponível.', error);
+                if (els.mapFailure) els.mapFailure.hidden = false;
+            }
+        });
+    }
+
+    function boot() {
+        if (!els.app) return;
+
+        loadFiltersCollapsed();
+        updateFilterPanelState();
+        syncFilterControls();
+        syncDraft('categories');
+        syncDraft('countries');
+        updateMultiLabels();
+        renderActiveFilters();
+        bindListeners();
+        initRenderer();
+
+        refreshAll({ force: true }).catch((error) => {
+            console.error('[ThreatMap] Falha na carga inicial.', error);
+            setBanner(els.bannerError, true);
+        });
     }
 
     document.addEventListener('DOMContentLoaded', boot);
-
 })();

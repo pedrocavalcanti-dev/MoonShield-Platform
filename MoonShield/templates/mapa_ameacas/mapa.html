@@ -1,262 +1,324 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Threat Map | MoonShield{% endblock %}
+{% block title %}Mapa de Ameaças | MoonShield{% endblock %}
 
 {% block extra_css %}
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
-  <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa-mapbox.css' %}" />
-  <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa.css' %}" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa-mapbox.css' %}">
+  <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa.css' %}">
 {% endblock %}
 
 {% block conteudo %}
 {{ mapbox_token|json_script:"mapbox-token-data" }}
-<script id="tm-config-data" type="application/json">{"setLocationUrl": "{% url 'mapa_ameacas:api_set_location' %}"}</script>
+<script id="tm-config-data" type="application/json">
+{
+  "overviewUrl": "{% url 'mapa_ameacas:api_map_overview' %}",
+  "feedUrl": "{% url 'mapa_ameacas:api_map_feed' %}",
+  "facetsUrl": "{% url 'mapa_ameacas:api_map_facets' %}",
+  "searchUrl": "{% url 'mapa_ameacas:api_map_search' %}",
+  "setLocationUrl": "{% url 'mapa_ameacas:api_set_location' %}",
+  "incidentsUrl": "{% url 'incidentes:painel' %}",
+  "investigateIpUrl": "{% url 'incidentes:investigar' ip='__IP__' %}"
+}
+</script>
 
-<div class="threat-map-app" id="tm-app">
-
-    <div class="tm-topbar">
-        <div class="tm-kpis">
-            <div class="tm-kpi">
-                <span class="tm-kpi-label">Eventos</span>
-                <div class="tm-kpi-val-group">
-                    <span class="tm-kpi-val" id="kpi-events">--</span>
-                    <span class="tm-kpi-sub" id="kpi-rate">0 evt/min</span>
-                </div>
-            </div>
-            <div class="tm-group-sep" aria-hidden="true"></div>
-            <div class="tm-kpi">
-                <span class="tm-kpi-label">Críticos</span>
-                <span class="tm-kpi-val text-critical" id="kpi-critical">--</span>
-            </div>
-            <div class="tm-kpi">
-                <span class="tm-kpi-label">Geo no Mapa</span>
-                <span class="tm-kpi-val" id="kpi-geo">--</span>
-            </div>
-            <div class="tm-kpi">
-                <span class="tm-kpi-label">Top País</span>
-                <span class="tm-kpi-val" id="kpi-top-country">—</span>
-            </div>
-
-            <div class="tm-group-sep" aria-hidden="true"></div>
-
-            <div class="tm-health-indicators">
-                <div class="health-indicator unknown" id="health-ids" title="IDS (Suricata)">IDS</div>
-                <div class="health-indicator unknown" id="health-firewall" title="Firewall">FW</div>
-                <div class="health-indicator unknown" id="health-dns" title="DNS (AdGuard)">DNS</div>
-            </div>
-        </div>
-
-        <div class="tm-filters">
-            <div class="tm-search-wrap">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>
-                <input type="text" id="search-input" placeholder="Pesquisar IP, domínio, assinatura..." aria-label="Pesquisar eventos">
-            </div>
-            <select id="filter-period" class="tm-select" aria-label="Período">
-                <option value="1h">Última Hora</option>
-                <option value="24h" selected>24 Horas</option>
-                <option value="7d">7 Dias</option>
-                <option value="30d">30 Dias</option>
-            </select>
-            <select id="filter-sev" class="tm-select" aria-label="Severidade">
-                <option value="all" selected>Todas Severidades</option>
-                <option value="critical">Crítico</option>
-                <option value="high">Alto</option>
-                <option value="medium">Médio</option>
-                <option value="low">Baixo</option>
-                <option value="info">Info</option>
-            </select>
-            <select id="filter-source" class="tm-select" aria-label="Fonte">
-                <option value="all" selected>Todas as fontes</option>
-                <option value="ids">IDS / Suricata</option>
-                <option value="firewall">Firewall</option>
-                <option value="dns">DNS / AdGuard</option>
-            </select>
-
-            <div class="tm-group-sep" aria-hidden="true"></div>
-
-            <div class="tm-controls-right">
-                <button class="tm-status-btn status-live" id="btn-pause" title="Pausar / Retomar" aria-label="Pausar" aria-pressed="false">
-                    <span class="status-dot" aria-hidden="true"></span><span class="status-label">LIVE</span>
-                </button>
-
-                <button class="tm-btn-icon" id="btn-projection" title="Alternar Globo (3D) / Mercator (2D)" aria-label="Alternar Projeção" aria-pressed="true">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path><path d="M2 12h20"></path></svg>
-                </button>
-                <button class="tm-btn-icon" id="btn-toggle-panels" title="Ocultar Painéis Laterais" aria-label="Ocultar Painéis" aria-pressed="false">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
-                </button>
-                <button class="tm-btn-icon" id="btn-cinema" title="Tela Cheia" aria-label="Tela Cheia" aria-pressed="false">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-                </button>
-                <button class="tm-btn-icon" id="btn-clear" title="Limpar Visualização" aria-label="Limpar">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                </button>
-
-                <div class="tm-settings-wrap">
-                    <button class="tm-btn-icon" id="btn-settings" title="Configurações do Mapa" aria-label="Configurações">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                    </button>
-                    <div class="tm-settings-popover" id="settings-popover">
-                        <div class="popover-title">Configurações do Mapa</div>
-                        <div class="popover-row">
-                            <label>Max Events (DOM)</label>
-                            <select id="setting-max-events" class="tm-select">
-                                <option value="25">25</option>
-                                <option value="50">50</option>
-                                <option value="100">100</option>
-                                <option value="150">150</option>
-                                <option value="200" selected>200</option>
-                            </select>
-                        </div>
-                        <div class="popover-row">
-                            <label>Trail Duration</label>
-                            <select id="setting-trail" class="tm-select">
-                                <option value="5000">5s (Rápido)</option>
-                                <option value="15000" selected>15s (Normal)</option>
-                                <option value="30000">30s (Longo)</option>
-                            </select>
-                        </div>
-                        <div class="popover-row">
-                            <label>Rotação (Globo)</label>
-                            <select id="setting-rot" class="tm-select">
-                                <option value="0">Desligada</option>
-                                <option value="0.02">Muito Lenta</option>
-                                <option value="0.05" selected>Normal</option>
-                                <option value="0.1">Rápida</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<section class="tm-v2" id="tm-app" aria-label="Mapa de Ameaças">
+  <header class="tm-v2__topbar">
+    <div class="tm-v2__summary" aria-label="Resumo operacional">
+      <div class="tm-v2__metric">
+        <span>Eventos</span>
+        <strong id="kpi-events">--</strong>
+        <small id="kpi-rate">0 evt/min</small>
+      </div>
+      <div class="tm-v2__metric tm-v2__metric--critical">
+        <span>Críticos</span>
+        <strong id="kpi-critical">--</strong>
+      </div>
+      <div class="tm-v2__metric">
+        <span>Geo no mapa</span>
+        <strong id="kpi-geo">--</strong>
+      </div>
+      <div class="tm-v2__metric">
+        <span>Top país</span>
+        <strong id="kpi-top-country">—</strong>
+      </div>
     </div>
 
-    <button class="tm-btn-icon" id="btn-exit-cinema" title="Sair da Tela Cheia" aria-label="Sair da Tela Cheia" style="display: none;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
-    </button>
+    <div class="tm-v2__top-actions">
+      <div class="tm-v2__health" aria-label="Saúde dos serviços">
+        <span class="tm-health unknown" id="health-ids" title="IDS / Suricata">IDS</span>
+        <span class="tm-health unknown" id="health-firewall" title="Firewall">FW</span>
+        <span class="tm-health unknown" id="health-dns" title="DNS / AdGuard">DNS</span>
+      </div>
 
-    <div class="tm-active-filters" id="active-filters-bar" style="display: none;"></div>
+      <span class="tm-v2__divider" aria-hidden="true"></span>
 
-    <div class="tm-main-grid" id="main-grid">
+      <button class="tm-v2__live is-live" id="btn-pause" type="button" aria-pressed="false" title="Pausar ou retomar atualização">
+        <span class="tm-v2__live-dot" aria-hidden="true"></span>
+        <span class="status-label">LIVE</span>
+      </button>
 
-        <div class="tm-panel tm-feed-panel" id="panel-feed">
-            <div class="tm-panel-header">
-                <h2>Eventos ao Vivo</h2>
-                <span class="tm-panel-count" id="feed-count">0 evento</span>
-            </div>
-            <div class="tm-feed-loading" id="feed-loading" style="display: none;">Carregando eventos...</div>
-            <div class="tm-feed-container" id="feed-container">
-                <div class="feed-empty-state" id="feed-empty-state">Nenhum evento nesta janela</div>
-            </div>
+      <button class="tm-v2__icon-btn" id="btn-projection" type="button" aria-label="Alternar globo e mapa" aria-pressed="true" title="Globo / mapa">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+      </button>
+      <button class="tm-v2__icon-btn tm-v2__desktop-only" id="btn-toggle-panels" type="button" aria-label="Ocultar painéis laterais" aria-pressed="false" title="Ocultar painéis">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M8 4v16M16 4v16"></path></svg>
+      </button>
+      <button class="tm-v2__icon-btn" id="btn-cinema" type="button" aria-label="Tela cheia" aria-pressed="false" title="Tela cheia">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H4v4M16 3h4v4M20 17v4h-4M8 21H4v-4"></path></svg>
+      </button>
+      <button class="tm-v2__icon-btn" id="btn-clear" type="button" aria-label="Limpar seleção do mapa" title="Limpar seleção">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M7 6l1 14h8l1-14"></path></svg>
+      </button>
+
+      <div class="tm-v2__settings">
+        <button class="tm-v2__icon-btn" id="btn-settings" type="button" aria-label="Configurações do mapa" aria-expanded="false" aria-controls="settings-popover" title="Configurações">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L14.3 3h-4.6L9.3 6a8 8 0 0 0-1.7 1L5.1 6l-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.5-1a8 8 0 0 0 1.7 1l.4 3h4.6l.4-3a8 8 0 0 0 1.7-1l2.5 1 2-3.4L18.9 13c.1-.3.1-.7.1-1z"></path></svg>
+        </button>
+        <div class="tm-v2__popover tm-v2__popover--settings" id="settings-popover" hidden>
+          <div class="tm-v2__popover-head">
+            <strong>Configurações do mapa</strong>
+            <button type="button" data-close-popover aria-label="Fechar">×</button>
+          </div>
+          <label class="tm-v2__field">Máx. eventos
+            <select id="setting-max-events">
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="150">150</option>
+              <option value="200" selected>200</option>
+            </select>
+          </label>
+          <label class="tm-v2__field">Duração da trilha
+            <select id="setting-trail">
+              <option value="5000">5 segundos</option>
+              <option value="15000" selected>15 segundos</option>
+              <option value="30000">30 segundos</option>
+            </select>
+          </label>
+          <label class="tm-v2__field">Rotação do globo
+            <select id="setting-rot">
+              <option value="0">Desligada</option>
+              <option value="0.02">Lenta</option>
+              <option value="0.05" selected>Normal</option>
+              <option value="0.1">Rápida</option>
+            </select>
+          </label>
         </div>
-
-        <div class="tm-map-area" id="panel-map">
-            <div class="map-container">
-                <div class="map-banner map-banner-error" id="banner-error" style="display: none;">Falha ao atualizar dados</div>
-                <div class="map-banner map-banner-warning" id="banner-stale" style="display: none;">Dados desatualizados</div>
-
-                <div id="map"></div>
-                <div class="map-failure-state" id="map-failure" style="display: none;">
-                    <h3>Mapa indisponível</h3>
-                    <p>Houve uma falha ao iniciar o componente 3D. A telemetria continua ativa no feed e relatórios.</p>
-                </div>
-
-                <div class="map-no-location" id="no-location-warning">
-                    <div class="map-no-location-icon" aria-hidden="true">⚠</div>
-                    <div class="map-no-location-text">
-                        <strong>Localização do node não configurada.</strong>
-                        <span>Rotas geográficas estão desativadas.</span>
-                    </div>
-                    <button class="btn btn-primary btn-sm" id="btn-open-location-modal">Configurar</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="tm-panel tm-details-panel" id="panel-details">
-            <div class="tm-panel-header">
-                <h2>Contexto</h2>
-            </div>
-
-            <div class="tm-details-content" id="details-panel">
-                <div class="details-empty-state">
-                    Selecione um evento no feed para visualizar os detalhes e o contexto técnico.
-                </div>
-            </div>
-
-            <div class="tm-facets-container" id="facets-container">
-                <div class="facet-group">
-                    <h4>Categorias</h4>
-                    <ul><li><span class="text-muted">Nenhum dado</span></li></ul>
-                </div>
-                <div class="facet-group">
-                    <h4>Países</h4>
-                    <ul><li><span class="text-muted">Nenhum evento geolocalizável</span></li></ul>
-                </div>
-                <div class="facet-group">
-                    <h4>Fontes</h4>
-                    <ul><li><span class="text-muted">Nenhum dado</span></li></ul>
-                </div>
-            </div>
-        </div>
-
+      </div>
     </div>
+  </header>
+
+  <div class="tm-v2__mobile-actions" aria-label="Painéis do mapa">
+    <button id="btn-mobile-filters" type="button" aria-controls="panel-filters" aria-expanded="false">Filtros</button>
+    <button id="btn-mobile-events" type="button" aria-controls="panel-events" aria-expanded="false">Eventos</button>
+  </div>
+
+  <div class="tm-v2__layout" id="main-grid">
+    <aside class="tm-v2__filters" id="panel-filters" aria-label="Filtros do mapa">
+      <div class="tm-v2__panel-title">
+        <div>
+          <span>Mapa de ameaças</span>
+          <h2>Filtros</h2>
+        </div>
+        <button class="tm-v2__collapse-btn" id="btn-collapse-filters" type="button" aria-label="Recolher filtros" aria-expanded="true">«</button>
+      </div>
+
+      <div class="tm-v2__filters-content">
+        <label class="tm-v2__field">Período
+          <select id="filter-period">
+            <option value="1h">1 Hora</option>
+            <option value="6h">6 Horas</option>
+            <option value="24h" selected>24 Horas</option>
+            <option value="7d">7 Dias</option>
+          </select>
+        </label>
+
+        <label class="tm-v2__field">Severidade
+          <select id="filter-sev">
+            <option value="all" selected>Todas as severidades</option>
+            <option value="critical">Crítico</option>
+            <option value="high">Alto</option>
+            <option value="medium">Médio</option>
+            <option value="low">Baixo</option>
+            <option value="info">Info</option>
+          </select>
+        </label>
+
+        <label class="tm-v2__field">Fonte
+          <select id="filter-source">
+            <option value="all" selected>Todas as fontes</option>
+          </select>
+        </label>
+
+        <button class="tm-v2__select-trigger" id="btn-categories" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="categories-popover">
+          <span>Categoria</span>
+          <strong id="categories-label">Todas as categorias</strong>
+          <b aria-hidden="true">›</b>
+        </button>
+
+        <button class="tm-v2__select-trigger" id="btn-countries" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="countries-popover">
+          <span>País de origem</span>
+          <strong id="countries-label">Todos os países</strong>
+          <b aria-hidden="true">›</b>
+        </button>
+
+        <button class="tm-v2__more-btn" id="btn-more-filters" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="more-filters-popover">+ Mais filtros</button>
+
+        <div class="tm-v2__active-wrap">
+          <div class="tm-v2__subheading">
+            <span>Filtros ativos</span>
+            <button id="btn-reset-filters" type="button">Limpar</button>
+          </div>
+          <div class="tm-v2__chips" id="active-filters-bar" aria-live="polite">
+            <span class="tm-v2__no-filters">Nenhum filtro adicional</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="tm-v2__map" id="panel-map">
+      <div class="map-container">
+        <div class="map-banner map-banner-error" id="banner-error" hidden>Falha ao atualizar dados do mapa.</div>
+        <div class="map-banner map-banner-warning" id="banner-stale" hidden>Dados desatualizados.</div>
+
+        <div id="map"></div>
+
+        <div class="map-failure-state" id="map-failure" hidden>
+          <h3>Mapa indisponível</h3>
+          <p>A telemetria continua disponível no SOC e nos relatórios.</p>
+        </div>
+
+        <div class="map-no-location" id="no-location-warning">
+          <div class="map-no-location-icon" aria-hidden="true">!</div>
+          <div class="map-no-location-text">
+            <strong>Localização do node não configurada.</strong>
+            <span>Rotas geográficas ficam indisponíveis até configurar o appliance.</span>
+          </div>
+          <button class="tm-v2__small-btn" id="btn-open-location-modal" type="button">Configurar</button>
+        </div>
+
+        <div class="tm-v2__legend" aria-label="Legenda de severidade">
+          <span class="sev-critical">● Crítico</span>
+          <span class="sev-high">● Alto</span>
+          <span class="sev-medium">● Médio</span>
+          <span class="sev-low">● Baixo</span>
+        </div>
+
+        <form class="tm-v2__search" id="search-form" role="search">
+          <label class="sr-only" for="search-input">Pesquisar no mapa</label>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+          <input id="search-input" autocomplete="off" placeholder="IP, domínio, assinatura, SID, ASN..." type="search">
+          <button type="submit" aria-label="Pesquisar">Buscar</button>
+        </form>
+      </div>
+    </main>
+
+    <aside class="tm-v2__right-panel" id="panel-events" aria-label="Eventos e contexto">
+      <section class="tm-v2__events-panel" id="events-panel">
+        <div class="tm-v2__panel-title">
+          <div>
+            <span>Feed geográfico</span>
+            <h2>Eventos ao vivo</h2>
+          </div>
+          <small id="feed-count">0 eventos</small>
+        </div>
+
+        <div class="tm-v2__events" id="feed-container" aria-live="polite"></div>
+
+        <div class="tm-v2__empty-geo" id="feed-empty-state">
+          <div class="tm-v2__empty-icon">◎</div>
+          <h3>Nenhum evento geolocalizado</h3>
+          <p>Os eventos atuais são internos ou não possuem coordenadas públicas disponíveis.</p>
+          <a class="tm-v2__small-btn" id="incidents-link" href="{% url 'incidentes:painel' %}">Ver Incidentes</a>
+        </div>
+      </section>
+
+      <section class="tm-v2__context" id="details-panel" hidden aria-live="polite"></section>
+    </aside>
+  </div>
+
+  <div class="tm-v2__popover tm-v2__multi-popover" id="categories-popover" role="dialog" aria-modal="false" aria-label="Categorias" hidden>
+    <div class="tm-v2__popover-head">
+      <strong>Categorias</strong>
+      <button data-close-popover type="button" aria-label="Fechar">×</button>
+    </div>
+    <input id="categories-search" type="search" placeholder="Buscar categoria..." autocomplete="off">
+    <div class="tm-v2__multi-options" id="categories-options"></div>
+    <div class="tm-v2__popover-actions">
+      <button data-clear-multi="categories" type="button">Limpar</button>
+      <button data-apply-multi="categories" class="tm-v2__small-btn" type="button">Aplicar</button>
+    </div>
+  </div>
+
+  <div class="tm-v2__popover tm-v2__multi-popover" id="countries-popover" role="dialog" aria-modal="false" aria-label="Países de origem" hidden>
+    <div class="tm-v2__popover-head">
+      <strong>Países de origem</strong>
+      <button data-close-popover type="button" aria-label="Fechar">×</button>
+    </div>
+    <input id="countries-search" type="search" placeholder="Buscar país..." autocomplete="off">
+    <div class="tm-v2__multi-options" id="countries-options"></div>
+    <div class="tm-v2__popover-actions">
+      <button data-clear-multi="countries" type="button">Limpar</button>
+      <button data-apply-multi="countries" class="tm-v2__small-btn" type="button">Aplicar</button>
+    </div>
+  </div>
+
+  <div class="tm-v2__popover tm-v2__advanced-popover" id="more-filters-popover" role="dialog" aria-modal="false" aria-label="Mais filtros" hidden>
+    <div class="tm-v2__popover-head">
+      <strong>Mais filtros</strong>
+      <button data-close-popover type="button" aria-label="Fechar">×</button>
+    </div>
+    <label class="tm-v2__field">Protocolo
+      <select id="filter-protocol"><option value="all">Todos</option></select>
+    </label>
+    <label class="tm-v2__field">Direção
+      <select id="filter-direction"><option value="all">Todas</option></select>
+    </label>
+    <label class="tm-v2__field">Zona
+      <select id="filter-zone"><option value="all">Todas</option></select>
+    </label>
+  </div>
+</section>
+
+<div class="tm-v2__drawer-backdrop" id="drawer-backdrop" hidden></div>
+
+<div class="tm-v2__modal-backdrop" id="location-modal" hidden>
+  <div class="tm-v2__modal" role="dialog" aria-modal="true" aria-labelledby="location-modal-title">
+    <div class="tm-v2__popover-head">
+      <strong id="location-modal-title">Localização do appliance</strong>
+      <button id="btn-close-location" type="button" aria-label="Fechar">×</button>
+    </div>
+
+    <p class="tm-v2__modal-note">A localização configura o node do MoonShield. Ela nunca é usada como posição de uma ameaça.</p>
+
+    <button class="tm-v2__outline-btn" id="btn-use-browser" type="button">Usar localização deste dispositivo</button>
+    <p class="tm-v2__help" id="browser-unavailable-msg" hidden>Localização automática requer contexto HTTPS. Informe as coordenadas manualmente.</p>
+
+    <div class="tm-v2__browser-confirm" id="browser-confirm-box" hidden>
+      <p>Latitude <strong id="browser-confirm-lat">--</strong> · Longitude <strong id="browser-confirm-lon">--</strong></p>
+      <button class="tm-v2__small-btn" id="btn-confirm-browser-location" type="button">Confirmar localização</button>
+    </div>
+
+    <div class="tm-v2__coordinate-fields">
+      <label class="tm-v2__field">Latitude
+        <input id="loc-lat" type="number" step="any" min="-90" max="90" placeholder="-90 a 90">
+      </label>
+      <label class="tm-v2__field">Longitude
+        <input id="loc-lon" type="number" step="any" min="-180" max="180" placeholder="-180 a 180">
+      </label>
+    </div>
+
+    <p class="tm-v2__form-error" id="loc-error" hidden></p>
+
+    <div class="tm-v2__modal-actions">
+      <button id="btn-cancel-location" type="button">Cancelar</button>
+      <button class="tm-v2__small-btn" id="btn-save-location" type="button">Salvar</button>
+    </div>
+  </div>
 </div>
 
-<!-- Modal Configurar Localização -->
-<div class="tm-modal-overlay" id="location-modal" style="display: none;">
-    <div class="tm-modal">
-        <div class="tm-modal-header">
-            <h3>Configurar Localização do Appliance</h3>
-            <button class="tm-modal-close" id="btn-close-location" aria-label="Fechar">×</button>
-        </div>
-        <div class="tm-modal-body">
-
-            <p class="tm-modal-note">
-                A localização deste dispositivo pode não corresponder ao local físico do appliance
-                caso o painel esteja sendo acessado remotamente.
-            </p>
-
-            <div class="tm-form-group">
-                <button class="btn btn-outline" id="btn-use-browser" type="button" style="width: 100%;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
-                    Usar localização deste dispositivo
-                </button>
-                <p class="tm-help-text" id="browser-unavailable-msg" style="display:none;">
-                    Localização automática requer acesso HTTPS. Informe as coordenadas manualmente.
-                </p>
-            </div>
-
-            <div class="tm-browser-confirm" id="browser-confirm-box" style="display:none;">
-                <div class="tm-browser-confirm-coords">
-                    <span>Latitude: <strong id="browser-confirm-lat">--</strong></span>
-                    <span>Longitude: <strong id="browser-confirm-lon">--</strong></span>
-                </div>
-                <p class="tm-help-text">Confirmar esta localização para o MoonShield Node?</p>
-                <button class="btn btn-primary btn-sm" id="btn-confirm-browser-location" type="button">Confirmar localização</button>
-            </div>
-
-            <hr class="tm-modal-divider">
-
-            <p>Ou informe manualmente (Decimal Degrees):</p>
-            <div class="tm-form-row">
-                <div class="tm-form-group">
-                    <label>Latitude</label>
-                    <input type="number" step="any" id="loc-lat" placeholder="-90 a 90">
-                </div>
-                <div class="tm-form-group">
-                    <label>Longitude</label>
-                    <input type="number" step="any" id="loc-lon" placeholder="-180 a 180">
-                </div>
-            </div>
-            <div id="loc-error" class="tm-loc-error" style="display: none;"></div>
-        </div>
-        <div class="tm-modal-footer">
-            <button class="btn btn-outline" id="btn-cancel-location">Cancelar</button>
-            <button class="btn btn-primary" id="btn-save-location">Salvar Coordenadas</button>
-        </div>
-    </div>
-</div>
+<div class="tm-v2__toast" id="tm-toast" role="status" aria-live="polite" hidden></div>
 {% endblock %}
 
 {% block extra_js %}

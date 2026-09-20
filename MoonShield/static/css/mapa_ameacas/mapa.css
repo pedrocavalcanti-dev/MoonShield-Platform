@@ -1186,6 +1186,47 @@
    BUTTONS
 ------------------------------------------------------------ */
 
+.tm-v2__context-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-size: .68rem;
+    font-weight: 650;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all .16s ease;
+    border: 1px solid transparent;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.tm-v2__context-action--neutral {
+    background: var(--bg-card, #fff);
+    border-color: var(--border, #d9dde4);
+    color: var(--text-muted, #737b89);
+}
+
+.tm-v2__context-action--neutral:hover {
+    background: var(--bg-hover, #f1f3f6);
+    border-color: var(--border-focus, #aeb5c0);
+    color: var(--text-primary, #16181d);
+}
+
+.tm-v2__context-action--primary {
+    background: rgba(47, 128, 237, .06);
+    border-color: rgba(47, 128, 237, .2);
+    color: #2f80ed;
+}
+
+.tm-v2__context-action--primary:hover {
+    background: rgba(47, 128, 237, .12);
+    border-color: rgba(47, 128, 237, .3);
+    color: #1a62c6;
+}
+
 .tm-v2__small-btn {
     display: inline-flex;
     align-items: center;

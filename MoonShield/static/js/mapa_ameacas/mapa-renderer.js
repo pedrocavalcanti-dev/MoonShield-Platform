@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
     'use strict';
 
     let map = null;
@@ -19,6 +19,11 @@
     let isGlobe = true;
     let userInteracting = false;
     let prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let onEventClick = null;
+
+    const DEFAULT_WORLD_ZOOM = 1.6;
+    const NODE_FOCUS_ZOOM = 3.0;
+    const EVENT_FOCUS_ZOOM = 4.0;
 
     const MAP_STYLES = {
         dark: 'mapbox://styles/mapbox/dark-v11',
@@ -68,12 +73,43 @@
         ];
     }
 
-    function buildTrailCoords(lon1, lat1, lon2, lat2, progress, n = 36) {
-        const coords = [];
+    function buildTrailGeom(lon1, lat1, lon2, lat2, progress, n = 36) {
+        let currentSegment = [];
+        const segments = [currentSegment];
+        let lastLng = null;
+        let lastLat = null;
+        
         for (let i = 0; i <= n; i++) {
-            coords.push(slerp(lon1, lat1, lon2, lat2, (i / n) * progress));
+            const pt = slerp(lon1, lat1, lon2, lat2, (i / n) * progress);
+            const lng = pt[0];
+            const lat = pt[1];
+            
+            if (lastLng !== null) {
+                let diff = lng - lastLng;
+                if (Math.abs(diff) > 180) {
+                    let fraction = (180 - Math.abs(lastLng)) / (360 - Math.abs(diff));
+                    let crossLat = lastLat + (lat - lastLat) * fraction;
+                    
+                    let sign1 = Math.sign(lastLng) || 1;
+                    currentSegment.push([sign1 * 180, crossLat]);
+                    
+                    currentSegment = [];
+                    segments.push(currentSegment);
+                    
+                    let sign2 = Math.sign(lng) || 1;
+                    currentSegment.push([sign2 * 180, crossLat]);
+                }
+            }
+            currentSegment.push(pt);
+            lastLng = lng;
+            lastLat = lat;
         }
-        return coords;
+        
+        if (segments.length === 1) {
+            return { type: 'LineString', coordinates: segments[0] };
+        } else {
+            return { type: 'MultiLineString', coordinates: segments };
+        }
     }
 
     function initLayers() {
@@ -237,10 +273,10 @@
             const baseWidth = { critical: 2.2, high: 1.8, medium: 1.4, low: 1.2, info: 1.0 }[ev.severity] || 1.5;
             const width = baseWidth + (countFactor * 2);
 
-            const srcPulse = prefersReducedMotion ? 1 : 0.8 + Math.sin(now / 300 + ev.id.charCodeAt(0)) * 0.2;
+            const srcPulse = prefersReducedMotion ? 1 : 0.8 + Math.sin(now / 300 + String(ev.id).charCodeAt(0)) * 0.2;
             pF.push({
                 type: 'Feature',
-                properties: { id: ev.id, color, scale: scale * srcPulse, opacity: fade, haloOpacity: fade * 0.45, isHead: false },
+                properties: { id: ev.id, groupKey: ev.groupKey, color, scale: scale * srcPulse, opacity: fade, haloOpacity: fade * 0.45, isHead: false },
                 geometry: { type: 'Point', coordinates: [ev.src_lon, ev.src_lat] }
             });
 
@@ -248,16 +284,18 @@
             const fp = prefersReducedMotion ? rawProgress : Math.pow(rawProgress, 0.7);
 
             if (fp > 0.005) {
-                const coords = buildTrailCoords(ev.src_lon, ev.src_lat, ev.dest_lon, ev.dest_lat, fp, 40);
+                const geom = buildTrailGeom(ev.src_lon, ev.src_lat, ev.dest_lon, ev.dest_lat, fp, 40);
 
                 lF.push({
                     type: 'Feature',
                     properties: { color, opacity: fade * 0.90, width },
-                    geometry: { type: 'LineString', coordinates: coords }
+                    geometry: geom
                 });
 
                 if (fp < 0.99) {
-                    const headCoord = coords[coords.length - 1];
+                    const headCoord = geom.type === 'LineString' 
+                        ? geom.coordinates[geom.coordinates.length - 1] 
+                        : geom.coordinates[geom.coordinates.length - 1][geom.coordinates[geom.coordinates.length - 1].length - 1];
                     const headPulse = prefersReducedMotion ? 1 : 0.85 + Math.sin(now / 120) * 0.15;
                     pF.push({
                         type: 'Feature',
@@ -288,9 +326,10 @@
         init: function (options) {
             if (map) return;
             currentTheme = options.theme || 'dark';
+            onEventClick = options.onEventClick || null;
             try {
                 if (!options.token) {
-                    if (options.onError) options.onError("Token não fornecido");
+                    if (options.onError) options.onError("Token no fornecido");
                     return;
                 }
                 mapboxgl.accessToken = options.token;
@@ -298,7 +337,7 @@
                     container: options.containerId,
                     style: MAP_STYLES[currentTheme],
                     center: [0, 20],
-                    zoom: 1.6,
+                    zoom: DEFAULT_WORLD_ZOOM,
                     minZoom: 0.6,
                     maxZoom: 10,
                     projection: 'globe',
@@ -326,7 +365,7 @@
                     }
                     userInteracting = false;
                     if (nodeCoords && nodeCoords.latitude != null) {
-                        map.easeTo({ center: [nodeCoords.longitude, nodeCoords.latitude], duration: 1500 });
+                        map.easeTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: NODE_FOCUS_ZOOM, duration: 1500 });
                     }
                 };
                 const markInteracting = () => {
@@ -343,6 +382,22 @@
                         clearTimeout(inactivityTimer);
                         inactivityTimer = setTimeout(resumeAutoRotate, 10000);
                     });
+                });
+
+                map.on('click', ['attackers-core', 'attackers-halo'], (e) => {
+                    if (e.features && e.features.length > 0) {
+                        const groupKey = e.features[0].properties.groupKey;
+                        if (groupKey && typeof onEventClick === 'function') {
+                            onEventClick(groupKey);
+                        }
+                    }
+                });
+
+                map.on('mouseenter', ['attackers-core', 'attackers-halo'], () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', ['attackers-core', 'attackers-halo'], () => {
+                    map.getCanvas().style.cursor = '';
                 });
 
                 map.on('style.load', () => {
@@ -398,7 +453,7 @@
             if (pendingInitialNodeFocus && nodeCoords && map && map.isStyleLoaded()) {
                 hasInitialNodeFocus = true;
                 pendingInitialNodeFocus = false;
-                map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
+                map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: NODE_FOCUS_ZOOM, duration: prefersReducedMotion ? 0 : 1500 });
             }
         },
 
@@ -411,8 +466,23 @@
 
         setEvents: function (events) {
             const now = Date.now();
+            const existingMap = new Map();
+            activeEvents.forEach(ev => {
+                if (ev.groupKey) existingMap.set(ev.groupKey, ev);
+            });
+            
             events.forEach(ev => {
-                if (!ev.born) ev.born = now;
+                if (ev.groupKey && existingMap.has(ev.groupKey)) {
+                    const old = existingMap.get(ev.groupKey);
+                    if (old.latestTimestamp === ev.latestTimestamp) {
+                        ev.born = old.born;
+                        ev._impacted = old._impacted;
+                    } else {
+                        ev.born = now;
+                    }
+                } else {
+                    ev.born = now;
+                }
             });
             activeEvents = events;
         },
@@ -424,22 +494,22 @@
 
         focusEvent: function (event) {
             if (event.external_lon != null && event.external_lat != null) {
-                if (map) map.flyTo({ center: [event.external_lon, event.external_lat], zoom: 3.5, duration: prefersReducedMotion ? 0 : 1500 });
+                if (map) map.flyTo({ center: [event.external_lon, event.external_lat], zoom: EVENT_FOCUS_ZOOM, duration: prefersReducedMotion ? 0 : 1500 });
             }
         },
 
         focusNode: function () {
             if (nodeCoords && nodeCoords.longitude != null && nodeCoords.latitude != null) {
-                if (map) map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
+                if (map) map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: NODE_FOCUS_ZOOM, duration: prefersReducedMotion ? 0 : 1500 });
             }
         },
 
         resetView: function () {
             if (!map) return;
             if (nodeCoords && nodeCoords.longitude != null && nodeCoords.latitude != null) {
-                map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: 2.3, duration: prefersReducedMotion ? 0 : 1500 });
+                map.flyTo({ center: [nodeCoords.longitude, nodeCoords.latitude], zoom: NODE_FOCUS_ZOOM, duration: prefersReducedMotion ? 0 : 1500 });
             } else {
-                map.flyTo({ center: [0, 20], zoom: 1.6, duration: prefersReducedMotion ? 0 : 1500 });
+                map.flyTo({ center: [0, 20], zoom: DEFAULT_WORLD_ZOOM, duration: prefersReducedMotion ? 0 : 1500 });
             }
         },
 

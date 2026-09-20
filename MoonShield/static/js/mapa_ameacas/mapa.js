@@ -578,9 +578,70 @@
         el.title = `${base} — ${normalized}`;
     }
 
+    function getSeverityRank(sev) {
+        const map = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+        return map[sev] || 0;
+    }
+
+    function buildGeoGroups(feed) {
+        const groups = new Map();
+        
+        feed.forEach(ev => {
+            const externalIp = ev.external_ip || ev.src_ip;
+            const source = ev.source || 'unknown';
+            const groupKey = `${source}|${externalIp}`;
+            
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, {
+                    groupKey: groupKey,
+                    external_ip: externalIp,
+                    source: source,
+                    geo: getExternalGeo(ev),
+                    latestTimestamp: ev.timestamp || ev.ts,
+                    latestEvent: ev,
+                    eventCount: 0,
+                    totalOccurrences: 0,
+                    signatures: new Set(),
+                    highestSeverity: ev.severity || 'low',
+                    direction: ev.direction,
+                    _sevRank: getSeverityRank(ev.severity)
+                });
+            }
+            
+            const g = groups.get(groupKey);
+            g.eventCount++;
+            g.totalOccurrences += Number(ev.count || 1);
+            if (ev.signature || ev.name || ev.title) g.signatures.add(ev.signature || ev.name || ev.title);
+            
+            const rank = getSeverityRank(ev.severity);
+            if (rank > g._sevRank) {
+                g._sevRank = rank;
+                g.highestSeverity = ev.severity;
+            }
+            if (new Date(ev.timestamp || ev.ts) > new Date(g.latestTimestamp)) {
+                g.latestTimestamp = ev.timestamp || ev.ts;
+                g.latestEvent = ev;
+            }
+        });
+        
+        return Array.from(groups.values()).map(g => {
+            return {
+                ...g.latestEvent,
+                groupKey: g.groupKey,
+                isGroup: true,
+                eventCount: g.eventCount,
+                totalOccurrences: g.totalOccurrences,
+                severity: g.highestSeverity,
+                signaturesArray: Array.from(g.signatures),
+                latestTimestamp: g.latestTimestamp
+            };
+        });
+    }
+
     function applyFeed(data) {
         const rawEvents = Array.isArray(data.events) ? data.events : [];
         state.feed = rawEvents.filter(eventHasGeo).slice(0, MAX_FEED_DOM);
+        state.feedGroups = buildGeoGroups(state.feed);
 
         renderFeed();
         updateRendererEvents();
@@ -601,15 +662,17 @@
         const nodeLon = Number(state.node.longitude);
         const renderEvents = [];
 
-        state.feed.forEach((ev) => {
+        (state.feedGroups || []).forEach((ev) => {
             const geo = getExternalGeo(ev);
             if (!geo) return;
 
             if (ev.direction === 'inbound') {
                 renderEvents.push({
-                    id: String(ev.id),
+                    id: String(ev.id || ev.groupKey),
+                    groupKey: ev.groupKey,
+                    latestTimestamp: ev.latestTimestamp,
                     severity: ev.severity || 'low',
-                    count: Number(ev.count || 1),
+                    count: Number(ev.totalOccurrences || 1),
                     src_lat: geo.latitude,
                     src_lon: geo.longitude,
                     dest_lat: nodeLat,
@@ -619,9 +682,11 @@
                 });
             } else if (ev.direction === 'outbound') {
                 renderEvents.push({
-                    id: String(ev.id),
+                    id: String(ev.id || ev.groupKey),
+                    groupKey: ev.groupKey,
+                    latestTimestamp: ev.latestTimestamp,
                     severity: ev.severity || 'low',
-                    count: Number(ev.count || 1),
+                    count: Number(ev.totalOccurrences || 1),
                     src_lat: nodeLat,
                     src_lon: nodeLon,
                     dest_lat: geo.latitude,
@@ -638,10 +703,11 @@
     function renderFeed() {
         if (!els.feedContainer || !els.feedEmptyState || !els.feedCount) return;
 
+        const groups = state.feedGroups || [];
         els.feedContainer.replaceChildren();
-        els.feedCount.textContent = `${state.feed.length} ${state.feed.length === 1 ? 'evento' : 'eventos'}`;
+        els.feedCount.textContent = `${groups.length} ${groups.length === 1 ? 'origem' : 'origens'}`;
 
-        if (!state.feed.length) {
+        if (!groups.length) {
             els.feedEmptyState.hidden = false;
             return;
         }
@@ -649,15 +715,15 @@
         els.feedEmptyState.hidden = true;
         const fragment = document.createDocumentFragment();
 
-        state.feed.forEach((ev) => {
+        groups.forEach((ev) => {
             const card = createEl('button', `tm-v2__event-card sev-${ev.severity || 'low'}`);
             card.type = 'button';
-            card.dataset.eventId = String(ev.id ?? '');
+            card.dataset.eventId = String(ev.id || ev.groupKey || '');
 
             const head = createEl('div', 'tm-v2__event-head');
             const sev = createEl('span', `tm-v2__event-sev sev-${ev.severity || 'low'}`, severityLabel(ev.severity));
             const src = createEl('span', '', sourceLabel(ev.source));
-            const time = createEl('time', '', formatTimestamp(ev.ts || ev.timestamp));
+            const time = createEl('time', '', formatTimestamp(ev.ts || ev.timestamp || ev.latestTimestamp));
             head.append(sev, src, time);
 
             const route = createEl('div', 'tm-v2__event-ip');
@@ -665,11 +731,24 @@
             const to = ev.dst_ip || (state.node && state.node.name) || 'MoonShield';
             route.textContent = `${from} → ${to}`;
 
-            const title = createEl('div', 'tm-v2__event-title', ev.signature || ev.action || ev.category || 'Evento de segurança');
-            const location = createEl('div', 'tm-v2__event-location', eventLocationLabel(ev));
+            const titleText = ev.signature || ev.action || ev.category || 'Evento de segurança';
+            const title = createEl('div', 'tm-v2__event-title', titleText);
+            
+            const locationText = eventLocationLabel(ev);
+            let locString = locationText;
+            if (ev.isGroup && ev.eventCount > 0) {
+                locString += `\n${ev.eventCount} ${ev.eventCount === 1 ? 'evento' : 'eventos'} · ${ev.totalOccurrences} ${ev.totalOccurrences === 1 ? 'ocorrência' : 'ocorrências'}`;
+            }
+            const location = createEl('div', 'tm-v2__event-location');
+            location.style.whiteSpace = 'pre-line';
+            location.textContent = locString;
 
             card.append(head, route, title, location);
-            card.addEventListener('click', () => openContext(ev, { source: 'event' }));
+            card.addEventListener('click', () => {
+                openContext(ev, { source: 'event' });
+                const renderer = getRenderer();
+                if (renderer) renderer.focusEvent({ external_lon: getExternalGeo(ev)?.longitude, external_lat: getExternalGeo(ev)?.latitude });
+            });
             fragment.appendChild(card);
         });
 
@@ -977,14 +1056,28 @@
         if (data.role || data.src_role) badges.appendChild(createEl('span', 'tm-v2__mini-badge', data.role || data.src_role));
         if (badges.childElementCount) body.appendChild(badges);
 
-        appendDetailSection(body, 'Evento', [
-            ['Timestamp', formatTimestamp(data.ts || data.timestamp, true)],
-            ['Ocorrências', data.count ?? '—'],
-            ['Direção', directionLabel(data.direction || data.flow_scope)],
-            ['Protocolo', data.protocol ? String(data.protocol).toUpperCase() : '—'],
-            ['Rule ID', data.rule_id ?? data.sid ?? '—'],
-            ['Categoria', data.category ?? '—']
-        ]);
+        if (data.isGroup) {
+            appendDetailSection(body, 'Resumo do IP', [
+                ['Eventos agregados', data.eventCount],
+                ['Ocorrências', data.totalOccurrences],
+                ['Última atividade', formatTimestamp(data.ts || data.timestamp, true)]
+            ]);
+            if (data.signaturesArray && data.signaturesArray.length) {
+                const sigs = data.signaturesArray.slice(0, 3).join(', ') + (data.signaturesArray.length > 3 ? '...' : '');
+                appendDetailSection(body, 'Assinaturas', [
+                    ['Observadas', sigs]
+                ]);
+            }
+        } else {
+            appendDetailSection(body, 'Evento', [
+                ['Timestamp', formatTimestamp(data.ts || data.timestamp, true)],
+                ['Ocorrências', data.count ?? '—'],
+                ['Direção', directionLabel(data.direction || data.flow_scope)],
+                ['Protocolo', data.protocol ? String(data.protocol).toUpperCase() : '—'],
+                ['Rule ID', data.rule_id ?? data.sid ?? '—'],
+                ['Categoria', data.category ?? '—']
+            ]);
+        }
 
         const srcGeo = data.src_geo || {};
         const externalGeo = data.external_geo || {};
@@ -1016,20 +1109,20 @@
         }
 
         const actions = createEl('div', 'tm-v2__context-actions');
-        const incidentLink = createEl('a', 'tm-v2__action-link', 'Ver no SOC');
+        const incidentLink = createEl('a', 'tm-v2__context-action tm-v2__context-action--neutral', 'Ver no SOC');
         incidentLink.href = data.incident_id ? `${ENDPOINTS.incidents}${encodeURIComponent(data.incident_id)}/` : ENDPOINTS.incidents;
         actions.appendChild(incidentLink);
 
         const investigateIp = data.src_ip || data.external_ip || data.ip || data.value;
         if (investigateIp && looksLikeIp(String(investigateIp))) {
-            const investigate = createEl('a', 'tm-v2__small-btn', 'Investigar IP');
+            const investigate = createEl('a', 'tm-v2__context-action tm-v2__context-action--primary', 'Investigar IP');
             investigate.href = ENDPOINTS.investigate.replace('__IP__', encodeURIComponent(String(investigateIp)));
             actions.appendChild(investigate);
         }
 
         const geo = getExternalGeo(data);
         if (geo && getRenderer()) {
-            const focus = createEl('button', 'tm-v2__action-link', 'Focar no mapa');
+            const focus = createEl('button', 'tm-v2__context-action tm-v2__context-action--neutral', 'Focar no mapa');
             focus.type = 'button';
             focus.addEventListener('click', () => {
                 getRenderer().focusEvent({
@@ -1088,11 +1181,30 @@
         const q = String(query || '').trim();
         if (!q) return;
 
+        if (state.feedGroups && looksLikeIp(q)) {
+            const localGroup = state.feedGroups.find(g => g.external_ip === q);
+            if (localGroup) {
+                openContext(localGroup, { source: 'search' });
+                const geo = getExternalGeo(localGroup);
+                const renderer = getRenderer();
+                if (renderer && geo) renderer.focusEvent({ external_lon: geo.longitude, external_lat: geo.latitude });
+                return;
+            }
+        }
+
         if (state.searchController) state.searchController.abort();
         state.searchController = new AbortController();
 
         const params = new URLSearchParams();
         params.set('q', q);
+
+        let submitBtn = null;
+        if (els.searchForm) submitBtn = els.searchForm.querySelector('button[type="submit"]');
+
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Buscando...';
+        }
 
         try {
             const data = await fetchJson(urlWithParams(ENDPOINTS.search, params), {
@@ -1118,7 +1230,7 @@
                 });
             } else {
                 const role = merged.role || merged.src_role || '';
-                showToast(role ? `IP interno · ${role} — sem posição geográfica.` : 'Resultado sem posição geográfica pública.');
+                showToast(role ? `IP interno é ${role} - sem posição geográfica.` : 'Resultado sem posição geográfica pública.');
             }
         } catch (error) {
             if (error.name !== 'AbortError') {
@@ -1126,6 +1238,10 @@
                 showToast('Não foi possível concluir a busca.');
             }
         } finally {
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Buscar';
+            }
             state.searchController = null;
         }
     }
@@ -1857,10 +1973,21 @@
             return;
         }
 
+    function handleRendererEventClick(groupKey) {
+        if (!state.feedGroups) return;
+        const group = state.feedGroups.find(g => g.groupKey === groupKey);
+        if (group) {
+            openContext(group, { source: 'event' });
+            const renderer = getRenderer();
+            if (renderer) renderer.focusEvent({ external_lon: getExternalGeo(group)?.longitude, external_lat: getExternalGeo(group)?.latitude });
+        }
+    }
+
         renderer.init({
             containerId: 'map',
             token,
             theme: document.documentElement.getAttribute('data-theme') || 'light',
+            onEventClick: handleRendererEventClick,
             onReady: () => {
                 if (els.mapFailure) els.mapFailure.hidden = true;
                 applyRendererSettings();

@@ -237,14 +237,14 @@
         if (!state.lastData) showBanner("Alguns dados do Dashboard não puderam ser carregados agora.");
       } finally {
         if (sequence === state.overviewRequest) {
-            state.inFlight = false;
-            state.inFlightKey = null;
+          state.inFlight = false;
+          state.inFlightKey = null;
 
-            if (state.loading || shell.classList.contains("is-loading")) {
-                setLoading(false);
-            }
+          if (state.loading || shell.classList.contains("is-loading")) {
+            setLoading(false);
+          }
 
-            window.MoonShieldLoading?.setRefreshing(shell, false);
+          window.MoonShieldLoading?.setRefreshing(shell, false);
         }
       }
     }

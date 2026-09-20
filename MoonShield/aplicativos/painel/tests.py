@@ -50,7 +50,12 @@ def _servicos_todos_ok():
 def _dns_real() -> dict:
     return {
         "metrics": {"queries": 5000, "bloqueios": 500, "pctBloq": 10.0, "clientes": 12},
-        "charts":  {"queries": [100] * 24, "bloqueios": [10] * 24},
+        "charts":  {
+            "hours": [f"{hour:02d}h" for hour in range(24)],
+            "queries": [100] * 24,
+            "bloqueios": [10] * 24,
+            "stats_history_available": True,
+        },
         "health":  {"running": True, "api": "ok"},
     }
 
@@ -67,7 +72,7 @@ class DashboardOverviewTest(TestCase):
         from painel.views import _overview_real
 
         servicos_data = servicos or _servicos_todos_ok()
-        dns_data      = dns      or _dns_real()
+        dns_data      = _dns_real() if dns is None else dns
 
         with patch("painel.views._get_cfg",   return_value=None), \
              patch("configuracoes.views._servicos",       return_value=servicos_data), \
@@ -152,6 +157,32 @@ class DashboardOverviewTest(TestCase):
     def test_10_periodo_30d(self):
         result = self._run(period="30d")
         self.assertEqual(result["periodo"], "30d")
+
+    def test_10b_dns_historico_respeita_os_periodos_disponiveis(self):
+        for period, available, length in (
+            ("1h", False, 0),
+            ("24h", True, 24),
+            ("7d", False, 0),
+            ("30d", False, 0),
+        ):
+            with self.subTest(period=period):
+                result = self._run(period=period)
+                dns = result["charts"]["dns"]
+
+                self.assertEqual(dns["history_available"], available)
+                self.assertEqual(len(dns["labels"]), length)
+                self.assertEqual(len(dns["hours"]), length)
+                self.assertEqual(len(dns["queries"]), length)
+                self.assertEqual(len(dns["blocked"]), length)
+                self.assertEqual(dns["labels"], dns["hours"])
+                self.assertEqual(result["kpis"]["dns_period_available"], available)
+
+                if available:
+                    self.assertEqual(result["kpis"]["dns_queries"], 2400)
+                    self.assertEqual(result["kpis"]["dns_bloqueios"], 240)
+                else:
+                    self.assertEqual(result["kpis"]["dns_queries"], 5000)
+                    self.assertEqual(result["kpis"]["dns_bloqueios"], 500)
 
     # ── Teste 11: Filtro de severidade passado no contexto
     def test_11_filtro_severidade(self):

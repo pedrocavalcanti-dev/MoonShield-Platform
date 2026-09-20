@@ -46,6 +46,8 @@
       cleared: false,
       loading: false,
       pollTimer: null,
+      overviewController: null,
+      overviewRequest: 0,
     };
 
     const charts = {
@@ -167,10 +169,13 @@
       if (banner) banner.hidden = true;
     }
 
-    async function fetchOverview() {
+    async function fetchOverview(sequence) {
       const sev = SEV_TO_BACKEND[state.sev] || "all";
       const url = `/painel/api/overview/?period=${encodeURIComponent(state.period)}&sev=${encodeURIComponent(sev)}`;
+      state.overviewController?.abort();
       const controller = new AbortController();
+      state.overviewController = controller;
+      state.overviewRequest = sequence;
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
         const response = await fetch(url, {
@@ -184,14 +189,18 @@
         return data;
       } finally {
         clearTimeout(timeout);
+        if (state.overviewController === controller) state.overviewController = null;
       }
     }
 
     async function renderDashboard({ silent = false } = {}) {
-      if (!silent) setLoading(true);
-      if (silent) window.MoonShieldLoading?.setRefreshing(shell, true);
+      const sequence = state.overviewRequest + 1;
+      const firstLoad = state.lastData === null;
+      if (firstLoad) setLoading(true);
+      else window.MoonShieldLoading?.setRefreshing(shell, true);
       try {
-        const data = await fetchOverview();
+        const data = await fetchOverview(sequence);
+        if (sequence !== state.overviewRequest) return;
         state.lastData = data;
         hideBanner();
 
@@ -205,11 +214,13 @@
         renderCategories(data.intel?.categorias || []);
         renderHealth(data);
       } catch (error) {
+        if (error?.name === "AbortError" || sequence !== state.overviewRequest) return;
         console.error("[MoonShield Dashboard] Falha ao carregar overview", error);
-        showBanner(error?.name === "AbortError" ? "O Dashboard demorou mais que o esperado para responder." : "Alguns dados do Dashboard não puderam ser carregados agora.");
+        showBanner("Alguns dados do Dashboard não puderam ser carregados agora.");
       } finally {
-        if (!silent) setLoading(false);
-        if (silent) window.MoonShieldLoading?.setRefreshing(shell, false);
+        if (sequence !== state.overviewRequest) return;
+        if (firstLoad) setLoading(false);
+        else window.MoonShieldLoading?.setRefreshing(shell, false);
       }
     }
 
@@ -218,12 +229,17 @@
       setText("dashNodeCidr", data.node?.cidr || "—");
       setText("lastUpdate", formatUpdated(data.last_update));
 
-      const subtitle = el("attackChartSubtitle");
-      if (subtitle) {
-        subtitle.textContent = state.period === "24h"
-          ? "Distribuição por severidade · 00h–23h"
-          : `Distribuição por severidade · ${state.period}`;
-      }
+      const copy = {
+        "1h": { title: "Última hora", subtitle: "Última hora" },
+        "24h": { title: "por Hora", subtitle: "00h–23h" },
+        "7d": { title: "por Dia", subtitle: "Últimos 7 dias" },
+        "30d": { title: "por Dia", subtitle: "Últimos 30 dias" },
+      }[state.period] || { title: "por Hora", subtitle: state.period };
+
+      setText("attackChartTitle", `Ataques ${copy.title}`);
+      setText("attackChartSubtitle", `Distribuição por severidade · ${copy.subtitle}`);
+      setText("dnsChartTitle", `DNS ${copy.title}`);
+      setText("dnsChartSubtitle", `Consultas e bloqueios · ${copy.subtitle}`);
     }
 
     function animateCounter(node, target) {
@@ -253,12 +269,25 @@
       animateCounter(el("kpiDns"), kpi.dns_queries || 0);
       animateCounter(el("kpiBloq"), kpi.dns_bloqueios || 0);
       setText("kpiBloqPct", `${safeNumber(kpi.bloqueio_pct).toFixed(1)}%`);
+      const dnsScope = el("kpiDnsScope");
+      if (dnsScope) {
+        const periodLabels = { "1h": "1H", "24h": "24H", "7d": "7D", "30d": "30D" };
+        const periodAvailable = kpi.dns_period_available === true;
+        dnsScope.textContent = periodAvailable ? (periodLabels[state.period] || state.period) : "ATUAL";
+        dnsScope.title = periodAvailable
+          ? "Métrica DNS do período selecionado"
+          : "Métrica DNS atual; histórico indisponível para o período selecionado";
+        setText("kpiDnsLabel", periodAvailable ? "DNS Queries no período" : "DNS Queries atuais");
+        setText("kpiBloqLabel", periodAvailable ? "Bloqueios DNS no período" : "Bloqueios DNS atuais");
+      }
 
       const attacks = data.charts?.attacks || {};
       const attackTotals = combineSeries(attacks.crit, attacks.high, attacks.med);
       makeSparkline("sparkAmeacas", attackTotals, COLORS.red);
-      makeSparkline("sparkDns", data.charts?.dns?.queries || [], COLORS.blue);
-      makeSparkline("sparkBloq", data.charts?.dns?.blocked || [], COLORS.yellow);
+      const dns = data.charts?.dns || {};
+      const dnsHistory = dns.history_available === true;
+      makeSparkline("sparkDns", dnsHistory ? dns.queries : [], COLORS.blue);
+      makeSparkline("sparkBloq", dnsHistory ? dns.blocked : [], COLORS.yellow);
       renderSensors(data);
     }
 
@@ -270,7 +299,15 @@
     function makeSparkline(id, values, color) {
       const canvas = el(id);
       if (!canvas || !window.Chart) return;
-      const data = Array.isArray(values) && values.length ? values.map(v => safeNumber(v)) : [0, 0, 0, 0, 0, 0];
+      const data = Array.isArray(values) && values.length ? values.map(v => safeNumber(v)) : [];
+      if (!data.length) {
+        if (charts.sparks[id]) {
+          charts.sparks[id].data.labels = [];
+          charts.sparks[id].data.datasets[0].data = [];
+          charts.sparks[id].update("none");
+        }
+        return;
+      }
       if (charts.sparks[id]) {
         charts.sparks[id].data.labels = data.map(() => "");
         charts.sparks[id].data.datasets[0].data = data;
@@ -436,11 +473,18 @@
       }
 
       const dns = data.charts?.dns || {};
-      let dnsLabels = dns.hours || [];
+      const dnsHistoryAvailable = dns.history_available === true;
+      let dnsLabels = dns.labels || dns.hours || [];
       let dnsSeries = [dns.queries || [], dns.blocked || []];
-      const normalizedDns = normalize24Hours(dnsLabels, dnsSeries);
-      dnsLabels = normalizedDns.labels;
-      dnsSeries = normalizedDns.datasets;
+      if (dnsHistoryAvailable && state.period === "24h") {
+        const normalizedDns = normalize24Hours(dnsLabels, dnsSeries);
+        dnsLabels = normalizedDns.labels;
+        dnsSeries = normalizedDns.datasets;
+      }
+      if (!dnsHistoryAvailable) {
+        dnsLabels = [];
+        dnsSeries = [[], []];
+      }
 
       const dnsCanvas = el("chartDns");
       if (dnsCanvas && window.Chart) {
@@ -504,7 +548,11 @@
           charts.dns.data.datasets[1].data = dnsSeries[1];
           charts.dns.update("active");
         }
-        setChartEmpty(dnsCanvas, combineSeries(...dnsSeries).every(v => v === 0), "Nenhuma consulta DNS registrada");
+        setChartEmpty(
+          dnsCanvas,
+          !dnsHistoryAvailable || combineSeries(...dnsSeries).every(v => v === 0),
+          dnsHistoryAvailable ? "Nenhuma consulta DNS registrada" : "Histórico DNS indisponível para este período",
+        );
       }
     }
 

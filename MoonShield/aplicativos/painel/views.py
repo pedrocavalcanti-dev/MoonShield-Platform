@@ -368,6 +368,35 @@ def _sensores_lista(adguard: dict, suricata: dict, firewall: dict) -> list[dict]
     ]
 
 
+def _dns_para_periodo(dns_charts: dict, period: str) -> dict:
+    """Expõe histórico DNS somente quando a fonte nativa o cobre por completo."""
+    labels = list(dns_charts.get("hours") or [])
+    queries = list(dns_charts.get("queries") or [])
+    blocked = list(dns_charts.get("bloqueios") or [])
+    has_24h_stats = bool(dns_charts.get("stats_history_available"))
+
+    if period == "24h" and has_24h_stats and len(labels) == len(queries) == len(blocked) == 24:
+        queries = [int(value or 0) for value in queries]
+        blocked = [int(value or 0) for value in blocked]
+        return {
+            "available": True,
+            "labels": labels,
+            "queries": queries,
+            "blocked": blocked,
+            "queries_total": sum(queries),
+            "blocked_total": sum(blocked),
+        }
+
+    return {
+        "available": False,
+        "labels": [],
+        "queries": [],
+        "blocked": [],
+        "queries_total": None,
+        "blocked_total": None,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AGGREGATOR PRINCIPAL
 # ─────────────────────────────────────────────────────────────────────────────
@@ -426,11 +455,9 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     series_att = _series_ataques(qs, periodo_cfg, agora)
     hours_labels = series_att["labels"]
 
-    # ── DNS séries (sempre 24h vinda do AdGuard stats)
-    zeros_24 = [0] * 24
-    dns_hour_labels = _hour_labels()
-    dns_q_series = list(dns_charts.get("queries") or zeros_24)
-    dns_b_series = list(dns_charts.get("bloqueios") or zeros_24)
+    # ── DNS: só aceita a série nativa completa de 24h do AdGuard.
+    # Não há no runtime atual fonte persistida/completa para 1h, 7d ou 30d.
+    dns_periodo = _dns_para_periodo(dns_charts, period)
 
     # Para gráfico de ataques, usa labels reais do período
     # Para gráfico DNS, mantém labels das 24h do AdGuard
@@ -470,10 +497,20 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     disp = _infra_dispositivos()
     fw_infra = _infra_firewall(firewall)
 
-    dns_pct = float(dns_metrics.get("pctBloq", 0) or 0)
+    dns_kpis_do_periodo = dns_periodo["available"]
+    dns_queries = (
+        dns_periodo["queries_total"]
+        if dns_kpis_do_periodo
+        else int(dns_metrics.get("queries", 0) or 0)
+    )
+    dns_bloq = (
+        dns_periodo["blocked_total"]
+        if dns_kpis_do_periodo
+        else int(dns_metrics.get("bloqueios", 0) or 0)
+    )
+    dns_pct = round((dns_bloq / dns_queries) * 100, 1) if dns_queries else 0.0
     dns_clients = int(dns_metrics.get("clientes", 0) or 0)
-    dns_bloq = int(dns_metrics.get("bloqueios", 0) or 0)
-    dns_perm = max(0, int(dns_metrics.get("queries", 0) or 0) - dns_bloq)
+    dns_perm = max(0, dns_queries - dns_bloq)
 
     # ── Sensores estruturados (lista para renderSaude no JS)
     sensores_lista = _sensores_lista(adguard, suricata, firewall)
@@ -488,9 +525,10 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
 
         "kpis": {
             "ameacas_hoje":     total_ameacas,
-            "dns_queries":      int(dns_metrics.get("queries", 0) or 0),
+            "dns_queries":      dns_queries,
             "dns_bloqueios":    dns_bloq,
             "bloqueio_pct":     dns_pct,
+            "dns_period_available": dns_kpis_do_periodo,
             "sensores_online":  sensores_online,
             "sensores_total":   3,
             "severidades":      severidades,
@@ -504,11 +542,13 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
                 "high": series_att["high"],
                 "med":  series_att["med"],
             },
-            # DNS — séries 24h do AdGuard (sempre 24h independente do período)
+            # DNS — mantém hours como alias para consumidores ainda legados.
             "dns": {
-                "hours":   dns_hour_labels,
-                "queries": dns_q_series,
-                "blocked": dns_b_series,
+                "labels":            dns_periodo["labels"],
+                "hours":             dns_periodo["labels"],
+                "queries":           dns_periodo["queries"],
+                "blocked":           dns_periodo["blocked"],
+                "history_available": dns_periodo["available"],
             },
             # Timeline dos últimos 60min (sempre)
             "timeline": tl,

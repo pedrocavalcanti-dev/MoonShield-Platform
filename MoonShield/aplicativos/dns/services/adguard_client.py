@@ -672,8 +672,10 @@ class AdGuardClient:
         stats_q = list(stats.get("dns_queries", []) or [])
         stats_b = list(stats.get("blocked_filtering", []) or [])
 
-        # Algumas versões retornam exatamente 24 posições; quando não retornam,
-        # usamos o Query Log real em vez de preencher com números artificiais.
+        # Apenas as duas séries nativas do /control/stats formam um histórico
+        # horário completo. O Query Log é um recorte limitado e continua sendo
+        # útil para a tela DNS, mas não pode ser anunciado como histórico 24h.
+        stats_history_available = len(stats_q) >= 24 and len(stats_b) >= 24
         queries = stats_q[-24:] if len(stats_q) >= 24 else q_from_log
         bloqueios = stats_b[-24:] if len(stats_b) >= 24 else b_from_log
 
@@ -686,6 +688,7 @@ class AdGuardClient:
             "hours": labels,
             "queries": [int(v or 0) for v in queries[:24]],
             "bloqueios": [int(v or 0) for v in bloqueios[:24]],
+            "stats_history_available": stats_history_available,
             "latency": latency,
             "latency_peak": latency_peak,
         }

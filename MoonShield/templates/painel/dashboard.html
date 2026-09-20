@@ -87,8 +87,8 @@
     <article class="kpi-card dash-loading-target" data-type="info">
       <div class="kpi-card__top">
         <div class="kpi-card__icon-wrap" data-color="blue"><i class="bi bi-globe2"></i></div>
-        <span class="kpi-card__label">DNS Queries</span>
-        <span class="kpi-card__badge kpi-card__badge--blue">24H</span>
+        <span class="kpi-card__label" id="kpiDnsLabel">DNS Queries</span>
+        <span class="kpi-card__badge kpi-card__badge--blue" id="kpiDnsScope">24H</span>
       </div>
       <div class="kpi-card__main">
         <p class="kpi-card__value" id="kpiDns">—</p>
@@ -103,7 +103,7 @@
     <article class="kpi-card dash-loading-target" data-type="warn">
       <div class="kpi-card__top">
         <div class="kpi-card__icon-wrap" data-color="yellow"><i class="bi bi-ban"></i></div>
-        <span class="kpi-card__label">Bloqueios DNS</span>
+        <span class="kpi-card__label" id="kpiBloqLabel">Bloqueios DNS</span>
         <span class="kpi-card__badge kpi-card__badge--yellow" id="kpiBloqPct">—</span>
       </div>
       <div class="kpi-card__main">
@@ -142,7 +142,7 @@
       <div class="dash-card__header">
         <div>
           <p class="dash-card__eyebrow">IDS / SURICATA</p>
-          <h2 class="dash-card__title">Ataques por Hora</h2>
+          <h2 class="dash-card__title" id="attackChartTitle">Ataques por Hora</h2>
           <p class="dash-card__sub" id="attackChartSubtitle">Distribuição por severidade · 24h</p>
         </div>
         <div class="chart-legend">
@@ -158,8 +158,8 @@
       <div class="dash-card__header">
         <div>
           <p class="dash-card__eyebrow">DNS / ADGUARD</p>
-          <h2 class="dash-card__title">DNS por Hora</h2>
-          <p class="dash-card__sub">Consultas e bloqueios · 00h–23h</p>
+          <h2 class="dash-card__title" id="dnsChartTitle">DNS por Hora</h2>
+          <p class="dash-card__sub" id="dnsChartSubtitle">Consultas e bloqueios · 00h–23h</p>
         </div>
         <div class="chart-legend">
           <span><i class="chart-legend__dot chart-legend__dot--blue"></i>Consultas</span>

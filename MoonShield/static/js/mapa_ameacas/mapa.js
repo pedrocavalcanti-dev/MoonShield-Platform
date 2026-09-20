@@ -1433,6 +1433,7 @@
         const address = (els.locEndereco ? els.locEndereco.value : '').trim();
         const city = (els.locCidade ? els.locCidade.value : '').trim();
         const stateStr = (els.locEstado ? els.locEstado.value : '').trim();
+        const country = (els.locPais ? els.locPais.value : 'BR');
 
         if (!cep && !address && !city && !stateStr) {
             showLocationError('Preencha ao menos um campo para buscar.');
@@ -1557,9 +1558,33 @@
                 throw new Error(data.erro || data.error || `HTTP ${response.status}`);
             }
 
+            // Success
+            state.node = state.node || {};
+            state.node.latitude = lat;
+            state.node.longitude = lon;
+            
+            if (els.noLocationWarning) {
+                els.noLocationWarning.classList.remove('visible');
+            }
+            if (els.browserConfirmBox) {
+                els.browserConfirmBox.hidden = true;
+            }
+            state.pendingBrowserLocation = null;
+
+            const renderer = getRenderer();
+            if (renderer && typeof renderer.setNode === 'function') {
+                renderer.setNode({ latitude: lat, longitude: lon });
+                if (renderer.map && typeof renderer.map.flyTo === 'function') {
+                    renderer.map.flyTo({ center: [lon, lat], zoom: 4, duration: 2000 });
+                }
+            }
+            
             closeLocationModal();
             showToast('Localização do appliance atualizada.');
-            await refreshAll({ force: true });
+            
+            if (state.live) {
+                refreshAll({ force: true }).catch(console.error);
+            }
         } catch (error) {
             console.warn('[ThreatMap] Falha ao salvar localização.', error);
             showLocationError(error.message || 'Falha ao salvar localização.');

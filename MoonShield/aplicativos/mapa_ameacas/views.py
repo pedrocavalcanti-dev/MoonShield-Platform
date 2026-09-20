@@ -258,9 +258,24 @@ def api_geocode(request):
         parts.append(city)
     if state:
         parts.append(state)
+    is_br = False
+    
+    br_states = {"AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"}
+    if state.upper() in br_states:
+        is_br = True
+        
     if cep:
+        import re
         cep_norm = cep.replace("-", "").strip()
         parts.append(cep_norm)
+        if re.match(r"^\d{8}$", cep_norm):
+            is_br = True
+
+    country_in = data.get("country", "").upper()
+    if country_in == "BR":
+        is_br = True
+    elif country_in and country_in != "BR":
+        is_br = False
 
     query = ", ".join(parts).strip()
     if not query or len(query) > 200:
@@ -271,13 +286,21 @@ def api_geocode(request):
         return JsonResponse({"ok": False, "erro": "Geocoding não configurado (token ausente)"}, status=503)
 
     url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{urllib.parse.quote(query)}.json?access_token={token}&limit=1"
+    if is_br:
+        url += "&country=BR"
 
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'MoonShield'})
         with urllib.request.urlopen(req, timeout=5) as response:
             res_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        import logging
+        logging.getLogger(__name__).error(f"Geocode timeout/error: {e}")
+        return JsonResponse({"ok": False, "erro": "Serviço indisponível"}, status=502)
     except Exception as e:
-        return JsonResponse({"ok": False, "erro": f"Serviço indisponível ou falha na consulta"}, status=502)
+        import logging
+        logging.getLogger(__name__).error(f"Geocode error: {e}")
+        return JsonResponse({"ok": False, "erro": "Falha interna ao consultar"}, status=502)
 
     features = res_data.get("features", [])
     if not features:

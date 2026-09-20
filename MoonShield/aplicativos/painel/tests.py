@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, TestCase
 from django.contrib.auth import get_user_model
+from configuracoes.models import ConfigSistema
 
 User = get_user_model()
 
@@ -313,7 +314,11 @@ class TestSensoresTimezoneBug(TestCase):
     def setUp(self):
         self.client = Client()
         self.user = get_user_model().objects.create_user(username="testuser", password="password")
-        self.client.login(username="testuser", password="password")
+        self.client.force_login(self.user)
+        # Aprova o First Boot para que o GlobalOnboardingGateMiddleware não barre as requisições API com 403
+        cfg = ConfigSistema.get_solo()
+        cfg.appliance_onboarding_completo = True
+        cfg.save()
 
     @override_settings(USE_TZ=True)
     def test_api_sensores_with_timezone_aware_data_does_not_crash(self):

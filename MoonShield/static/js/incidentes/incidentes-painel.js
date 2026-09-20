@@ -173,7 +173,6 @@ const _state = {
   horas: _saved.horas || 24,
   agrupado: _saved.agrupado !== undefined ? _saved.agrupado : true,
   presetAtivo: _saved.preset || 'casa',
-  modoProd: false,
   _lastHash: '',
   _renderPending: false,
 };
@@ -409,29 +408,19 @@ async function loadIncidentes() {
     _state._lastHash = novoHash;
 
     _state.allEvents = eventos;
-    _state.modoProd = eventos.length === 0;
-
-    _atualizarBannerProd(_state.modoProd);
     updateBadges();
     applyFilters();
-
-    if (dadosMudaram) updateInsights();
+    if (dadosMudaram || !_state.filtered.length) updateInsights();
     _updateKpiFromEvents();
 
   } catch (e) {
     console.warn('loadIncidentes falhou:', e.message);
     _state.allEvents = [];
-    _state.modoProd = false;
-    _atualizarBannerProd(false);
     updateBadges();
     applyFilters();
+    updateInsights();
     toast(`⚠ Erro ao carregar dados: ${e.message}`, 4000);
   }
-}
-
-// ─── Banners ──────────────────────────────────────────────────────────────────
-function _atualizarBannerProd(ativo) {
-  $('prodLiveBanner')?.classList.toggle('jg-prod-banner--visible', ativo);
 }
 
 // ─── loadStats ────────────────────────────────────────────────────────────────
@@ -480,7 +469,13 @@ async function loadStats() {
 
 // ─── KPIs locais ──────────────────────────────────────────────────────────────
 function _updateKpiFromEvents() {
-  if (!_state.allEvents.length) return;
+  if (!_state.allEvents.length) {
+    setEl('kpiTotal', '0');
+    setEl('kpiTopIp', '—');
+    setEl('kpiTopIpSub', '0 eventos');
+    setEl('kpiRate', '0.0');
+    return;
+  }
 
   const topIp = _calcTopIp(_state.allEvents);
   setEl('kpiTopIp', topIp?.ip || '—');
@@ -564,7 +559,7 @@ function _renderTableImediato() {
   const page = _state.filtered.slice(start, start + _state.pageSize);
 
   setEl('tableCount', `${total} evento${total !== 1 ? 's' : ''}`);
-  setEl('pagInfo', `${start + 1}–${Math.min(start + _state.pageSize, total)} de ${total}`);
+  setEl('pagInfo', total ? `${start + 1}–${Math.min(start + _state.pageSize, total)} de ${total}` : '0 de 0');
   setEl('pagTotal', `${maxPg} pág`);
 
   if (!page.length) {
@@ -644,21 +639,35 @@ function _renderTableImediato() {
 }
 
 function _emptyStateHTML() {
-  if (_state.modoProd) {
-    return `<tr><td colspan="9" class="jg-empty jg-empty--prod">
-      <div class="jg-empty__icon-wrap"><i class="bi bi-broadcast-pin jg-empty__icon jg-empty__icon--pulse"></i></div>
-      <p class="jg-empty__title">Aguardando dados reais</p>
-      <p class="jg-empty__sub">O modo <strong>Produção</strong> está ativo mas nenhum evento chegou ainda.<br>Verifique se o sensor MoonShield está online e enviando eventos.</p>
-      <div class="jg-empty__steps">
-        <div class="jg-empty__step"><span class="jg-empty__step-num">1</span><span>Sensor Linux com Suricata instalado e rodando</span></div>
-        <div class="jg-empty__step"><span class="jg-empty__step-num">2</span><span>Execute o sensor MoonShield no servidor de coleta</span></div>
-        <div class="jg-empty__step"><span class="jg-empty__step-num">3</span><span>Confira o status em <a href="/configuracoes/" class="jg-empty__link">Configurações → Integrações → IDS</a></span></div>
-      </div>
+  if (_state.allEvents.length) {
+    return `<tr><td colspan="9" class="jg-empty">
+      <i class="bi bi-funnel jg-empty__icon"></i>
+      <p class="jg-empty__title">Nenhum resultado para os filtros atuais.</p>
+      <p class="jg-empty__sub">Ajuste os filtros ou altere o período selecionado.</p>
     </td></tr>`;
   }
+  const emptyByTab = {
+    incidente: {
+      icon: 'bi-shield-check',
+      title: 'Nenhum incidente no período',
+      text: 'Nenhum incidente foi registrado no período selecionado.<br>Novos incidentes aparecerão aqui automaticamente.',
+    },
+    evento: {
+      icon: 'bi-inbox',
+      title: 'Nenhum evento no período',
+      text: 'Novos dados aparecerão aqui automaticamente.',
+    },
+    telemetria: {
+      icon: 'bi-radar',
+      title: 'Nenhuma telemetria no período',
+      text: 'Novos dados aparecerão aqui automaticamente.',
+    },
+  };
+  const empty = emptyByTab[_state.tabAtiva] || emptyByTab.incidente;
   return `<tr><td colspan="9" class="jg-empty">
-    <i class="bi bi-inbox jg-empty__icon"></i>
-    <p>Nenhum evento nesta categoria.</p>
+    <i class="bi ${empty.icon} jg-empty__icon"></i>
+    <p class="jg-empty__title">${empty.title}</p>
+    <p class="jg-empty__sub">${empty.text}</p>
   </td></tr>`;
 }
 
@@ -754,7 +763,7 @@ function addPagNum(container, p) {
 // ─── Insights ─────────────────────────────────────────────────────────────────
 function updateInsights() {
   if (!_state.filtered.length) {
-    if (_state.modoProd) _renderInsightsProdVazio();
+    _renderInsightsVazio();
     return;
   }
   updateCountries();
@@ -763,8 +772,8 @@ function updateInsights() {
   updatePorts();
 }
 
-function _renderInsightsProdVazio() {
-  const html = `<div class="jg-insight-empty"><i class="bi bi-radar jg-insight-empty__icon"></i><span class="jg-insight-empty__msg">Aguardando dados...</span></div>`;
+function _renderInsightsVazio() {
+  const html = '<div class="jg-insight-empty"><i class="bi bi-inbox jg-insight-empty__icon"></i><span>Sem dados no período</span></div>';
   ['insightCountries', 'insightSevDist', 'insightSigs', 'insightPorts'].forEach(id => {
     const el = $(id); if (el) el.innerHTML = html;
   });

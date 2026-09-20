@@ -40,6 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
         editingRuleId: null,
         editingNatId: null,
         modalResolve: null,
+        hasLoadedOnce: false,
     };
 
     let toastTimer = null;
@@ -120,6 +121,16 @@ document.addEventListener("DOMContentLoaded", () => {
        ===================================================================== */
 
     async function refreshAll() {
+        const firstLoad = !state.hasLoadedOnce;
+        const loadingTargets = [
+            [root.querySelector(".fwr-tabs"), "list"],
+            [root.querySelector(".fwr-panel--active"), "table"],
+        ];
+
+        loadingTargets.forEach(([target, variant]) => {
+            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+            else window.MoonShieldLoading?.setRefreshing(target, true);
+        });
         setRuntime("loading", "Verificando");
 
         let context = null;
@@ -138,6 +149,8 @@ document.addEventListener("DOMContentLoaded", () => {
             absorbSimulationSnapshot(context || {});
             applyModePresentation();
             renderAll();
+            state.hasLoadedOnce = true;
+            loadingTargets.forEach(([target]) => window.MoonShieldLoading?.finish(target));
             return;
         }
 
@@ -194,6 +207,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         applyModePresentation();
         renderAll();
+        state.hasLoadedOnce = true;
+        loadingTargets.forEach(([target]) => window.MoonShieldLoading?.finish(target));
     }
 
     function normalizeMode(data) {

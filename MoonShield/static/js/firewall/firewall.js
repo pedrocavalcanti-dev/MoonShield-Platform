@@ -38,6 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
             traffic: null,
             blocks: null,
         },
+        hasLoadedOnce: false,
     };
 
     let toastTimer = null;
@@ -91,6 +92,16 @@ document.addEventListener("DOMContentLoaded", () => {
        ====================================================================== */
 
     async function refreshAll() {
+        const firstLoad = !state.hasLoadedOnce;
+        const loadingTargets = [
+            [root.querySelector(".fw-kpis"), "card"],
+            [root.querySelector(".fw-grid"), "chart"],
+        ];
+
+        loadingTargets.forEach(([target, variant]) => {
+            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+            else window.MoonShieldLoading?.setRefreshing(target, true);
+        });
         setRefreshing(true);
 
         let data = null;
@@ -142,6 +153,10 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (error) {
             console.error("Firewall data:", error);
 
+            if (firstLoad) {
+                loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: error.message }));
+            }
+
             /*
              * Se já temos um estado real operacional em memória, preserva a
              * tela e apenas informa a falha de atualização via toast.
@@ -154,6 +169,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
             showToast("Não foi possível atualizar os dados do Firewall.", "err");
         } finally {
+            state.hasLoadedOnce = true;
+            loadingTargets.forEach(([target]) => {
+                if (firstLoad) window.MoonShieldLoading?.finish(target);
+                else window.MoonShieldLoading?.setRefreshing(target, false);
+            });
             updateTimestamp();
             setRefreshing(false);
         }

@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeTab: 'block',
     isDemo: false,
     loading: false,
+    hasLoadedOnce: false,
   };
 
   let toastTimer = null;
@@ -501,8 +502,19 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadRules() {
     if (state.loading) return;
 
+    const firstLoad = !state.hasLoadedOnce;
+    const loadingTargets = [
+      [document.querySelector('.rg-stats'), 'card'],
+      [document.querySelector('.rg-table-wrap'), 'table'],
+    ];
+
+    loadingTargets.forEach(([target, variant]) => {
+      if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+      else window.MoonShieldLoading?.setRefreshing(target, true);
+    });
+
     state.loading = true;
-    showState('loading');
+    if (firstLoad) showState('loading');
 
     state.selected.clear();
     updateSelectedUI();
@@ -550,6 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
       applyFilters();
 
     } catch (error) {
+      if (firstLoad) loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: error.message }));
       state.allRules = [];
       state.filtered = [];
 
@@ -560,6 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } finally {
       state.loading = false;
+      state.hasLoadedOnce = true;
+      loadingTargets.forEach(([target]) => {
+        if (firstLoad) window.MoonShieldLoading?.finish(target);
+        else window.MoonShieldLoading?.setRefreshing(target, false);
+      });
 
       if (refreshButton) {
         refreshButton.disabled = false;

@@ -124,6 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     top_consultados: [], top_bloqueados: [],
     filter_count: 0, warning: null,
     generatedAt: null,
+    hasLoadedOnce: false,
   };
 
   let clientState = {
@@ -137,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
     entries: [],
     lastTime: null,
     feedCount: 0,
+    hasLoadedOnce: false,
     paused: false,
     drawerIp: null,
     seenKeys: new Set(),
@@ -266,6 +268,18 @@ document.addEventListener('DOMContentLoaded', () => {
      API: DADOS PRINCIPAIS
   ═══════════════════════════════════════════════════════ */
   async function loadNocData() {
+    const firstLoad = !state.hasLoadedOnce;
+    const loadingTargets = [
+      [document.querySelector('.noc-kpis'), 'card'],
+      [document.querySelector('.noc-left'), 'chart'],
+      [document.querySelector('.noc-right'), 'list'],
+    ];
+
+    loadingTargets.forEach(([target, variant]) => {
+      if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+      else window.MoonShieldLoading?.setRefreshing(target, true);
+    });
+
     try {
       const res = await fetch(`/dns/api/data/?period=${state.period}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -296,7 +310,14 @@ document.addEventListener('DOMContentLoaded', () => {
       updateLiveTime();
     } catch (e) {
       console.error('[NOC] loadNocData:', e);
+      loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: e.message }));
       showWarningBanner(`Falha de conexão: ${e.message}`);
+    } finally {
+      state.hasLoadedOnce = true;
+      loadingTargets.forEach(([target]) => {
+        if (firstLoad) window.MoonShieldLoading?.finish(target);
+        else window.MoonShieldLoading?.setRefreshing(target, false);
+      });
     }
   }
 
@@ -315,6 +336,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function pollQuerylog() {
+    const firstLoad = !feedState.hasLoadedOnce;
+    const target = $('feedList');
+    if (firstLoad) window.MoonShieldLoading?.start(target, { variant: 'list' });
+    else window.MoonShieldLoading?.setRefreshing(target, true);
+
     try {
       const url = feedState.lastTime
         ? `/dns/api/querylog/?since=${encodeURIComponent(feedState.lastTime)}&limit=80`
@@ -367,6 +393,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (feedState.drawerIp) _renderDrawerFeed(feedState.drawerIp);
     } catch (e) {
       console.debug('[NOC] pollQuerylog:', e);
+      if (firstLoad) window.MoonShieldLoading?.error(target, { message: e.message });
+    } finally {
+      feedState.hasLoadedOnce = true;
+      if (firstLoad) window.MoonShieldLoading?.finish(target);
+      else window.MoonShieldLoading?.setRefreshing(target, false);
     }
   }
 

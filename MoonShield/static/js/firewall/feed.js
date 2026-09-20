@@ -46,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
         rateWindow: [],
         status: {},
         mode: null,
+        hasLoadedOnce: false,
     };
 
     let toastTimer = null;
@@ -115,6 +116,12 @@ document.addEventListener("DOMContentLoaded", () => {
        ====================================================================== */
 
     async function initialLoad() {
+        const loadingTargets = [
+            [root.querySelector(".fwf-status-strip"), "list"],
+            [root.querySelector(".fwf-kpis"), "card"],
+            [root.querySelector(".fwf-table-card"), "table"],
+        ];
+        loadingTargets.forEach(([target, variant]) => window.MoonShieldLoading?.start(target, { variant }));
         setLiveState("loading", "CONECTANDO");
 
         const results = await Promise.allSettled([
@@ -125,14 +132,19 @@ document.addEventListener("DOMContentLoaded", () => {
         if (results[0].status === "rejected") {
             console.warn("Firewall status:", results[0].reason);
             renderStatusError(results[0].reason);
+            window.MoonShieldLoading?.error(loadingTargets[0][0], { message: results[0].reason?.message });
         }
 
         if (results[1].status === "rejected") {
             console.warn("Firewall feed:", results[1].reason);
             setPollState("error", "Falha na atualização automática");
             setLiveState("error", "ERRO");
+            window.MoonShieldLoading?.error(loadingTargets[1][0], { message: results[1].reason?.message });
+            window.MoonShieldLoading?.error(loadingTargets[2][0], { message: results[1].reason?.message });
         }
 
+        state.hasLoadedOnce = true;
+        loadingTargets.forEach(([target]) => window.MoonShieldLoading?.finish(target));
         schedulePoll();
     }
 
@@ -145,6 +157,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function poll({ initial = false } = {}) {
         if (state.pollRunning) return;
+
+        const target = root.querySelector(".fwf-table-card");
+        if (!initial && state.hasLoadedOnce) window.MoonShieldLoading?.setRefreshing(target, true);
 
         state.pollRunning = true;
 
@@ -186,6 +201,7 @@ document.addEventListener("DOMContentLoaded", () => {
             throw error;
         } finally {
             state.pollRunning = false;
+            if (!initial && state.hasLoadedOnce) window.MoonShieldLoading?.setRefreshing(target, false);
         }
     }
 

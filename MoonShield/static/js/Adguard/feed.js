@@ -41,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
         selected: null,
         rpmBucket: [],
         lastPollOk: false,
+        hasLoadedOnce: false,
     };
 
     const miniBuckets = Array(MINI_BUCKETS).fill(0);
@@ -432,6 +433,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function poll() {
         if (state.polling) return;
+        const firstLoad = !state.hasLoadedOnce;
+        const loadingTargets = [
+            [document.querySelector('.feed-kpis'), 'card'],
+            [document.querySelector('.feed-table-wrap'), 'table'],
+        ];
+
+        loadingTargets.forEach(([target, variant]) => {
+            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+            else window.MoonShieldLoading?.setRefreshing(target, true);
+        });
         state.polling = true;
 
         try {
@@ -483,9 +494,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (err) {
             state.lastPollOk = false;
+            if (firstLoad) loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: err.message }));
             showWarning(`Falha ao consultar o feed DNS: ${err.message}`);
         } finally {
             state.polling = false;
+            state.hasLoadedOnce = true;
+            loadingTargets.forEach(([target]) => {
+                if (firstLoad) window.MoonShieldLoading?.finish(target);
+                else window.MoonShieldLoading?.setRefreshing(target, false);
+            });
         }
     }
 

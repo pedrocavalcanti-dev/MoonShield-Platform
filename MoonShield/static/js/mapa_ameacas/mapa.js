@@ -105,7 +105,8 @@
         settingsInitialized: false,
         currentPopover: null,
         popoverTrigger: null,
-        resizeTimer: null
+        resizeTimer: null,
+        hasLoadedOnce: false
     };
 
     const $ = (id) => document.getElementById(id);
@@ -480,6 +481,18 @@
         const opts = options || {};
         if (!opts.force && !state.live) return;
 
+        const firstLoad = !state.hasLoadedOnce;
+        const loadingTargets = [
+            [els.app?.querySelector('.tm-v2__summary'), 'card'],
+            [els.panelFilters, 'list'],
+            [els.eventsPanel, 'table']
+        ];
+
+        loadingTargets.forEach(([target, variant]) => {
+            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+            else window.MoonShieldLoading?.setRefreshing(target, true);
+        });
+
         const seq = ++state.refreshSeq;
         const tasks = [
             fetchOverview(seq),
@@ -495,6 +508,7 @@
 
         if (successCount === 0) {
             setBanner(els.bannerError, true);
+            loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: 'Falha ao atualizar dados do mapa.' }));
         }
 
         results.forEach((item) => {
@@ -503,6 +517,11 @@
             }
         });
 
+        state.hasLoadedOnce = true;
+        loadingTargets.forEach(([target]) => {
+            if (firstLoad) window.MoonShieldLoading?.finish(target);
+            else window.MoonShieldLoading?.setRefreshing(target, false);
+        });
         schedulePolling();
     }
 
@@ -1205,6 +1224,7 @@
             submitBtn.disabled = true;
             submitBtn.textContent = 'Buscando...';
         }
+        window.MoonShieldLoading?.setRefreshing(els.detailsPanel || els.eventsPanel, true);
 
         try {
             const data = await fetchJson(urlWithParams(ENDPOINTS.search, params), {
@@ -1242,6 +1262,7 @@
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Buscar';
             }
+            window.MoonShieldLoading?.setRefreshing(els.detailsPanel || els.eventsPanel, false);
             state.searchController = null;
         }
     }
@@ -1983,12 +2004,14 @@
         }
     }
 
+        els.map.setAttribute('aria-busy', 'true');
         renderer.init({
             containerId: 'map',
             token,
             theme: document.documentElement.getAttribute('data-theme') || 'light',
             onEventClick: handleRendererEventClick,
             onReady: () => {
+                els.map.setAttribute('aria-busy', 'false');
                 if (els.mapFailure) els.mapFailure.hidden = true;
                 applyRendererSettings();
                 if (state.node) renderer.setNode(state.node);
@@ -1996,6 +2019,7 @@
                 rendererResize();
             },
             onError: (error) => {
+                els.map.setAttribute('aria-busy', 'false');
                 console.warn('[ThreatMap] Mapbox indisponível.', error);
                 if (els.mapFailure) els.mapFailure.hidden = false;
             }

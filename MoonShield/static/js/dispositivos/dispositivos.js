@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let renameTargetIp = null;
     let scanInFlight = false;
     let scanController = null;
+    let hasLoadedOnce = false;
 
     const SCAN_TTL_MS = 120_000;
     const SCAN_TTL_SEC = 120;
@@ -452,6 +453,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const btn = $('devScanBtn');
         const refreshBtn = $('devRefreshBtn');
+        const firstLoad = !hasLoadedOnce;
+        const loadingTargets = [
+            [document.querySelector('.dev-kpis'), 'card'],
+            [document.querySelector('.dev-main'), 'table'],
+        ];
+
+        loadingTargets.forEach(([target, variant]) => {
+            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
+            else window.MoonShieldLoading?.setRefreshing(target, true);
+        });
 
         scanInFlight = true;
         btn?.classList.add('dev-scanning');
@@ -618,6 +629,12 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('MoonShield network scan:', err);
 
+            if (firstLoad) {
+                loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: err.message }));
+                $('devTableBody').innerHTML = '<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text-dim)">Não foi possível carregar os dispositivos.</td></tr>';
+                $('devTableCount').textContent = '—';
+            }
+
             if (err?.name === 'AbortError') {
                 showToast(
                     '❌ O scan excedeu 45s e foi cancelado. Verifique a API/rede.'
@@ -629,6 +646,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
         } finally {
+            hasLoadedOnce = true;
+            loadingTargets.forEach(([target]) => {
+                if (firstLoad) window.MoonShieldLoading?.finish(target);
+                else window.MoonShieldLoading?.setRefreshing(target, false);
+            });
             clearTimeout(timeout);
             scanController = null;
             scanInFlight = false;
@@ -833,7 +855,5 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ══════════════════════════════════════════════════════
        INIT
     ══════════════════════════════════════════════════════ */
-    renderKPIs();
-    renderTable();
-    setTimeout(() => doScan(false), 1000);
+    setTimeout(() => doScan(false), 0);
 });

@@ -22,6 +22,7 @@ Cobre os 16 casos definidos no escopo:
 from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory, TestCase
+from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from configuracoes.models import ConfigSistema
 
@@ -66,6 +67,13 @@ def _dns_real() -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class DashboardOverviewTest(TestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
     """Testa _overview_real() com mocks dos módulos externos."""
 
     def _run(self, period="24h", sev="all", servicos=None, dns=None, incidentes=None, dispositivos=0):
@@ -76,7 +84,7 @@ class DashboardOverviewTest(TestCase):
         dns_data      = _dns_real() if dns is None else dns
 
         with patch("painel.views._get_cfg",   return_value=None), \
-             patch("configuracoes.views._servicos",       return_value=servicos_data), \
+             patch("configuracoes.views._health_snapshot",       return_value=servicos_data), \
              patch("configuracoes.views._topologia",      return_value={}), \
              patch("dns.views._get_adguard_client") as mock_ag, \
              patch("painel.views._incidentes_no_periodo") as mock_qs, \
@@ -106,6 +114,13 @@ class DashboardOverviewTest(TestCase):
     # ── Teste 1: retorna dados reais (mode="real")
     def test_01_retorna_modo_real(self):
         result = self._run()
+        self.assertIsInstance(result, dict)
+
+        # Garante que nenhum MagicMock ou objeto nǜo-serializǭvel corrompa a response
+        from django.http import JsonResponse
+        response = JsonResponse(result)
+        self.assertEqual(response.status_code, 200)
+
         self.assertEqual(result["mode"], "real")
         self.assertTrue(result["ok"])
 
@@ -311,7 +326,13 @@ from datetime import timedelta
 from incidentes.models import EventoBruto, Incidente
 
 class TestSensoresTimezoneBug(TestCase):
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
     def setUp(self):
+        super().setUp()
+        cache.clear()
         self.client = Client()
         self.user = get_user_model().objects.create_user(username="testuser", password="password")
         self.client.force_login(self.user)

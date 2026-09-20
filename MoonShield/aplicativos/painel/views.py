@@ -161,11 +161,11 @@ def _timeline_60min(qs_base) -> dict:
     agora = timezone.now()
     # Align to nearest 5 minutes down
     agora_aligned = agora.replace(second=0, microsecond=0, minute=(agora.minute // 5) * 5)
-    
+
     n_buckets = 12
     step = timedelta(minutes=5)
     inicio = agora_aligned - step * (n_buckets - 1)
-    
+
     # Filter using unaligned start just to be safe, but buckets are aligned
     qs60 = qs_base.filter(last_seen__gte=inicio)
 
@@ -193,14 +193,14 @@ def _timeline_60min(qs_base) -> dict:
             ts = row["bucket_ts"]
             if ts is None:
                 continue
-            
+
             # Make sure ts is aware for comparison
             if timezone.is_naive(ts):
                 ts = timezone.make_aware(ts)
 
             # Round to 5 min
             rounded = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
-            
+
             for i, bs in enumerate(bucket_starts):
                 if abs((rounded - bs).total_seconds()) < 60:
                     target[i] += row["n"]
@@ -424,8 +424,12 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
         sev:    "all" | "critico" | "alto" | "medio"
     """
     cache_key = f"moonshield_overview_{period}_{sev}"
-    data = cache.get(cache_key)
-    if data:
+    try:
+        data = cache.get(cache_key)
+    except Exception:
+        data = None
+
+    if isinstance(data, dict):
         return data
 
     from configuracoes.views import _health_snapshot, _topologia
@@ -609,6 +613,13 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
 
         "last_update": agora.isoformat(),
     }
+
+    try:
+        cache.set(cache_key, result, 10)
+    except Exception:
+        pass
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────

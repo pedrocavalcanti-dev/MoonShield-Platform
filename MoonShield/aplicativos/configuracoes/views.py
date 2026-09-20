@@ -292,8 +292,12 @@ def _estado_firewall() -> dict:
 
 def _health_snapshot(cfg: ConfigSistema, topologia: dict) -> dict:
     cache_key = "moonshield:health:quick:v1"
-    data = cache.get(cache_key)
-    if data:
+    try:
+        data = cache.get(cache_key)
+    except Exception:
+        data = None
+
+    if isinstance(data, dict):
         return data
 
     # AdGuard Fast
@@ -306,13 +310,13 @@ def _health_snapshot(cfg: ConfigSistema, topologia: dict) -> dict:
         client = _get_adguard_client(cfg)
         if client:
             status = client.get_status()
-            running = status.get("running", False)
-            protecao = status.get("protection_enabled", False)
+            running = bool(status.get("running", False)) if hasattr(status, "get") else False
+            protecao = bool(status.get("protection_enabled", False)) if hasattr(status, "get") else False
             adguard["api"] = True
             adguard["protecao"] = protecao
             adguard["saudavel"] = running
             adguard["operacional"] = running
-            adguard["status"] = "operacional" if running else "atencao"
+            adguard["status"] = str("operacional" if running else "atencao")
     except Exception:
         pass
 
@@ -324,11 +328,11 @@ def _health_snapshot(cfg: ConfigSistema, topologia: dict) -> dict:
     try:
         from incidentes.services.suricata.servicos import obter_status_stack
         status = obter_status_stack()
-        ativo = bool(status.get("stack_ativa", False))
+        ativo = bool(status.get("stack_ativa", False)) if hasattr(status, "get") else False
         suricata["saudavel"] = ativo
         suricata["operacional"] = ativo
-        suricata["status"] = "operacional" if ativo else "atencao"
-    except Exception as e:
+        suricata["status"] = str("operacional" if ativo else "atencao")
+    except Exception:
         pass
 
     # Firewall Fast
@@ -339,10 +343,10 @@ def _health_snapshot(cfg: ConfigSistema, topologia: dict) -> dict:
     try:
         from firewall.services.firewall_status import obter_status_resumido
         status = obter_status_resumido()
-        op = bool(status.get("operacional"))
+        op = bool(status.get("operacional", False)) if hasattr(status, "get") else False
         firewall["saudavel"] = op
         firewall["operacional"] = op
-        firewall["status"] = "operacional" if op else "atencao"
+        firewall["status"] = str("operacional" if op else "atencao")
     except Exception:
         pass
 
@@ -352,16 +356,20 @@ def _health_snapshot(cfg: ConfigSistema, topologia: dict) -> dict:
         "suricata": suricata,
         "firewall": firewall,
         "resumo": {
-            "dns_operacional": adguard["saudavel"],
-            "ids_operacional": suricata["saudavel"],
-            "firewall_operacional": firewall["saudavel"],
-            "servicos_operacionais": sum(s["saudavel"] for s in estados),
-            "status": "operacional" if all(s["saudavel"] for s in estados) else "atencao",
+            "dns_operacional": bool(adguard["saudavel"]),
+            "ids_operacional": bool(suricata["saudavel"]),
+            "firewall_operacional": bool(firewall["saudavel"]),
+            "servicos_operacionais": int(sum(bool(s["saudavel"]) for s in estados)),
+            "status": str("operacional" if all(s["saudavel"] for s in estados) else "atencao"),
         }
     }
-    cache.set(cache_key, data, 10)
-    return data
 
+    try:
+        cache.set(cache_key, data, 10)
+    except Exception:
+        pass
+
+    return data
 
 def _servicos(cfg: ConfigSistema, topologia: dict) -> dict:
     cache_key = "moonshield_servicos_status"

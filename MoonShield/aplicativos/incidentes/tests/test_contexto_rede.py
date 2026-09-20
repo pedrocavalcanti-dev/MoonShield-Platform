@@ -94,6 +94,7 @@ class ContextoRedeTests(SimpleTestCase):
             fingerprint="teste",
             first_seen=agora,
             last_seen=agora,
+            criado_em=agora,
             src_ip="192.168.52.2",
             dest_ip="192.168.52.1",
             direction="external",

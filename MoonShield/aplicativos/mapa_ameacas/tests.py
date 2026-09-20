@@ -364,3 +364,155 @@ class ThreatMapBackendTests(TestCase):
         self.assertEqual(len(feed["events"]), 2)
         self.assertEqual(facets["facets"]["categories"], {"recon": 1, "web_attack": 1})
         self.assertEqual(len(csv_feed["events"]), 2)
+
+import urllib.error
+from django.test import Client, override_settings
+from django.urls import reverse
+from django.contrib.auth.models import User
+from unittest.mock import MagicMock
+
+class TestMapaLocationEndpoints(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username="testuser", password="password")
+        self.client.login(username="testuser", password="password")
+
+    def test_set_location_requires_authentication(self):
+        self.client.logout()
+        response = self.client.post("/mapa/api/location/", "{}", content_type="application/json")
+        self.assertEqual(response.status_code, 302)  # Redirects to login
+
+    def test_set_location_saves_lat_lon_and_optional_address_fields(self):
+        payload = {
+            "latitude": -22.123,
+            "longitude": -47.123,
+            "source": "address",
+            "city": "Campinas",
+            "region": "São Paulo",
+            "country_code": "BR"
+        }
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+
+        cfg = ConfigSistema.get_solo()
+        self.assertEqual(cfg.node_latitude, -22.123)
+        self.assertEqual(cfg.node_longitude, -47.123)
+        self.assertEqual(cfg.node_location_source, "address")
+        self.assertEqual(cfg.node_city, "Campinas")
+        self.assertEqual(cfg.node_region, "São Paulo")
+        self.assertEqual(cfg.node_country_code, "BR")
+
+    def test_set_location_preserves_manual_compatibility(self):
+        payload = {
+            "latitude": 10.0,
+            "longitude": 20.0,
+            "source": "manual"
+        }
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        cfg = ConfigSistema.get_solo()
+        self.assertEqual(cfg.node_location_source, "manual")
+        self.assertEqual(cfg.node_latitude, 10.0)
+
+    def test_set_location_invalid_source_returns_400(self):
+        payload = {"latitude": 10.0, "longitude": 20.0, "source": "invalid_source"}
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(MAPBOX_ACCESS_TOKEN="fake_token")
+    @patch("urllib.request.urlopen")
+    def test_geocode_success(self, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "features": [{
+                "place_name": "Rua X, Campinas, SP",
+                "center": [-47.123, -22.123],
+                "context": [
+                    {"id": "place.123", "text": "Campinas"},
+                    {"id": "region.456", "text": "São Paulo"},
+                    {"id": "country.789", "short_code": "br"}
+                ]
+            }]
+        }).encode("utf-8")
+        # For context manager
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        payload = {"cep": "13000-000", "address": "Rua X", "city": "Campinas", "state": "SP"}
+        response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
+
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["result"]["latitude"], -22.123)
+        self.assertEqual(data["result"]["longitude"], -47.123)
+        self.assertEqual(data["result"]["city"], "Campinas")
+        self.assertEqual(data["result"]["region"], "São Paulo")
+        self.assertEqual(data["result"]["country_code"], "BR")
+
+        # Verify URL was constructed correctly
+        call_args = mock_urlopen.call_args[0][0]
+        # Since urllib.request.Request is passed, we check req.full_url
+        self.assertTrue("api.mapbox.com/geocoding/v5/mapbox.places" in call_args.full_url)
+        self.assertTrue("access_token=fake_token" in call_args.full_url)
+
+    @override_settings(MAPBOX_ACCESS_TOKEN="")
+    def test_geocode_fails_when_token_is_missing(self):
+        payload = {"address": "Rua X"}
+        response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 503)
+
+    def test_geocode_fails_with_empty_input(self):
+        payload = {"address": "", "city": ""}
+        response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(MAPBOX_ACCESS_TOKEN="fake")
+    @patch("urllib.request.urlopen")
+    def test_geocode_returns_404_when_no_features(self, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"features": []}).encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        payload = {"address": "Lugar Nenhum"}
+        response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(MAPBOX_ACCESS_TOKEN="fake")
+    @patch("urllib.request.urlopen")
+    def test_geocode_returns_502_on_provider_timeout(self, mock_urlopen):
+        mock_urlopen.side_effect = urllib.error.URLError("Timeout")
+        payload = {"address": "Teste"}
+        response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 502)
+
+
+    def test_geocode_unauthenticated_returns_302(self):
+        self.client.logout()
+        response = self.client.post("/mapa/api/location/geocode/", "{}", content_type="application/json")
+        self.assertEqual(response.status_code, 302)
+
+    @override_settings(MAPBOX_ACCESS_TOKEN="fake")
+    @patch("urllib.request.urlopen")
+    def test_geocode_input_limit_exceeded_returns_400_and_does_not_call_mapbox(self, mock_urlopen):
+        payload = {"address": "A" * 201}
+        response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+        mock_urlopen.assert_not_called()
+
+    def test_set_location_with_invalid_coordinates_returns_400(self):
+        invalid_coords = [
+            (91, 0),
+            (-91, 0),
+            (0, 181),
+            (0, -181)
+        ]
+        cfg_before = ConfigSistema.get_solo()
+
+        for lat, lon in invalid_coords:
+            payload = {"latitude": lat, "longitude": lon, "source": "manual"}
+            response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+            self.assertEqual(response.status_code, 400)
+
+        cfg_after = ConfigSistema.get_solo()
+        self.assertEqual(cfg_before.node_latitude, cfg_after.node_latitude)
+        self.assertEqual(cfg_before.node_longitude, cfg_after.node_longitude)

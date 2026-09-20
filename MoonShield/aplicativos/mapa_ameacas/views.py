@@ -213,12 +213,97 @@ def api_set_location(request):
     lon = data.get("longitude")
     source = data.get("source", "unknown")
 
-    if source not in ["manual", "browser", "config", "geoip", "unknown"]:
+    if lat is not None and lon is not None:
+        try:
+            if not (-90 <= float(lat) <= 90) or not (-180 <= float(lon) <= 180):
+                return JsonResponse({"ok": False, "erro": "Coordenadas invalidas"}, status=400)
+        except (TypeError, ValueError):
+            return JsonResponse({"ok": False, "erro": "Coordenadas invalidas"}, status=400)
+
+    if source not in ["manual", "browser", "config", "geoip", "address", "unknown"]:
         return JsonResponse({"ok": False, "erro": "Source invalido"}, status=400)
 
     cfg = ConfigSistema.get_solo()
     cfg.node_latitude = lat
     cfg.node_longitude = lon
     cfg.node_location_source = source
+    if "city" in data: cfg.node_city = data.get("city", "")[:100]
+    if "region" in data: cfg.node_region = data.get("region", "")[:100]
+    if "country_code" in data: cfg.node_country_code = data.get("country_code", "")[:10]
     cfg.save()
     return JsonResponse({"ok": True})
+
+
+import urllib.request
+import urllib.parse
+from django.conf import settings
+
+@require_POST
+@login_required(login_url="autenticacao:login")
+def api_geocode(request):
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"ok": False, "erro": "JSON invalido"}, status=400)
+
+    cep = data.get("cep", "")
+    address = data.get("address", "")
+    city = data.get("city", "")
+    state = data.get("state", "")
+
+    parts = []
+    if address:
+        parts.append(address)
+    if city:
+        parts.append(city)
+    if state:
+        parts.append(state)
+    if cep:
+        cep_norm = cep.replace("-", "").strip()
+        parts.append(cep_norm)
+
+    query = ", ".join(parts).strip()
+    if not query or len(query) > 200:
+        return JsonResponse({"ok": False, "erro": "Endereço vazio ou muito longo"}, status=400)
+
+    token = getattr(settings, "MAPBOX_ACCESS_TOKEN", "")
+    if not token:
+        return JsonResponse({"ok": False, "erro": "Geocoding não configurado (token ausente)"}, status=503)
+
+    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{urllib.parse.quote(query)}.json?access_token={token}&limit=1"
+
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'MoonShield'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        return JsonResponse({"ok": False, "erro": f"Serviço indisponível ou falha na consulta"}, status=502)
+
+    features = res_data.get("features", [])
+    if not features:
+        return JsonResponse({"ok": False, "erro": "Endereço não encontrado"}, status=404)
+
+    f = features[0]
+    center = f.get("center", [0, 0])
+
+    city_res = ""
+    region_res = ""
+    country_res = ""
+    for ctx in f.get("context", []):
+        cid = ctx.get("id", "")
+        if cid.startswith("place."): city_res = ctx.get("text", "")
+        elif cid.startswith("region."): region_res = ctx.get("text", "")
+        elif cid.startswith("country."): country_res = ctx.get("short_code", "").upper()
+
+    return JsonResponse({
+        "ok": True,
+        "query": query,
+        "result": {
+            "display_name": f.get("place_name", query),
+            "longitude": center[0],
+            "latitude": center[1],
+            "city": city_res,
+            "region": region_res,
+            "country_code": country_res
+        }
+    })

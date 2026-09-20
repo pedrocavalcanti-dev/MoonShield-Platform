@@ -193,6 +193,13 @@
         locLon: $('loc-lon'),
         locError: $('loc-error'),
 
+        locCep: $('loc-cep'),
+        locEndereco: $('loc-endereco'),
+        locCidade: $('loc-cidade'),
+        locEstado: $('loc-estado'),
+        btnSearchAddress: $('btn-search-address'),
+        locationConfirmDisplay: $('location-confirm-display'),
+
         toast: $('tm-toast')
     };
 
@@ -910,6 +917,9 @@
     }
 
     function closeContext() {
+        const renderer = getRenderer();
+        if (renderer) renderer.contextFocused = false;
+
         state.selectedEvent = null;
         state.searchResult = null;
         state.rightMode = 'events';
@@ -928,6 +938,9 @@
     }
 
     function renderContext(raw, options) {
+        const renderer = getRenderer();
+        if (renderer) renderer.contextFocused = true;
+
         if (!els.detailsPanel) return;
         const data = mergedContext(raw);
         const opts = options || {};
@@ -1413,6 +1426,64 @@
         els.locError.hidden = true;
     }
 
+    async function searchAddress() {
+        hideLocationError();
+        const cep = (els.locCep ? els.locCep.value : '').trim();
+        const address = (els.locEndereco ? els.locEndereco.value : '').trim();
+        const city = (els.locCidade ? els.locCidade.value : '').trim();
+        const stateStr = (els.locEstado ? els.locEstado.value : '').trim();
+
+        if (!cep && !address && !city && !stateStr) {
+            showLocationError('Preencha ao menos um campo para buscar.');
+            return;
+        }
+
+        if (els.btnSearchAddress) els.btnSearchAddress.disabled = true;
+
+        try {
+            const geocodeUrl = ENDPOINTS.location + 'geocode/';
+            const response = await fetch(geocodeUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCookie('csrftoken') || ''
+                },
+                body: JSON.stringify({ cep, address, city, state: stateStr })
+            });
+            const data = await response.json();
+
+            if (response.ok && data.ok && data.result) {
+                state.pendingBrowserLocation = {
+                    latitude: data.result.latitude,
+                    longitude: data.result.longitude,
+                    source: 'address',
+                    extra: {
+                        city: data.result.city || '',
+                        region: data.result.region || '',
+                        country_code: data.result.country_code || ''
+                    }
+                };
+                if (els.locationConfirmDisplay) els.locationConfirmDisplay.textContent = data.result.display_name;
+                if (els.browserConfirmLat) els.browserConfirmLat.textContent = data.result.latitude.toFixed(6);
+                if (els.browserConfirmLon) els.browserConfirmLon.textContent = data.result.longitude.toFixed(6);
+                if (els.browserConfirmBox) els.browserConfirmBox.hidden = false;
+            } else {
+                showLocationError(data.erro || 'Endereço não encontrado.');
+                if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
+                state.pendingBrowserLocation = null;
+            }
+        } catch (error) {
+            showLocationError('Não foi possível consultar o endereço agora.');
+            if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
+            state.pendingBrowserLocation = null;
+        } finally {
+            if (els.btnSearchAddress) els.btnSearchAddress.disabled = false;
+        }
+    }
+
     function requestBrowserLocation() {
         hideLocationError();
 
@@ -1427,8 +1498,11 @@
                 if (els.btnUseBrowser) els.btnUseBrowser.disabled = false;
                 state.pendingBrowserLocation = {
                     latitude: position.coords.latitude,
-                    longitude: position.coords.longitude
+                    longitude: position.coords.longitude,
+                    source: 'browser',
+                    extra: {}
                 };
+                if (els.locationConfirmDisplay) els.locationConfirmDisplay.textContent = "Localização do navegador";
                 if (els.browserConfirmLat) els.browserConfirmLat.textContent = position.coords.latitude.toFixed(6);
                 if (els.browserConfirmLon) els.browserConfirmLon.textContent = position.coords.longitude.toFixed(6);
                 if (els.browserConfirmBox) els.browserConfirmBox.hidden = false;
@@ -1441,7 +1515,7 @@
         );
     }
 
-    async function submitLocation(latitude, longitude, source) {
+    async function submitLocation(latitude, longitude, source, extra = {}) {
         const lat = Number(latitude);
         const lon = Number(longitude);
 
@@ -1458,6 +1532,13 @@
         if (els.btnSaveLocation) els.btnSaveLocation.disabled = true;
 
         try {
+            const payload = {
+                latitude: lat,
+                longitude: lon,
+                source: source || 'manual'
+            };
+            if (extra) Object.assign(payload, extra);
+
             const response = await fetch(ENDPOINTS.location, {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -1467,11 +1548,7 @@
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRFToken': getCookie('csrftoken') || ''
                 },
-                body: JSON.stringify({
-                    latitude: lat,
-                    longitude: lon,
-                    source: source || 'manual'
-                })
+                body: JSON.stringify(payload)
             });
 
             const data = await response.json().catch(() => ({}));
@@ -1659,9 +1736,13 @@
                 submitLocation(
                     state.pendingBrowserLocation.latitude,
                     state.pendingBrowserLocation.longitude,
-                    'browser'
+                    state.pendingBrowserLocation.source || 'browser',
+                    state.pendingBrowserLocation.extra
                 ).catch(console.error);
             });
+        }
+        if (els.btnSearchAddress) {
+            els.btnSearchAddress.addEventListener('click', searchAddress);
         }
 
         if (els.btnSaveLocation) {

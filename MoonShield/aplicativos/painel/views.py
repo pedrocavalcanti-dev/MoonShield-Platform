@@ -120,19 +120,21 @@ def _series_ataques(qs, periodo_cfg: dict, agora: datetime) -> dict:
             ts = row["bucket_ts"]
             if ts is None:
                 continue
-            # Normaliza para naive se necessário
-            if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
-                ts_naive = ts.replace(tzinfo=None)
-            else:
-                ts_naive = ts
+            # Normaliza tz
+            from django.utils import timezone
+            if timezone.is_aware(agora_tz) and timezone.is_naive(ts):
+                ts = timezone.make_aware(ts)
+            elif timezone.is_naive(agora_tz) and timezone.is_aware(ts):
+                ts = timezone.make_naive(ts)
+
             # Arredonda para o bucket
             if bucket == "minuto":
-                rounded_min = (ts_naive.minute // bucket_min) * bucket_min
-                key = ts_naive.replace(minute=rounded_min, second=0, microsecond=0)
+                rounded_min = (ts.minute // bucket_min) * bucket_min
+                key = ts.replace(minute=rounded_min, second=0, microsecond=0)
             elif bucket == "hora":
-                key = ts_naive.replace(minute=0, second=0, microsecond=0)
+                key = ts.replace(minute=0, second=0, microsecond=0)
             else:
-                key = ts_naive.replace(hour=0, minute=0, second=0, microsecond=0)
+                key = ts.replace(hour=0, minute=0, second=0, microsecond=0)
             # Procura posição aproximada (dentro de ±1 bucket)
             for candidate, idx in bucket_idx.items():
                 diff = abs((key - candidate).total_seconds())

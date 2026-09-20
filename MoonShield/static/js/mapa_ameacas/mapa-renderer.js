@@ -320,8 +320,12 @@
                 // Interação do usuário — todos os eventos relevantes incluindo wheel
                 let inactivityTimer = null;
                 const resumeAutoRotate = () => {
+                    if (MoonShieldThreatMapRenderer.contextFocused) {
+                        // User is viewing event details, don't auto return
+                        return;
+                    }
                     userInteracting = false;
-                    if (isGlobe && rotSpeed > 0 && nodeCoords && nodeCoords.latitude != null) {
+                    if (nodeCoords && nodeCoords.latitude != null) {
                         map.easeTo({ center: [nodeCoords.longitude, nodeCoords.latitude], duration: 1500 });
                     }
                 };

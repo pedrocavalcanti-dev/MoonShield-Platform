@@ -287,38 +287,62 @@
   <div class="tm-v2__modal" role="dialog" aria-modal="true" aria-labelledby="location-modal-title">
     <div class="tm-v2__popover-head">
       <strong id="location-modal-title">Localização do appliance</strong>
-      <button id="btn-close-location" type="button" aria-label="Fechar">×</button>
+      <button id="btn-close-location" type="button" aria-label="Fechar">✕</button>
     </div>
 
     <p class="tm-v2__modal-note">A localização configura o node do MoonShield. Ela nunca é usada como posição de uma ameaça.</p>
 
-    <button class="tm-v2__outline-btn" id="btn-use-browser" type="button">Usar localização deste dispositivo</button>
-    <p class="tm-v2__help" id="browser-unavailable-msg" hidden>Localização automática requer contexto HTTPS. Informe as coordenadas manualmente.</p>
+    <button class="tm-v2__outline-btn" id="btn-use-browser" type="button" style="width:100%; justify-content:center;">Usar minha localização</button>
+    <p class="tm-v2__help" id="browser-unavailable-msg" hidden>Localização automática requer HTTPS. Informe os dados abaixo.</p>
+
+    <div id="address-fields-container" style="margin-top: 1rem;">
+      <div style="text-align: center; margin-bottom: 1rem; color: var(--tm-text-muted);">OU</div>
+      <label class="tm-v2__field">CEP
+        <input id="loc-cep" type="text" placeholder="Ex: 13000-000">
+      </label>
+      <label class="tm-v2__field">Endereço
+        <input id="loc-endereco" type="text" placeholder="Rua, Avenida, número">
+      </label>
+      <div style="display: flex; gap: 1rem;">
+        <label class="tm-v2__field" style="flex: 2;">Cidade
+          <input id="loc-cidade" type="text" placeholder="Sua cidade">
+        </label>
+        <label class="tm-v2__field" style="flex: 1;">Estado
+          <input id="loc-estado" type="text" placeholder="SP">
+        </label>
+      </div>
+      <div class="tm-v2__modal-actions" style="margin-top: 1rem;">
+        <button class="tm-v2__small-btn" id="btn-search-address" type="button" style="width: 100%; justify-content: center;">Buscar endereço</button>
+      </div>
+    </div>
 
     <div class="tm-v2__browser-confirm" id="browser-confirm-box" hidden>
+      <p id="location-confirm-display" style="margin:0 0 0.5rem 0; font-weight:600;">--</p>
       <p>Latitude <strong id="browser-confirm-lat">--</strong> · Longitude <strong id="browser-confirm-lon">--</strong></p>
-      <button class="tm-v2__small-btn" id="btn-confirm-browser-location" type="button">Confirmar localização</button>
+      <button class="tm-v2__small-btn" id="btn-confirm-browser-location" type="button">Usar esta localização</button>
     </div>
 
-    <div class="tm-v2__coordinate-fields">
-      <label class="tm-v2__field">Latitude
-        <input id="loc-lat" type="number" step="any" min="-90" max="90" placeholder="-90 a 90">
-      </label>
-      <label class="tm-v2__field">Longitude
-        <input id="loc-lon" type="number" step="any" min="-180" max="180" placeholder="-180 a 180">
-      </label>
-    </div>
+    <details style="margin-top: 1.5rem;">
+      <summary style="cursor: pointer; color: var(--tm-text-muted); font-size: 0.85rem;">Opções avançadas (coordenadas)</summary>
+      <div class="tm-v2__coordinate-fields" style="margin-top: 1rem;">
+        <label class="tm-v2__field">Latitude
+          <input id="loc-lat" type="number" step="any" min="-90" max="90" placeholder="-90 a 90">
+        </label>
+        <label class="tm-v2__field">Longitude
+          <input id="loc-lon" type="number" step="any" min="-180" max="180" placeholder="-180 a 180">
+        </label>
+      </div>
+      <div class="tm-v2__modal-actions" style="margin-top: 1rem;">
+        <button id="btn-cancel-location" type="button">Cancelar</button>
+        <button class="tm-v2__small-btn" id="btn-save-location" type="button">Salvar</button>
+      </div>
+    </details>
 
     <p class="tm-v2__form-error" id="loc-error" hidden></p>
-
-    <div class="tm-v2__modal-actions">
-      <button id="btn-cancel-location" type="button">Cancelar</button>
-      <button class="tm-v2__small-btn" id="btn-save-location" type="button">Salvar</button>
-    </div>
   </div>
 </div>
 
-<div class="tm-v2__toast" id="tm-toast" role="status" aria-live="polite" hidden></div>
+<div class="tm-v2__toast" id="tm-toast"  role="status" aria-live="polite" hidden></div>
 {% endblock %}
 
 {% block extra_js %}

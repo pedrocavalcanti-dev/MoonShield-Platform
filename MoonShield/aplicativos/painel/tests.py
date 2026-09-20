@@ -272,3 +272,62 @@ class DashboardSensoresTest(TestCase):
         s = {"saudavel": False, "status": "indisponivel"}
         lista = _sensores_lista(s, s, s)
         self.assertTrue(all(x["status"] == "err" for x in lista))
+
+import json
+from django.test import Client, override_settings
+from django.utils import timezone
+from datetime import timedelta
+from incidentes.models import EventoBruto
+
+class TestSensoresTimezoneBug(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="testuser", password="password")
+        self.client.login(username="testuser", password="password")
+
+    @override_settings(USE_TZ=True)
+    def test_api_sensores_with_timezone_aware_data_does_not_crash(self):
+        # Cria incidentes com timezone aware (uso padrão do banco em USE_TZ=True)
+        agora = timezone.now()
+
+        # Precisamos criar EventoBruto para que as queries de _series_ataques o utilizem.
+        #_series_ataques consulta incidentes através de qs (Eventos do banco)
+        for i in range(5):
+            EventoBruto.objects.create(
+                evento_id=f"evt_{i}",
+                last_seen=agora - timedelta(minutes=i*10),
+                severidade_jg="alto"
+            )
+
+        # Requisição ao endpoint
+        response = self.client.get("/api/sensores/")
+
+        # Não deve dar TypeError "can't subtract offset-naive and offset-aware datetimes"
+        self.assertEqual(response.status_code, 200)
+
+        data = json.loads(response.content)
+
+        # JSON continua contendo ids, dns, firewall
+        self.assertIn("ids", data)
+        self.assertIn("dns", data)
+        self.assertIn("firewall", data)
+        self.assertIn("series_att", data)
+
+        # Sérias são geradas normalmente
+        series = data["series_att"]
+        self.assertIn("labels", series)
+        self.assertIn("high", series)
+        self.assertIn("crit", series)
+
+        # Verifica se os labels e quantidades mantêm a estrutura
+        self.assertTrue(isinstance(series["labels"], list))
+        self.assertTrue(isinstance(series["high"], list))
+        self.assertTrue(len(series["labels"]) > 0)
+        self.assertEqual(len(series["high"]), len(series["labels"]))
+        self.assertEqual(len(series["crit"]), len(series["labels"]))
+        self.assertEqual(len(series["med"]), len(series["labels"]))
+        # Como _series_ataques pega 24 horas e default é 1h ou algo assim,
+        # Só garantir que a lista de labels não é vazia e tem tamanhos exatos.
+        # Default period in /api/sensores/ is usually 24h which generates 24 buckets.
+        # Ensure we have precisely 24 buckets generated.
+        self.assertEqual(len(series["labels"]), 24)

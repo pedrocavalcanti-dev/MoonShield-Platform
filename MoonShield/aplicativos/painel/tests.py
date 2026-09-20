@@ -307,7 +307,7 @@ import json
 from django.test import Client, override_settings
 from django.utils import timezone
 from datetime import timedelta
-from incidentes.models import EventoBruto
+from incidentes.models import EventoBruto, Incidente
 
 class TestSensoresTimezoneBug(TestCase):
     def setUp(self):
@@ -320,18 +320,18 @@ class TestSensoresTimezoneBug(TestCase):
         # Cria incidentes com timezone aware (uso padrão do banco em USE_TZ=True)
         agora = timezone.now()
 
-        # Precisamos criar EventoBruto para que as queries de _series_ataques o utilizem.
-        #_series_ataques consulta incidentes através de qs (Eventos do banco)
+        # Precisamos criar Incidente para que as queries de _series_ataques o utilizem.
         for i in range(5):
-            EventoBruto.objects.create(
-                evento_id=f"evt_{i}",
+            Incidente.objects.create(
+                fingerprint=f"evt_{i}",
+                first_seen=agora - timedelta(minutes=i*10),
                 last_seen=agora - timedelta(minutes=i*10),
                 severidade_jg="alto"
             )
 
-        # Requisição ao endpoint
-        response = self.client.get("/api/sensores/")
-
+        # Requisição ao endpoint global (api_sensores chama _overview_real)
+        response = self.client.get("/painel/api/sensores/")
+        
         # Não deve dar TypeError "can't subtract offset-naive and offset-aware datetimes"
         self.assertEqual(response.status_code, 200)
 
@@ -341,10 +341,15 @@ class TestSensoresTimezoneBug(TestCase):
         self.assertIn("ids", data)
         self.assertIn("dns", data)
         self.assertIn("firewall", data)
-        self.assertIn("series_att", data)
 
-        # Sérias são geradas normalmente
-        series = data["series_att"]
+        # Requisição ao overview completo para validar se a agregação de timezone afeta a série gerada
+        response_ov = self.client.get("/painel/api/overview/")
+        self.assertEqual(response_ov.status_code, 200)
+        
+        data_ov = json.loads(response_ov.content)
+        series = data_ov["charts"]["attacks"]
+        
+        # Séries são geradas normalmente
         self.assertIn("labels", series)
         self.assertIn("high", series)
         self.assertIn("crit", series)
@@ -356,10 +361,6 @@ class TestSensoresTimezoneBug(TestCase):
         self.assertEqual(len(series["high"]), len(series["labels"]))
         self.assertEqual(len(series["crit"]), len(series["labels"]))
         self.assertEqual(len(series["med"]), len(series["labels"]))
-        # Como _series_ataques pega 24 horas e default é 1h ou algo assim,
-        # Só garantir que a lista de labels não é vazia e tem tamanhos exatos.
-        # Default period in /api/sensores/ is usually 24h which generates 24 buckets.
-        # Ensure we have precisely 24 buckets generated.
         self.assertEqual(len(series["labels"]), 24)
 
     def test_1h_period_filters_correctly(self):

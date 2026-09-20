@@ -892,14 +892,12 @@
         if (document.hidden || state.loading) return;
         renderDashboard({ silent: true });
       }, 30000);
-      
+
       if (window.MoonShieldLoading?.visibility) {
-          window.MoonShieldLoading.visibility.onVisible(() => {
-              if (!state.loading) renderDashboard({ silent: true });
-          });
+        window.MoonShieldLoading.visibility.onVisible(() => {
+          if (!state.loading) renderDashboard({ silent: true });
+        });
       }
-    });
-      }, 30000);
     }
 
     bindControls();

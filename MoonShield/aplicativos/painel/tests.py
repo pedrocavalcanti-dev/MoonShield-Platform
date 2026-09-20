@@ -338,7 +338,7 @@ class TestSensoresTimezoneBug(TestCase):
 
         # Requisição ao endpoint global (api_sensores chama _overview_real)
         response = self.client.get("/painel/api/sensores/")
-        
+
         # Não deve dar TypeError "can't subtract offset-naive and offset-aware datetimes"
         self.assertEqual(response.status_code, 200)
 
@@ -352,23 +352,26 @@ class TestSensoresTimezoneBug(TestCase):
         # Requisição ao overview completo para validar se a agregação de timezone afeta a série gerada
         response_ov = self.client.get("/painel/api/overview/")
         self.assertEqual(response_ov.status_code, 200)
-        
+
         data_ov = json.loads(response_ov.content)
         series = data_ov["charts"]["attacks"]
-        
-        # Séries são geradas normalmente
-        self.assertIn("labels", series)
+
+        # Séries são geradas normalmente (labels em charts["hours"])
+        labels = data_ov["charts"]["hours"]
+
         self.assertIn("high", series)
         self.assertIn("crit", series)
+        self.assertIn("med", series)
 
         # Verifica se os labels e quantidades mantêm a estrutura
-        self.assertTrue(isinstance(series["labels"], list))
+        self.assertTrue(isinstance(labels, list))
         self.assertTrue(isinstance(series["high"], list))
-        self.assertTrue(len(series["labels"]) > 0)
-        self.assertEqual(len(series["high"]), len(series["labels"]))
-        self.assertEqual(len(series["crit"]), len(series["labels"]))
-        self.assertEqual(len(series["med"]), len(series["labels"]))
-        self.assertEqual(len(series["labels"]), 24)
+        self.assertTrue(len(labels) > 0)
+
+        self.assertEqual(len(series["high"]), len(labels))
+        self.assertEqual(len(series["crit"]), len(labels))
+        self.assertEqual(len(series["med"]), len(labels))
+        self.assertEqual(len(labels), 24)
 
     def test_1h_period_filters_correctly(self):
         from incidentes.models import Incidente

@@ -45,6 +45,7 @@ from .services.correlacionador import (
     contexto_ip,
     correlacionar_incidente,
 )
+from .services.contexto_rede import classificar_fluxo, classificar_ip_rede
 
 from .services.status_suricata import (
     obter_status_suricata_local,
@@ -344,6 +345,7 @@ def api_contexto_ip(request, ip):
     try:
         horas = int(request.GET.get('horas', 24))
         since = timezone.now() - timedelta(hours=horas)
+        contexto_rede = classificar_ip_rede(ip)
 
         tem_dados = Incidente.objects.filter(src_ip=ip, last_seen__gte=since).exists()
         if not tem_dados:
@@ -352,6 +354,7 @@ def api_contexto_ip(request, ip):
                 'contexto': {
                     'total_alertas': 0, 'total_dns': 0, 'total_http': 0, 'total_tls': 0,
                     'geo': {},
+                    'rede': contexto_rede,
                     'risk_score': {
                         'score': 0.0, 'total_alertas': 0, 'criticos': 0,
                         'altos': 0, 'medios': 0, 'ultimo_alerta': None,
@@ -364,7 +367,7 @@ def api_contexto_ip(request, ip):
         ctx = contexto_ip(ip, horas=horas)
 
         from .models import GeoCache
-        geo_entry = GeoCache.objects.filter(ip=ip).first()
+        geo_entry = GeoCache.objects.filter(ip=ip).first() if contexto_rede['geoip_allowed'] else None
         geo = {}
         if geo_entry:
             geo = {
@@ -378,7 +381,7 @@ def api_contexto_ip(request, ip):
                 'latitude':    geo_entry.latitude,
                 'longitude':   geo_entry.longitude,
             }
-        else:
+        elif contexto_rede['geoip_allowed']:
             ultimo = Incidente.objects.filter(src_ip=ip).order_by('-last_seen').first()
             if ultimo:
                 geo = {
@@ -424,6 +427,7 @@ def api_contexto_ip(request, ip):
             'contexto': {
                 **ctx,
                 'geo':                geo,
+                'rede':               contexto_rede,
                 'risk_score':         risk,
                 'direction_dominant': direction_dominant,
                 'top_sids':           top_sids,
@@ -460,6 +464,7 @@ def api_timeline_ip(request, ip):
         eventos = []
 
         for a in Incidente.objects.filter(src_ip=ip, last_seen__gte=since).order_by('-last_seen')[:100]:
+            fluxo_rede = classificar_fluxo(a.src_ip, a.dest_ip)
             eventos.append({
                 'tipo':           'alert',
                 'timestamp':      a.last_seen.isoformat(),
@@ -474,7 +479,10 @@ def api_timeline_ip(request, ip):
                 'categoria_jg':   a.categoria_jg,
                 'sid':            a.sid,
                 'protocolo':      a.protocolo,
-                'direction':      a.direction,
+                'direction':      fluxo_rede['flow_scope'],
+                'flow_scope':     fluxo_rede['flow_scope'],
+                'src_scope':      fluxo_rede['src']['scope'],
+                'dst_scope':      fluxo_rede['dst']['scope'],
                 'status':         a.status,
                 'risk_score':     a.risk_score,
                 'id':             a.id,
@@ -569,6 +577,16 @@ def api_criar_supressao(request):
 
 def _incidente_para_evento(inc, completo: bool = False) -> dict:
     risk_score = round(inc.risk_score, 1) if inc.risk_score else 0.0
+    fluxo_rede = classificar_fluxo(inc.src_ip, inc.dest_ip)
+    origem_rede = fluxo_rede['src']
+    destino_rede = fluxo_rede['dst']
+    geo_disponivel = origem_rede['geoip_allowed']
+    pais_codigo = inc.pais_codigo if geo_disponivel else None
+    pais = inc.pais if geo_disponivel else None
+    cidade = inc.cidade if geo_disponivel else None
+    asn_org = inc.asn_org if geo_disponivel else None
+    asn_number = inc.asn_number if geo_disponivel else None
+    rdns = inc.rdns or ''
 
     evento = {
         'id':          str(inc.pk),
@@ -597,24 +615,29 @@ def _incidente_para_evento(inc, completo: bool = False) -> dict:
             'src_porta':  inc.src_porta,
             'dest_ip':    inc.dest_ip or '',
             'dest_porta': inc.dest_porta,
-            'direction':  inc.direction,
+            'direction':  fluxo_rede['flow_scope'],
             'acao':       inc.acao,
             'rev':        inc.rev,
         },
 
-        'pais_codigo': inc.pais_codigo or '',
-        'pais':        inc.pais or '',
-        'cidade':      inc.cidade or '',
-        'asn_org':     inc.asn_org or '',
-        'asn_number':  inc.asn_number or '',
-        'rdns':        inc.rdns or '',
-        'latitude':    inc.latitude,
-        'longitude':   inc.longitude,
-        'flag':        _flag_por_codigo(inc.pais_codigo),
+        'pais_codigo': pais_codigo,
+        'pais':        pais,
+        'cidade':      cidade,
+        'asn_org':     asn_org,
+        'asn_number':  asn_number,
+        'rdns':        rdns,
+        'latitude':    inc.latitude if geo_disponivel else None,
+        'longitude':   inc.longitude if geo_disponivel else None,
+        'flag':        _flag_por_codigo(pais_codigo),
 
         'risk_score':   risk_score,
-        'src_is_local': inc.src_is_local,
-        'dst_is_local': inc.dst_is_local,
+        'src_is_local': fluxo_rede['src_is_local'],
+        'dst_is_local': fluxo_rede['dst_is_local'],
+        'src_scope':    origem_rede['scope'],
+        'dst_scope':    destino_rede['scope'],
+        'src_role':     origem_rede['role'],
+        'dst_role':     destino_rede['role'],
+        'flow_scope':   fluxo_rede['flow_scope'],
 
         'classificacao':       None,
         'score_evento':        None,
@@ -637,11 +660,11 @@ def _incidente_para_evento(inc, completo: bool = False) -> dict:
         'srcIp':   inc.src_ip,
         'dstIp':   inc.dest_ip or '',
         'country': {
-            'flag': _flag_por_codigo(inc.pais_codigo),
-            'name': inc.pais or 'Desconhecido',
-            'code': inc.pais_codigo or '',
+            'flag': _flag_por_codigo(pais_codigo),
+            'name': pais,
+            'code': pais_codigo,
         },
-        'direction': inc.direction or 'unknown',
+        'direction': fluxo_rede['flow_scope'],
     }
 
     if completo:
@@ -655,7 +678,7 @@ def _incidente_para_evento(inc, completo: bool = False) -> dict:
 
 def _flag_por_codigo(codigo: str) -> str:
     if not codigo or len(codigo) != 2:
-        return '🇧🇷'
+        return ''
     return ''.join(chr(0x1F1E0 + ord(c) - ord('A')) for c in codigo.upper())
 
 def _serializar_dns(ev) -> dict:

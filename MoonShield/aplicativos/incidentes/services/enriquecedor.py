@@ -1,18 +1,16 @@
 # =============================================================================
 # incidentes/services/enriquecedor.py  v3
-# Fix v3:
-#   ✓ _cidr_cache agora tem TTL real de 60s (antes ficava preso para sempre)
-#   ✓ Troca de CIDR no ConfigSistema reflete em até 60s sem reiniciar servidor
+# GeoIP e direção de rede são derivados da SSOT em contexto_rede.
 # =============================================================================
 
-import ipaddress
 import logging
 import os
 import socket
-import time
 from datetime import timedelta
 
 from django.utils import timezone
+
+from .contexto_rede import classificar_fluxo, classificar_ip_rede
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +43,6 @@ _VAZIO = {
     'source':      '',
 }
 
-# ─── Cache do CIDR com TTL real ───────────────────────────────────────────────
-_cidr_cache:    str   = ''
-_cidr_cache_ts: float = 0.0
-_CIDR_TTL = 60.0   # segundos
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # API PÚBLICA
 # ─────────────────────────────────────────────────────────────────────────────
@@ -59,15 +51,12 @@ def enriquecer_ip(ip: str) -> dict:
     if not ip:
         return _VAZIO.copy()
 
+    contexto_rede = classificar_ip_rede(ip)
+    if not contexto_rede['geoip_allowed']:
+        return {**_VAZIO, 'is_private': contexto_rede['is_private'], 'rdns': _rdns(ip)}
+
     if ip in _mem_cache:
         return _mem_cache[ip]
-
-    info = _ip_info(ip)
-
-    if info['is_private']:
-        resultado = {**_VAZIO, 'is_private': True}
-        _mem_cache[ip] = resultado
-        return resultado
 
     resultado = _buscar_geocache(ip)
 
@@ -85,24 +74,11 @@ def enriquecer_ip(ip: str) -> dict:
 
 
 def calcular_direction(src_ip: str, dst_ip: str) -> dict:
-    cidr      = _get_cidr_monitorado()
-    src_local = _ip_esta_na_rede(src_ip, cidr)
-    dst_local = _ip_esta_na_rede(dst_ip or '', cidr)
-
-    if src_local and dst_local:
-        direction = 'lateral'
-    elif src_local and not dst_local:
-        direction = 'outbound'
-    elif not src_local and dst_local:
-        direction = 'inbound'
-    else:
-        direction = 'external'
-
-    return {
-        'direction':    direction,
-        'src_is_local': src_local,
-        'dst_is_local': dst_local,
-    }
+    fluxo = classificar_fluxo(src_ip, dst_ip)
+    # O campo persistido legado ainda usa "lateral" para tráfego interno.
+    # As APIs expõem ``flow_scope=internal`` calculado dinamicamente.
+    fluxo['direction'] = 'lateral' if fluxo['flow_scope'] == 'internal' else fluxo['flow_scope']
+    return fluxo
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,56 +188,3 @@ def _rdns(ip: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# IP INFO
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _ip_info(ip: str) -> dict:
-    try:
-        obj = ipaddress.ip_address(ip)
-        return {
-            'is_private':   obj.is_private,
-            'is_loopback':  obj.is_loopback,
-            'is_multicast': obj.is_multicast,
-            'is_reserved':  obj.is_reserved,
-        }
-    except ValueError:
-        return {'is_private': False, 'is_loopback': False,
-                'is_multicast': False, 'is_reserved': False}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# DIREÇÃO DO TRÁFEGO — CIDR com TTL real de 60s
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _get_cidr_monitorado() -> str:
-    """
-    Pega o CIDR configurado no banco.
-    Cache em memória com TTL de 60s — mudanças no ConfigSistema
-    refletem automaticamente sem reiniciar o servidor.
-    """
-    global _cidr_cache, _cidr_cache_ts
-
-    agora = time.monotonic()
-    if _cidr_cache and (agora - _cidr_cache_ts) < _CIDR_TTL:
-        return _cidr_cache
-
-    try:
-        from configuracoes.models import ConfigSistema
-        cfg = ConfigSistema.get_solo()
-        _cidr_cache    = cfg.cidr or '192.168.0.0/24'
-        _cidr_cache_ts = agora
-    except Exception:
-        # Não atualiza o timestamp no erro — tenta de novo na próxima chamada
-        if not _cidr_cache:
-            _cidr_cache = '192.168.0.0/24'
-
-    return _cidr_cache
-
-
-def _ip_esta_na_rede(ip: str, cidr: str) -> bool:
-    if not ip or not cidr:
-        return False
-    try:
-        return ipaddress.ip_address(ip) in ipaddress.ip_network(cidr, strict=False)
-    except ValueError:
-        return False

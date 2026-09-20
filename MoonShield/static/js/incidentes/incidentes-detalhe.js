@@ -245,7 +245,7 @@ function openDrawer(ev) {
       srcMeta.innerHTML = '<span style="color:var(--c-ok);font-size:10px"><i class="bi bi-house-fill"></i> Rede local</span>';
     } else {
       const asn = ev.asn_org ? ` · ${esc(ev.asn_org)}` : '';
-      srcMeta.innerHTML = `<span style="font-size:12px">${ev.country?.flag || '<span class="fi fi-br" style="width:20px;height:14px;border-radius:2px;display:inline-block;vertical-align:middle"></span>'}</span>
+      srcMeta.innerHTML = `<span style="font-size:12px">${ev.country?.flag || '🌐'}</span>
         <span style="font-size:10px;color:var(--text-dim)">${esc(ev.country?.name || '')}${asn}</span>`;
     }
   }
@@ -268,7 +268,7 @@ function openDrawer(ev) {
     { l: 'País',    v: ev.src_is_local ? 'Rede interna' : (ev.country?.name || '—') },
     { l: 'Cidade',  v: ev.cidade     || '—' },
     { l: 'ASN',     v: ev.asn_number || '—' },
-    { l: 'Org',     v: ev.asn_org    || (ev.src_is_local ? 'LAN' : '—') },
+    { l: 'Org',     v: ev.asn_org    || (ev.src_is_local ? (ev.src_role || 'Interno') : '—') },
     { l: 'rDNS',    v: ev.rdns       || '—' },
     { l: 'Direção', v: ev.direction  || '—' },
   ];

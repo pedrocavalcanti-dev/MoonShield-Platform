@@ -287,13 +287,13 @@ function renderFluxo(ev) {
   if (flagEl) {
     flagEl.innerHTML = code
       ? `<span class="fi fi-${code}" style="width:22px;height:16px;border-radius:3px;display:inline-block"></span>`
-      : '<span style="font-size:18px"><span class="fi fi-br" style="width:20px;height:14px;border-radius:2px;display:inline-block;vertical-align:middle"></span></span>';
+      : '<span style="font-size:18px">🌐</span>';
   }
 
   const srcCountryEl = $('fluxoSrcCountry');
   if (srcCountryEl) {
     if (ev.src_is_local) {
-      srcCountryEl.innerHTML = '<span style="color:#34d399;font-size:11px"><i class="bi bi-house-fill"></i> Rede local</span>';
+      srcCountryEl.innerHTML = `<span style="color:#34d399;font-size:11px"><i class="bi bi-house-fill"></i> Rede local${ev.src_role ? ` · ${esc(ev.src_role)}` : ''}</span>`;
     } else {
       srcCountryEl.textContent = ev.country?.name || ev.pais || '';
     }
@@ -301,7 +301,7 @@ function renderFluxo(ev) {
   const srcAsnEl = $('fluxoSrcAsn');
   if (srcAsnEl) srcAsnEl.textContent = ev.asn_org ? `AS · ${ev.asn_org}` : '';
   const dstCountryEl = $('fluxoDstCountry');
-  if (dstCountryEl) dstCountryEl.textContent = ev.dst_is_local ? '🏠 Rede local' : '';
+  if (dstCountryEl) dstCountryEl.textContent = ev.dst_is_local ? `🏠 Rede local${ev.dst_role ? ` · ${ev.dst_role}` : ''}` : '';
   const dstPortEl = $('fluxoDstPort');
   if (dstPortEl) dstPortEl.textContent = port ? `Porta ${port} · ${PORT_NAMES[port]||proto}` : '';
 
@@ -309,6 +309,7 @@ function renderFluxo(ev) {
   const dir    = ev.direction||'';
   const dirBadge = $('fluxoDirBadge');
   const DIR_STYLE = {
+    internal: {label:'INTERNAL', bg:'rgba(52,211,153,.1)', col:'#34d399', bd:'rgba(52,211,153,.3)'},
     inbound:  {label:'INBOUND',  bg:'rgba(244,63,94,.1)',  col:'#f43f5e', bd:'rgba(244,63,94,.3)'},
     outbound: {label:'OUTBOUND', bg:'rgba(251,146,60,.1)', col:'#fb923c', bd:'rgba(251,146,60,.3)'},
     lateral:  {label:'LATERAL',  bg:'rgba(251,191,36,.1)', col:'#fbbf24', bd:'rgba(251,191,36,.3)'},
@@ -355,7 +356,7 @@ function renderGeo(ev) {
     {l:'País',   v: ev.src_is_local ? 'Rede interna' : (ev.pais||ev.country?.name||'—')},
     {l:'Cidade', v: ev.cidade||'—'},
     {l:'ASN',    v: ev.asn_number||'—', mono:true},
-    {l:'Org',    v: ev.asn_org||(ev.src_is_local?'LAN':'—')},
+    {l:'Org',    v: ev.asn_org||(ev.src_is_local?(ev.src_role||'Interno'):'—')},
     {l:'rDNS',   v: ev.rdns||'—', mono:true},
     {l:'Direção',v: ev.direction||'—'},
   ];

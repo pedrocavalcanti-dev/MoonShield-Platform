@@ -578,7 +578,7 @@ function _renderTableImediato() {
     const code = ev.pais_codigo?.toLowerCase() || '';
     const flag = code
       ? `<span class="fi fi-${code}" style="width:20px;height:14px;border-radius:2px;display:inline-block;vertical-align:middle"></span>`
-      : '<span class="fi fi-br" style="width:20px;height:14px;border-radius:2px;display:inline-block;vertical-align:middle"></span>';
+      : '';
     const cnt = _state.agrupado ? (ev.group_count || 1) : 1;
     const srcMeta = ev.src_is_local
       ? `<span class="cell-ip-sub">Rede local</span>`
@@ -784,9 +784,9 @@ function updateCountries() {
   const counts = {};
   _state.filtered.forEach(e => {
     if (e.src_is_local) return;
-    const k = e.country?.name || 'Brasil';
+    const k = e.country?.name || 'Desconhecido';
     const fc = (e.pais_codigo || '').toLowerCase();
-    const flag = fc ? `<span class="fi fi-${fc}" style="width:18px;height:13px;border-radius:2px;display:inline-block"></span>` : '<span class="fi fi-br" style="width:20px;height:14px;border-radius:2px;display:inline-block;vertical-align:middle"></span>';
+    const flag = fc ? `<span class="fi fi-${fc}" style="width:18px;height:13px;border-radius:2px;display:inline-block"></span>` : '🌐';
     if (!counts[k]) counts[k] = { count: 0, flag };
     counts[k].count++;
   });

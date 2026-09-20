@@ -167,7 +167,7 @@ function externalDirectionTooltip(data, counts, total) {
     showChartTooltip(context, tooltipHtml(`Direção: ${d.label}`, [
       { label:'Eventos', value:String(value), color:d.color, valueColor:d.color },
       { label:'Participação', value:`${pct(value, total)}%`, color:d.color },
-    ], ({ inbound:'Tráfego recebido pelo ativo investigado.', outbound:'Tráfego originado pelo ativo investigado.', lateral:'Movimento entre ativos internos.', external:'Comunicação externa classificada.' })[d.key] || ''));
+    ], ({ internal:'Tráfego entre ativos internos.', inbound:'Tráfego recebido pelo ativo investigado.', outbound:'Tráfego originado pelo ativo investigado.', lateral:'Movimento entre ativos internos.', external:'Comunicação externa classificada.' })[d.key] || ''));
   };
 }
 
@@ -248,7 +248,8 @@ function renderTudo() {
 function renderTopbar(ctx) {
   const geo=ctx.geo||{}, code=String(geo.pais_codigo||'').toLowerCase(), flag=$('ipFlag');
   if (flag) flag.innerHTML=code?`<span class="fi fi-${esc(code)}" style="border-radius:3px;font-size:22px;line-height:1"></span>`:'🌐';
-  if ($('ipMeta')) $('ipMeta').textContent=[geo.pais,geo.cidade,geo.asn_org].filter(Boolean).join(' · ')||'IP sem geolocalização';
+  const rede=ctx.rede||{};
+  if ($('ipMeta')) $('ipMeta').textContent=[geo.pais,geo.cidade,geo.asn_org].filter(Boolean).join(' · ') || (rede.scope==='internal' ? ['Interno',rede.role].filter(Boolean).join(' · ') : 'IP sem geolocalização');
   const score=Number(ctx.risk_score?.score||0), badge=$('ipRiskBadge');
   if (badge) badge.className=`inv-risk-badge ${riskBadgeClass(score)}`;
   if ($('ipRiskVal')) $('ipRiskVal').textContent=`Score ${Math.round(score)}`;
@@ -283,18 +284,18 @@ function renderRisk(risk) {
 }
 function renderDirecao(counts, dominant) {
   hideLoading('dirLoading'); showContent('dirData'); const c=counts||{};
-  const data=[{key:'inbound',label:'Entrada',color:'#f43f5e'},{key:'outbound',label:'Saída',color:'#fb923c'},{key:'lateral',label:'Lateral',color:'#fbbf24'},{key:'external',label:'Externo',color:'#c084fc'}].filter(d=>Number(c[d.key]||0)>0);
+  const data=[{key:'internal',label:'Interno',color:'#34d399'},{key:'inbound',label:'Entrada',color:'#f43f5e'},{key:'outbound',label:'Saída',color:'#fb923c'},{key:'lateral',label:'Lateral',color:'#fbbf24'},{key:'external',label:'Externo',color:'#c084fc'}].filter(d=>Number(c[d.key]||0)>0);
   if(!data.length){$('dirData').innerHTML='<p class="inv-empty-text">Sem dados de direção.</p>';return;}
   const canvas=$('dirDonutChart'); if(!canvas)return; destroyChart('dir');
   const total=data.reduce((s,d)=>s+Number(c[d.key]||0),0);
   const centerLabelPlugin={id:'msCenterLabel',afterDraw(chart){
     const area=chart.chartArea;if(!area)return;const active=chart.tooltip?.getActiveElements?.()||[],idx=active[0]?.index??-1,d=idx>=0?data[idx]:null;
-    const main=d?Number(c[d.key]||0):total,sub=d?d.label:(({inbound:'ENTRADA',outbound:'SAÍDA',lateral:'LATERAL',external:'EXTERNO'})[dominant]||'TOTAL'),color=d?d.color:(data.find(x=>x.key===dominant)?.color||'#94a3b8');
+    const main=d?Number(c[d.key]||0):total,sub=d?d.label:(({internal:'INTERNO',inbound:'ENTRADA',outbound:'SAÍDA',lateral:'LATERAL',external:'EXTERNO'})[dominant]||'TOTAL'),color=d?d.color:(data.find(x=>x.key===dominant)?.color||'#94a3b8');
     const x=(area.left+area.right)/2,y=(area.top+area.bottom)/2,ctx=chart.ctx;ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='700 20px "JetBrains Mono",monospace';ctx.fillStyle=color;ctx.fillText(String(main),x,y-8);ctx.font='600 9px "JetBrains Mono",monospace';ctx.fillStyle='rgba(148,163,184,.72)';ctx.fillText(String(sub).toUpperCase(),x,y+11);ctx.restore();
   }};
   INV.charts.dir=new Chart(canvas,{type:'doughnut',plugins:[centerLabelPlugin],data:{labels:data.map(d=>d.label),datasets:[{data:data.map(d=>c[d.key]||0),backgroundColor:data.map(d=>`${d.color}aa`),borderColor:data.map(d=>d.color),borderWidth:1.5,hoverBackgroundColor:data.map(d=>`${d.color}ee`),hoverBorderWidth:2.5,hoverOffset:7}]},options:{cutout:'70%',interaction:{mode:'nearest',intersect:true},plugins:{legend:{display:false},tooltip:{enabled:false,external:externalDirectionTooltip(data,c,total)}},onHover:(_,active)=>{canvas.style.cursor=active.length?'pointer':'default';}}});
   const labelsEl=$('dirLabels');if(!labelsEl)return;
-  const notes={inbound:'Tráfego majoritariamente de entrada — possível origem externa.',outbound:'Tráfego majoritariamente de saída — revisar exfiltração.',lateral:'Tráfego lateral — revisar movimento interno.',external:'Tráfego classificado como externo.'};
+  const notes={internal:'Tráfego entre ativos da rede interna.',inbound:'Tráfego majoritariamente de entrada — possível origem externa.',outbound:'Tráfego majoritariamente de saída — revisar exfiltração.',lateral:'Tráfego lateral — revisar movimento interno.',external:'Tráfego classificado como externo.'};
   labelsEl.innerHTML=`<div class="inv-dir-legend">${data.map(d=>`<div class="inv-dir-legend-item"><span class="inv-dir-legend-dot" style="background:${d.color}"></span><span class="inv-dir-legend-lbl">${d.label}</span><span class="inv-dir-legend-val" style="color:${d.color}">${Number(c[d.key]||0)}</span></div>`).join('')}</div>${dominant?`<div class="inv-dir-dominant"><i class="bi bi-info-circle" style="flex-shrink:0;margin-top:1px;color:${data.find(d=>d.key===dominant)?.color||'#94a3b8'}"></i><span>${esc(notes[dominant]||dominant)}</span></div>`:''}`;
 }
 function renderTopSigs(sigs) {

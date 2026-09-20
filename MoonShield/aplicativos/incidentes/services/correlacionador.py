@@ -17,6 +17,7 @@ from ..models import (
     EventoBruto, EventoDNS, EventoHTTP, EventoTLS,
     Incidente, RiskScore, JANELAS_CORRELACAO, JANELA_DEFAULT,
 )
+from .contexto_rede import classificar_fluxo
 
 logger = logging.getLogger(__name__)
 
@@ -291,8 +292,9 @@ def contexto_ip(src_ip: str, horas: int = 24) -> dict:
     risk = RiskScore.objects.filter(ip=src_ip).first()
 
     direction_counts = {}
-    for row in alertas.values('direction').annotate(n=models_Count('direction')):
-        direction_counts[row['direction']] = row['n']
+    for alerta in alertas.only('src_ip', 'dest_ip'):
+        direction = classificar_fluxo(alerta.src_ip, alerta.dest_ip)['flow_scope']
+        direction_counts[direction] = direction_counts.get(direction, 0) + 1
 
     return {
         'alertas_recentes': list(alertas.values(

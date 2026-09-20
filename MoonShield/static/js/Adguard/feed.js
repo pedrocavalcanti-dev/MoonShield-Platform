@@ -440,8 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
 
         loadingTargets.forEach(([target, variant]) => {
-            if (firstLoad) window.MoonShieldLoading?.start(target, { variant });
-            else window.MoonShieldLoading?.setRefreshing(target, true);
+            window.MoonShieldLoading?.setRefreshing(target, true);
         });
         state.polling = true;
 
@@ -494,14 +493,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (err) {
             state.lastPollOk = false;
-            if (firstLoad) loadingTargets.forEach(([target]) => window.MoonShieldLoading?.error(target, { message: err.message }));
+
             showWarning(`Falha ao consultar o feed DNS: ${err.message}`);
         } finally {
             state.polling = false;
             state.hasLoadedOnce = true;
             loadingTargets.forEach(([target]) => {
-                if (firstLoad) window.MoonShieldLoading?.finish(target);
-                else window.MoonShieldLoading?.setRefreshing(target, false);
+                window.MoonShieldLoading?.setRefreshing(target, false);
             });
         }
     }

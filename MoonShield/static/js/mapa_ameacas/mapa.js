@@ -509,9 +509,8 @@
         }
 
         const loadingTargets = [
-            [els.app?.querySelector('.tm-v2__summary'), 'card'],
-            [els.panelFilters, 'list'],
-            [els.eventsPanel, 'table']
+            [els.map, 'card'],
+            [els.feedContainer, 'list']
         ];
 
         if (!hasSnapshot) {

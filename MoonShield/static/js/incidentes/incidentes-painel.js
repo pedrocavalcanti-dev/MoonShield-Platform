@@ -420,8 +420,7 @@ async function loadIncidentes() {
       hasSnapshot = true;
   }
 
-  if (primeiroCarregamento && !hasSnapshot) window.MoonShieldLoading?.start(alvo, { variant: 'table' });
-  else window.MoonShieldLoading?.setRefreshing(alvo, true);
+  window.MoonShieldLoading?.setRefreshing(alvo, true);
 
   try {
     const data = await _fetchJson(url);
@@ -478,8 +477,7 @@ async function loadStats() {
       hasSnapshot = true;
   }
 
-  if (primeiroCarregamento && !hasSnapshot) window.MoonShieldLoading?.start(alvo, { variant: 'card' });
-  else window.MoonShieldLoading?.setRefreshing(alvo, true);
+  window.MoonShieldLoading?.setRefreshing(alvo, true);
   try {
     const data = await _fetchJson('/incidentes/api/stats/');
     if (!data.ultimas_24h) {

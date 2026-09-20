@@ -101,10 +101,13 @@
   function initQuickTests() {
     document.querySelectorAll("[data-quick-test]").forEach((button) => button.addEventListener("click", async () => {
       const result = $(button.dataset.result);
-      button.disabled = true;
+            button.disabled = true;
+      if (result) {
+          result.innerHTML = 'Executando... <i class="bi bi-arrow-repeat" style="animation: spin 1s linear infinite;"></i>';
+      }
       try {
         const data = await n().apiFetch(`${n().endpoint("quickTestUrl")}?test=${button.dataset.quickTest}`);
-        if (result) result.textContent = data.ok ? `OK${data.ms != null ? ` · ${data.ms}ms` : ""}` : data.msg || "Falha";
+        if (result) result.textContent = data.ok ? `OK${data.ms != null ? ` — ${data.ms}ms` : ""}` : data.msg || "Falha";
       } catch (error) {
         if (result) result.textContent = "Indisponível";
       } finally {
@@ -133,18 +136,35 @@
         window.MoonShieldLoading?.setRefreshing(loadingTarget, false);
       }
     });
-    window.MoonShieldLoading?.start(loadingTarget, { variant: "card" });
+        window.MoonShieldLoading?.setRefreshing($("cfgStatusBar"), true);
+
+    if ($("sysInfoGrid") && !$("sysInfoGrid").children.length) {
+        $("sysInfoGrid").innerHTML = Array(8).fill('<div class="cfg-info-card"></div>').join("");
+        document.querySelectorAll("#sysInfoGrid .cfg-info-card").forEach(el => window.MoonShieldLoading?.start(el, { variant: 'card' }));
+    }
+    if ($("systemServicesSummary") && !$("systemServicesSummary").children.length) {
+        $("systemServicesSummary").innerHTML = Array(3).fill('<div class="cfg-service-summary-card"></div>').join("");
+        document.querySelectorAll("#systemServicesSummary .cfg-service-summary-card").forEach(el => window.MoonShieldLoading?.start(el, { variant: 'card' }));
+    }
+    if ($("servicesCards") && !$("servicesCards").children.length) {
+        $("servicesCards").innerHTML = Array(3).fill('<div class="cfg-service-card"></div>').join("");
+        document.querySelectorAll("#servicesCards .cfg-service-card").forEach(el => window.MoonShieldLoading?.start(el, { variant: 'card' }));
+    }
+    if ($("diagServices") && !$("diagServices").children.length) {
+        $("diagServices").innerHTML = Array(6).fill('<div class="cfg-diag-card"></div>').join("");
+        document.querySelectorAll("#diagServices .cfg-diag-card").forEach(el => window.MoonShieldLoading?.start(el, { variant: 'number' }));
+    }
+
     try {
       await n().loadConfig();
       await n().loadServicosStatus();
-      await loadSysInfo();
       window.CfgConexoes.refreshFromState();
       renderNetworkSummary();
       renderDiagnostics();
-      window.MoonShieldLoading?.finish(loadingTarget);
     } catch (error) {
-      window.MoonShieldLoading?.error(loadingTarget, { message: error.message });
       n().showToast("Não foi possível carregar as configurações da appliance.", "erro");
+    } finally {
+      window.MoonShieldLoading?.setRefreshing($("cfgStatusBar"), false);
     }
   });
 

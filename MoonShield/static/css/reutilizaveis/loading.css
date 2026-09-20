@@ -1,0 +1,11 @@
+/* MoonShield Loading: camada reutilizável, neutra e não bloqueante. */
+.ms-loading-target{position:relative}
+.ms-loading-layer{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;gap:10px;padding:14px;overflow:hidden;border-radius:inherit;background:color-mix(in srgb,var(--bg-card) 88%,transparent);opacity:0;pointer-events:none;transition:opacity .16s ease}
+.ms-loading-target.ms-is-loading .ms-loading-layer{opacity:1}
+.ms-skeleton{display:block;border-radius:6px;background:linear-gradient(90deg,var(--bg-hover) 0%,var(--border-soft) 48%,var(--bg-hover) 100%);background-size:200% 100%;animation:ms-skeleton-shimmer 1.5s ease-in-out infinite}
+.ms-skeleton-text{height:10px;width:72%}.ms-skeleton-title{height:15px;width:48%}.ms-skeleton-number{height:25px;width:44%}.ms-skeleton-circle{width:36px;height:36px;border-radius:50%}.ms-skeleton-card{min-height:92px;width:100%}.ms-skeleton-row{height:38px;width:100%}.ms-skeleton-chart{min-height:150px;width:100%}.ms-skeleton-table{height:31px;width:100%}.ms-skeleton-list{height:42px;width:100%}
+.ms-loading-layer[data-ms-loading="card"]{justify-content:center}.ms-loading-layer[data-ms-loading="card"] .ms-skeleton-text{width:55%}.ms-loading-layer[data-ms-loading="number"]{justify-content:center;gap:8px}.ms-loading-layer[data-ms-loading="chart"] .ms-skeleton-chart{flex:1}.ms-loading-layer[data-ms-loading="table"],.ms-loading-layer[data-ms-loading="list"]{gap:7px}
+.ms-loading-target.ms-is-refreshing::after{content:"";position:absolute;top:8px;right:8px;z-index:7;width:8px;height:8px;border:1.5px solid var(--text-dim);border-top-color:var(--ms-loading-accent,var(--text-primary));border-radius:50%;animation:ms-loading-spin .7s linear infinite}
+@keyframes ms-skeleton-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+@keyframes ms-loading-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.ms-skeleton,.ms-loading-target.ms-is-refreshing::after{animation:none}}

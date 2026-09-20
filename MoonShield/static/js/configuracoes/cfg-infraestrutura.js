@@ -114,10 +114,12 @@
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
+    const loadingTarget = $("cfgApp");
     initTabs();
     initSave();
     initQuickTests();
     $("btnRefreshDiag")?.addEventListener("click", async () => {
+      window.MoonShieldLoading?.setRefreshing(loadingTarget, true);
       try {
         await n().loadConfig();
         await n().loadServicosStatus();
@@ -127,8 +129,11 @@
         n().showToast("Diagnóstico atualizado.");
       } catch (error) {
         n().showToast("Não foi possível atualizar o diagnóstico.", "erro");
+      } finally {
+        window.MoonShieldLoading?.setRefreshing(loadingTarget, false);
       }
     });
+    window.MoonShieldLoading?.start(loadingTarget, { variant: "card" });
     try {
       await n().loadConfig();
       await n().loadServicosStatus();
@@ -136,7 +141,9 @@
       window.CfgConexoes.refreshFromState();
       renderNetworkSummary();
       renderDiagnostics();
+      window.MoonShieldLoading?.finish(loadingTarget);
     } catch (error) {
+      window.MoonShieldLoading?.error(loadingTarget, { message: error.message });
       n().showToast("Não foi possível carregar as configurações da appliance.", "erro");
     }
   });

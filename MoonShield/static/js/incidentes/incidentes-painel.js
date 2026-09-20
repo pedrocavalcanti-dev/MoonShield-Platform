@@ -175,6 +175,8 @@ const _state = {
   presetAtivo: _saved.preset || 'casa',
   _lastHash: '',
   _renderPending: false,
+  _incidentesCarregados: false,
+  _statsCarregados: false,
 };
 
 window.JGIncidentes.state = _state;
@@ -390,6 +392,10 @@ function _calcHash(eventos) {
 
 // ─── Carga de dados ───────────────────────────────────────────────────────────
 async function loadIncidentes() {
+  const alvo = $('alertTable')?.closest('.jg-feed-container') || $('alertTable')?.parentElement;
+  const primeiroCarregamento = !_state._incidentesCarregados;
+  if (primeiroCarregamento) window.MoonShieldLoading?.start(alvo, { variant: 'table' });
+  else window.MoonShieldLoading?.setRefreshing(alvo, true);
   try {
     const agr = _state.agrupado ? 1 : 0;
     const url = `/incidentes/api/data/?count=100&horas=${_state.horas}&preset=${_state.presetAtivo}&agrupado=${agr}`;
@@ -412,6 +418,8 @@ async function loadIncidentes() {
     applyFilters();
     if (dadosMudaram || !_state.filtered.length) updateInsights();
     _updateKpiFromEvents();
+    _state._incidentesCarregados = true;
+    window.MoonShieldLoading?.finish(alvo);
 
   } catch (e) {
     console.warn('loadIncidentes falhou:', e.message);
@@ -419,15 +427,26 @@ async function loadIncidentes() {
     updateBadges();
     applyFilters();
     updateInsights();
+    window.MoonShieldLoading?.error(alvo, { message: e.message });
     toast(`⚠ Erro ao carregar dados: ${e.message}`, 4000);
+  } finally {
+    if (!primeiroCarregamento) window.MoonShieldLoading?.setRefreshing(alvo, false);
   }
 }
 
 // ─── loadStats ────────────────────────────────────────────────────────────────
 async function loadStats() {
+  const alvo = qs('.jg-kpis');
+  const primeiroCarregamento = !_state._statsCarregados;
+  if (primeiroCarregamento) window.MoonShieldLoading?.start(alvo, { variant: 'card' });
+  else window.MoonShieldLoading?.setRefreshing(alvo, true);
   try {
     const data = await _fetchJson('/incidentes/api/stats/');
-    if (!data.ultimas_24h) return;
+    if (!data.ultimas_24h) {
+      _state._statsCarregados = true;
+      window.MoonShieldLoading?.finish(alvo);
+      return;
+    }
 
     const u = data.ultimas_24h;
     const criticos = u.criticos_incidentes ?? u.criticos ?? '—';
@@ -460,10 +479,15 @@ async function loadStats() {
     // Nota: kpiDns, kpiAltos, kpiNovos foram removidos do HTML — não atualizar.
     // Se reintroduzidos no template, descomentar:
     // setEl('kpiNovos', novos);
+    _state._statsCarregados = true;
+    window.MoonShieldLoading?.finish(alvo);
 
   } catch (e) {
     // Stats são opcionais — falha silenciosa é aceitável
     console.warn('loadStats falhou:', e.message);
+    window.MoonShieldLoading?.error(alvo, { message: e.message });
+  } finally {
+    if (!primeiroCarregamento) window.MoonShieldLoading?.setRefreshing(alvo, false);
   }
 }
 

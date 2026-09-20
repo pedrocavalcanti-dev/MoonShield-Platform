@@ -148,6 +148,7 @@
     function setLoading(active) {
       state.loading = active;
       shell.classList.toggle("is-loading", active);
+      window.MoonShieldLoading?.setPageLoading(active);
       const refresh = el("btnRefresh");
       if (refresh) refresh.disabled = active;
       el("refreshIcon")?.classList.toggle("is-spinning", active);
@@ -188,6 +189,7 @@
 
     async function renderDashboard({ silent = false } = {}) {
       if (!silent) setLoading(true);
+      if (silent) window.MoonShieldLoading?.setRefreshing(shell, true);
       try {
         const data = await fetchOverview();
         state.lastData = data;
@@ -207,6 +209,7 @@
         showBanner(error?.name === "AbortError" ? "O Dashboard demorou mais que o esperado para responder." : "Alguns dados do Dashboard não puderam ser carregados agora.");
       } finally {
         if (!silent) setLoading(false);
+        if (silent) window.MoonShieldLoading?.setRefreshing(shell, false);
       }
     }
 

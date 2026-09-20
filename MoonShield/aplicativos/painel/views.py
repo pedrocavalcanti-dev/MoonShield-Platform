@@ -428,7 +428,7 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     if data:
         return data
 
-    from configuracoes.views import _servicos, _topologia
+    from configuracoes.views import _health_snapshot, _topologia
     from dns.views import _get_adguard_client
     from django.utils import timezone
 
@@ -441,7 +441,7 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
 
     # ── Serviços
     topo = _topologia()
-    servicos = _servicos(cfg, topo)
+    servicos = _health_snapshot(cfg, topo)
     adguard = servicos["adguard"]
     suricata = servicos["suricata"]
     firewall = servicos["firewall"]
@@ -666,12 +666,14 @@ def api_overview(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_sensores(request):
-    """Topbar — status simples dos 3 sensores."""
-    dados = _overview_real(_get_cfg())["saude"]
+    """Topbar - status simples dos 3 sensores."""
+    from configuracoes.views import _health_snapshot, _topologia
+    topo = _topologia()
+    servicos = _health_snapshot(_get_cfg(), topo)
     return JsonResponse({
-        "ids":      "ok" if dados["ids"].get("saudavel") else "offline",
-        "dns":      "ok" if dados["dns"].get("saudavel") else "offline",
-        "firewall": "ok" if dados["firewall"].get("saudavel") else "offline",
+        "ids":      "ok" if servicos["suricata"].get("saudavel") else "offline",
+        "dns":      "ok" if servicos["adguard"].get("saudavel") else "offline",
+        "firewall": "ok" if servicos["firewall"].get("saudavel") else "offline",
     })
 
 

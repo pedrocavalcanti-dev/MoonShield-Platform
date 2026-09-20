@@ -46,6 +46,7 @@
       cleared: false,
       loading: false,
       inFlight: false,
+      inFlightKey: null,
       pollTimer: null,
       overviewController: null,
       overviewRequest: 0,
@@ -195,8 +196,15 @@
     }
 
     async function renderDashboard({ silent = false } = {}) {
-      if (state.inFlight) return;
+      const currentKey = `${state.period}:${state.sev}`;
+      if (state.inFlight && state.inFlightKey === currentKey) return;
+      
+      if (state.inFlight && state.inFlightKey !== currentKey) {
+          state.overviewController?.abort();
+      }
+      
       state.inFlight = true;
+      state.inFlightKey = currentKey;
       const sequence = state.overviewRequest + 1;
       const firstLoad = state.lastData === null;
       
@@ -894,7 +902,7 @@
     function startPolling() {
       if (state.pollTimer) clearInterval(state.pollTimer);
       state.pollTimer = setInterval(() => {
-        if (document.hidden || state.loading) return;
+        if (document.hidden || state.inFlight) return;
         renderDashboard({ silent: true });
       }, 30000);
 

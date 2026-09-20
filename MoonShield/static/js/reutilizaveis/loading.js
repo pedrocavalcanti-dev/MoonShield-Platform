@@ -82,9 +82,8 @@
 
               if (!payload || payload.version !== 1) return null;
               if (Date.now() - payload.savedAt > CACHE_TTL_MS) {
-                  this.remove(key);
-                  return null;
-              }
+                payload.data._isStale = true;
+            }
               return payload.data;
           } catch (e) {
               return null;

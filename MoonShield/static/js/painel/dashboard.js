@@ -45,6 +45,7 @@
       lastFeed: [],
       cleared: false,
       loading: false,
+      inFlight: false,
       pollTimer: null,
       overviewController: null,
       overviewRequest: 0,
@@ -178,7 +179,7 @@
       state.overviewRequest = sequence;
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
-        const response = await fetch(url, {
+        const response = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, {
           headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
           credentials: "same-origin",
           signal: controller.signal,
@@ -194,6 +195,8 @@
     }
 
     async function renderDashboard({ silent = false } = {}) {
+      if (state.inFlight) return;
+      state.inFlight = true;
       const sequence = state.overviewRequest + 1;
       const firstLoad = state.lastData === null;
       
@@ -224,9 +227,11 @@
         console.error("[MoonShield Dashboard] Falha ao carregar overview", error);
         if (!state.lastData) showBanner("Alguns dados do Dashboard não puderam ser carregados agora.");
       } finally {
-        if (sequence !== state.overviewRequest) return;
-        if (state.lastData === null && !silent) setLoading(false);
-        else window.MoonShieldLoading?.setRefreshing(shell, false);
+        if (sequence === state.overviewRequest) {
+            state.inFlight = false;
+            if (state.lastData === null && !silent) setLoading(false);
+            else window.MoonShieldLoading?.setRefreshing(shell, false);
+        }
       }
     }
 
@@ -895,7 +900,7 @@
 
       if (window.MoonShieldLoading?.visibility) {
         window.MoonShieldLoading.visibility.onVisible(() => {
-          if (!state.loading) renderDashboard({ silent: true });
+          if (!state.inFlight) renderDashboard({ silent: true });
         });
       }
     }

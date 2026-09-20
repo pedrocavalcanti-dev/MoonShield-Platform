@@ -445,7 +445,33 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ══════════════════════════════════════════════════════
        SCAN
     ══════════════════════════════════════════════════════ */
-    async function doScan(force = false) {
+    async function loadInventory() {
+        const loadingTargets = [
+            [document.querySelector('.dev-kpis'), 'card'],
+            [document.querySelector('.dev-main'), 'table'],
+        ];
+
+        loadingTargets.forEach(([target, variant]) => {
+            window.MoonShieldLoading?.start(target, { variant });
+        });
+
+        try {
+            const response = await fetch('/dispositivos/api/inventory/');
+            const data = await response.json();
+            if (data.ok) {
+                devices = data.devices || [];
+                updateDeviceStatus();
+                renderTable();
+                renderKpis();
+            }
+        } catch (error) {
+            console.error('Erro ao carregar inventário:', error);
+        } finally {
+            loadingTargets.forEach(([target]) => window.MoonShieldLoading?.finish(target));
+        }
+    }
+
+    async function doScan(force = false) { {
         if (scanInFlight) {
             if (force) showToast('⏳ Já existe uma varredura em andamento.');
             return;
@@ -864,5 +890,7 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ══════════════════════════════════════════════════════
        INIT
     ══════════════════════════════════════════════════════ */
-    setTimeout(() => doScan(false), 0);
+    setTimeout(() => {
+        loadInventory().then(() => doScan(false));
+    }, 0);
 });

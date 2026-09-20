@@ -433,7 +433,7 @@
     }
 
     async function fetchJson(url, options) {
-        const response = await fetch(url, Object.assign({
+        const response = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, Object.assign({
             credentials: 'same-origin',
             headers: {
                 Accept: 'application/json',

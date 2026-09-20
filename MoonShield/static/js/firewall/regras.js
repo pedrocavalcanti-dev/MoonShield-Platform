@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let response;
         try {
-            response = await fetch(url, {
+            response = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, {
                 credentials: "same-origin",
                 ...options,
                 method,

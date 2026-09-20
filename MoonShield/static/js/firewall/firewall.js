@@ -54,7 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
     async function apiJson(url, options = {}) {
         if (!url) throw new Error("Endpoint não configurado.");
 
-        const response = await fetch(url, {
+        const response = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, {
             credentials: "same-origin",
             ...options,
         });

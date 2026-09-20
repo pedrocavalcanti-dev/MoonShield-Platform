@@ -66,15 +66,23 @@
   }
 
   const CACHE_TTL_MS = 120 * 1000;
+    const memoryCache = new Map();
   const cache = {
       get(key) {
           try {
-              const str = sessionStorage.getItem(key);
-              if (!str) return null;
-              const payload = JSON.parse(str);
+              let payload = null;
+              try {
+                  const str = sessionStorage.getItem(key);
+                  if (str) payload = JSON.parse(str);
+              } catch(e) {}
+
+              if (!payload && memoryCache.has(key)) {
+                  payload = memoryCache.get(key);
+              }
+
               if (!payload || payload.version !== 1) return null;
               if (Date.now() - payload.savedAt > CACHE_TTL_MS) {
-                  sessionStorage.removeItem(key);
+                  this.remove(key);
                   return null;
               }
               return payload.data;
@@ -84,17 +92,35 @@
       },
       set(key, data) {
           try {
-              sessionStorage.setItem(key, JSON.stringify({
+              const payload = {
                   version: 1,
                   savedAt: Date.now(),
                   data: data
-              }));
+              };
+              memoryCache.set(key, payload);
+              try {
+                  sessionStorage.setItem(key, JSON.stringify(payload));
+              } catch (e) {}
           } catch (e) {}
       },
       remove(key) {
+          try { memoryCache.delete(key); } catch (e) {}
           try { sessionStorage.removeItem(key); } catch (e) {}
       }
   };
+
+  const pendingRequests = new Map();
+  function fetchCoalesced(url, options = {}) {
+      if (options.method && options.method.toUpperCase() !== 'GET') {
+          return fetch(url, options);
+      }
+      if (pendingRequests.has(url)) {
+          return pendingRequests.get(url).then(r => r.clone());
+      }
+      const p = fetch(url, options).finally(() => pendingRequests.delete(url));
+      pendingRequests.set(url, p);
+      return p.then(r => r.clone());
+  }
 
   const visibility = {
       _callbacks: [],
@@ -113,5 +139,5 @@
       }
   };
 
-  window.MoonShieldLoading = { start, finish, error, setPageLoading, setRefreshing, cache, visibility };
+  window.MoonShieldLoading = { start, finish, error, setPageLoading, setRefreshing, cache, visibility, fetchCoalesced };
 })();

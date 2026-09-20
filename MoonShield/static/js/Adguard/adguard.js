@@ -281,7 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     try {
-      const res = await fetch(`/dns/api/data/?period=${state.period}`);
+      const res = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(`/dns/api/data/?period=${state.period}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
@@ -346,7 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ? `/dns/api/querylog/?since=${encodeURIComponent(feedState.lastTime)}&limit=80`
         : `/dns/api/querylog/?limit=80`;
 
-      const res = await fetch(url);
+      const res = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url);
       if (!res.ok) return;
 
       const data = await res.json();
@@ -1123,7 +1123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const orig = btn.textContent;
     btn.textContent = 'Enviando…'; btn.disabled = true;
     try {
-      const res  = await fetch(_modalMode === 'block' ? '/dns/api/block/' : '/dns/api/allow/', {
+      const res  = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(_modalMode === 'block' ? '/dns/api/block/' : '/dns/api/allow/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': _getCsrf() },
         body: JSON.stringify({ domains: finalRules }),
@@ -1153,7 +1153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = $('qaBtnFlush');
     if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
     try {
-      const res  = await fetch('/dns/api/flush/', { method: 'POST', headers: { 'X-CSRFToken': _getCsrf() } });
+      const res  = await (window.MoonShieldLoading?.fetchCoalesced || fetch)('/dns/api/flush/', { method: 'POST', headers: { 'X-CSRFToken': _getCsrf() } });
       const data = await res.json();
       showToast(data.ok ? '✓ Cache DNS limpo' : `Erro: ${data.error}`);
     } catch (e) {
@@ -1168,7 +1168,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
     showToast('Atualizando listas…');
     try {
-      const res  = await fetch('/dns/api/update-filters/', { method: 'POST', headers: { 'X-CSRFToken': _getCsrf() } });
+      const res  = await (window.MoonShieldLoading?.fetchCoalesced || fetch)('/dns/api/update-filters/', { method: 'POST', headers: { 'X-CSRFToken': _getCsrf() } });
       const data = await res.json();
       showToast(data.ok ? `✓ ${data.msg}` : `Erro: ${data.error}`);
     } catch (e) {

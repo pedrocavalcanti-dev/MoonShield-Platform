@@ -496,6 +496,34 @@ def network_interfaces(request):
     return JsonResponse({"interfaces": out})
 
 
+
+from django.views.decorators.http import require_GET
+from django.http import JsonResponse
+from .models import Dispositivo
+
+@require_GET
+def get_inventory(request):
+    devices = []
+    for d in Dispositivo.objects.order_by("ip"):
+        devices.append({
+            "ip": d.ip,
+            "mac": d.mac,
+            "hostname": d.hostname,
+            "vendor": d.vendor,
+            "os": d.os_guess,
+            "status": d.status,
+            "last_seen": d.last_seen.isoformat() if d.last_seen else None,
+            "first_seen": d.first_seen.isoformat() if d.first_seen else None,
+            "alias": d.alias,
+            "portas": [],
+            "rede": "Desconhecida",
+        })
+    return JsonResponse({
+        "ok": True,
+        "fonte": "cache_bd",
+        "devices": devices
+    })
+
 @csrf_exempt
 @require_POST
 def network_scan(request):

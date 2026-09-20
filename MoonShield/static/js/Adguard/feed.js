@@ -450,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? `/dns/api/querylog/?since=${encodeURIComponent(state.lastTime)}&limit=80`
                 : '/dns/api/querylog/?limit=120';
 
-            const res = await fetch(url, {
+            const res = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, {
                 method: 'GET',
                 headers: { 'Accept': 'application/json' },
                 cache: 'no-store',
@@ -546,7 +546,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function postDomain(url, domain) {
         if (!domain || domain === '—') return;
 
-        const res = await fetch(url, {
+        const res = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

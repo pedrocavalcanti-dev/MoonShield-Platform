@@ -1,6 +1,7 @@
 """Views da área administrativa da MoonShield Appliance."""
 
 import json
+from django.core.cache import cache
 import logging
 from urllib.parse import urlparse
 
@@ -45,8 +46,16 @@ logger = logging.getLogger(__name__)
 def _topologia() -> dict:
     if not obter_topologia:
         return {"valida": False, "problemas": [], "avisos": []}
+
+    cache_key = "moonshield_topologia"
+    data = cache.get(cache_key)
+    if data:
+        return data
+
     try:
-        return obter_topologia()
+        data = obter_topologia()
+        cache.set(cache_key, data, 10)
+        return data
     except Exception as exc:
         logger.exception("Não foi possível obter a topologia oficial: %s", exc)
         return {"valida": False, "problemas": [{"mensagem": "Topologia indisponível."}], "avisos": []}
@@ -282,11 +291,16 @@ def _estado_firewall() -> dict:
 
 
 def _servicos(cfg: ConfigSistema, topologia: dict) -> dict:
+    cache_key = "moonshield_servicos_status"
+    data = cache.get(cache_key)
+    if data:
+        return data
+
     adguard = _estado_adguard(cfg, topologia)
     suricata = _estado_suricata(topologia)
     firewall = _estado_firewall()
     estados = (adguard, suricata, firewall)
-    return {
+    data = {
         "adguard": adguard,
         "suricata": suricata,
         "firewall": firewall,
@@ -298,6 +312,8 @@ def _servicos(cfg: ConfigSistema, topologia: dict) -> dict:
             "status": "operacional" if all(servico["saudavel"] for servico in estados) else "atencao",
         },
     }
+    cache.set(cache_key, data, 10)
+    return data
 
 
 @login_required(login_url="autenticacao:login")

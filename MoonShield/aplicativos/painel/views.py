@@ -10,6 +10,7 @@ Contrato de _overview_real():
 """
 
 import time
+from django.core.cache import cache
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.contrib.auth.decorators import login_required
@@ -422,6 +423,11 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
         period: "1h" | "24h" | "7d" | "30d"
         sev:    "all" | "critico" | "alto" | "medio"
     """
+    cache_key = f"moonshield_overview_{period}_{sev}"
+    data = cache.get(cache_key)
+    if data:
+        return data
+
     from configuracoes.views import _servicos, _topologia
     from dns.views import _get_adguard_client
     from django.utils import timezone
@@ -528,7 +534,7 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     sensores_lista = _sensores_lista(adguard, suricata, firewall)
     sensores_online = sum(1 for s in sensores_lista if s["status"] == "ok")
 
-    return {
+    result = {
         "ok":      True,
         "mode":    "real",
         "fonte":   "local",

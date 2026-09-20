@@ -116,7 +116,7 @@ function evProto(ev) { return ev.tecnico?.protocolo || ev.sig?.proto || '—'; }
  * Lança erro descritivo se resposta não for JSON ou se status não for ok.
  */
 async function _fetchJson(url, options = {}) {
-  const res = await fetch(url, options);
+  const res = await (window.MoonShieldLoading?.fetchCoalesced || fetch)(url, options);
 
   // Detecta resposta HTML inesperada (ex.: redirect de login, erro 500)
   const ct = res.headers.get('content-type') || '';
@@ -403,7 +403,7 @@ function _payloadFingerprint(eventos) {
 async function loadIncidentes() {
   const alvo = $('alertTable')?.closest('.jg-feed-container') || $('alertTable')?.parentElement;
   const primeiroCarregamento = !_state._incidentesCarregados;
-  
+
   const agr = _state.agrupado ? 1 : 0;
   const url = `/incidentes/api/data/?count=100&horas=${_state.horas}&preset=${_state.presetAtivo}&agrupado=${agr}`;
   const cacheKey = `moonshield:incidentes:data:${_state.horas}:${_state.presetAtivo}:${agr}`;
@@ -435,12 +435,18 @@ async function loadIncidentes() {
 
     const novoHash = _payloadFingerprint(eventos);
     const dadosMudaram = novoHash !== _state._lastHash;
+
+    if (!dadosMudaram && _state._incidentesCarregados) {
+        window.MoonShieldLoading?.finish(alvo);
+        return;
+    }
+
     _state._lastHash = novoHash;
 
     _state.allEvents = eventos;
     updateBadges();
     applyFilters();
-    if (dadosMudaram || !_state.filtered.length) updateInsights();
+    updateInsights();
     _updateKpiFromEvents();
     _state._incidentesCarregados = true;
     window.MoonShieldLoading?.finish(alvo);

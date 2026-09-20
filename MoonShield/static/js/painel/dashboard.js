@@ -216,6 +216,7 @@
           state.lastData = cached;
           applyData(cached);
           hideBanner();
+          setLoading(false);
       }
       state.lastFilter = cacheKey;
 
@@ -237,8 +238,13 @@
       } finally {
         if (sequence === state.overviewRequest) {
             state.inFlight = false;
-            if (state.lastData === null && !silent) setLoading(false);
-            else window.MoonShieldLoading?.setRefreshing(shell, false);
+            state.inFlightKey = null;
+
+            if (state.loading || shell.classList.contains("is-loading")) {
+                setLoading(false);
+            }
+
+            window.MoonShieldLoading?.setRefreshing(shell, false);
         }
       }
     }

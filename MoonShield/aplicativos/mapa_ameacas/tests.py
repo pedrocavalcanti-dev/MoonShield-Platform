@@ -1,280 +1,259 @@
+import json
+from datetime import timedelta
 from unittest.mock import patch
-from django.test import TestCase, RequestFactory
-from datetime import datetime, timedelta
+
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
+
 from configuracoes.models import ConfigSistema
-from incidentes.models import EventoBruto
-from firewall.models import EventoFirewall
-from .services import FeedNormalizer, _is_global_ip
-from .views import api_map_overview
+from incidentes.models import EventoBruto, GeoCache
 
-class FeedNormalizerTest(TestCase):
-    def setUp(self):
-        self.cfg = ConfigSistema.get_solo()
-        self.cfg.node_latitude = -23.55
-        self.cfg.node_longitude = -46.63
-        self.cfg.save()
-        self.start_time = timezone.now() - timedelta(days=1)
+from .services import FeedNormalizer
+from .views import api_map_facets, api_map_feed, api_map_overview, api_map_search
 
-    def test_normalize_severity(self):
-        normalizer = FeedNormalizer(start_time=timezone.now(), severities=['all'], sources=['ids'])
-        self.assertEqual(normalizer._normalize_severity('1'), 'critical')
-        self.assertEqual(normalizer._normalize_severity('crítico'), 'critical')
-        self.assertEqual(normalizer._normalize_severity('critico'), 'critical')
-        self.assertEqual(normalizer._normalize_severity('alto'), 'high')
-        self.assertEqual(normalizer._normalize_severity('médio'), 'medium')
-        self.assertEqual(normalizer._normalize_severity('medio'), 'medium')
-        self.assertEqual(normalizer._normalize_severity('baixo'), 'low')
-        self.assertEqual(normalizer._normalize_severity('unknown_sev'), 'low')
-        self.assertEqual(normalizer._normalize_severity(None), 'low')
 
-    def test_get_node_location(self):
-        normalizer = FeedNormalizer(start_time=timezone.now(), severities=['all'], sources=['ids'])
-        loc = normalizer._get_node_location()
-        self.assertTrue(loc['geolocatable'])
-        self.assertEqual(loc['latitude'], -23.55)
+TOPOLOGIA = {
+    "lan": {"interfaces": [{
+        "desejado": {"ipv4_endereco": "192.168.10.1", "ipv4_prefixo": 24},
+        "real": {},
+    }]},
+    "mgmt": {"interfaces": []},
+    "dmz": {"interfaces": []},
+    "custom": {"interfaces": []},
+    "wan": {"interfaces": []},
+}
 
-    def test_location_validation(self):
-        # We just test the normalizer and logic, the API test needs auth setup
-        pass
-
-    def test_geoip_global_filtering(self):
-        normalizer = FeedNormalizer(start_time=timezone.now(), severities=['all'], sources=['ids'])
-        self.assertFalse(normalizer._get_geo('203.0.113.5')['geolocatable']) # TEST-NET-3
-        self.assertFalse(normalizer._get_geo('198.51.100.12')['geolocatable']) # TEST-NET-2
-        self.assertFalse(normalizer._get_geo('10.0.0.1')['geolocatable']) # Private
-        self.assertFalse(normalizer._get_geo('fe80::1')['geolocatable']) # IPv6 link-local
-        self.assertFalse(normalizer._get_geo('fd00::1')['geolocatable']) # IPv6 ULA
-
-    def test_api_limit_parsing(self):
-        factory = RequestFactory()
-        req = factory.get('/mapa/api/overview/?limit=abc')
-        req.user = type('User', (), {'is_authenticated': True})
-        # Logic in views.py ensures it falls back to 200
-
-    def test_api_facets(self):
-        pass
-
-    def test_filters(self):
-        pass
-
-    def test_get_suricata_events_regression(self):
-        EventoBruto.objects.create(
-            timestamp=timezone.now(),
-            event_type='alert',
-            src_ip='8.8.8.8',
-            dest_ip='1.1.1.1',
-            dest_porta=80,
-            protocolo='TCP',
-            signature='Test Signature',
-            severidade='critical',
-            event_hash='testhash'
-        )
-        normalizer = FeedNormalizer(start_time=self.start_time, severities=['all'], sources=['ids'])
-        normalizer._is_internal_ip = lambda x: False
-        events = normalizer.get_suricata_events(max_limit=10)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]['src_ip'], '8.8.8.8')
-
-    def test_get_firewall_events_regression(self):
-        EventoFirewall.objects.create(
-            timestamp=timezone.now(),
-            acao='DROP',
-            src_ip='198.51.100.12',
-            dst_ip='192.168.1.1',
-            dst_port=443,
-            proto='TCP',
-            chain='INPUT',
-            event_hash='fwtest1'
-        )
-        normalizer = FeedNormalizer(start_time=self.start_time, severities=['all'], sources=['firewall'])
-        normalizer._is_internal_ip = lambda x: x == '192.168.1.1'
-        events = normalizer.get_firewall_events(max_limit=10)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]['source'], 'firewall')
-        self.assertEqual(events[0]['event_class'], 'block')
-        self.assertEqual(events[0]['severity'], 'low')
-        self.assertEqual(events[0]['src_ip'], '198.51.100.12')
-        self.assertEqual(events[0]['dst_ip'], '192.168.1.1')
-        self.assertEqual(events[0]['dst_port'], 443)
-        self.assertEqual(events[0]['protocol'], 'TCP')
-        self.assertGreaterEqual(events[0]['count'], 1)
-        self.assertFalse(events[0]['src_geo']['geolocatable']) # 198.51.100.12 is TEST-NET
-
-    @patch('dns.services.adguard_bootstrap.criar_cliente_adguard_local')
-    def test_api_overview_integrated(self, mock_adguard):
-        mock_client = mock_adguard.return_value
-        mock_client.get_querylog_raw.return_value = []
-
-        EventoBruto.objects.create(
-            timestamp=timezone.now(),
-            event_type='alert',
-            src_ip='8.8.8.8',
-            dest_ip='1.1.1.1',
-            dest_porta=80,
-            protocolo='TCP',
-            signature='Test Signature API',
-            severidade='critical',
-            event_hash='api_bruto_1'
-        )
-        EventoFirewall.objects.create(
-            timestamp=timezone.now(),
-            acao='DROP',
-            src_ip='8.8.4.4',
-            dst_ip='192.168.1.1',
-            dst_port=443,
-            proto='TCP',
-            chain='INPUT',
-            event_hash='api_fw_1'
-        )
-
-        factory = RequestFactory()
-        req = factory.get('/mapa/api/overview/')
-        req.user = type('User', (), {'is_authenticated': True})
-
-        with patch('mapa_ameacas.services.FeedNormalizer._is_internal_ip', return_value=False):
-            res = api_map_overview(req)
-            self.assertEqual(res.status_code, 200)
 
 class ThreatMapBackendTests(TestCase):
     def setUp(self):
-        self.cfg = ConfigSistema.get_solo()
-        self.cfg.node_latitude = -23.55
-        self.cfg.node_longitude = -46.63
-        self.cfg.save()
         self.start_time = timezone.now() - timedelta(days=1)
-
-    def test_is_global_ip(self):
-        # A. private IPv4
-        self.assertFalse(_is_global_ip('10.0.0.5'))
-        self.assertFalse(_is_global_ip('192.168.1.5'))
-        self.assertFalse(_is_global_ip('172.16.0.5'))
-        # B. documentation
-        self.assertFalse(_is_global_ip('203.0.113.5'))
-        # C. IPv6 ULA / link-local
-        self.assertFalse(_is_global_ip('fd12:3456:789a:1::1'))
-        self.assertFalse(_is_global_ip('fe80::1ff:fe23:4567:890a'))
-        # D. global IPv4
-        self.assertTrue(_is_global_ip('8.8.8.8'))
-        self.assertTrue(_is_global_ip('200.10.10.10'))
-
-    def test_direction_suricata(self):
-        # E. inbound (global -> internal)
-        EventoBruto.objects.create(
-            timestamp=timezone.now(), event_type='alert',
-            src_ip='8.8.8.8', dest_ip='192.168.1.10',
-            dest_porta=80, protocolo='TCP', signature='Inbound Test',
-            severidade='high', event_hash='suri1'
+        self.factory = RequestFactory()
+        cfg = ConfigSistema.get_solo()
+        cfg.node_latitude = -23.55
+        cfg.node_longitude = -46.63
+        cfg.save()
+        self.topologia = patch(
+            "incidentes.services.contexto_rede.obter_topologia",
+            return_value=TOPOLOGIA,
         )
-        # F. outbound (internal -> global)
-        EventoBruto.objects.create(
-            timestamp=timezone.now(), event_type='alert',
-            src_ip='10.0.0.15', dest_ip='1.1.1.1',
-            dest_porta=443, protocolo='TCP', signature='Outbound Test',
-            severidade='high', event_hash='suri2'
-        )
-        # G. internal (private -> private)
-        EventoBruto.objects.create(
-            timestamp=timezone.now(), event_type='alert',
-            src_ip='10.0.0.15', dest_ip='192.168.1.20',
-            dest_porta=22, protocolo='TCP', signature='Internal Test',
-            severidade='low', event_hash='suri3'
+        self.topologia.start()
+        self.addCleanup(self.topologia.stop)
+
+    def _alert(self, *, src_ip, dest_ip, signature, severity="high", category="network",
+               protocol="TCP", sid="1001", timestamp=None):
+        return EventoBruto.objects.create(
+            timestamp=timestamp or timezone.now(),
+            event_type="alert",
+            src_ip=src_ip,
+            dest_ip=dest_ip,
+            src_porta=54000,
+            dest_porta=443,
+            protocolo=protocol,
+            signature=signature,
+            sid=sid,
+            categoria=category,
+            severidade=severity,
+            event_hash=f"map-{signature}-{timezone.now().timestamp()}",
         )
 
-        normalizer = FeedNormalizer(start_time=self.start_time)
-        # Manually mock _is_internal_ip for deterministic test without needing rede app setup
-        normalizer._is_internal_ip = lambda x: x.startswith('192.168') or x.startswith('10.')
+    def _geo(self, ip="8.8.8.8", **values):
+        defaults = {
+            "pais": "United States",
+            "pais_codigo": "US",
+            "cidade": "Mountain View",
+            "latitude": 37.386,
+            "longitude": -122.0838,
+            "asn_number": "AS15169",
+            "asn_org": "Google LLC",
+        }
+        defaults.update(values)
+        return GeoCache.objects.create(ip=ip, **defaults)
 
-        evs = normalizer.get_suricata_events()
-        self.assertEqual(len(evs), 3)
+    def _request(self, path):
+        request = self.factory.get(path)
+        request.user = type("User", (), {"is_authenticated": True})()
+        return request
 
-        inbound = next(e for e in evs if e['signature'] == 'Inbound Test')
-        self.assertEqual(inbound['direction'], 'inbound')
-        self.assertEqual(inbound['external_ip'], '8.8.8.8')
-
-        outbound = next(e for e in evs if e['signature'] == 'Outbound Test')
-        self.assertEqual(outbound['direction'], 'outbound')
-        self.assertEqual(outbound['external_ip'], '1.1.1.1')
-
-        internal = next(e for e in evs if e['signature'] == 'Internal Test')
-        self.assertEqual(internal['direction'], 'internal')
-        self.assertIsNone(internal['external_ip'])
-        self.assertFalse(internal['geolocatable'])
-
-    def test_node_sem_localizacao(self):
-        # H. node sem localização
-        self.cfg.node_latitude = None
-        self.cfg.node_longitude = None
-        self.cfg.save()
-
-        EventoBruto.objects.create(
-            timestamp=timezone.now(), event_type='alert',
-            src_ip='8.8.8.8', dest_ip='192.168.1.10',
-            dest_porta=80, protocolo='TCP', signature='Inbound Node Test',
-            severidade='high', event_hash='node1'
+    def test_internal_event_has_network_context_without_geo(self):
+        self._geo("192.168.10.50")
+        self._alert(
+            src_ip="192.168.10.50",
+            dest_ip="192.168.10.60",
+            signature="Internal movement",
         )
 
-        normalizer = FeedNormalizer(start_time=self.start_time)
-        normalizer._is_internal_ip = lambda x: x.startswith('192.168')
-        evs = normalizer.get_suricata_events()
-        self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]['geolocatable'], False)
+        event = FeedNormalizer(self.start_time, sources=["ids"]).get_suricata_events()[0]
 
-    def test_firewall_privado(self):
-        # I. Firewall privado
-        EventoFirewall.objects.create(
-            timestamp=timezone.now(), acao='DROP',
-            src_ip='10.10.10.10', dst_ip='192.168.1.1',
-            dst_port=443, proto='TCP', chain='INPUT', event_hash='fw_priv'
+        self.assertEqual(event["flow_scope"], "internal")
+        self.assertEqual(event["src_scope"], "internal")
+        self.assertEqual(event["src_role"], "LAN")
+        self.assertFalse(event["has_geo"])
+        self.assertFalse(event["src_geo"]["geolocatable"])
+
+    def test_public_geo_event_exposes_complete_contract(self):
+        self._geo()
+        self._alert(src_ip="8.8.8.8", dest_ip="192.168.10.50", signature="Inbound scan")
+
+        event = FeedNormalizer(self.start_time, sources=["ids"]).get_suricata_events()[0]
+
+        self.assertEqual(event["direction"], "inbound")
+        self.assertEqual(event["flow_scope"], "inbound")
+        self.assertEqual(event["dst_role"], "LAN")
+        self.assertTrue(event["has_geo"])
+        self.assertEqual(event["country_code"], "US")
+        self.assertEqual(event["asn"], "AS15169")
+        self.assertEqual(event["src_port"], 54000)
+        self.assertEqual(event["sid"], "1001")
+        self.assertEqual(event["external_ip"], "8.8.8.8")
+
+    def test_invalid_or_sentinel_coordinates_are_not_map_eligible(self):
+        self._geo(latitude=0, longitude=0)
+        self._alert(src_ip="8.8.8.8", dest_ip="192.168.10.50", signature="Invalid geo")
+
+        event = FeedNormalizer(self.start_time, sources=["ids"]).get_suricata_events()[0]
+
+        self.assertFalse(event["has_geo"])
+        self.assertFalse(event["geolocatable"])
+
+    def test_filters_apply_together_for_country_protocol_direction_and_zone(self):
+        self._geo()
+        self._alert(
+            src_ip="8.8.8.8",
+            dest_ip="192.168.10.50",
+            signature="Filtered alert",
+            severity="critical",
+            category="recon",
+            protocol="TCP",
         )
-        normalizer = FeedNormalizer(start_time=self.start_time)
-        normalizer._is_internal_ip = lambda x: x.startswith('192.168') or x.startswith('10.')
-        evs = normalizer.get_firewall_events()
-        self.assertEqual(len(evs), 1)
-        self.assertFalse(evs[0]['geolocatable'])
-        self.assertEqual(evs[0]['direction'], 'internal')
-
-    @patch('dns.services.adguard_bootstrap.criar_cliente_adguard_local')
-    def test_dns_domain_sem_ip(self, mock_criar):
-        # K. DNS domínio sem IP
-        mock_client = mock_criar.return_value
-        mock_client.get_querylog_raw.return_value = [{
-            'time': timezone.now().strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-            'reason': 'FilteredBlackList',
-            'client': '192.168.1.50',
-            'question': {'name': 'malicious.com'}
-        }]
-
-        normalizer = FeedNormalizer(start_time=self.start_time)
-        normalizer._is_internal_ip = lambda x: x.startswith('192.168')
-        evs = normalizer.get_dns_events()
-        self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]['domain'], 'malicious.com')
-        self.assertIsNone(evs[0]['dst_ip'])
-        self.assertFalse(evs[0]['geolocatable'])
-        self.assertEqual(evs[0]['direction'], 'outbound')
-
-    @patch('dns.services.adguard_bootstrap.criar_cliente_adguard_local')
-    def test_adguard_indisponivel(self, mock_criar):
-        # L. AdGuard indisponível
-        mock_criar.side_effect = Exception("Connection Refused")
-
-        normalizer = FeedNormalizer(start_time=self.start_time)
-        evs = normalizer.get_dns_events()
-        self.assertEqual(evs, [])
-        self.assertEqual(normalizer.source_health['dns'], 'offline')
-
-    def test_non_global_not_internal(self):
-        # Documentation IP: not global, not internal => unknown
-        EventoBruto.objects.create(
-            timestamp=timezone.now(), event_type='alert',
-            src_ip='203.0.113.10', dest_ip='198.51.100.10',
-            dest_porta=80, protocolo='TCP', signature='NonGlobal Test',
-            severidade='high', event_hash='suri_nonglobal'
+        normalizer = FeedNormalizer(
+            self.start_time,
+            severities=["critical"],
+            sources=["ids"],
+            category="recon",
+            country="US",
+            protocol="TCP",
+            direction="inbound",
+            zone="LAN",
         )
-        normalizer = FeedNormalizer(start_time=self.start_time)
-        normalizer._is_internal_ip = lambda x: False
-        evs = normalizer.get_suricata_events()
-        self.assertEqual(len(evs), 1)
-        self.assertEqual(evs[0]['direction'], 'unknown')
-        self.assertFalse(evs[0]['geolocatable'])
+
+        self.assertEqual(len(normalizer.get_all_events()), 1)
+        normalizer.protocol = "UDP"
+        self.assertEqual(normalizer.get_all_events(), [])
+
+    def test_period_excludes_old_event(self):
+        self._geo()
+        self._alert(
+            src_ip="8.8.8.8",
+            dest_ip="192.168.10.50",
+            signature="Old alert",
+            timestamp=timezone.now() - timedelta(hours=2),
+        )
+
+        self.assertEqual(
+            FeedNormalizer(timezone.now() - timedelta(hours=1), sources=["ids"]).get_all_events(),
+            [],
+        )
+
+    def test_facets_have_real_counts_for_all_filter_dimensions(self):
+        self._geo()
+        self._alert(
+            src_ip="8.8.8.8",
+            dest_ip="192.168.10.50",
+            signature="Facet alert",
+            severity="critical",
+            category="recon",
+        )
+
+        facets = FeedNormalizer.get_facets(
+            FeedNormalizer(self.start_time, sources=["ids"]).get_all_events()
+        )
+
+        self.assertEqual(facets["severities"]["critical"], 1)
+        self.assertEqual(facets["sources"]["ids"], 1)
+        self.assertEqual(facets["categories"]["recon"], 1)
+        self.assertEqual(facets["countries"]["US"], 1)
+        self.assertEqual(facets["protocols"]["TCP"], 1)
+        self.assertEqual(facets["directions"]["inbound"], 1)
+        self.assertEqual(facets["zones"]["LAN"], 1)
+
+    def test_overview_counts_all_events_and_returns_only_geo_feed(self):
+        self._geo()
+        self._alert(
+            src_ip="8.8.8.8",
+            dest_ip="192.168.10.50",
+            signature="Map event",
+            severity="critical",
+        )
+        self._alert(
+            src_ip="192.168.10.50",
+            dest_ip="192.168.10.60",
+            signature="SOC only",
+            severity="critical",
+        )
+
+        response = api_map_overview(self._request("/mapa/api/overview/?source=ids"))
+        payload = json.loads(response.content)
+
+        self.assertEqual(payload["kpis"]["events"], 2)
+        self.assertEqual(payload["kpis"]["critical"], 2)
+        self.assertEqual(payload["kpis"]["geo_on_map"], 1)
+        self.assertEqual(payload["kpis"]["top_country"], "US")
+        self.assertEqual(len(payload["events"]), 1)
+        self.assertTrue(payload["events"][0]["has_geo"])
+
+    def test_geo_only_feed_can_be_requested_explicitly(self):
+        self._geo()
+        self._alert(src_ip="8.8.8.8", dest_ip="192.168.10.50", signature="Geo")
+        self._alert(src_ip="192.168.10.50", dest_ip="192.168.10.60", signature="Internal")
+
+        geo_payload = json.loads(
+            api_map_feed(self._request("/mapa/api/feed/?source=ids")).content
+        )
+        all_payload = json.loads(
+            api_map_feed(self._request("/mapa/api/feed/?source=ids&geo_only=0")).content
+        )
+
+        self.assertTrue(geo_payload["geo_only"])
+        self.assertEqual(len(geo_payload["events"]), 1)
+        self.assertEqual(len(all_payload["events"]), 2)
+
+    def test_search_supports_asn_and_internal_ip_context(self):
+        self._geo()
+        self._alert(src_ip="8.8.8.8", dest_ip="192.168.10.50", signature="ASN search")
+        self._alert(src_ip="192.168.10.50", dest_ip="192.168.10.60", signature="Internal search")
+
+        asn_payload = json.loads(
+            api_map_search(self._request("/mapa/api/search/?source=ids&q=AS15169")).content
+        )
+        ip_payload = json.loads(
+            api_map_search(self._request("/mapa/api/search/?source=ids&q=192.168.10.50")).content
+        )
+
+        self.assertEqual(asn_payload["total"], 1)
+        self.assertTrue(asn_payload["results"][0]["has_geo"])
+        internal_result = next(
+            result for result in ip_payload["results"]
+            if result.get("signature") == "Internal search"
+        )
+        self.assertEqual(internal_result["src_scope"], "internal")
+        self.assertFalse(internal_result["has_geo"])
+
+    def test_empty_ip_search_returns_explicit_internal_context(self):
+        payload = json.loads(
+            api_map_search(self._request("/mapa/api/search/?source=ids&q=192.168.10.99")).content
+        )
+
+        self.assertEqual(payload["results"][0]["type"], "ip")
+        self.assertEqual(payload["results"][0]["scope"], "internal")
+        self.assertEqual(payload["results"][0]["role"], "LAN")
+        self.assertFalse(payload["results"][0]["has_geo"])
+
+    def test_facets_endpoint_uses_the_same_filtered_context(self):
+        self._geo()
+        self._alert(src_ip="8.8.8.8", dest_ip="192.168.10.50", signature="Facet endpoint")
+
+        payload = json.loads(
+            api_map_facets(self._request("/mapa/api/facets/?source=ids&direction=inbound")).content
+        )
+
+        self.assertEqual(payload["facets"]["directions"], {"inbound": 1})

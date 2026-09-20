@@ -69,8 +69,7 @@ class DashboardOverviewTest(TestCase):
         servicos_data = servicos or _servicos_todos_ok()
         dns_data      = dns      or _dns_real()
 
-        with patch("painel.views._topologia", return_value={}), \
-             patch("painel.views._get_cfg",   return_value=None), \
+        with patch("painel.views._get_cfg",   return_value=None), \
              patch("configuracoes.views._servicos",       return_value=servicos_data), \
              patch("configuracoes.views._topologia",      return_value={}), \
              patch("dns.views._get_adguard_client") as mock_ag, \

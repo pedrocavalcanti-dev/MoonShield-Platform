@@ -197,6 +197,7 @@
         locEndereco: $('loc-endereco'),
         locCidade: $('loc-cidade'),
         locEstado: $('loc-estado'),
+        locPais: $('loc-pais'),
         btnSearchAddress: $('btn-search-address'),
         locationConfirmDisplay: $('location-confirm-display'),
 
@@ -1451,7 +1452,7 @@
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRFToken': getCookie('csrftoken') || ''
                 },
-                body: JSON.stringify({ cep, address, city, state: stateStr })
+                body: JSON.stringify({ cep, address, city, state: stateStr, country })
             });
             const data = await response.json();
 

@@ -516,3 +516,40 @@ class TestMapaLocationEndpoints(TestCase):
         cfg_after = ConfigSistema.get_solo()
         self.assertEqual(cfg_before.node_latitude, cfg_after.node_latitude)
         self.assertEqual(cfg_before.node_longitude, cfg_after.node_longitude)
+
+    def test_set_location_persistence_and_overview_reflection(self):
+        # 1. POST set_location válido;
+        payload = {
+            "latitude": -23.5505,
+            "longitude": -46.6333,
+            "source": "browser",
+            "city": "São Paulo",
+            "region": "SP",
+            "country_code": "BR"
+        }
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        # 2. HTTP 200;
+        self.assertEqual(response.status_code, 200)
+
+        # 3. recarregar ConfigSistema do DB;
+        cfg = ConfigSistema.get_solo()
+
+        # 4. campos continuam persistidos;
+        self.assertEqual(cfg.node_latitude, -23.5505)
+        self.assertEqual(cfg.node_longitude, -46.6333)
+        self.assertEqual(cfg.node_city, "São Paulo")
+        self.assertEqual(cfg.node_country_code, "BR")
+
+        # 5. chamar /mapa/api/overview/ em NOVA request;
+        overview_response = self.client.get("/mapa/api/overview/")
+        self.assertEqual(overview_response.status_code, 200)
+        overview_data = json.loads(overview_response.content)
+
+        # 6. node retornado possui mesma latitude/longitude;
+        node_data = overview_data.get("node", {})
+        self.assertEqual(node_data.get("latitude"), -23.5505)
+        self.assertEqual(node_data.get("longitude"), -46.6333)
+
+        # 7. frontend pode determinar node configurado apenas a partir do overview.
+        self.assertIsNotNone(node_data.get("latitude"))
+        self.assertIsNotNone(node_data.get("longitude"))

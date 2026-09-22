@@ -1546,3 +1546,24 @@
         opacity: 1
     }
 }
+/* Dispositivos V2: integra dados reais ao acabamento visual existente. */
+.dev-table tbody tr[data-device-id] { cursor: pointer; }
+.dev-table tbody tr[data-device-id]:focus-within,
+.dev-table tbody tr[data-device-id]:hover { background: rgba(59, 130, 246, .09); }
+.dev-device-icon { color: var(--text-muted); font-size: 16px; }
+.dev-device-link { appearance: none; padding: 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; font-weight: 650; cursor: pointer; text-align: left; }
+.dev-device-link:hover { color: #67e8f9; }
+.dev-row-action { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: 0 2px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg-mid); color: var(--text-muted); cursor: pointer; transition: background .15s, color .15s, border-color .15s, transform .15s; }
+.dev-row-action:hover { background: rgba(59, 130, 246, .18); border-color: rgba(96, 165, 250, .65); color: #bfdbfe; transform: translateY(-1px); }
+.dev-row-action:focus-visible,
+.dev-device-link:focus-visible,
+.dev-filter-chip:focus-visible,
+.dev-tab-btn:focus-visible,
+.dev-action-btn:focus-visible { outline: 2px solid #67e8f9; outline-offset: 2px; }
+.dev-cell-dim { color: var(--text-muted); }
+.dev-status-badge { display: inline-flex; align-items: center; margin-left: 5px; border: 1px solid transparent; }
+.dev-status-badge--stale { background: rgba(245, 158, 11, .13); border-color: rgba(245, 158, 11, .35); color: #fbbf24; }
+.dev-status-badge--unknown { background: rgba(148, 163, 184, .12); border-color: rgba(148, 163, 184, .28); color: #cbd5e1; }
+.dev-flag--stale { display: inline-flex; margin-left: 5px; background: rgba(245, 158, 11, .13); border: 1px solid rgba(245, 158, 11, .35); color: #fbbf24; }
+.dev-modal__field--compact { gap: 4px; }
+.dev-modal__field--compact .dev-modal__current { color: var(--text-primary); }

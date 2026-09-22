@@ -52,16 +52,23 @@ def networks(request):
 @require_POST
 @login_required(login_url="autenticacao:login")
 def network_scan(request):
+    network_ids: list[str] = []
     try:
         body = _json_body(request)
         if "cidr" in body:
             raise DiscoveryValidationError("CIDR livre não é aceito; informe somente IDs de redes oficiais.")
+        if isinstance(body.get("networks"), list):
+            network_ids = [item for item in body["networks"] if isinstance(item, str)][:8]
         result = executar_scan(body.get("networks"))
     except DiscoveryValidationError as exc:
         status = 409 if "em andamento" in str(exc).lower() else 400
         return JsonResponse({"ok": False, "error": str(exc)}, status=status)
-    except Exception:
-        logger.exception("Discovery de dispositivos recusado pelo Agent ou falhou internamente")
+    except Exception as exc:
+        logger.exception(
+            "devices.scan falhou | networks=%s tipo=%s",
+            network_ids,
+            type(exc).__name__,
+        )
         return JsonResponse({"ok": False, "error": "Não foi possível concluir o discovery pelo MoonShield Agent."}, status=502)
     result["devices"] = [serializar_dispositivo(device) for device in Dispositivo.objects.order_by("-last_seen", "current_ip", "pk")]
     return JsonResponse(result, status=200 if result["ok"] else 207)

@@ -1,7 +1,8 @@
-﻿"""Discovery local e limitado, executado somente pelo MoonShield Agent."""
+"""Discovery local e limitado, executado somente pelo MoonShield Agent."""
 from __future__ import annotations
 
 import ipaddress
+import logging
 import re
 import socket
 import subprocess
@@ -16,6 +17,7 @@ PING_WORKERS = 16
 PORT_WORKERS = 8
 PORTS = (22, 80, 443, 445, 554, 631, 9100, 3389)
 _MAC_RE = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
+logger = logging.getLogger(__name__)
 
 
 class DiscoveryError(ValueError):
@@ -36,16 +38,25 @@ def _run(*args: str, timeout: float = 2.0) -> str:
 
 
 def _agent_interfaces() -> dict[str, list[ipaddress.IPv4Interface]]:
+    """Normaliza o formato real do inventário do backend de rede do Agent."""
     from rede.nucleo.inventario import obter_inventario
+
     inventory = obter_inventario()
     result: dict[str, list[ipaddress.IPv4Interface]] = {}
     for item in inventory.get("interfaces") or []:
+        if not isinstance(item, dict):
+            continue
         name = str(item.get("nome") or item.get("name") or "").strip()
         addresses = item.get("ipv4") or item.get("enderecos_ipv4") or []
         if not isinstance(addresses, list):
             addresses = [addresses]
+
         parsed = []
         for address in addresses:
+            if isinstance(address, dict):
+                host = address.get("endereco") or address.get("address") or address.get("local")
+                prefix = address.get("prefixo") if "prefixo" in address else address.get("prefixlen")
+                address = f"{host}/{prefix}" if host and prefix is not None else ""
             try:
                 parsed.append(ipaddress.IPv4Interface(str(address)))
             except (ipaddress.AddressValueError, ValueError):
@@ -170,10 +181,12 @@ def _scan_target(target: dict) -> dict:
 
 def executar_device_scan(dados: dict[str, Any]) -> dict[str, Any]:
     targets = _targets(dados)
+    logger.info("[devices.scan] recebido | targets=%d", len(targets))
     results = []
     for target in targets:
         try:
             results.append(_scan_target(target))
         except Exception as exc:
             results.append({"network_id": target["network_id"], "ok": False, "error": str(exc)[:500]})
+    logger.info("[devices.scan] concluido | targets=%d sucesso=%d", len(results), sum(1 for result in results if result.get("ok")))
     return {"targets": results}

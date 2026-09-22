@@ -729,16 +729,27 @@ def _despachar_rede(
 
 def _despachar_dispositivos(req: RequisicaoIPC) -> dict[str, Any]:
     """Encaminha devices.* ao discovery privilegiado e allowlisted."""
+    targets = req.dados.get("targets")
+    target_count = len(targets) if isinstance(targets, list) else 0
+    logger.info("[devices.scan] recebido | id=%s targets=%d", req.id, target_count)
     try:
         modulo = importlib.import_module("dispositivos.discovery")
         executar = getattr(modulo, "executar_device_scan")
         resultado = executar(req.dados)
     except Exception as exc:
+        logger.exception("[devices.scan] falhou | id=%s tipo=%s", req.id, type(exc).__name__)
         raise ErroOperacao(
             str(exc) or "A descoberta de dispositivos falhou.",
             codigo=str(getattr(exc, "codigo", "") or "devices_scan_falhou"),
+            detalhes={"tipo": type(exc).__name__},
         ) from exc
     if isinstance(resultado, dict):
+        completed = resultado.get("targets")
+        logger.info(
+            "[devices.scan] concluido | id=%s targets=%d",
+            req.id,
+            len(completed) if isinstance(completed, list) else 0,
+        )
         return resultado
     raise ErroOperacao("Discovery retornou formato inválido.", codigo="devices_resposta_invalida")
 def _despachar_adguard(req: RequisicaoIPC) -> dict[str, Any]:

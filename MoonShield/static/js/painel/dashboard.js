@@ -23,6 +23,7 @@
       high: "alto",
       med: "medio",
     };
+    const VALID_PERIODS = new Set(["1h", "24h", "7d", "30d"]);
 
     const COLORS = {
       red: "#ef4444",
@@ -173,7 +174,9 @@
 
     async function fetchOverview(sequence) {
       const sev = SEV_TO_BACKEND[state.sev] || "all";
-      const url = `/painel/api/overview/?period=${encodeURIComponent(state.period)}&sev=${encodeURIComponent(sev)}`;
+      const endpoint = shell.dataset.overviewUrl;
+      const params = new URLSearchParams({ period: state.period, sev });
+      const url = `${endpoint}?${params.toString()}`;
       state.overviewController?.abort();
       const controller = new AbortController();
       state.overviewController = controller;
@@ -267,16 +270,19 @@
       setText("lastUpdate", formatUpdated(data.last_update));
 
       const copy = {
-        "1h": { title: "Última hora", subtitle: "Última hora" },
-        "24h": { title: "por Hora", subtitle: "00h–23h" },
-        "7d": { title: "por Dia", subtitle: "Últimos 7 dias" },
-        "30d": { title: "por Dia", subtitle: "Últimos 30 dias" },
+        "1h": { title: "na última hora", subtitle: "Última hora", timeline: "Volume de eventos por 5 minutos" },
+        "24h": { title: "nas últimas 24 horas", subtitle: "Últimas 24 horas", timeline: "Volume de eventos por hora" },
+        "7d": { title: "nos últimos 7 dias", subtitle: "Últimos 7 dias", timeline: "Volume de eventos por dia" },
+        "30d": { title: "nos últimos 30 dias", subtitle: "Últimos 30 dias", timeline: "Volume de eventos por dia" },
       }[state.period] || { title: "por Hora", subtitle: state.period };
 
       setText("attackChartTitle", `Ataques ${copy.title}`);
       setText("attackChartSubtitle", `Distribuição por severidade · ${copy.subtitle}`);
       setText("dnsChartTitle", `DNS ${copy.title}`);
       setText("dnsChartSubtitle", `Consultas e bloqueios · ${copy.subtitle}`);
+      setText("socTimelinePeriod", copy.subtitle);
+      setText("socTimelineSubtitle", copy.timeline);
+      setText("socTopIpsPeriod", state.period.toUpperCase());
     }
 
     function animateCounter(node, target) {
@@ -429,35 +435,12 @@
       }).join("");
     }
 
-    function normalize24Hours(labels, datasets) {
-      const fixed = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}h`);
-      const output = datasets.map(() => Array(24).fill(0));
-      if (!Array.isArray(labels)) return { labels: fixed, datasets: output };
-
-      labels.forEach((label, index) => {
-        const match = String(label).match(/(\d{1,2})/);
-        if (!match) return;
-        const hour = Number(match[1]);
-        if (hour < 0 || hour > 23) return;
-        datasets.forEach((series, sIndex) => {
-          output[sIndex][hour] += safeNumber(series?.[index]);
-        });
-      });
-      return { labels: fixed, datasets: output };
-    }
-
     function renderMainCharts(data) {
       const theme = chartTheme();
       const hours = data.charts?.hours || [];
       const attacks = data.charts?.attacks || {};
       let attackLabels = hours;
       let attackSeries = [attacks.crit || [], attacks.high || [], attacks.med || []];
-
-      if (state.period === "24h") {
-        const normalized = normalize24Hours(hours, attackSeries);
-        attackLabels = normalized.labels;
-        attackSeries = normalized.datasets;
-      }
 
       const attackCanvas = el("chartAtaques");
       if (attackCanvas && window.Chart) {
@@ -513,11 +496,6 @@
       const dnsHistoryAvailable = dns.history_available === true;
       let dnsLabels = dns.labels || dns.hours || [];
       let dnsSeries = [dns.queries || [], dns.blocked || []];
-      if (dnsHistoryAvailable && state.period === "24h") {
-        const normalizedDns = normalize24Hours(dnsLabels, dnsSeries);
-        dnsLabels = normalizedDns.labels;
-        dnsSeries = normalizedDns.datasets;
-      }
       if (!dnsHistoryAvailable) {
         dnsLabels = [];
         dnsSeries = [[], []];
@@ -702,7 +680,7 @@
         charts.timeline.data.datasets[2].data = crit;
         charts.timeline.update("active");
       }
-      setChartEmpty(canvas, combineSeries(crit, high, med).every(v => v === 0), "Nenhum incidente na última hora");
+      setChartEmpty(canvas, combineSeries(crit, high, med).every(v => v === 0), "Nenhum incidente no período");
     }
 
     function renderTopIPs(items) {
@@ -831,7 +809,7 @@
       document.querySelectorAll("#dashPeriod [data-p]").forEach(button => {
         button.addEventListener("click", () => {
           const period = button.dataset.p;
-          if (!period || period === state.period) return;
+          if (!VALID_PERIODS.has(period) || period === state.period) return;
           state.period = period;
           document.querySelectorAll("#dashPeriod [data-p]").forEach(b => b.classList.toggle("is-active", b === button));
           state.cleared = false;

@@ -17,7 +17,7 @@
 {% block conteudo %}
 {% include 'reutilizaveis/welcome.html' %}
 
-<div class="dashboard-shell is-loading" id="dashboardShell">
+<div class="dashboard-shell is-loading" id="dashboardShell" data-overview-url="{% url 'painel:api_overview' %}">
   <div class="dash-loading-bar" aria-hidden="true"></div>
 
   <div class="dash-banner" id="dashBanner" hidden>
@@ -226,9 +226,9 @@
       <article class="soc-card soc-card--timeline dash-loading-target">
         <div class="soc-card__header">
           <div>
-            <p class="soc-card__eyebrow">ÚLTIMOS 60 MIN</p>
+            <p class="soc-card__eyebrow" id="socTimelinePeriod">ÚLTIMA HORA</p>
             <h3 class="soc-card__title">Timeline de Ataques</h3>
-            <p class="soc-card__sub">Volume de eventos por bucket de 5 minutos</p>
+            <p class="soc-card__sub" id="socTimelineSubtitle">Volume de eventos por 5 minutos</p>
           </div>
           <div class="chart-legend chart-legend--small">
             <span><i class="chart-legend__dot chart-legend__dot--critical"></i>Crítico</span>
@@ -249,7 +249,7 @@
               <p class="soc-card__sub">Origem e volume de ocorrências</p>
             </div>
           </div>
-          <span class="compact-badge">24H</span>
+          <span class="compact-badge" id="socTopIpsPeriod">24H</span>
         </div>
         <div class="soc-ip-list" id="socTopIPs"></div>
       </article>

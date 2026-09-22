@@ -1,3 +1,4 @@
+import logging
 """
 MoonShield — painel/views.py
 
@@ -31,6 +32,8 @@ _PERIODOS = {
     "30d": {"horas": 720,  "bucket": "dia",     "bucket_min": 1440},
 }
 
+_PERIODO_PADRAO = "24h"
+
 _SEV_MAP = {
     # frontend → model
     "critico": "critico",
@@ -43,12 +46,23 @@ _SEV_MAP = {
 # HELPER: aggregação de incidentes por período
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _incidentes_no_periodo(horas: int, sev_filtro: str | None):
+def _normalizar_periodo(period: str | None) -> str:
+    """Retorna somente um período reconhecido pelo Dashboard."""
+    return period if period in _PERIODOS else _PERIODO_PADRAO
+
+
+def _normalizar_severidade(sev: str | None) -> str:
+    """Retorna somente um filtro de severidade reconhecido pelo Dashboard."""
+    return sev if sev == "all" or sev in _SEV_MAP else "all"
+
+
+def _incidentes_no_periodo(horas: int, sev_filtro: str | None, agora: datetime | None = None):
     """Retorna o queryset de Incidentes no período com filtro opcional de sev."""
     from incidentes.models import Incidente
     from django.utils import timezone
 
-    desde = timezone.now() - timedelta(hours=horas)
+    agora = agora or timezone.now()
+    desde = agora - timedelta(hours=horas)
     qs = Incidente.objects.filter(last_seen__gte=desde)
     if sev_filtro and sev_filtro in _SEV_MAP:
         qs = qs.filter(severidade_jg=_SEV_MAP[sev_filtro])
@@ -67,53 +81,56 @@ def _series_ataques(qs, periodo_cfg: dict, agora: datetime) -> dict:
     bucket = periodo_cfg["bucket"]
     horas = periodo_cfg["horas"]
     bucket_min = periodo_cfg["bucket_min"]
-    n_buckets = max(1, (horas * 60) // bucket_min)
 
     if bucket == "minuto":
-        trunc_fn = TruncMinute("last_seen")
+        trunc_cls = TruncMinute
         label_fmt = "%H:%M"
     elif bucket == "hora":
-        trunc_fn = TruncHour("last_seen")
+        trunc_cls = TruncHour
         label_fmt = "%Hh"
     else:
-        trunc_fn = TruncDay("last_seen")
+        trunc_cls = TruncDay
         label_fmt = "%d/%m"
 
-    # Buckets temporais reais
     from django.utils import timezone
-    agora_tz = timezone.now()
-    # Para 1h com bucket 5min, gera 12 buckets de 5min
+    tzinfo = timezone.get_current_timezone()
+    agora_local = timezone.localtime(agora, tzinfo)
     step = timedelta(minutes=bucket_min)
-    inicio = agora_tz - step * n_buckets
+    inicio_janela = agora_local - timedelta(hours=horas)
 
-    # Índice de bucket → posição na lista
+    def inicio_do_bucket(ts: datetime) -> datetime:
+        if bucket == "minuto":
+            return ts.replace(
+                minute=(ts.minute // bucket_min) * bucket_min,
+                second=0,
+                microsecond=0,
+            )
+        if bucket == "hora":
+            return ts.replace(minute=0, second=0, microsecond=0)
+        return ts.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Inclui os buckets parciais das duas bordas, mas o queryset já está
+    # restrito à janela móvel exata. Assim nenhum evento fora do período entra.
+    inicio = inicio_do_bucket(inicio_janela)
+    fim = inicio_do_bucket(agora_local)
+
     bucket_idx: dict[datetime, int] = {}
     labels = []
-    for i in range(n_buckets):
-        ts = inicio + step * i
-        # Arredonda para o início do bucket
-        if bucket == "minuto":
-            key = ts.replace(second=0, microsecond=0)
-            # Arredonda para múltiplo de bucket_min minutos
-            rounded_min = (key.minute // bucket_min) * bucket_min
-            key = key.replace(minute=rounded_min)
-        elif bucket == "hora":
-            key = ts.replace(minute=0, second=0, microsecond=0)
-        else:
-            key = ts.replace(hour=0, minute=0, second=0, microsecond=0)
-        bucket_idx[key] = i
-        ts_local = timezone.localtime(ts)
-        labels.append(ts_local.strftime(label_fmt))
+    ts = inicio
+    while ts <= fim:
+        bucket_idx[ts] = len(labels)
+        labels.append(ts.strftime(label_fmt))
+        ts += step
 
-    crit = [0] * n_buckets
-    high = [0] * n_buckets
-    med = [0] * n_buckets
+    crit = [0] * len(labels)
+    high = [0] * len(labels)
+    med = [0] * len(labels)
 
     # Aggregação real por severidade
     for sev_key, target_list in [("critico", crit), ("alto", high), ("medio", med)]:
         rows = (
             qs.filter(severidade_jg=sev_key)
-            .annotate(bucket_ts=trunc_fn)
+            .annotate(bucket_ts=trunc_cls("last_seen", tzinfo=tzinfo))
             .values("bucket_ts")
             .annotate(n=Count("id"))
             .order_by("bucket_ts")
@@ -122,91 +139,26 @@ def _series_ataques(qs, periodo_cfg: dict, agora: datetime) -> dict:
             ts = row["bucket_ts"]
             if ts is None:
                 continue
-            # Normaliza tz
-            from django.utils import timezone
-            if timezone.is_aware(agora_tz) and timezone.is_naive(ts):
-                ts = timezone.make_aware(ts)
-            elif timezone.is_naive(agora_tz) and timezone.is_aware(ts):
-                ts = timezone.make_naive(ts)
-
-            # Arredonda para o bucket
-            if bucket == "minuto":
-                rounded_min = (ts.minute // bucket_min) * bucket_min
-                key = ts.replace(minute=rounded_min, second=0, microsecond=0)
-            elif bucket == "hora":
-                key = ts.replace(minute=0, second=0, microsecond=0)
-            else:
-                key = ts.replace(hour=0, minute=0, second=0, microsecond=0)
-            # Procura posição aproximada (dentro de ±1 bucket)
-            for candidate, idx in bucket_idx.items():
-                diff = abs((key - candidate).total_seconds())
-                if diff <= bucket_min * 60:
-                    target_list[idx] += row["n"]
-                    break
+            if timezone.is_naive(ts):
+                ts = timezone.make_aware(ts, tzinfo)
+            key = inicio_do_bucket(timezone.localtime(ts, tzinfo))
+            idx = bucket_idx.get(key)
+            if idx is not None:
+                target_list[idx] += row["n"]
 
     return {"labels": labels, "crit": crit, "high": high, "med": med}
 
 
-def _timeline_60min(qs_base) -> dict:
+def _timeline_60min(qs_base, periodo_cfg: dict | None = None, agora: datetime | None = None) -> dict:
     """
-    Timeline dos últimos 60 minutos agrupados em buckets de 5 minutos.
+    Timeline da janela selecionada, usando a granularidade do período.
     Retorna {"labels": [...], "crit": [...], "high": [...], "med": [...]}.
     Usa queryset já filtrado por período.
     """
     from django.utils import timezone
-    from django.db.models.functions import TruncMinute
-    from django.db.models import Count
-    from datetime import timedelta
 
-    agora = timezone.now()
-    # Align to nearest 5 minutes down
-    agora_aligned = agora.replace(second=0, microsecond=0, minute=(agora.minute // 5) * 5)
-
-    n_buckets = 12
-    step = timedelta(minutes=5)
-    inicio = agora_aligned - step * (n_buckets - 1)
-
-    # Filter using unaligned start just to be safe, but buckets are aligned
-    qs60 = qs_base.filter(last_seen__gte=inicio)
-
-    labels = []
-    crit = [0] * n_buckets
-    high = [0] * n_buckets
-    med = [0] * n_buckets
-
-    bucket_starts = []
-    for i in range(n_buckets):
-        ts = inicio + step * i
-        bucket_starts.append(ts)
-        # Use localtime for labels if timezone is active
-        ts_local = timezone.localtime(ts)
-        labels.append(ts_local.strftime("%H:%M"))
-
-    for sev_key, target in [("critico", crit), ("alto", high), ("medio", med)]:
-        rows = (
-            qs60.filter(severidade_jg=sev_key)
-            .annotate(bucket_ts=TruncMinute("last_seen"))
-            .values("bucket_ts")
-            .annotate(n=Count("id"))
-        )
-        for row in rows:
-            ts = row["bucket_ts"]
-            if ts is None:
-                continue
-
-            # Make sure ts is aware for comparison
-            if timezone.is_naive(ts):
-                ts = timezone.make_aware(ts)
-
-            # Round to 5 min
-            rounded = ts.replace(minute=(ts.minute // 5) * 5, second=0, microsecond=0)
-
-            for i, bs in enumerate(bucket_starts):
-                if abs((rounded - bs).total_seconds()) < 60:
-                    target[i] += row["n"]
-                    break
-
-    return {"labels": labels, "crit": crit, "high": high, "med": med}
+    periodo_cfg = periodo_cfg or _PERIODOS["1h"]
+    return _series_ataques(qs_base, periodo_cfg, agora or timezone.now())
 
 
 def _top_ips(qs, limit: int = 7) -> list[dict]:
@@ -310,27 +262,25 @@ def _categorias(qs, total: int) -> list[dict]:
 
 
 def _infra_dispositivos() -> dict:
-    """Métricas reais do módulo Dispositivos."""
+    """Métricas do mesmo inventário PostgreSQL consumido por Dispositivos."""
     from django.utils import timezone
+    from dispositivos.models import Dispositivo
+    from dispositivos.services import marcar_inventario_stale
+
     try:
-        from dispositivos.models import Dispositivo
+        marcar_inventario_stale()
         total = Dispositivo.objects.count()
-        online = Dispositivo.objects.filter(status="online").count()
-        offline = total - online
+        online = Dispositivo.objects.filter(status=Dispositivo.Status.ONLINE).count()
+        offline = Dispositivo.objects.filter(status=Dispositivo.Status.OFFLINE).count()
+        stale = Dispositivo.objects.filter(status__in=[Dispositivo.Status.STALE, Dispositivo.Status.UNKNOWN]).count()
         hoje = timezone.now().date()
         novo_hoje = Dispositivo.objects.filter(first_seen__date=hoje).count()
-        pct = round((online / total) * 100) if total else 0
-        return {
-            "online":     online,
-            "offline":    offline,
-            "total":      total,
-            "novo_hoje":  novo_hoje,
-            "pct":        pct,
-        }
     except Exception:
-        return {"online": 0, "offline": 0, "total": 0, "novo_hoje": 0, "pct": 0}
+        logging.getLogger(__name__).exception("Falha ao consultar o inventário persistente de dispositivos")
+        return {"online": None, "offline": None, "stale": None, "total": None, "novo_hoje": None, "pct": None, "error": True}
 
-
+    pct = round((online / total) * 100) if total else 0
+    return {"online": online, "offline": offline, "stale": stale, "total": total, "novo_hoje": novo_hoje, "pct": pct}
 def _infra_firewall(estado_fw: dict) -> dict:
     """
     Dados de infra do Firewall usando apenas o que o backend real provê.
@@ -423,6 +373,8 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
         period: "1h" | "24h" | "7d" | "30d"
         sev:    "all" | "critico" | "alto" | "medio"
     """
+    period = _normalizar_periodo(period)
+    sev = _normalizar_severidade(sev)
     cache_key = f"moonshield_overview_{period}_{sev}"
     try:
         data = cache.get(cache_key)
@@ -436,8 +388,7 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     from dns.views import _get_adguard_client
     from django.utils import timezone
 
-    # Valida período — padrão 24h se inválido
-    periodo_cfg = _PERIODOS.get(period, _PERIODOS["24h"])
+    periodo_cfg = _PERIODOS[period]
     horas = periodo_cfg["horas"]
 
     # Filtro de severidade para incidentes
@@ -462,8 +413,10 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     except Exception:
         pass
 
-    # ── Incidentes
-    qs = _incidentes_no_periodo(horas, sev_filtro)
+    agora = timezone.now()
+
+    # ── Incidentes: a mesma janela aware alimenta todas as telemetrias.
+    qs = _incidentes_no_periodo(horas, sev_filtro, agora)
     total_ameacas = qs.count()
 
     severidades = {
@@ -473,7 +426,6 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     }
 
     # ── Séries de ataques por hora/dia
-    agora = timezone.now()
     series_att = _series_ataques(qs, periodo_cfg, agora)
     hours_labels = series_att["labels"]
 
@@ -481,12 +433,10 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
     # Não há no runtime atual fonte persistida/completa para 1h, 7d ou 30d.
     dns_periodo = _dns_para_periodo(dns_charts, period)
 
-    # Para gráfico de ataques, usa labels reais do período
-    # Para gráfico DNS, mantém labels das 24h do AdGuard
-    chart_hours = hours_labels if period in ("1h", "24h") else series_att["labels"]
+    chart_hours = hours_labels
 
-    # ── Timeline 60 min (sempre baseado nos incidentes reais do último 1h)
-    tl = _timeline_60min(qs if horas == 1 else _incidentes_no_periodo(1, None))
+    # ── Timeline: usa exatamente o mesmo queryset, período e severidade.
+    tl = _timeline_60min(qs, periodo_cfg, agora)
 
     # ── Top IPs
     top_ips_lista = _top_ips(qs)
@@ -572,7 +522,7 @@ def _overview_real(cfg, period: str = "24h", sev: str = "all") -> dict:
                 "blocked":           dns_periodo["blocked"],
                 "history_available": dns_periodo["available"],
             },
-            # Timeline dos últimos 60min (sempre)
+            # Timeline do período selecionado
             "timeline": tl,
         },
 
@@ -662,14 +612,8 @@ def index(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def api_overview(request):
-    period = request.GET.get("period", "24h").strip()
-    sev    = request.GET.get("sev", "all").strip()
-
-    # Valida period — rejeita valores arbitrários
-    if period not in _PERIODOS:
-        period = "24h"
-    if sev not in ("all", "critico", "alto", "medio"):
-        sev = "all"
+    period = _normalizar_periodo(request.GET.get("period", _PERIODO_PADRAO).strip())
+    sev = _normalizar_severidade(request.GET.get("sev", "all").strip())
 
     return JsonResponse(_overview_real(_get_cfg(), period=period, sev=sev))
 

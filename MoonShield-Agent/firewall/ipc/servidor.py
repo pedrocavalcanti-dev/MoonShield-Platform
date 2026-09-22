@@ -637,6 +637,9 @@ def _despachar(
     if req.acao.startswith("network."):
         return _despachar_rede(req)
 
+    if req.acao.startswith("devices."):
+        return _despachar_dispositivos(req)
+
     if req.acao.startswith("firewall."):
         return _despachar_firewall(req)
 
@@ -724,6 +727,20 @@ def _despachar_rede(
     )
 
 
+def _despachar_dispositivos(req: RequisicaoIPC) -> dict[str, Any]:
+    """Encaminha devices.* ao discovery privilegiado e allowlisted."""
+    try:
+        modulo = importlib.import_module("dispositivos.discovery")
+        executar = getattr(modulo, "executar_device_scan")
+        resultado = executar(req.dados)
+    except Exception as exc:
+        raise ErroOperacao(
+            str(exc) or "A descoberta de dispositivos falhou.",
+            codigo=str(getattr(exc, "codigo", "") or "devices_scan_falhou"),
+        ) from exc
+    if isinstance(resultado, dict):
+        return resultado
+    raise ErroOperacao("Discovery retornou formato inválido.", codigo="devices_resposta_invalida")
 def _despachar_adguard(req: RequisicaoIPC) -> dict[str, Any]:
     """Encaminha a reconciliação DNS ao handler privilegiado e allowlisted."""
     try:

@@ -91,6 +91,9 @@ ACOES = frozenset({
     "network.change.status",
     "network.change.cancel",
 
+    # Dispositivos — discovery local limitado.
+    "devices.scan",
+
     #
     # AdGuard Home.
     #

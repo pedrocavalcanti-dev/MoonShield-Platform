@@ -392,7 +392,7 @@ class TestSensoresTimezoneBug(TestCase):
         self.assertEqual(len(series["high"]), len(labels))
         self.assertEqual(len(series["crit"]), len(labels))
         self.assertEqual(len(series["med"]), len(labels))
-        self.assertEqual(len(labels), 24)
+        self.assertEqual(len(labels), 25)
 
     def test_1h_period_filters_correctly(self):
         from incidentes.models import Incidente
@@ -432,7 +432,92 @@ class TestSensoresTimezoneBug(TestCase):
         result = _overview_real(_get_cfg(), period="1h", sev="all")
 
         tl = result["charts"]["timeline"]
-        self.assertEqual(len(tl["labels"]), 12)
+        self.assertEqual(len(tl["labels"]), 13)
         self.assertEqual(sum(tl["crit"]), 1)
         self.assertEqual(sum(tl["high"]), 1)
         self.assertEqual(sum(tl["med"]), 1)
+
+
+class DashboardPeriodWindowTest(TestCase):
+    """Valida as janelas móveis do endpoint com timestamps timezone-aware."""
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client()
+        self.user = get_user_model().objects.create_user(username="period-user", password="password")
+        self.client.force_login(self.user)
+        cfg = ConfigSistema.get_solo()
+        cfg.appliance_onboarding_completo = True
+        cfg.save()
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    def _incidente(self, fingerprint, quando, severidade="alto"):
+        return Incidente.objects.create(
+            fingerprint=fingerprint,
+            first_seen=quando,
+            last_seen=quando,
+            severidade_jg=severidade,
+            src_ip="192.0.2.10",
+            signature="Evento de teste",
+        )
+
+    def _overview(self, period, sev="all"):
+        with patch("configuracoes.views._topologia", return_value={}), \
+             patch("configuracoes.views._health_snapshot", return_value=_servicos_todos_ok()), \
+             patch("dns.views._get_adguard_client", return_value=None):
+            response = self.client.get("/painel/api/overview/", {"period": period, "sev": sev})
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    @override_settings(USE_TZ=True)
+    def test_periodos_filtram_janelas_moveis_e_separam_cache(self):
+        agora = timezone.now()
+        self.assertTrue(timezone.is_aware(agora))
+        self._incidente("period-30m", agora - timedelta(minutes=30), "critico")
+        self._incidente("period-12h", agora - timedelta(hours=12))
+        self._incidente("period-3d", agora - timedelta(days=3))
+        self._incidente("period-20d", agora - timedelta(days=20))
+        self._incidente("period-40d", agora - timedelta(days=40))
+
+        for period, expected_count, expected_labels in (
+            ("1h", 1, 13),
+            ("24h", 2, 25),
+            ("7d", 3, 8),
+            ("30d", 4, 31),
+        ):
+            with self.subTest(period=period):
+                data = self._overview(period)
+                self.assertEqual(data["periodo"], period)
+                self.assertEqual(data["kpis"]["ameacas_hoje"], expected_count)
+                self.assertEqual(len(data["feed"]), expected_count)
+                self.assertEqual(len(data["charts"]["hours"]), expected_labels)
+                self.assertEqual(
+                    sum(data["charts"]["timeline"]["crit"])
+                    + sum(data["charts"]["timeline"]["high"])
+                    + sum(data["charts"]["timeline"]["med"]),
+                    expected_count,
+                )
+
+        self.assertIsNotNone(cache.get("moonshield_overview_1h_all"))
+        self.assertIsNotNone(cache.get("moonshield_overview_24h_all"))
+        self.assertNotEqual(
+            cache.get("moonshield_overview_1h_all")["kpis"]["ameacas_hoje"],
+            cache.get("moonshield_overview_24h_all")["kpis"]["ameacas_hoje"],
+        )
+
+    def test_periodo_e_severidade_invalidos_tem_fallback_seguro(self):
+        agora = timezone.now()
+        self._incidente("period-severity-crit", agora - timedelta(minutes=30), "critico")
+        self._incidente("period-severity-high", agora - timedelta(minutes=30), "alto")
+
+        invalid = self._overview("banana")
+        self.assertEqual(invalid["periodo"], "24h")
+
+        crit = self._overview("1h", "critico")
+        self.assertEqual(crit["sev"], "critico")
+        self.assertEqual(crit["kpis"]["ameacas_hoje"], 1)
+        self.assertEqual(crit["feed"][0]["sev"], "crit")
+        self.assertIsNotNone(cache.get("moonshield_overview_1h_critico"))

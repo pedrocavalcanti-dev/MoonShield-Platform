@@ -7,7 +7,15 @@
   const text = (value, fallback = "—") => value === null || value === undefined || value === "" ? fallback : String(value);
   const relative = (value) => { const d = date(value); if (!d) return "-"; const s = Math.max(0, Math.floor((Date.now() - d) / 1000)); if (s < 60) return "agora"; if (s < 3600) return `${Math.floor(s / 60)} min`; if (s < 86400) return `${Math.floor(s / 3600)} h`; return `${Math.floor(s / 86400)} d`; };
   const formattedDate = (value) => date(value)?.toLocaleString("pt-BR") || "-";
-  const iconFor = (type) => ({router:"bi-router-fill",server:"bi-server",servidor:"bi-server","câmera/nvr":"bi-camera-video-fill",camera:"bi-camera-video-fill","dispositivo móvel":"bi-phone-fill",phone:"bi-phone-fill",computador:"bi-pc-display",computer:"bi-pc-display","impressora":"bi-printer-fill",printer:"bi-printer-fill",infraestrutura:"bi-diagram-3",iot:"bi-cpu"}[String(type || "").toLowerCase()] || "bi-hdd-network-fill");
+  const _typeIcons = {router:"bi-router-fill",switch:"bi-diagram-3",server:"bi-server",servidor:"bi-server","câmera/nvr":"bi-camera-video-fill",camera:"bi-camera-video-fill","dispositivo móvel":"bi-phone-fill",phone:"bi-phone-fill",computador:"bi-pc-display",computer:"bi-pc-display","impressora":"bi-printer-fill",printer:"bi-printer-fill",infraestrutura:"bi-diagram-3",iot:"bi-cpu",gateway:"bi-router-fill",firewall:"bi-shield-fill"};
+  const _osIcons = {"windows":"bi-pc-display","linux":"bi-terminal-fill","macos":"bi-apple","mac os":"bi-apple","unix":"bi-terminal-fill","android":"bi-phone-fill","ios":"bi-phone-fill","vyos":"bi-router-fill","openwrt":"bi-router-fill"};
+  const iconFor = (type, os) => {
+    const t = String(type || "").toLowerCase().trim();
+    const o = String(os || "").toLowerCase().replace(/\s*provável\s*$/i, "").trim();
+    if (t && t !== "desconhecido") return _typeIcons[t] || "bi-hdd-network-fill";
+    for (const [key, icon] of Object.entries(_osIcons)) { if (o.includes(key)) return icon; }
+    return "bi-hdd-network-fill";
+  };
   const statusFor = (status) => ({online:"Online",offline:"Offline",stale:"Desatualizado",unknown:"Desconhecido"}[String(status || "").toLowerCase()] || "Desconhecido");
   const isUnknownType = (device) => !device.type || String(device.type).trim().toLowerCase() === "desconhecido";
   const normalizeDevice = (raw) => ({
@@ -119,7 +127,7 @@
       row.dataset.deviceId = item.id;
       const netLabel = item.networkRole ? `${item.networkRole.toUpperCase()} · ${item.interface || ""}`.trim() : "—";
       row.innerHTML = `
-        <td><div class="dev-name-cell"><i class="bi ${iconFor(item.type)} dev-device-icon" aria-hidden="true"></i><div class="dev-identity">
+        <td><div class="dev-name-cell"><i class="bi ${iconFor(item.type, item.os)} dev-device-icon" aria-hidden="true"></i><div class="dev-identity">
           <button type="button" class="dev-device-link" data-action="open">${escapeHtml(ident.name)}</button>
           ${ident.subtitle ? `<div class="dev-name-sub">${escapeHtml(ident.subtitle)}</div>` : ""}
           <div class="dev-name-status">${statusBadge(item)}</div>
@@ -191,7 +199,7 @@
     function openDrawer(item) {
       if (!item) return; state.selectedId = item.id;
       [["drawerHostname",item.displayName],["drawerIp",item.ip],["drawerType",item.type],["drawerStatusBadge",statusFor(item.status)],["drawerRiskScore",item.risk === null ? "-" : item.risk],["drawerRiskLabel",item.risk === null ? "Risco não informado" : item.risk >= 70 ? "Risco elevado" : item.risk >= 40 ? "Risco moderado" : "Risco baixo"],["drawerVendor",item.vendor],["drawerOS",item.os],["drawerMac",item.mac],["drawerFirstSeen",formattedDate(item.firstSeen)],["drawerLastSeen",formattedDate(item.lastSeen)],["drawerNetworkRole",item.networkRole],["drawerInterface",item.interface],["drawerNetworkCidr",item.networkCidr],["drawerLastScan",formattedDate(item.lastScan)]].forEach(([id,v]) => set(id,v));
-      const icon = $("drawerTypeIcon"); if (icon) icon.className = `bi ${iconFor(item.type)} drawer-type-icon`;
+      const icon = $("drawerTypeIcon"); if (icon) icon.className = `bi ${iconFor(item.type, item.os)} drawer-type-icon`;
       const badge = $("drawerStatusBadge"); if (badge) badge.className = `dev-status-badge dev-status-badge--${item.status}`;
       const score = $("drawerRiskScore"); if (score) score.className = `drawer-risk-score${item.risk === null ? "" : item.risk >= 70 ? " drawer-risk-score--high" : item.risk >= 40 ? " drawer-risk-score--medium" : " drawer-risk-score--low"}`;
       const SERVICES = {22:"SSH",53:"DNS",80:"HTTP",443:"HTTPS",445:"SMB",554:"RTSP",631:"IPP",3389:"RDP",9100:"Print"};

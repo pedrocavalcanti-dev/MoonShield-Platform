@@ -386,28 +386,130 @@
     </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════
+     MODAL — ESCANEAR DISPOSITIVOS
+══════════════════════════════════════════════════════ -->
 <div class="dev-scan-overlay" id="devScanOverlay" hidden></div>
 <section class="dev-scan-modal" id="devScanModal" role="dialog" aria-modal="true" aria-labelledby="devScanTitle" hidden>
-    <div class="dev-scan-modal__header"><div><p class="dev-scan-modal__eyebrow">Inventário de dispositivos</p><h2 id="devScanTitle">Selecionar redes para scan</h2></div><button class="dev-drawer__close" id="devScanClose" type="button" aria-label="Fechar"><i class="bi bi-x-lg"></i></button></div>
-    <fieldset class="dev-scan-options" id="devScanMode">
-        <legend>Modo</legend>
-        <label><input type="radio" name="deviceScanMode" value="quick" checked> Scan rápido — descoberta padrão</label>
-        <label><input type="radio" name="deviceScanMode" value="advanced" id="devAdvancedMode" disabled> Identificação avançada — Nmap, serviços e OS provável</label>
-        <p id="devAdvancedReason" class="dev-cell-dim"></p>
-    </fieldset>
-    <p class="dev-scan-modal__hint">Selecione as redes oficiais para o scan manual.</p>
-    <div class="dev-scan-networks" id="devScanNetworks"></div><p class="dev-scan-message" id="devScanMessage" aria-live="polite"></p>
-    <fieldset class="dev-scan-options" id="devMonitorOptions">
-        <legend>Monitoramento contínuo</legend>
-        <label><input id="devMonitorEnabled" type="checkbox"> Monitoramento leve ativado</label>
-        <label for="devMonitorInterval">Intervalo</label>
-        <select id="devMonitorInterval"><option value="2">2 minutos</option><option value="3" selected>3 minutos</option><option value="5">5 minutos</option><option value="10">10 minutos</option></select>
-        <p class="dev-cell-dim">Verifica somente dispositivos conhecidos, mesmo com o navegador fechado.</p>
-        <div id="devMonitorNetworks" class="dev-monitor-networks"></div>
-        <button class="dev-action-btn dev-action-btn--ghost" id="devMonitorSave" type="button">Salvar monitoramento</button>
-    </fieldset>
-    <div class="dev-scan-modal__footer"><button class="dev-action-btn dev-action-btn--ghost" id="devScanCancel" type="button">Cancelar</button><button class="dev-action-btn dev-action-btn--scan" id="devScanConfirm" type="button"><i class="bi bi-radar"></i> Iniciar scan</button></div>
+  <div class="dev-scan-modal__header">
+    <div>
+      <p class="dev-scan-modal__eyebrow">Inventário de dispositivos</p>
+      <h2 id="devScanTitle">Escanear dispositivos</h2>
+    </div>
+    <button class="dev-drawer__close" id="devScanClose" type="button" aria-label="Fechar"><i class="bi bi-x-lg"></i></button>
+  </div>
+
+  <p class="dev-scan-modal__hint">Selecione as redes e o modo de identificação.</p>
+
+  <!-- Modo de scan -->
+  <div class="dev-scan-section">
+    <p class="dev-scan-section__label">Modo</p>
+    <div class="dev-scan-modes" id="devScanModes">
+      <label class="dev-scan-mode-card dev-scan-mode-card--active" id="devModeQuickCard">
+        <input type="radio" name="deviceScanMode" value="quick" checked hidden>
+        <div class="dev-scan-mode-card__icon"><i class="bi bi-lightning-charge-fill"></i></div>
+        <div>
+          <p class="dev-scan-mode-card__name">Rápido</p>
+          <p class="dev-scan-mode-card__desc">Descoberta de dispositivos, portas básicas e identificação.</p>
+        </div>
+      </label>
+      <label class="dev-scan-mode-card" id="devModeAdvancedCard">
+        <input type="radio" name="deviceScanMode" value="advanced" id="devAdvancedMode" hidden>
+        <div class="dev-scan-mode-card__icon"><i class="bi bi-radar"></i></div>
+        <div>
+          <p class="dev-scan-mode-card__name">Avançado</p>
+          <p class="dev-scan-mode-card__desc" id="devAdvancedReason">Nmap, serviços e identificação adicional de sistema.</p>
+        </div>
+      </label>
+    </div>
+  </div>
+
+  <!-- Redes -->
+  <div class="dev-scan-section">
+    <p class="dev-scan-section__label">Redes</p>
+    <div class="dev-scan-networks" id="devScanNetworks"></div>
+    <p class="dev-scan-message" id="devScanMessage" aria-live="polite"></p>
+  </div>
+
+  <!-- Resultado -->
+  <div class="dev-scan-result" id="devScanResult" hidden>
+    <div class="dev-scan-result__inner">
+      <i class="bi bi-check-circle-fill dev-scan-result__icon"></i>
+      <div>
+        <p class="dev-scan-result__title" id="devScanResultTitle">Scan concluído</p>
+        <p class="dev-scan-result__sub" id="devScanResultSub"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="dev-scan-modal__footer">
+    <button class="dev-action-btn dev-action-btn--ghost" id="devScanCancel" type="button">Cancelar</button>
+    <button class="dev-action-btn dev-action-btn--scan" id="devScanConfirm" type="button">
+      <i class="bi bi-radar dev-scan-icon" id="devScanBtnIcon"></i>
+      <span id="devScanBtnLabel">Iniciar scan</span>
+    </button>
+  </div>
 </section>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL — MONITORAMENTO
+══════════════════════════════════════════════════════ -->
+<div class="dev-scan-overlay" id="devMonitorOverlay" hidden></div>
+<section class="dev-scan-modal dev-scan-modal--monitor" id="devMonitorModal" role="dialog" aria-modal="true" aria-labelledby="devMonitorTitle" hidden>
+  <div class="dev-scan-modal__header">
+    <div>
+      <p class="dev-scan-modal__eyebrow">Agendamento periódico</p>
+      <h2 id="devMonitorTitle">Monitoramento de dispositivos</h2>
+    </div>
+    <button class="dev-drawer__close" id="devMonitorClose" type="button" aria-label="Fechar"><i class="bi bi-x-lg"></i></button>
+  </div>
+
+  <p class="dev-scan-modal__hint">Verificação leve periódica de dispositivos já conhecidos.</p>
+
+  <!-- Toggle + Intervalo -->
+  <div class="dev-scan-section">
+    <div class="dev-monitor-row">
+      <div class="dev-monitor-toggle-wrap">
+        <span class="dev-scan-section__label" style="margin:0">Monitoramento</span>
+        <label class="dev-monitor-toggle" aria-label="Ativar monitoramento">
+          <input type="checkbox" id="devMonitorEnabled">
+          <span class="dev-monitor-toggle__track"><span class="dev-monitor-toggle__thumb"></span></span>
+        </label>
+      </div>
+      <label class="dev-monitor-interval-wrap">
+        <span class="dev-scan-section__label" style="margin:0">Intervalo</span>
+        <select id="devMonitorInterval" class="dev-monitor-interval">
+          <option value="2">2 minutos</option>
+          <option value="3" selected>3 minutos</option>
+          <option value="5">5 minutos</option>
+          <option value="10">10 minutos</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <!-- Redes monitoradas -->
+  <div class="dev-scan-section">
+    <p class="dev-scan-section__label">Redes monitoradas</p>
+    <div class="dev-scan-networks" id="devMonitorNetworks"></div>
+  </div>
+
+  <!-- Nota explicativa -->
+  <p class="dev-monitor-note">
+    <i class="bi bi-info-circle"></i>
+    Verifica apenas dispositivos conhecidos usando probe leve (ARP + ICMP).
+    Não executa Nmap ou port scan em segundo plano.
+  </p>
+
+  <div class="dev-scan-modal__footer">
+    <button class="dev-action-btn dev-action-btn--ghost" id="devMonitorCancel" type="button">Cancelar</button>
+    <button class="dev-action-btn dev-action-btn--primary" id="devMonitorSave" type="button">
+      <i class="bi bi-check-lg" id="devMonitorBtnIcon"></i>
+      <span id="devMonitorBtnLabel">Salvar</span>
+    </button>
+  </div>
+</section>
+
 <div class="dev-toast" id="devToast"></div>
 
 {% endblock %}

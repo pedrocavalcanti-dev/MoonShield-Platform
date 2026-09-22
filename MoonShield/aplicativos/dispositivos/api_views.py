@@ -48,11 +48,11 @@ def get_inventory(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def networks(request):
-    capabilities = {"advanced": False, "reason": "Agent indisponível."}
+    capabilities = {"advanced": False, "reason": "Nmap não verificado."}
     try:
         capabilities = requisitar_agent("devices.capabilities", {}, timeout=3)
         if not capabilities.get("advanced"):
-            capabilities["reason"] = "Nmap não instalado."
+            capabilities.setdefault("reason", "Nmap não instalado.")
     except Exception:
         pass
     return JsonResponse({"ok": True, "networks": redes_elegiveis(), "monitor": monitor_config(), "capabilities": capabilities})

@@ -1,4 +1,4 @@
-﻿from django.urls import path
+from django.urls import path
 
 from . import api_views
 
@@ -7,4 +7,5 @@ urlpatterns = [
     path("networks/", api_views.networks, name="networks"),
     path("scan/", api_views.network_scan, name="network_scan"),
     path("rename/", api_views.rename_device, name="rename_device"),
+    path("monitor/", api_views.save_monitor, name="save_monitor"),
 ]

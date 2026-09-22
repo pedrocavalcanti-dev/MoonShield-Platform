@@ -93,6 +93,8 @@ ACOES = frozenset({
 
     # Dispositivos — discovery local limitado.
     "devices.scan",
+    "devices.probe",
+    "devices.capabilities",
 
     #
     # AdGuard Home.

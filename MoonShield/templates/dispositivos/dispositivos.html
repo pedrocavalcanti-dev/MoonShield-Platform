@@ -21,7 +21,7 @@
 <!-- ══════════════════════════════════════════════════════
      TOPBAR
 ══════════════════════════════════════════════════════ -->
-<div class="dev-topbar" id="devicesApp" data-url-inventory="{% url 'dispositivos:get_inventory' %}" data-url-networks="{% url 'dispositivos:networks' %}" data-url-scan="{% url 'dispositivos:network_scan' %}" data-url-rename="{% url 'dispositivos:rename_device' %}">
+<div class="dev-topbar" id="devicesApp" data-url-inventory="{% url 'dispositivos:get_inventory' %}" data-url-networks="{% url 'dispositivos:networks' %}" data-url-scan="{% url 'dispositivos:network_scan' %}" data-url-rename="{% url 'dispositivos:rename_device' %}" data-url-monitor="{% url 'dispositivos:save_monitor' %}">
     <div class="dev-topbar__left">
         <div class="dev-live">
             <span class="dev-live__dot"></span>
@@ -38,12 +38,7 @@
             <button class="dev-filter-chip" data-filter="offline">
                 <i class="bi bi-circle-fill" style="color:#64748b;font-size:8px"></i> Offline
             </button>
-            <button class="dev-filter-chip" data-filter="suspeito">
-                <i class="bi bi-exclamation-triangle-fill" style="color:#f97316"></i> Suspeitos
-            </button>
-            <button class="dev-filter-chip" data-filter="critico">
-                <i class="bi bi-x-octagon-fill" style="color:#ef4444"></i> Críticos
-            </button>
+            <button class="dev-filter-chip" data-filter="stale"><i class="bi bi-circle-fill"></i> Desatualizados</button>
         </div>
     </div>
     <div class="dev-topbar__right">
@@ -55,6 +50,7 @@
         <button class="dev-action-btn dev-action-btn--ghost" id="devRefreshBtn">
             <i class="bi bi-arrow-clockwise"></i> Atualizar
         </button>
+        <button class="dev-action-btn dev-action-btn--ghost" id="devMonitorBtn" type="button"><i class="bi bi-activity"></i> Monitoramento</button>
         <button class="dev-action-btn dev-action-btn--scan" id="devScanBtn">
             <i class="bi bi-radar dev-scan-icon"></i> Escanear
         </button>
@@ -112,9 +108,9 @@
             </div>
             <span class="dev-kpi__pulse-dot" style="background:#f97316"></span>
         </div>
-        <p class="dev-kpi__val" id="kpiSuspect">—</p>
-        <p class="dev-kpi__lbl">Suspeitos</p>
-        <div class="dev-kpi__bar-track"><div class="dev-kpi__bar-fill" id="kpiSuspectBar"></div></div>
+        <p class="dev-kpi__val" id="kpiUnknown">—</p>
+        <p class="dev-kpi__lbl">Desconhecidos</p>
+        <div class="dev-kpi__bar-track"><div class="dev-kpi__bar-fill" id="kpiUnknownBar"></div></div>
     </div>
 
     <div class="dev-kpi dev-kpi--red">
@@ -124,9 +120,9 @@
             </div>
             <span class="dev-kpi__pulse-dot" style="background:#ef4444"></span>
         </div>
-        <p class="dev-kpi__val" id="kpiCritico">—</p>
-        <p class="dev-kpi__lbl">Risco Crítico</p>
-        <div class="dev-kpi__bar-track"><div class="dev-kpi__bar-fill" id="kpicriticoBar"></div></div>
+        <p class="dev-kpi__val" id="kpiMonitored">—</p>
+        <p class="dev-kpi__lbl">Redes monitoradas</p>
+        <div class="dev-kpi__bar-track"><div class="dev-kpi__bar-fill" id="kpiMonitoredBar"></div></div>
     </div>
 
     <div class="dev-kpi dev-kpi--purple">
@@ -174,15 +170,8 @@
             <button class="dev-tab-btn dev-tab-btn--active" data-tab="inventario">
                 <i class="bi bi-list-ul"></i> Inventário
             </button>
-            <button class="dev-tab-btn" data-tab="vulneraveis">
-                <i class="bi bi-bug-fill"></i> Risco elevado
-            </button>
-            <button class="dev-tab-btn" data-tab="suspeitos">
-                <i class="bi bi-exclamation-triangle-fill"></i> Suspeitos
-            </button>
-            <button class="dev-tab-btn" data-tab="offline">
-                <i class="bi bi-moon-fill"></i> Offline
-            </button>
+            <label class="dev-network-filter">Rede <select id="devNetworkFilter"><option value="">Todas</option></select></label>
+            <label class="dev-network-filter"><input type="checkbox" id="devGroupNetworks" checked> Agrupar por rede</label>
             <span class="dev-table-count" id="devTableCount">—</span>
         </div>
 
@@ -193,14 +182,11 @@
 
                         <th>Dispositivo</th>
                         <th>IP</th>
-                        <th>MAC</th>
                         <th>Vendor</th>
                         <th>Sistema</th>
+                        <th>Rede</th>
                         <th>Última atividade</th>
-                        <th>Queries DNS</th>
-                        <th>Bloqueios</th>
-                        <th>SOC</th>
-                        <th>Risco</th>
+                        <th>Portas</th>
                         <th>Ações</th>
                     </tr>
                 </thead>
@@ -268,18 +254,15 @@
             <div class="dev-drawer__risk-block">
                 <span class="drawer-risk-score" id="drawerRiskScore">0</span>
                 <div>
-                    <p class="drawer-risk-label" id="drawerRiskLabel">Risco Baixo</p>
-                    <p class="dev-cell-dim" style="font-size:10px;font-family:var(--font-mono)">Score de Risco</p>
+                    <p class="drawer-risk-label" id="drawerRiskLabel">Risco observado</p>
+                    <p class="dev-cell-dim" style="font-size:10px;font-family:var(--font-mono)">Indicativo técnico</p>
                 </div>
             </div>
             <div class="dev-drawer__flags">
                 <span class="dev-flag dev-flag--new" id="drawerFlagNew" style="display:none">
                     <i class="bi bi-stars"></i> Novo na rede
                 </span>
-                <span class="dev-flag dev-flag--mal" id="drawerFlagMal" style="display:none">
-                    <i class="bi bi-bug-fill"></i> Comm. Maliciosa
-                </span>
-            </div>
+</div>
         </div>
 
         <div class="dev-drawer__info-grid">
@@ -307,29 +290,6 @@
             <div class="dev-info-item"><p class="dev-info-lbl"><i class="bi bi-ethernet"></i> Interface</p><p class="dev-info-val dev-cell-mono" id="drawerInterface">-</p></div>
             <div class="dev-info-item"><p class="dev-info-lbl"><i class="bi bi-bounding-box"></i> CIDR</p><p class="dev-info-val dev-cell-mono" id="drawerNetworkCidr">-</p></div>
             <div class="dev-info-item"><p class="dev-info-lbl"><i class="bi bi-clock"></i> Último scan</p><p class="dev-info-val" id="drawerLastScan">-</p></div>
-        </div>
-
-        <div class="dev-drawer__stats">
-            <div class="dev-stat-card">
-                <p class="dev-stat-val" id="dStatDNS">—</p>
-                <p class="dev-stat-lbl">Queries DNS</p>
-            </div>
-            <div class="dev-stat-card dev-stat-card--red">
-                <p class="dev-stat-val" id="dStatBlock">—</p>
-                <p class="dev-stat-lbl">Bloqueios DNS</p>
-            </div>
-            <div class="dev-stat-card dev-stat-card--orange">
-                <p class="dev-stat-val" id="dStatSOC">—</p>
-                <p class="dev-stat-lbl">Eventos SOC</p>
-            </div>
-            <div class="dev-stat-card">
-                <p class="dev-stat-val" id="dStatFW">—</p>
-                <p class="dev-stat-lbl">Conexões FW</p>
-            </div>
-            <div class="dev-stat-card">
-                <p class="dev-stat-val" id="dStatRPM">—</p>
-                <p class="dev-stat-lbl">Req/min</p>
-            </div>
         </div>
 
         <div class="dev-drawer__section">
@@ -429,8 +389,23 @@
 <div class="dev-scan-overlay" id="devScanOverlay" hidden></div>
 <section class="dev-scan-modal" id="devScanModal" role="dialog" aria-modal="true" aria-labelledby="devScanTitle" hidden>
     <div class="dev-scan-modal__header"><div><p class="dev-scan-modal__eyebrow">Inventário de dispositivos</p><h2 id="devScanTitle">Selecionar redes para scan</h2></div><button class="dev-drawer__close" id="devScanClose" type="button" aria-label="Fechar"><i class="bi bi-x-lg"></i></button></div>
-    <p class="dev-scan-modal__hint">Selecione as redes que deseja escanear.</p>
+    <fieldset class="dev-scan-options" id="devScanMode">
+        <legend>Modo</legend>
+        <label><input type="radio" name="deviceScanMode" value="quick" checked> Scan rápido — descoberta padrão</label>
+        <label><input type="radio" name="deviceScanMode" value="advanced" id="devAdvancedMode" disabled> Identificação avançada — Nmap, serviços e OS provável</label>
+        <p id="devAdvancedReason" class="dev-cell-dim"></p>
+    </fieldset>
+    <p class="dev-scan-modal__hint">Selecione as redes oficiais para o scan manual.</p>
     <div class="dev-scan-networks" id="devScanNetworks"></div><p class="dev-scan-message" id="devScanMessage" aria-live="polite"></p>
+    <fieldset class="dev-scan-options" id="devMonitorOptions">
+        <legend>Monitoramento contínuo</legend>
+        <label><input id="devMonitorEnabled" type="checkbox"> Monitoramento leve ativado</label>
+        <label for="devMonitorInterval">Intervalo</label>
+        <select id="devMonitorInterval"><option value="2">2 minutos</option><option value="3" selected>3 minutos</option><option value="5">5 minutos</option><option value="10">10 minutos</option></select>
+        <p class="dev-cell-dim">Verifica somente dispositivos conhecidos, mesmo com o navegador fechado.</p>
+        <div id="devMonitorNetworks" class="dev-monitor-networks"></div>
+        <button class="dev-action-btn dev-action-btn--ghost" id="devMonitorSave" type="button">Salvar monitoramento</button>
+    </fieldset>
     <div class="dev-scan-modal__footer"><button class="dev-action-btn dev-action-btn--ghost" id="devScanCancel" type="button">Cancelar</button><button class="dev-action-btn dev-action-btn--scan" id="devScanConfirm" type="button"><i class="bi bi-radar"></i> Iniciar scan</button></div>
 </section>
 <div class="dev-toast" id="devToast"></div>

@@ -32,6 +32,8 @@ class Dispositivo(models.Model):
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(blank=True, null=True)
     last_scan = models.DateTimeField(blank=True, null=True)
+    availability_failures = models.PositiveSmallIntegerField(default=0)
+    availability_checked_at = models.DateTimeField(blank=True, null=True)
 
     def display_name(self):
         if self.custom_name:
@@ -54,6 +56,9 @@ class RedeDiscovery(models.Model):
     interface_name = models.CharField(max_length=64)
     cidr = models.CharField(max_length=43)
     selected = models.BooleanField(default=False)
+    monitored = models.BooleanField(default=False)
+    last_probe = models.DateTimeField(blank=True, null=True)
+    last_probe_error = models.CharField(max_length=500, blank=True, default="")
     last_scan = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -87,3 +92,12 @@ class ScanRun(models.Model):
 
     def __str__(self):
         return f"Scan {self.pk} @ {self.started_at:%Y-%m-%d %H:%M:%S}"
+
+
+
+class MonitorDispositivos(models.Model):
+    """Preferências globais do monitor; seleção de redes em RedeDiscovery."""
+
+    enabled = models.BooleanField(default=False)
+    interval_minutes = models.PositiveSmallIntegerField(default=3)
+    last_attempt = models.DateTimeField(blank=True, null=True)

@@ -1,0 +1,12 @@
+[Unit]
+Description=MoonShield Devices Monitor Scheduler
+
+[Timer]
+OnBootSec=1min
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=true
+Unit=moonshield-devices-monitor.service
+
+[Install]
+WantedBy=timers.target

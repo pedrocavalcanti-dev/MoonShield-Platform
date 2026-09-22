@@ -1648,3 +1648,122 @@
     .dev-drawer__body { padding: 16px; }
     .dev-toast { white-space: normal; max-width: calc(100vw - 32px); width: max-content; }
 }
+
+/* ══════════════════════════════════════════════════════
+   AGRUPAMENTO POR REDE — .dev-group-header
+   Linha de separação discreta dentro da tabela.
+   Sem cores arbitrárias: usa apenas variáveis do tema.
+══════════════════════════════════════════════════════ */
+.dev-table tbody tr.dev-group-header {
+    border-bottom: 1px solid var(--border-soft);
+    cursor: default;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.dev-table tbody tr.dev-group-header:hover {
+    background: transparent;
+}
+
+.dev-table tbody tr.dev-group-header td {
+    padding: 8px 12px 6px;
+    background: var(--bg-mid);
+    border-top: 1px solid var(--border-soft);
+}
+
+/* Primeira linha de grupo sem borda superior redundante */
+.dev-table tbody tr.dev-group-header:first-child td {
+    border-top: none;
+}
+
+.dev-group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.dev-group-label i {
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.dev-group-meta {
+    display: inline-block;
+    margin-left: 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+/* ══════════════════════════════════════════════════════
+   FILTRO DE REDE + AGRUPAMENTO — barra de abas
+══════════════════════════════════════════════════════ */
+.dev-network-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 4px 4px 8px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-soft);
+    background: var(--bg-card);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    cursor: default;
+    margin-left: 4px;
+}
+
+.dev-network-filter select {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    cursor: pointer;
+    outline: none;
+    padding: 2px 4px;
+    max-width: 140px;
+}
+
+.dev-network-filter select:focus {
+    outline: 1px solid var(--text-dim);
+    border-radius: 3px;
+}
+
+.dev-network-filter input[type="checkbox"] {
+    accent-color: #648fcb;
+    cursor: pointer;
+    margin: 0;
+    width: 13px;
+    height: 13px;
+}
+
+/* ══════════════════════════════════════════════════════
+   BOTÃO INLINE — "Escanear redes" dentro de dev-no-data
+══════════════════════════════════════════════════════ */
+.dev-link-btn {
+    appearance: none;
+    border: none;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    color: #648fcb;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color .15s;
+}
+
+.dev-link-btn:hover {
+    color: #93b5e8;
+}

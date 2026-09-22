@@ -734,7 +734,8 @@ def _despachar_dispositivos(req: RequisicaoIPC) -> dict[str, Any]:
     logger.info("[devices.scan] recebido | id=%s targets=%d", req.id, target_count)
     try:
         modulo = importlib.import_module("dispositivos.discovery")
-        executar = getattr(modulo, "executar_device_scan")
+        handlers = {"devices.scan": "executar_device_scan", "devices.probe": "executar_device_probe", "devices.capabilities": "device_capabilities"}
+        executar = getattr(modulo, handlers[req.acao])
         resultado = executar(req.dados)
     except Exception as exc:
         logger.exception("[devices.scan] falhou | id=%s tipo=%s", req.id, type(exc).__name__)

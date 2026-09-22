@@ -9,6 +9,8 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import Dispositivo
+from .monitoring import monitor_config, save_monitor_config
+from rede.services.agent_client import requisitar_agent
 from .services import (
     DiscoveryValidationError,
     executar_scan,
@@ -46,7 +48,14 @@ def get_inventory(request):
 @require_GET
 @login_required(login_url="autenticacao:login")
 def networks(request):
-    return JsonResponse({"ok": True, "networks": redes_elegiveis()})
+    capabilities = {"advanced": False, "reason": "Agent indisponível."}
+    try:
+        capabilities = requisitar_agent("devices.capabilities", {}, timeout=3)
+        if not capabilities.get("advanced"):
+            capabilities["reason"] = "Nmap não instalado."
+    except Exception:
+        pass
+    return JsonResponse({"ok": True, "networks": redes_elegiveis(), "monitor": monitor_config(), "capabilities": capabilities})
 
 
 @require_POST
@@ -55,11 +64,11 @@ def network_scan(request):
     network_ids: list[str] = []
     try:
         body = _json_body(request)
-        if "cidr" in body:
+        if set(body) - {"networks", "mode"}:
             raise DiscoveryValidationError("CIDR livre não é aceito; informe somente IDs de redes oficiais.")
         if isinstance(body.get("networks"), list):
             network_ids = [item for item in body["networks"] if isinstance(item, str)][:8]
-        result = executar_scan(body.get("networks"))
+        result = executar_scan(body.get("networks"), mode=body.get("mode", "quick"))
     except DiscoveryValidationError as exc:
         status = 409 if "em andamento" in str(exc).lower() else 400
         return JsonResponse({"ok": False, "error": str(exc)}, status=status)
@@ -87,3 +96,13 @@ def rename_device(request):
     device.custom_name = name
     device.save(update_fields=["custom_name"])
     return JsonResponse({"ok": True, "device": serializar_dispositivo(device)})
+
+
+@require_POST
+@login_required(login_url="autenticacao:login")
+def save_monitor(request):
+    try:
+        result = save_monitor_config(_json_body(request))
+    except DiscoveryValidationError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    return JsonResponse({"ok": True, "monitor": result})

@@ -13,12 +13,14 @@ from collections.abc import Iterable
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.db.models import F, Q
 from django.utils import timezone
 
 from rede.services.agent_client import requisitar_agent
 from rede.services.topologia import obter_topologia
 
-from .models import Dispositivo, RedeDiscovery, ScanRun
+from .models import Dispositivo, MonitorDispositivos, RedeDiscovery, ScanRun
+from .monitoring import inventory_operation
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,7 @@ class DiscoveryValidationError(ValueError):
 
 def _normalizar_mac(value: Any) -> str | None:
     mac = str(value or "").strip().upper().replace("-", ":")
-    return mac if _MAC_RE.fullmatch(mac) else None
+    return mac if _MAC_RE.fullmatch(mac) and mac != "00:00:00:00:00:00" and not (int(mac[:2], 16) & 1) else None
 
 
 def _normalizar_ip(value: Any) -> str | None:
@@ -91,7 +93,8 @@ def redes_elegiveis() -> list[dict]:
             if not cidr:
                 continue
             network = ipaddress.IPv4Network(cidr)
-            allowed = network.num_addresses - 2 <= max_hosts
+            monitor_allowed = network.is_private and not network.is_multicast and not network.is_reserved
+            allowed = monitor_allowed and network.num_addresses - 2 <= max_hosts
             network_id = f"{role}:{interface['nome']}"
             preference, created = RedeDiscovery.objects.get_or_create(
                 network_id=network_id,
@@ -108,6 +111,10 @@ def redes_elegiveis() -> list[dict]:
                     setattr(preference, field, value)
                     changed.append(field)
             if changed:
+                if "cidr" in changed:
+                    preference.last_probe = None
+                    changed.append("last_probe")
+                    Dispositivo.objects.filter(network_id=network_id).update(status=Dispositivo.Status.STALE, availability_failures=0, availability_checked_at=None)
                 preference.save(update_fields=[*changed, "updated_at"])
             result.append({
                 "id": network_id,
@@ -116,6 +123,10 @@ def redes_elegiveis() -> list[dict]:
                 "cidr": cidr,
                 "selected": preference.selected,
                 "allowed": allowed,
+                "monitor_allowed": monitor_allowed,
+                "monitored": preference.monitored,
+                "last_probe": preference.last_probe.isoformat() if preference.last_probe else None,
+                "last_probe_error": preference.last_probe_error,
                 "device_count": Dispositivo.objects.filter(network_id=network_id).count(),
                 "last_scan": preference.last_scan.isoformat() if preference.last_scan else None,
                 "gateway": (interface.get("real") or {}).get("gateway") or (interface.get("desejado") or {}).get("gateway"),
@@ -199,7 +210,8 @@ def _get_or_promote_device(target: dict, discovered: dict) -> Dispositivo:
                 by_mac.custom_name = temporary.custom_name
                 by_mac.save(update_fields=["custom_name"])
             temporary.delete()
-        device = by_mac or temporary
+        known_ip = Dispositivo.objects.select_for_update().filter(network_id=target["id"], current_ip=ip).first() if not mac else None
+        device = by_mac or temporary or known_ip
         if device is None:
             device = Dispositivo.objects.create(
                 identity_key=f"mac:{mac}" if mac else temporary_key,
@@ -213,7 +225,7 @@ def _get_or_promote_device(target: dict, discovered: dict) -> Dispositivo:
         # Um IP que passou a ser anunciado por outro MAC não conserva o nome
         # ou a identidade do equipamento antigo.
         if mac:
-            Dispositivo.objects.select_for_update().filter(current_ip=ip).exclude(pk=device.pk).update(
+            Dispositivo.objects.select_for_update().filter(current_ip=ip, network_id=target["id"]).exclude(pk=device.pk).update(
                 current_ip=None, status=Dispositivo.Status.OFFLINE,
             )
         return device
@@ -228,7 +240,13 @@ def _persist_device(target: dict, raw: dict, now) -> Dispositivo | None:
     hostname = str(raw.get("hostname") or "").strip()[:120] or None
     vendor = str(raw.get("vendor") or "").strip()[:120] or None
     device = _get_or_promote_device(target, {"ip": ip, "mac": mac})
-    device_type, os_guess, icon, confidence = _classificar({"ip": ip, "hostname": hostname, "vendor": vendor, "open_ports": ports}, target)
+    device_type, os_guess, icon, confidence = _classificar({"ip": ip, "hostname": hostname or device.detected_hostname, "vendor": vendor or device.vendor, "open_ports": ports}, target)
+    inferred, os_confidence = _infer_os(raw, hostname or device.detected_hostname)
+    if inferred:
+        os_guess = inferred
+        confidence = max(confidence, os_confidence)
+    elif os_guess == "Desconhecido" and device.os_guess:
+        os_guess = device.os_guess
     device.current_ip = ip
     device.mac = mac or device.mac
     device.detected_hostname = hostname or device.detected_hostname
@@ -243,6 +261,8 @@ def _persist_device(target: dict, raw: dict, now) -> Dispositivo | None:
     device.network_cidr = target["cidr"]
     device.network_id = target["id"]
     device.status = Dispositivo.Status.ONLINE
+    device.availability_failures = 0
+    device.availability_checked_at = now
     device.risk_score = _risk_score(ports)
     device.last_seen = now
     device.last_scan = now
@@ -250,7 +270,10 @@ def _persist_device(target: dict, raw: dict, now) -> Dispositivo | None:
     return device
 
 
-def executar_scan(network_ids: Any = None) -> dict:
+@inventory_operation
+def executar_scan(network_ids: Any = None, *, mode: str = "quick") -> dict:
+    if mode not in {"quick", "advanced"}:
+        raise DiscoveryValidationError("Modo de scan inválido.")
     targets = selecionar_redes(network_ids)
     requested = [{key: target[key] for key in ("id", "role", "interface", "cidr")} for target in targets]
     try:
@@ -264,7 +287,7 @@ def executar_scan(network_ids: Any = None) -> dict:
     successful_ids: set[str] = set()
     try:
         agent_targets = [{"network_id": target["id"], "interface": target["interface"], "cidr": target["cidr"], "role": target["role"]} for target in targets]
-        result = requisitar_agent("devices.scan", {"targets": agent_targets, "max_hosts": _max_hosts()}, timeout=120)
+        result = requisitar_agent("devices.scan", {"targets": agent_targets, "max_hosts": _max_hosts(), "mode": mode}, timeout=120)
         responses = result.get("targets") if isinstance(result.get("targets"), list) else []
         by_id = {target["id"]: target for target in targets}
         for response in responses:
@@ -284,16 +307,19 @@ def executar_scan(network_ids: Any = None) -> dict:
                     seen_ids.add(device.pk)
                     found += 1
             Dispositivo.objects.filter(network_id=target["id"]).exclude(pk__in=seen_ids).update(
-                status=Dispositivo.Status.OFFLINE, last_scan=now,
+                availability_failures=F("availability_failures") + 1, availability_checked_at=now, last_scan=now,
             )
+            Dispositivo.objects.filter(network_id=target["id"], availability_failures__gte=3).update(status=Dispositivo.Status.OFFLINE, availability_failures=3)
             RedeDiscovery.objects.filter(network_id=target["id"]).update(last_scan=now)
         missing = set(by_id) - successful_ids - set(errors)
         errors.update({network_id: "O Agent não retornou resultado para esta rede." for network_id in missing})
         scan.status = ScanRun.Status.COMPLETED if not errors else (ScanRun.Status.PARTIAL if successful_ids else ScanRun.Status.FAILED)
         scan.found = found
         scan.errors_by_network = errors
-        scan.summary = {"successful_networks": sorted(successful_ids), "found": found}
-        return {"ok": not errors, "scan_id": scan.pk, "found": found, "status": scan.status, "errors": errors}
+        warnings = [warning for response in responses if isinstance(response, dict) for warning in response.get("warnings", [])]
+        scan.summary = {"successful_networks": sorted(successful_ids), "found": found, "mode": mode, "warnings": warnings}
+        scan.payload = {"targets": responses} if mode == "advanced" else {}
+        return {"ok": not errors, "scan_id": scan.pk, "found": found, "status": scan.status, "errors": errors, "warnings": warnings}
     except Exception as exc:
         logger.exception("Falha ao executar discovery de dispositivos")
         scan.status = ScanRun.Status.FAILED
@@ -303,22 +329,43 @@ def executar_scan(network_ids: Any = None) -> dict:
     finally:
         scan.finished_at = timezone.now()
         scan.lock_key = None
-        scan.save(update_fields=["status", "found", "errors_by_network", "summary", "finished_at", "lock_key"])
+        scan.save(update_fields=["status", "found", "errors_by_network", "summary", "finished_at", "lock_key", "payload"])
 
 
 def marcar_inventario_stale() -> int:
-    """Evita afirmar online/offline quando a última observação já expirou."""
-    try:
-        from configuracoes.models import ConfigSistema
-        interval = ConfigSistema.objects.filter(pk=1).values_list("scan_interval", flat=True).first()
-        seconds = max(300, min(86400, int(interval or 60) * 2))
-    except (ImportError, TypeError, ValueError):
-        seconds = 300
-    cutoff = timezone.now() - timedelta(seconds=seconds)
-    return Dispositivo.objects.filter(
-        status__in=[Dispositivo.Status.ONLINE, Dispositivo.Status.OFFLINE],
-        last_scan__lt=cutoff,
-    ).update(status=Dispositivo.Status.STALE)
+    """A expiração não realiza sondagem; preserva o contrato dos consumidores."""
+    now = timezone.now()
+    config = MonitorDispositivos.objects.filter(pk=1).first()
+    interval = config.interval_minutes if config else 3
+    cutoff = now - timedelta(minutes=interval * 3 + 1)
+    # Scan manual recém-concluído é evidência válida por 15 minutos.
+    manual_cutoff = now - timedelta(minutes=15)
+    manual = Q(last_scan__gte=manual_cutoff, last_seen__gte=manual_cutoff)
+    recent_networks = RedeDiscovery.objects.filter(monitored=True, last_probe__gte=cutoff).values_list("network_id", flat=True)
+    monitored = Q(network_id__in=recent_networks, availability_checked_at__gte=cutoff) if config and config.enabled else Q(pk__in=[])
+    return Dispositivo.objects.filter(status__in=[Dispositivo.Status.ONLINE, Dispositivo.Status.OFFLINE]).exclude(manual | monitored).update(status=Dispositivo.Status.STALE)
+
+
+def _infer_os(raw: dict, hostname: str | None) -> tuple[str | None, int]:
+    fingerprint = str(raw.get("os_fingerprint") or "").lower()
+    if int(raw.get("os_confidence") or 0) >= 85:
+        for token, label in (("android", "Android"), ("windows", "Windows"), ("mac os", "macOS"), ("macos", "macOS"), ("linux", "Linux")):
+            if token in fingerprint:
+                return f"{label} provável", min(95, int(raw["os_confidence"]))
+    ports = set(raw.get("open_ports") or [])
+    services = " ".join(str(service.get(key, "")) for service in raw.get("services", []) if isinstance(service, dict) for key in ("name", "product", "ostype")).lower()
+    name = str(hostname or "").lower()
+    if {445, 3389}.issubset(ports) or "windows" in services:
+        return "Windows provável", 75
+    if "android" in name and ports:
+        return "Android provável", 60
+    if any(token in services for token in ("mac os", "macos", "darwin")) or ("macbook" in name and 22 in ports):
+        return "macOS provável", 70
+    if any(token in services for token in ("ubuntu", "debian", "linux")) or (22 in ports and any(token in name for token in ("linux", "ubuntu", "debian"))):
+        return "Linux provável", 70
+    return None, 0
+
+
 def serializar_dispositivo(device: Dispositivo) -> dict:
     return {
         "device_id": str(device.pk), "ip": device.current_ip, "current_ip": device.current_ip,
@@ -327,6 +374,9 @@ def serializar_dispositivo(device: Dispositivo) -> dict:
         "device_type": device.device_type, "type": device.device_type, "os": device.os_guess, "status": device.status, "risk_score": device.risk_score,
         "interface": device.interface_name, "network_role": device.network_role, "network_cidr": device.network_cidr,
         "network_id": device.network_id, "open_ports": device.observed_ports or [],
+        "classification_confidence": device.classification_confidence,
+        "availability_failures": device.availability_failures,
+        "availability_checked_at": device.availability_checked_at.isoformat() if device.availability_checked_at else None,
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
         "last_scan": device.last_scan.isoformat() if device.last_scan else None,
         "first_seen": device.first_seen.isoformat() if device.first_seen else None,

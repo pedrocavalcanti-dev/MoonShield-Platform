@@ -1,0 +1,15 @@
+[Unit]
+Description=MoonShield Devices Availability Monitor
+After=network.target postgresql.service moonshield-agent.service
+Wants=network.target
+
+[Service]
+Type=oneshot
+User=moonshield
+Group=moonshield
+WorkingDirectory=/opt/moonshield/source/MoonShield
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/moonshield/venv/bin/python /opt/moonshield/source/MoonShield/gerenciar.py monitorar_dispositivos
+TimeoutStartSec=10min
+UMask=0027
+NoNewPrivileges=true

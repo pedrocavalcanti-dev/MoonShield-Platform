@@ -1,0 +1,242 @@
+/* MoonShield Suricata — integração visual com o shell global. */
+
+:root {
+    --sp-blue: var(--accent);
+    --sp-blue-soft: var(--accent-glow);
+    --sp-purple: var(--accent-hover);
+    --sp-cyan: var(--accent-hover);
+    --sp-accent-border: color-mix(in srgb, var(--accent) 24%, transparent);
+    --sp-accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+    --sp-sidebar-collapsed-w: 72px;
+}
+
+::selection {
+    color: var(--bg);
+    background: var(--accent);
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+    outline-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* Accent de identidade — shell, navegação e ações. */
+.sp-bg {
+    background: radial-gradient(circle at 20% 30%, var(--sp-accent-soft), transparent 34%),
+        radial-gradient(circle at 78% 20%, var(--accent-glow-sm), transparent 28%),
+        linear-gradient(180deg, var(--sp-bg) 0%, var(--sp-bg-soft) 55%, var(--sp-bg) 100%);
+}
+
+.sp-bg__glow--blue,
+.sp-bg__glow--purple {
+    background: var(--accent-glow-sm);
+}
+
+.sp-sidebar::after {
+    background: linear-gradient(180deg, transparent, var(--sp-accent-border) 28%, var(--accent-glow-sm) 72%, transparent);
+}
+
+.sp-brand__shield,
+[data-theme="light"] .sp-brand__shield,
+.sp-nav__badge,
+[data-theme="light"] .sp-nav__badge {
+    color: var(--accent);
+    border-color: var(--sp-accent-border);
+    background: var(--accent-glow);
+    box-shadow: none;
+}
+
+.sp-brand__shield {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    object-fit: contain;
+}
+
+.sp-nav__item.is-active,
+[data-theme="light"] .sp-nav__item.is-active {
+    border-color: var(--sp-accent-border);
+    background: linear-gradient(90deg, var(--sp-accent-soft), transparent);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.sp-nav__item:hover .sp-nav__icon,
+.sp-nav__item.is-active .sp-nav__icon,
+.sp-mini-action:hover,
+.sp-copy-btn:hover,
+.sp-link-btn:hover {
+    color: var(--accent);
+}
+
+.sp-btn--primary,
+[data-theme="light"] .sp-btn--primary {
+    color: var(--bg) !important;
+    border-color: var(--accent) !important;
+    background: var(--accent) !important;
+    box-shadow: none;
+}
+
+.sp-btn--primary:hover,
+[data-theme="light"] .sp-btn--primary:hover {
+    color: var(--bg) !important;
+    border-color: var(--accent-hover) !important;
+    background: var(--accent-hover) !important;
+    box-shadow: none;
+}
+
+/* Destaques decorativos das seções; estados semânticos permanecem intactos. */
+.sp-hero,
+[data-theme="light"] .sp-hero {
+    background: radial-gradient(circle at 76% 48%, var(--sp-accent-soft), transparent 30%),
+        linear-gradient(135deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .022));
+}
+
+.sp-orbit__ring--2,
+.sp-orbit__ring--3,
+.sp-orbit__core,
+.sp-orbit__core::after,
+.sp-topology__node--sensor,
+.sp-topology__node--sensor .sp-topology__node-icon,
+.sp-topology__node--sensor::after,
+.sp-rule-card__icon--moon,
+.sp-rule-card__icon--et,
+.sp-validation-state__icon--running,
+.sp-validation-state__icon--checking,
+.sp-select:focus,
+.sp-task-progress__label,
+.sp-long-operation__content,
+.sp-long-operation__estimate {
+    border-color: var(--sp-accent-border);
+}
+
+.sp-orbit__core,
+.sp-rule-card__icon--moon,
+.sp-rule-card__icon--et,
+.sp-validation-state__icon--running,
+.sp-validation-state__icon--checking,
+.sp-task-progress__label,
+.sp-long-operation__content,
+.sp-long-operation__estimate {
+    color: var(--accent);
+    background: var(--accent-glow);
+}
+
+.sp-orbit__core,
+.sp-health-score__value,
+.sp-topology__node--sensor .sp-topology__node-icon,
+.sp-long-operation__estimate svg {
+    color: var(--accent);
+    stroke: var(--accent);
+}
+
+.sp-select:focus {
+    box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.sp-topology__link,
+.sp-topology__link::before {
+    background: linear-gradient(90deg, transparent, var(--sp-accent-border), transparent);
+}
+
+/* Sidebar recolhível — usa a preferência já persistida pelo componente. */
+.sp-sidebar {
+    transition: width .32s var(--sp-ease), padding .32s var(--sp-ease), transform .32s var(--sp-ease);
+}
+
+.sp-sidebar__collapse {
+    position: absolute;
+    top: 78px;
+    right: -12px;
+    z-index: 6;
+    width: 25px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid var(--sp-border-strong);
+    border-radius: 8px;
+    color: var(--sp-muted);
+    background: var(--sp-surface);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+    transition: color .18s ease, border-color .18s ease, background .18s ease, transform .24s ease;
+}
+
+.sp-sidebar__collapse:hover {
+    color: var(--accent);
+    border-color: var(--sp-accent-border);
+    background: var(--sp-surface-hover);
+}
+
+body.is-sidebar-collapsed .sp-main {
+    margin-left: var(--sp-sidebar-collapsed-w);
+}
+
+body.is-sidebar-collapsed .sp-sidebar {
+    width: var(--sp-sidebar-collapsed-w);
+    padding-right: 10px;
+    padding-left: 10px;
+}
+
+body.is-sidebar-collapsed .sp-sidebar__collapse svg {
+    transform: rotate(180deg);
+}
+
+body.is-sidebar-collapsed .sp-sidebar__head,
+body.is-sidebar-collapsed .sp-brand,
+body.is-sidebar-collapsed .sp-nav,
+body.is-sidebar-collapsed .sp-sidebar__bottom {
+    justify-content: center;
+    align-items: center;
+}
+
+body.is-sidebar-collapsed .sp-brand {
+    gap: 0;
+}
+
+body.is-sidebar-collapsed .sp-brand__copy,
+body.is-sidebar-collapsed .sp-sidebar__section-label,
+body.is-sidebar-collapsed .sp-nav__item > span:not(.sp-nav__icon):not(.sp-nav__badge),
+body.is-sidebar-collapsed .sp-nav__badge,
+body.is-sidebar-collapsed .sp-mini-status__copy,
+body.is-sidebar-collapsed .sp-sidebar__footer > span {
+    display: none;
+}
+
+body.is-sidebar-collapsed .sp-brand__shield {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+}
+
+body.is-sidebar-collapsed .sp-nav__item {
+    width: 44px;
+    min-width: 44px;
+    height: 42px;
+    min-height: 42px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+}
+
+body.is-sidebar-collapsed .sp-nav__icon {
+    width: auto;
+    flex-basis: auto;
+}
+
+body.is-sidebar-collapsed .sp-mini-status {
+    width: 44px;
+    min-height: 44px;
+    justify-content: center;
+    margin-right: auto;
+    margin-left: auto;
+    padding: 0;
+}
+
+body.is-sidebar-collapsed .sp-sidebar__footer {
+    justify-content: center;
+}
+
+@media (max-width: 860px) {
+    .sp-sidebar__collapse {
+        display: none;
+    }
+}

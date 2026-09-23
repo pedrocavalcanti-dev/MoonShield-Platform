@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.tema|default:'dark' }}{% else %}dark{% endif %}">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -12,83 +12,6 @@
         name="description"
         content="Painel operacional do Suricata IDS integrado ao MoonShield."
     />
-
-    <!-- ============================================================
-         TEMA INICIAL
-         Evita flash do tema incorreto antes do CSS carregar
-    ============================================================= -->
-    <script>
-        (() => {
-            'use strict';
-
-            const NEW_THEME_KEY =
-                'moonshield_suricata_theme';
-
-            const LEGACY_THEME_KEY =
-                'moonshield_theme';
-
-            let savedTheme = null;
-
-            try {
-                savedTheme =
-                    localStorage.getItem(
-                        NEW_THEME_KEY
-                    ) ||
-                    localStorage.getItem(
-                        LEGACY_THEME_KEY
-                    );
-
-                if (
-                    savedTheme === 'dark' ||
-                    savedTheme === 'light'
-                ) {
-                    document.documentElement.setAttribute(
-                        'data-theme',
-                        savedTheme
-                    );
-
-                    localStorage.setItem(
-                        NEW_THEME_KEY,
-                        savedTheme
-                    );
-
-                    return;
-                }
-            } catch (error) {
-                console.warn(
-                    '[MoonShield] Não foi possível ler o tema salvo:',
-                    error
-                );
-            }
-
-            const prefersDark =
-                window.matchMedia(
-                    '(prefers-color-scheme: dark)'
-                ).matches;
-
-            const initialTheme =
-                prefersDark
-                    ? 'dark'
-                    : 'light';
-
-            document.documentElement.setAttribute(
-                'data-theme',
-                initialTheme
-            );
-
-            try {
-                localStorage.setItem(
-                    NEW_THEME_KEY,
-                    initialTheme
-                );
-            } catch (error) {
-                console.warn(
-                    '[MoonShield] Não foi possível salvar o tema inicial:',
-                    error
-                );
-            }
-        })();
-    </script>
 
     <!-- ============================================================
          FONTES
@@ -112,6 +35,8 @@
     <!-- ============================================================
          CSS PRINCIPAL
     ============================================================= -->
+    <link rel="stylesheet" href="{% static 'css/base.css' %}" />
+
     <link
         rel="stylesheet"
         href="{% static 'css/incidentes/suricata/painel.css' %}"
@@ -160,6 +85,11 @@
     <link
         rel="stylesheet"
         href="{% static 'css/incidentes/suricata/terminal.css' %}"
+    />
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/incidentes/suricata/tema_global.css' %}"
     />
 
     <!-- ============================================================
@@ -436,89 +366,6 @@
     ============================================================= -->
 
     {% include "incidentes/suricata/parciais/_modais.html" %}
-
-
-    <!-- ============================================================
-         CONTROLE DO TEMA
-
-         Mantido no HTML porque deve funcionar mesmo que algum módulo
-         operacional do painel falhe.
-    ============================================================= -->
-
-    <script>
-        (() => {
-            'use strict';
-
-            const button =
-                document.getElementById('themeToggle');
-
-            const root =
-                document.documentElement;
-
-            if (!button) {
-                return;
-            }
-
-
-            const syncLabel = () => {
-                const current =
-                    root.getAttribute('data-theme') ||
-                    'dark';
-
-                const label =
-                    current === 'dark'
-                        ? 'Ativar tema claro'
-                        : 'Ativar tema escuro';
-
-                button.setAttribute(
-                    'aria-label',
-                    label
-                );
-
-                button.setAttribute(
-                    'title',
-                    label
-                );
-            };
-
-
-            button.addEventListener(
-                'click',
-                () => {
-                    const current =
-                        root.getAttribute('data-theme') ||
-                        'dark';
-
-                    const next =
-                        current === 'dark'
-                            ? 'light'
-                            : 'dark';
-
-                    root.setAttribute(
-                        'data-theme',
-                        next
-                    );
-
-                    try {
-                        localStorage.setItem(
-                            'moonshield_suricata_theme',
-                            next
-                        );
-                    } catch (error) {
-                        console.warn(
-                            '[MoonShield] Não foi possível persistir o tema:',
-                            error
-                        );
-                    }
-
-                    syncLabel();
-                }
-            );
-
-
-            syncLabel();
-        })();
-    </script>
 
 
     <!-- ============================================================

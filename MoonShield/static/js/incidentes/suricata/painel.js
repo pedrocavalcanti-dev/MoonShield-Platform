@@ -133,17 +133,8 @@ const SECTION_ALIASES = Object.freeze({
    ========================================================================== */
 
 const STORAGE_KEYS = Object.freeze({
-    section: 'moonshield_suricata_section',
-    theme: 'moonshield_suricata_theme',
-    sidebarCollapsed: 'moonshield_sidebar_collapsed'
+    section: 'moonshield_suricata_section'
 });
-
-const VALID_THEMES = new Set([
-    'dark',
-    'light'
-]);
-
-let themeObserver = null;
 
 
 function readStorage(key, fallback = null) {
@@ -237,218 +228,6 @@ function persistSection(sectionName) {
     writeStorage(
         STORAGE_KEYS.section,
         normalized
-    );
-}
-
-
-function getThemeHost() {
-    /*
-     * O CSS do painel aceita [data-theme="light"] em qualquer ancestral.
-     * Preferimos <html>, mas também espelhamos no <body> quando ele já
-     * utiliza data-theme para manter compatibilidade com scripts antigos.
-     */
-    return document.documentElement;
-}
-
-
-function detectCurrentTheme() {
-    const htmlTheme = String(
-        document.documentElement
-            ?.getAttribute('data-theme') ||
-        ''
-    )
-        .trim()
-        .toLowerCase();
-
-    const bodyTheme = String(
-        document.body
-            ?.getAttribute('data-theme') ||
-        ''
-    )
-        .trim()
-        .toLowerCase();
-
-    const current = VALID_THEMES.has(htmlTheme)
-        ? htmlTheme
-        : VALID_THEMES.has(bodyTheme)
-            ? bodyTheme
-            : '';
-
-    if (current) {
-        return current;
-    }
-
-    return window.matchMedia?.(
-        '(prefers-color-scheme: light)'
-    )?.matches
-        ? 'light'
-        : 'dark';
-}
-
-
-function applyThemePreference(theme) {
-    const normalized = String(
-        theme || ''
-    )
-        .trim()
-        .toLowerCase();
-
-    if (!VALID_THEMES.has(normalized)) {
-        return false;
-    }
-
-    const host = getThemeHost();
-
-    if (host) {
-        host.setAttribute(
-            'data-theme',
-            normalized
-        );
-    }
-
-    /*
-     * Se o body já faz parte do contrato visual atual, mantém os dois
-     * sincronizados. Não adicionamos data-theme no body sem necessidade.
-     */
-    if (
-        document.body
-        && document.body.hasAttribute(
-            'data-theme'
-        )
-    ) {
-        document.body.setAttribute(
-            'data-theme',
-            normalized
-        );
-    }
-
-    writeStorage(
-        STORAGE_KEYS.theme,
-        normalized
-    );
-
-    return true;
-}
-
-
-function restoreThemePreference() {
-    const stored = String(
-        readStorage(
-            STORAGE_KEYS.theme,
-            ''
-        ) || ''
-    )
-        .trim()
-        .toLowerCase();
-
-    if (VALID_THEMES.has(stored)) {
-        applyThemePreference(
-            stored
-        );
-
-        return stored;
-    }
-
-    const current = detectCurrentTheme();
-
-    writeStorage(
-        STORAGE_KEYS.theme,
-        current
-    );
-
-    return current;
-}
-
-
-function persistThemeFromDom() {
-    const theme = detectCurrentTheme();
-
-    if (VALID_THEMES.has(theme)) {
-        writeStorage(
-            STORAGE_KEYS.theme,
-            theme
-        );
-    }
-}
-
-
-function initThemePersistence() {
-    restoreThemePreference();
-
-    /*
-     * O botão de tema já pertence ao layout/base atual.
-     * Em vez de duplicar a lógica do botão, observamos a alteração real de
-     * data-theme e persistimos o resultado. Assim não existe "duplo toggle".
-     */
-    const targets = [
-        document.documentElement,
-        document.body
-    ].filter(Boolean);
-
-    if (
-        typeof MutationObserver !== 'undefined'
-        && targets.length
-    ) {
-        themeObserver = new MutationObserver(
-            (mutations) => {
-                if (
-                    mutations.some(
-                        (mutation) =>
-                            mutation.type === 'attributes'
-                            && mutation.attributeName === 'data-theme'
-                    )
-                ) {
-                    persistThemeFromDom();
-                }
-            }
-        );
-
-        targets.forEach(
-            (target) => {
-                themeObserver.observe(
-                    target,
-                    {
-                        attributes: true,
-                        attributeFilter: [
-                            'data-theme'
-                        ]
-                    }
-                );
-            }
-        );
-    }
-
-    /*
-     * Fallback: alguns temas antigos trocam classes e só depois escrevem
-     * data-theme. Persistimos novamente após qualquer clique em controles
-     * comuns de tema, sem interferir na ação principal do botão.
-     */
-    document.addEventListener(
-        'click',
-        (event) => {
-            const themeControl =
-                event.target.closest(
-                    [
-                        '[data-theme-toggle]',
-                        '[data-action="toggle-theme"]',
-                        '#btnThemeToggle',
-                        '#themeToggle',
-                        '#toggleTheme'
-                    ].join(',')
-                );
-
-            if (!themeControl) {
-                return;
-            }
-
-            window.requestAnimationFrame(
-                () => {
-                    window.requestAnimationFrame(
-                        persistThemeFromDom
-                    );
-                }
-            );
-        }
     );
 }
 
@@ -1316,14 +1095,6 @@ async function bootstrap() {
 
 
     /*
-     * Preferências visuais.
-     *
-     * Tema e sidebar são restaurados antes dos componentes do painel para
-     * reduzir mudanças visuais perceptíveis durante o bootstrap.
-     */
-    initThemePersistence();
-
-    /*
      * Componentes gerais.
      */
     initStars();
@@ -1427,10 +1198,6 @@ function cleanup() {
 
     stopStatusPolling();
 
-    if (themeObserver) {
-        themeObserver.disconnect();
-        themeObserver = null;
-    }
 }
 
 

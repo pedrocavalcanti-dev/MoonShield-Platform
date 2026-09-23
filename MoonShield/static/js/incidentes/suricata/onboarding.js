@@ -9,18 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ═══════════════════════════════════════════════════════════
     // CONTROLE DE TEMA
     // ═══════════════════════════════════════════════════════════
-    const themeToggle = document.getElementById('themeToggle');
-    if (themeToggle) {
-        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
-        themeToggle.checked = currentTheme === 'dark';
-        
-        themeToggle.addEventListener('change', (e) => {
-            const newTheme = e.target.checked ? 'dark' : 'light';
-            document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('moonshield_theme', newTheme);
-        });
-    }
-
     // ═══════════════════════════════════════════════════════════
     // ESTADO E CONFIGURAÇÕES
     // ═══════════════════════════════════════════════════════════

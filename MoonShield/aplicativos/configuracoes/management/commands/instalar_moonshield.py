@@ -251,6 +251,8 @@ class Command(BaseCommand):
             automatico,
         )
 
+        self._validar_pos_instalacao(paths)
+
         return {
             "ok": True,
             "service": self.SERVICE_NAME,
@@ -561,18 +563,22 @@ WantedBy=multi-user.target
         if usuario.pw_uid == 0:
             raise RuntimeError("O usuário moonshield não pode ter UID 0.")
 
-        # Preserva os caminhos consumidos pelo status/diagnóstico existentes.
+        # Preserva os caminhos consumidos pelo status/diagnostico existentes.
+        # A ordem garante que o pai (var) pertença ao usuário correto antes do filho.
         for directory, filename in (
+            (paths["django_dir"] / "var", None),
             (paths["django_dir"] / "var/cursors", "suricata_eve.cursor"),
             (paths["django_dir"] / "logs", "moonshield.log"),
         ):
             directory.mkdir(parents=True, exist_ok=True)
             os.chown(directory, usuario.pw_uid, gid)
             os.chmod(directory, 0o750)
-            existing = directory / filename
-            if existing.exists():
-                os.chown(existing, usuario.pw_uid, gid)
-                os.chmod(existing, 0o640)
+
+            if filename:
+                existing = directory / filename
+                if existing.exists():
+                    os.chown(existing, usuario.pw_uid, gid)
+                    os.chmod(existing, 0o640)
 
         # Não cria EVE vazio nem muda o owner/group dos logs do Suricata.
         # A ACL default cobre arquivos recriados no diretório após rotação.
@@ -850,3 +856,43 @@ WantedBy=multi-user.target
                 f"[MoonShield] ATENÇÃO: {message}"
             )
         )
+
+    def _validar_pos_instalacao(self, paths: dict) -> None:
+        """TAREFA 5: Validações Pós-Instalação."""
+        var_dir = paths["django_dir"] / "var"
+        cursors_dir = var_dir / "cursors"
+
+        if not var_dir.is_dir():
+            raise RuntimeError(f"Validação falhou: Diretório {var_dir} não existe.")
+        if not cursors_dir.is_dir():
+            raise RuntimeError(f"Validação falhou: Diretório {cursors_dir} não existe.")
+
+        res_w = subprocess.run(
+            ["su", "-s", "/bin/sh", "moonshield", "-c", f"test -w {cursors_dir}"],
+            capture_output=True
+        )
+        if res_w.returncode != 0:
+            raise RuntimeError(f"Validação falhou: Usuário moonshield não consegue escrever em {cursors_dir}.")
+
+        eve = Path("/var/log/suricata/eve.json")
+        if eve.exists():
+            res_r = subprocess.run(
+                ["su", "-s", "/bin/sh", "moonshield", "-c", f"test -r {eve}"],
+                capture_output=True
+            )
+            if res_r.returncode != 0:
+                raise RuntimeError(f"Validação falhou: Usuário moonshield não consegue ler {eve}.")
+
+        units = [
+            self.MONITOR_SERVICE_NAME,
+            self.WORKER_SERVICE_NAME,
+            self.SERVICE_NAME,
+            "moonshield-web.service",
+        ]
+
+        for unit in units:
+            check = self._systemctl(["is-enabled", unit], obrigatorio=False)
+            if check.returncode != 0:
+                check2 = subprocess.run(["systemctl", "list-unit-files", unit], capture_output=True, text=True)
+                if check2.returncode != 0 or "0 unit files listed" in check2.stdout:
+                    self._warn(f"Validação alerta: Unit {unit} não localizada no systemd.")

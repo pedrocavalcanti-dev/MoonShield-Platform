@@ -1,6 +1,9 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.tema|default:'dark' }}{% else %}dark{% endif %}">
+<html
+    lang="pt-BR"
+    data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.tema|default:'dark' }}{% else %}dark{% endif %}"
+>
 <head>
     <meta charset="UTF-8">
 
@@ -14,15 +17,12 @@
         content="dark light"
     >
 
-    <title>MoonShield — Rede</title>
+    <title>MoonShield â€” Rede</title>
 
     <meta
         name="description"
         content="Painel de gerenciamento de rede do MoonShield."
     >
-
-
-
 
 
     <!-- ============================================================
@@ -57,7 +57,7 @@
 
 
     <!-- ============================================================
-         CSS DAS SEÇÕES
+         CSS DAS SEÃ‡Ã•ES
     ============================================================= -->
 
     <link
@@ -88,7 +88,7 @@
 
     <!-- ============================================================
          TEMA NEUTRO GLOBAL
-         IMPORTANTE: DEVE SER O ÚLTIMO CSS CARREGADO
+         IMPORTANTE: DEVE SER O ÃšLTIMO CSS GERAL CARREGADO
     ============================================================= -->
 
     <link
@@ -98,8 +98,7 @@
 
 
     <!-- ============================================================
-         MODAL DE ALTERAÇÕES
-         ARQUIVO NOVO PARA EVITAR CACHE DO CSS ANTIGO
+         MODAL DE ALTERAÃ‡Ã•ES
     ============================================================= -->
 
     <link
@@ -129,67 +128,38 @@
 
     <script>
         window.MS_NETWORK_PANEL = {
-            csrfToken:
-                "{{ csrf_token }}",
+            csrfToken: "{{ csrf_token }}",
 
             usuario: {
-                username:
-                    "{{ request.user.username|escapejs }}",
-
-                nome:
-                    "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+                username: "{{ request.user.username|escapejs }}",
+                nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
             },
 
             urls: {
                 /*
-                 * As URLs serão conectadas aos nomes oficiais
+                 * As URLs serÃ£o conectadas aos nomes oficiais
                  * quando fecharmos rede/api/urls.py e rede/urls.py.
                  */
 
-                status:
-                    "/rede/api/status/",
+                status: "/rede/api/status/",
+                interfaces: "/rede/api/interfaces/",
+                detectarInterfaces: "/rede/api/interfaces/detectar/",
 
-                interfaces:
-                    "/rede/api/interfaces/",
+                roteamento: "/rede/api/roteamento/",
+                roteamentoReal: "/rede/api/roteamento/real/",
+                configurarRoteamento: "/rede/api/roteamento/configurar/",
+                aplicarRoteamento: "/rede/api/roteamento/aplicar/",
+                rotas: "/rede/api/roteamento/rotas/",
 
-                detectarInterfaces:
-                    "/rede/api/interfaces/detectar/",
+                nat: "/rede/api/nat/",
+                natReal: "/rede/api/nat/real/",
+                aplicarNat: "/rede/api/nat/aplicar/",
 
-                roteamento:
-                    "/rede/api/roteamento/",
+                diagnostico: "/rede/api/diagnostico/",
 
-                roteamentoReal:
-                    "/rede/api/roteamento/real/",
-
-                configurarRoteamento:
-                    "/rede/api/roteamento/configurar/",
-
-                aplicarRoteamento:
-                    "/rede/api/roteamento/aplicar/",
-
-                rotas:
-                    "/rede/api/roteamento/rotas/",
-
-                nat:
-                    "/rede/api/nat/",
-
-                natReal:
-                    "/rede/api/nat/real/",
-
-                aplicarNat:
-                    "/rede/api/nat/aplicar/",
-
-                diagnostico:
-                    "/rede/api/diagnostico/",
-
-                alteracoes:
-                    "/rede/api/alteracoes/",
-
-                reconciliar:
-                    "/rede/api/alteracoes/reconciliar/",
-
-                aplicarTudo:
-                    "/rede/api/alteracoes/aplicar-tudo/"
+                alteracoes: "/rede/api/alteracoes/",
+                reconciliar: "/rede/api/alteracoes/reconciliar/",
+                aplicarTudo: "/rede/api/alteracoes/aplicar-tudo/"
             }
         };
     </script>
@@ -206,17 +176,11 @@
         <div class="np-bg__grid"></div>
 
         <div
-            class="
-                np-bg__glow
-                np-bg__glow--blue
-            "
+            class="np-bg__glow np-bg__glow--blue"
         ></div>
 
         <div
-            class="
-                np-bg__glow
-                np-bg__glow--purple
-            "
+            class="np-bg__glow np-bg__glow--purple"
         ></div>
 
         <div class="np-bg__noise"></div>
@@ -260,7 +224,7 @@
 
 
         <!-- ========================================================
-             CONTEÚDO PRINCIPAL
+             CONTEÃšDO PRINCIPAL
         ========================================================= -->
 
         <div class="np-main">
@@ -273,13 +237,13 @@
 
 
             <!-- ====================================================
-                 SEÇÕES
+                 SEÃ‡Ã•ES
             ===================================================== -->
 
             <main class="np-content">
 
                 <!-- ================================================
-                     VISÃO GERAL
+                     VISÃƒO GERAL
                 ================================================= -->
 
                 {% include "rede/parciais/_visao_geral.html" %}
@@ -300,14 +264,14 @@
 
 
                 <!-- ================================================
-                     DIAGNÓSTICO
+                     DIAGNÃ“STICO
                 ================================================= -->
 
                 {% include "rede/parciais/_diagnostico.html" %}
 
 
                 <!-- ================================================
-                     ALTERAÇÕES
+                     ALTERAÃ‡Ã•ES
                 ================================================= -->
 
                 {% include "rede/parciais/_alteracoes.html" %}
@@ -324,13 +288,6 @@
     ============================================================= -->
 
     {% include "rede/parciais/_modais.html" %}
-
-
-    <!-- ============================================================
-         TEMA
-    ============================================================= -->
-
-
 
 
     <!-- ============================================================

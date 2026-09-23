@@ -6,7 +6,7 @@
 <aside class="np-sidebar" id="networkSidebar">
 
     <!-- ============================================================
-         CABEÇALHO
+         CABEÃ‡ALHO
     ============================================================= -->
 
     <div class="np-sidebar__head">
@@ -16,7 +16,24 @@
             aria-label="MoonShield Network Control"
         >
 
-            <img class="np-brand__shield" aria-hidden="true" src="{% static 'favicon/favicon-32x32.png' %}" style="width: 17px; height: 17px; object-fit: contain;">
+            <span
+                class="np-brand__shield"
+                aria-hidden="true"
+            >
+                <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z"></path>
+                    <path d="M8 13h2l1.2-4 1.8 7 1.2-4H17"></path>
+                </svg>
+            </span>
 
             <span class="np-brand__copy">
                 <strong>MoonShield</strong>
@@ -81,28 +98,28 @@
 
 
     <!-- ============================================================
-         OPERAÇÃO
+         OPERAÃ‡ÃƒO
     ============================================================= -->
 
     <div class="np-sidebar__section-label">
-        Operação
+        OperaÃ§Ã£o
     </div>
 
 
     <nav
         class="np-nav"
-        aria-label="Navegação do painel de rede"
+        aria-label="NavegaÃ§Ã£o do painel de rede"
     >
 
-        <!-- VISÃO GERAL -->
+        <!-- VISÃƒO GERAL -->
 
         <button
             type="button"
             class="np-nav__item is-active"
             data-section="visao-geral"
-            data-title="Visão Geral"
+            data-title="VisÃ£o Geral"
             data-eyebrow="Rede"
-            title="Visão Geral"
+            title="VisÃ£o Geral"
         >
 
             <span class="np-nav__icon">
@@ -124,7 +141,7 @@
             </span>
 
             <span class="np-nav__label">
-                Visão Geral
+                VisÃ£o Geral
             </span>
 
         </button>
@@ -206,15 +223,15 @@
         </button>
 
 
-        <!-- DIAGNÓSTICO -->
+        <!-- DIAGNÃ“STICO -->
 
         <button
             type="button"
             class="np-nav__item"
             data-section="diagnostico"
-            data-title="Diagnóstico"
+            data-title="DiagnÃ³stico"
             data-eyebrow="Rede"
-            title="Diagnóstico"
+            title="DiagnÃ³stico"
         >
 
             <span class="np-nav__icon">
@@ -234,21 +251,21 @@
             </span>
 
             <span class="np-nav__label">
-                Diagnóstico
+                DiagnÃ³stico
             </span>
 
         </button>
 
 
-        <!-- ALTERAÇÕES -->
+        <!-- ALTERAÃ‡Ã•ES -->
 
         <button
             type="button"
             class="np-nav__item"
             data-section="alteracoes"
-            data-title="Alterações"
+            data-title="AlteraÃ§Ãµes"
             data-eyebrow="Rede"
-            title="Alterações"
+            title="AlteraÃ§Ãµes"
         >
 
             <span class="np-nav__icon">
@@ -267,7 +284,7 @@
             </span>
 
             <span class="np-nav__label">
-                Alterações
+                AlteraÃ§Ãµes
             </span>
 
             <span
@@ -327,12 +344,12 @@
         </a>
 
 
-        <!-- CONFIGURAÇÕES -->
+        <!-- CONFIGURAÃ‡Ã•ES -->
 
         <a
             href="/configuracoes/"
             class="np-nav__item"
-            title="Configurações"
+            title="ConfiguraÃ§Ãµes"
         >
 
             <span class="np-nav__icon">
@@ -353,7 +370,7 @@
             </span>
 
             <span class="np-nav__label">
-                Configurações
+                ConfiguraÃ§Ãµes
             </span>
 
         </a>
@@ -362,7 +379,7 @@
 
 
     <!-- ============================================================
-         ÁREA INFERIOR
+         ÃREA INFERIOR
     ============================================================= -->
 
     <div class="np-sidebar__bottom">
@@ -412,7 +429,7 @@
                         class="np-mini-status__separator"
                         aria-hidden="true"
                     >
-                        ·
+                        Â·
                     </span>
 
                     <span id="sidebarInterfaceSummary">
@@ -431,13 +448,13 @@
                 id="sidebarAgentBackend"
                 aria-hidden="true"
             >
-                —
+                â€”
             </span>
 
         </div>
 
 
-        <!-- RODAPÉ -->
+        <!-- RODAPÃ‰ -->
 
         <div class="np-sidebar__footer">
 
@@ -446,7 +463,45 @@
             </span>
 
 
+            <button
+                type="button"
+                class="np-icon-btn np-icon-btn--small np-sidebar__theme"
+                id="themeToggle"
+                aria-label="Alternar tema"
+                title="Alternar tema"
+            >
 
+                <svg
+                    class="np-theme-icon np-theme-icon--moon"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"></path>
+                </svg>
+
+
+                <svg
+                    class="np-theme-icon np-theme-icon--sun"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                >
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+                </svg>
+
+            </button>
 
         </div>
 

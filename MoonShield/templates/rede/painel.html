@@ -1,9 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html
-    lang="pt-BR"
-    data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.tema|default:'dark' }}{% else %}dark{% endif %}"
->
+<html lang="pt-BR" data-theme="{% if request.user.is_authenticated %}{{ request.user.profile.tema|default:'dark' }}{% else %}dark{% endif %}">
 <head>
     <meta charset="UTF-8">
 
@@ -23,6 +20,79 @@
         name="description"
         content="Painel de gerenciamento de rede do MoonShield."
     >
+
+
+    <!-- ============================================================
+         TEMA INICIAL
+    ============================================================= -->
+
+    <script>
+        (() => {
+            'use strict';
+
+            const THEME_KEY =
+                'moonshield_network_theme';
+
+            const LEGACY_THEME_KEY =
+                'moonshield_theme';
+
+            let savedTheme = null;
+
+            try {
+                savedTheme =
+                    localStorage.getItem(
+                        THEME_KEY
+                    ) ||
+                    localStorage.getItem(
+                        LEGACY_THEME_KEY
+                    );
+
+                if (
+                    savedTheme === 'dark' ||
+                    savedTheme === 'light'
+                ) {
+                    document.documentElement.setAttribute(
+                        'data-theme',
+                        savedTheme
+                    );
+
+                    return;
+                }
+            } catch (error) {
+                console.warn(
+                    '[MoonShield Network] Falha ao ler tema:',
+                    error
+                );
+            }
+
+            const prefersDark =
+                window.matchMedia(
+                    '(prefers-color-scheme: dark)'
+                ).matches;
+
+            const initialTheme =
+                prefersDark
+                    ? 'dark'
+                    : 'light';
+
+            document.documentElement.setAttribute(
+                'data-theme',
+                initialTheme
+            );
+
+            try {
+                localStorage.setItem(
+                    THEME_KEY,
+                    initialTheme
+                );
+            } catch (error) {
+                console.warn(
+                    '[MoonShield Network] Falha ao salvar tema:',
+                    error
+                );
+            }
+        })();
+    </script>
 
 
     <!-- ============================================================
@@ -88,7 +158,7 @@
 
     <!-- ============================================================
          TEMA NEUTRO GLOBAL
-         IMPORTANTE: DEVE SER O ÚLTIMO CSS GERAL CARREGADO
+         IMPORTANTE: DEVE SER O ÚLTIMO CSS CARREGADO
     ============================================================= -->
 
     <link
@@ -99,6 +169,7 @@
 
     <!-- ============================================================
          MODAL DE ALTERAÇÕES
+         ARQUIVO NOVO PARA EVITAR CACHE DO CSS ANTIGO
     ============================================================= -->
 
     <link
@@ -128,11 +199,15 @@
 
     <script>
         window.MS_NETWORK_PANEL = {
-            csrfToken: "{{ csrf_token }}",
+            csrfToken:
+                "{{ csrf_token }}",
 
             usuario: {
-                username: "{{ request.user.username|escapejs }}",
-                nome: "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
+                username:
+                    "{{ request.user.username|escapejs }}",
+
+                nome:
+                    "{{ request.user.get_full_name|default:request.user.username|escapejs }}"
             },
 
             urls: {
@@ -141,25 +216,50 @@
                  * quando fecharmos rede/api/urls.py e rede/urls.py.
                  */
 
-                status: "/rede/api/status/",
-                interfaces: "/rede/api/interfaces/",
-                detectarInterfaces: "/rede/api/interfaces/detectar/",
+                status:
+                    "/rede/api/status/",
 
-                roteamento: "/rede/api/roteamento/",
-                roteamentoReal: "/rede/api/roteamento/real/",
-                configurarRoteamento: "/rede/api/roteamento/configurar/",
-                aplicarRoteamento: "/rede/api/roteamento/aplicar/",
-                rotas: "/rede/api/roteamento/rotas/",
+                interfaces:
+                    "/rede/api/interfaces/",
 
-                nat: "/rede/api/nat/",
-                natReal: "/rede/api/nat/real/",
-                aplicarNat: "/rede/api/nat/aplicar/",
+                detectarInterfaces:
+                    "/rede/api/interfaces/detectar/",
 
-                diagnostico: "/rede/api/diagnostico/",
+                roteamento:
+                    "/rede/api/roteamento/",
 
-                alteracoes: "/rede/api/alteracoes/",
-                reconciliar: "/rede/api/alteracoes/reconciliar/",
-                aplicarTudo: "/rede/api/alteracoes/aplicar-tudo/"
+                roteamentoReal:
+                    "/rede/api/roteamento/real/",
+
+                configurarRoteamento:
+                    "/rede/api/roteamento/configurar/",
+
+                aplicarRoteamento:
+                    "/rede/api/roteamento/aplicar/",
+
+                rotas:
+                    "/rede/api/roteamento/rotas/",
+
+                nat:
+                    "/rede/api/nat/",
+
+                natReal:
+                    "/rede/api/nat/real/",
+
+                aplicarNat:
+                    "/rede/api/nat/aplicar/",
+
+                diagnostico:
+                    "/rede/api/diagnostico/",
+
+                alteracoes:
+                    "/rede/api/alteracoes/",
+
+                reconciliar:
+                    "/rede/api/alteracoes/reconciliar/",
+
+                aplicarTudo:
+                    "/rede/api/alteracoes/aplicar-tudo/"
             }
         };
     </script>
@@ -176,11 +276,17 @@
         <div class="np-bg__grid"></div>
 
         <div
-            class="np-bg__glow np-bg__glow--blue"
+            class="
+                np-bg__glow
+                np-bg__glow--blue
+            "
         ></div>
 
         <div
-            class="np-bg__glow np-bg__glow--purple"
+            class="
+                np-bg__glow
+                np-bg__glow--purple
+            "
         ></div>
 
         <div class="np-bg__noise"></div>
@@ -288,6 +394,93 @@
     ============================================================= -->
 
     {% include "rede/parciais/_modais.html" %}
+
+
+    <!-- ============================================================
+         TEMA
+    ============================================================= -->
+
+    <script>
+        (() => {
+            'use strict';
+
+            const THEME_KEY =
+                'moonshield_network_theme';
+
+            const button =
+                document.getElementById(
+                    'themeToggle'
+                );
+
+            const root =
+                document.documentElement;
+
+            if (!button) {
+                return;
+            }
+
+            const syncButton = () => {
+                const current =
+                    root.getAttribute(
+                        'data-theme'
+                    ) || 'dark';
+
+                const label =
+                    current === 'dark'
+                        ? 'Ativar tema claro'
+                        : 'Ativar tema escuro';
+
+                button.setAttribute(
+                    'aria-label',
+                    label
+                );
+
+                button.setAttribute(
+                    'title',
+                    label
+                );
+
+                button.dataset.theme =
+                    current;
+            };
+
+            button.addEventListener(
+                'click',
+                () => {
+                    const current =
+                        root.getAttribute(
+                            'data-theme'
+                        ) || 'dark';
+
+                    const next =
+                        current === 'dark'
+                            ? 'light'
+                            : 'dark';
+
+                    root.setAttribute(
+                        'data-theme',
+                        next
+                    );
+
+                    try {
+                        localStorage.setItem(
+                            THEME_KEY,
+                            next
+                        );
+                    } catch (error) {
+                        console.warn(
+                            '[MoonShield Network] Falha ao persistir tema:',
+                            error
+                        );
+                    }
+
+                    syncButton();
+                }
+            );
+
+            syncButton();
+        })();
+    </script>
 
 
     <!-- ============================================================

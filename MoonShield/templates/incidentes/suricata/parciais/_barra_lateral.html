@@ -1,20 +1,27 @@
+{% load static %}
+
 <!-- ============================================================
      SIDEBAR
 ============================================================= -->
+
 <aside class="sp-sidebar" id="panelSidebar">
 
+    <!-- ========================================================
+         CABEÇALHO / MARCA
+    ========================================================= -->
     <div class="sp-sidebar__head">
+
         <a
             href="{% url 'incidentes:suricata_painel' %}"
             class="sp-brand"
             aria-label="MoonShield Suricata"
+            title="MoonShield Suricata"
         >
             <img
                 class="sp-brand__shield"
                 src="{% static 'favicon/favicon-32x32.png' %}"
-                alt=""
-                aria-hidden="true"
-            />
+                alt="MoonShield"
+            >
 
             <span class="sp-brand__copy">
                 <strong>MoonShield</strong>
@@ -22,11 +29,13 @@
             </span>
         </a>
 
+        <!-- Fecha o drawer no mobile -->
         <button
             class="sp-sidebar__close"
             id="btnCloseSidebar"
             type="button"
             aria-label="Fechar menu"
+            title="Fechar menu"
         >
             <svg
                 width="18"
@@ -35,12 +44,20 @@
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
             >
-                <path d="M18 6 6 18M6 6l12 12" />
+                <path d="M18 6 6 18M6 6l12 12"></path>
             </svg>
         </button>
+
     </div>
 
+
+    <!-- ========================================================
+         RECOLHER / EXPANDIR SIDEBAR
+    ========================================================= -->
     <button
         class="sp-sidebar__collapse"
         id="btnCollapseSidebar"
@@ -60,13 +77,24 @@
             stroke-linejoin="round"
             aria-hidden="true"
         >
-            <path d="M14 6 8 12l6 6" />
+            <path d="M14 6 8 12l6 6"></path>
         </svg>
     </button>
 
-    <div class="sp-sidebar__section-label">Monitoramento</div>
 
-    <nav class="sp-nav" aria-label="Navegação do Suricata">
+    <!-- ========================================================
+         MONITORAMENTO
+    ========================================================= -->
+    <div class="sp-sidebar__section-label">
+        Monitoramento
+    </div>
+
+    <nav
+        class="sp-nav"
+        aria-label="Navegação do Suricata"
+    >
+
+        <!-- VISÃO GERAL -->
         <button
             class="sp-nav__item is-active"
             type="button"
@@ -82,16 +110,24 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                    <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                    <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                    <rect x="14" y="14" width="7" height="7" rx="1"></rect>
                 </svg>
             </span>
-            <span>Visão geral</span>
+
+            <span class="sp-nav__label">
+                Visão geral
+            </span>
         </button>
 
+
+        <!-- SAÚDE DA STACK -->
         <button
             class="sp-nav__item"
             type="button"
@@ -107,13 +143,21 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <path d="M3 12h4l2.2-6 4.1 12 2.2-6H21" />
+                    <path d="M3 12h4l2.2-6 4.1 12 2.2-6H21"></path>
                 </svg>
             </span>
-            <span>Saúde da stack</span>
+
+            <span class="sp-nav__label">
+                Saúde da stack
+            </span>
         </button>
 
+
+        <!-- CONFIGURAÇÃO -->
         <button
             class="sp-nav__item"
             type="button"
@@ -129,14 +173,23 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.14.4-1.51 1Z" />
+                    <circle cx="12" cy="12" r="3"></circle>
+
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.12.6.65 1 1.26 1H21a2 2 0 1 1 0 4h-.09c-.61 0-1.14.4-1.51 1Z"></path>
                 </svg>
             </span>
-            <span>Configuração</span>
+
+            <span class="sp-nav__label">
+                Configuração
+            </span>
         </button>
 
+
+        <!-- REGRAS -->
         <button
             class="sp-nav__item"
             type="button"
@@ -152,14 +205,22 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <path d="M4 4h16v16H4z" />
-                    <path d="M8 9h8M8 13h8M8 17h5" />
+                    <rect x="4" y="4" width="16" height="16" rx="1"></rect>
+                    <path d="M8 9h8M8 13h8M8 17h5"></path>
                 </svg>
             </span>
-            <span>Regras</span>
+
+            <span class="sp-nav__label">
+                Regras
+            </span>
         </button>
 
+
+        <!-- TAREFAS -->
         <button
             class="sp-nav__item"
             type="button"
@@ -175,15 +236,30 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <path d="M9 11l3 3L22 4" />
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                    <path d="M9 11l3 3L22 4"></path>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
                 </svg>
             </span>
-            <span>Tarefas</span>
-            <span class="sp-nav__badge" id="navTaskBadge" hidden>0</span>
+
+            <span class="sp-nav__label">
+                Tarefas
+            </span>
+
+            <span
+                class="sp-nav__badge"
+                id="navTaskBadge"
+                hidden
+            >
+                0
+            </span>
         </button>
 
+
+        <!-- DIAGNÓSTICO -->
         <button
             class="sp-nav__item"
             type="button"
@@ -199,19 +275,37 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="m20 20-4-4" />
-                    <path d="M8 11h6M11 8v6" />
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="m20 20-4-4"></path>
+                    <path d="M8 11h6M11 8v6"></path>
                 </svg>
             </span>
-            <span>Diagnóstico</span>
+
+            <span class="sp-nav__label">
+                Diagnóstico
+            </span>
         </button>
+
     </nav>
 
-    <div class="sp-sidebar__section-label">Atalhos</div>
 
-    <nav class="sp-nav sp-nav--secondary">
+    <!-- ========================================================
+         ATALHOS
+    ========================================================= -->
+    <div class="sp-sidebar__section-label">
+        Atalhos
+    </div>
+
+    <nav
+        class="sp-nav sp-nav--secondary"
+        aria-label="Atalhos do Suricata"
+    >
+
+        <!-- CONFIGURAR SURICATA -->
         <a
             class="sp-nav__item"
             href="{% url 'incidentes:suricata_onboarding' %}"
@@ -226,14 +320,22 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
                 </svg>
             </span>
-            <span>Configurar Suricata</span>
+
+            <span class="sp-nav__label">
+                Configurar Suricata
+            </span>
         </a>
 
+
+        <!-- VOLTAR AO MOONSHIELD -->
         <a
             class="sp-nav__item"
             href="{% url 'painel:index' %}"
@@ -248,33 +350,67 @@
                     fill="none"
                     stroke="currentColor"
                     stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
                 >
-                    <path d="M3 12 12 3l9 9" />
-                    <path d="M5 10v11h14V10" />
+                    <path d="M3 12 12 3l9 9"></path>
+                    <path d="M5 10v11h14V10"></path>
                 </svg>
             </span>
-            <span>Voltar ao MoonShield</span>
+
+            <span class="sp-nav__label">
+                Voltar ao MoonShield
+            </span>
         </a>
+
     </nav>
 
+
+    <!-- ========================================================
+         ÁREA INFERIOR
+    ========================================================= -->
     <div class="sp-sidebar__bottom">
-        <div class="sp-mini-status">
+
+        <!-- STATUS -->
+        <div
+            class="sp-mini-status"
+            id="sidebarAgentStatus"
+            title="Status do Suricata"
+        >
             <span
                 class="sp-status-dot sp-status-dot--pending"
                 id="sidebarStatusDot"
+                aria-hidden="true"
             ></span>
 
             <span class="sp-mini-status__copy">
-                <strong id="sidebarStatusTitle">Verificando...</strong>
-                <small id="sidebarStatusText">Aguardando status</small>
+                <strong id="sidebarStatusTitle">
+                    Verificando...
+                </strong>
+
+                <small id="sidebarStatusText">
+                    Aguardando status
+                </small>
             </span>
         </div>
 
+
+        <!-- RODAPÉ -->
         <div class="sp-sidebar__footer">
-            <span>MoonShield 2026</span>
+            <span>
+                MoonShield 2026
+            </span>
         </div>
+
     </div>
+
 </aside>
+
+
+<!-- ============================================================
+     BACKDROP MOBILE
+============================================================= -->
 
 <div
     class="sp-sidebar-backdrop"

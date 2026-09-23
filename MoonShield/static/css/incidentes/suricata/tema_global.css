@@ -1,29 +1,67 @@
-/* MoonShield Suricata — integração visual com o shell global. */
+/* ============================================================
+   MOONSHIELD SURICATA
+   INTEGRAÇÃO VISUAL COM O SHELL GLOBAL
+============================================================= */
 
 :root {
     --sp-blue: var(--accent);
     --sp-blue-soft: var(--accent-glow);
     --sp-purple: var(--accent-hover);
     --sp-cyan: var(--accent-hover);
-    --sp-accent-border: color-mix(in srgb, var(--accent) 24%, transparent);
-    --sp-accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+
+    --sp-accent-border:
+        color-mix(in srgb, var(--accent) 24%, transparent);
+
+    --sp-accent-soft:
+        color-mix(in srgb, var(--accent) 10%, transparent);
+
     --sp-sidebar-collapsed-w: 72px;
 }
+
+
+/* ============================================================
+   SELEÇÃO / FOCO
+============================================================= */
 
 ::selection {
     color: var(--bg);
     background: var(--accent);
 }
 
-:where(button, a, input, select, textarea):focus-visible {
-    outline-color: color-mix(in srgb, var(--accent) 55%, transparent);
+:where(
+    button,
+    a,
+    input,
+    select,
+    textarea
+):focus-visible {
+    outline-color:
+        color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-/* Accent de identidade — shell, navegação e ações. */
+
+/* ============================================================
+   BACKGROUND / ACCENT GLOBAL
+============================================================= */
+
 .sp-bg {
-    background: radial-gradient(circle at 20% 30%, var(--sp-accent-soft), transparent 34%),
-        radial-gradient(circle at 78% 20%, var(--accent-glow-sm), transparent 28%),
-        linear-gradient(180deg, var(--sp-bg) 0%, var(--sp-bg-soft) 55%, var(--sp-bg) 100%);
+    background:
+        radial-gradient(
+            circle at 20% 30%,
+            var(--sp-accent-soft),
+            transparent 34%
+        ),
+        radial-gradient(
+            circle at 78% 20%,
+            var(--accent-glow-sm),
+            transparent 28%
+        ),
+        linear-gradient(
+            180deg,
+            var(--sp-bg) 0%,
+            var(--sp-bg-soft) 55%,
+            var(--sp-bg) 100%
+        );
 }
 
 .sp-bg__glow--blue,
@@ -32,31 +70,99 @@
 }
 
 .sp-sidebar::after {
-    background: linear-gradient(180deg, transparent, var(--sp-accent-border) 28%, var(--accent-glow-sm) 72%, transparent);
+    background:
+        linear-gradient(
+            180deg,
+            transparent,
+            var(--sp-accent-border) 28%,
+            var(--accent-glow-sm) 72%,
+            transparent
+        );
+}
+
+
+/* ============================================================
+   BRAND / LOGO
+============================================================= */
+
+.sp-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
 }
 
 .sp-brand__shield,
-[data-theme="light"] .sp-brand__shield,
-.sp-nav__badge,
-[data-theme="light"] .sp-nav__badge {
+[data-theme="light"] .sp-brand__shield {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+
+    display: block;
+
+    object-fit: contain;
+    object-position: center;
+
     color: var(--accent);
-    border-color: var(--sp-accent-border);
-    background: var(--accent-glow);
+
+    border: 0;
+    border-radius: 8px;
+
+    background: transparent;
+
     box-shadow: none;
 }
 
-.sp-brand__shield {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
-    object-fit: contain;
+.sp-brand__copy {
+    min-width: 0;
 }
+
+.sp-brand__copy strong {
+    display: block;
+
+    white-space: nowrap;
+}
+
+.sp-brand__copy small {
+    display: block;
+
+    white-space: nowrap;
+}
+
+
+/* ============================================================
+   BADGES
+============================================================= */
+
+.sp-nav__badge,
+[data-theme="light"] .sp-nav__badge {
+    color: var(--accent);
+
+    border-color: var(--sp-accent-border);
+
+    background: var(--accent-glow);
+
+    box-shadow: none;
+}
+
+
+/* ============================================================
+   NAVEGAÇÃO
+============================================================= */
 
 .sp-nav__item.is-active,
 [data-theme="light"] .sp-nav__item.is-active {
     border-color: var(--sp-accent-border);
-    background: linear-gradient(90deg, var(--sp-accent-soft), transparent);
-    box-shadow: inset 2px 0 0 var(--accent);
+
+    background:
+        linear-gradient(
+            90deg,
+            var(--sp-accent-soft),
+            transparent
+        );
+
+    box-shadow:
+        inset 2px 0 0 var(--accent);
 }
 
 .sp-nav__item:hover .sp-nav__icon,
@@ -67,28 +173,57 @@
     color: var(--accent);
 }
 
+
+/* ============================================================
+   BOTÕES PRIMÁRIOS
+============================================================= */
+
 .sp-btn--primary,
 [data-theme="light"] .sp-btn--primary {
     color: var(--bg) !important;
+
     border-color: var(--accent) !important;
+
     background: var(--accent) !important;
+
     box-shadow: none;
 }
 
 .sp-btn--primary:hover,
 [data-theme="light"] .sp-btn--primary:hover {
     color: var(--bg) !important;
+
     border-color: var(--accent-hover) !important;
+
     background: var(--accent-hover) !important;
+
     box-shadow: none;
 }
 
-/* Destaques decorativos das seções; estados semânticos permanecem intactos. */
+
+/* ============================================================
+   HERO / DESTAQUES VISUAIS
+============================================================= */
+
 .sp-hero,
 [data-theme="light"] .sp-hero {
-    background: radial-gradient(circle at 76% 48%, var(--sp-accent-soft), transparent 30%),
-        linear-gradient(135deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .022));
+    background:
+        radial-gradient(
+            circle at 76% 48%,
+            var(--sp-accent-soft),
+            transparent 30%
+        ),
+        linear-gradient(
+            135deg,
+            rgba(255, 255, 255, .05),
+            rgba(255, 255, 255, .022)
+        );
 }
+
+
+/* ============================================================
+   ELEMENTOS DECORATIVOS / ACCENT
+============================================================= */
 
 .sp-orbit__ring--2,
 .sp-orbit__ring--3,
@@ -117,6 +252,7 @@
 .sp-long-operation__content,
 .sp-long-operation__estimate {
     color: var(--accent);
+
     background: var(--accent-glow);
 }
 
@@ -125,53 +261,107 @@
 .sp-topology__node--sensor .sp-topology__node-icon,
 .sp-long-operation__estimate svg {
     color: var(--accent);
+
     stroke: var(--accent);
 }
 
 .sp-select:focus {
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    box-shadow:
+        0 0 0 3px var(--accent-glow);
 }
 
 .sp-topology__link,
 .sp-topology__link::before {
-    background: linear-gradient(90deg, transparent, var(--sp-accent-border), transparent);
+    background:
+        linear-gradient(
+            90deg,
+            transparent,
+            var(--sp-accent-border),
+            transparent
+        );
 }
 
-/* Sidebar recolhível — usa a preferência já persistida pelo componente. */
+
+/* ============================================================
+   SIDEBAR
+============================================================= */
+
 .sp-sidebar {
-    transition: width .32s var(--sp-ease), padding .32s var(--sp-ease), transform .32s var(--sp-ease);
+    transition:
+        width .32s var(--sp-ease),
+        padding .32s var(--sp-ease),
+        transform .32s var(--sp-ease);
 }
+
+
+/* ============================================================
+   BOTÃO RECOLHER / EXPANDIR
+============================================================= */
 
 .sp-sidebar__collapse {
     position: absolute;
+
     top: 78px;
     right: -12px;
+
     z-index: 6;
+
     width: 25px;
     height: 36px;
+
     display: grid;
     place-items: center;
+
     padding: 0;
-    border: 1px solid var(--sp-border-strong);
+
+    border:
+        1px solid var(--sp-border-strong);
+
     border-radius: 8px;
+
     color: var(--sp-muted);
+
     background: var(--sp-surface);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
-    transition: color .18s ease, border-color .18s ease, background .18s ease, transform .24s ease;
+
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, .22);
+
+    cursor: pointer;
+
+    transition:
+        color .18s ease,
+        border-color .18s ease,
+        background .18s ease,
+        transform .24s ease;
 }
 
 .sp-sidebar__collapse:hover {
     color: var(--accent);
+
     border-color: var(--sp-accent-border);
+
     background: var(--sp-surface-hover);
 }
 
+.sp-sidebar__collapse svg {
+    transition:
+        transform .24s ease;
+}
+
+
+/* ============================================================
+   SIDEBAR RECOLHIDA
+============================================================= */
+
 body.is-sidebar-collapsed .sp-main {
-    margin-left: var(--sp-sidebar-collapsed-w);
+    margin-left:
+        var(--sp-sidebar-collapsed-w);
 }
 
 body.is-sidebar-collapsed .sp-sidebar {
-    width: var(--sp-sidebar-collapsed-w);
+    width:
+        var(--sp-sidebar-collapsed-w);
+
     padding-right: 10px;
     padding-left: 10px;
 }
@@ -179,6 +369,9 @@ body.is-sidebar-collapsed .sp-sidebar {
 body.is-sidebar-collapsed .sp-sidebar__collapse svg {
     transform: rotate(180deg);
 }
+
+
+/* Centralização estrutural */
 
 body.is-sidebar-collapsed .sp-sidebar__head,
 body.is-sidebar-collapsed .sp-brand,
@@ -188,72 +381,161 @@ body.is-sidebar-collapsed .sp-sidebar__bottom {
     align-items: center;
 }
 
+
+/* Logo */
+
 body.is-sidebar-collapsed .sp-brand {
     gap: 0;
 }
 
+body.is-sidebar-collapsed .sp-brand__shield {
+    width: 30px;
+    height: 30px;
+
+    flex: 0 0 30px;
+
+    margin-right: 0;
+}
+
+
+/* Oculta textos */
+
 body.is-sidebar-collapsed .sp-brand__copy,
 body.is-sidebar-collapsed .sp-sidebar__section-label,
-body.is-sidebar-collapsed .sp-nav__item > span:not(.sp-nav__icon):not(.sp-nav__badge),
+body.is-sidebar-collapsed
+    .sp-nav__item
+    > span:not(.sp-nav__icon):not(.sp-nav__badge),
 body.is-sidebar-collapsed .sp-nav__badge,
 body.is-sidebar-collapsed .sp-mini-status__copy,
 body.is-sidebar-collapsed .sp-sidebar__footer > span {
     display: none;
 }
 
-body.is-sidebar-collapsed .sp-brand__shield {
-    width: 30px;
-    height: 30px;
-    flex-basis: 30px;
-}
+
+/* Navegação compacta */
 
 body.is-sidebar-collapsed .sp-nav__item {
     width: 44px;
     min-width: 44px;
+
     height: 42px;
     min-height: 42px;
+
     justify-content: center;
+
     gap: 0;
+
     padding: 0;
+
+    margin-right: auto;
+    margin-left: auto;
 }
 
 body.is-sidebar-collapsed .sp-nav__icon {
     width: auto;
-    flex-basis: auto;
+
+    flex: 0 0 auto;
+
+    margin: 0;
 }
+
+
+/* Status inferior compacto */
 
 body.is-sidebar-collapsed .sp-mini-status {
     width: 44px;
+
     min-height: 44px;
+
     justify-content: center;
+
     margin-right: auto;
     margin-left: auto;
+
     padding: 0;
 }
+
+
+/* Rodapé */
 
 body.is-sidebar-collapsed .sp-sidebar__footer {
     justify-content: center;
 }
 
-/* Topbar: os controles permanecem legíveis quando o espaço horizontal reduz. */
+
+/* ============================================================
+   TOPBAR
+============================================================= */
+
 .sp-topbar__right {
+    display: flex;
+
+    align-items: center;
+
     flex-wrap: wrap;
+
     justify-content: flex-end;
+
     align-content: center;
+
+    column-gap: 10px;
     row-gap: 8px;
+
+    min-width: 0;
 }
 
 .sp-last-update {
     min-width: 116px;
 }
 
+
+/* ============================================================
+   BOTÃO REFRESH
+============================================================= */
+
 #btnRefreshStatus {
+    width: 38px;
+    height: 38px;
+
+    min-width: 38px;
+
     display: inline-grid;
+
     place-items: center;
+
+    flex: 0 0 38px;
+
     padding: 0;
+
+    overflow: visible;
 }
 
+#btnRefreshStatus svg {
+    width: 17px;
+    height: 17px;
+
+    display: block;
+}
+
+
+/* ============================================================
+   RESPONSIVIDADE
+============================================================= */
+
+@media (max-width: 1100px) {
+
+    .sp-topbar__right {
+        column-gap: 8px;
+    }
+
+    .sp-last-update {
+        min-width: 100px;
+    }
+}
+
+
 @media (max-width: 860px) {
+
     .sp-topbar__right {
         flex-wrap: nowrap;
     }
@@ -261,10 +543,32 @@ body.is-sidebar-collapsed .sp-sidebar__footer {
     .sp-last-update {
         min-width: 0;
     }
-}
 
-@media (max-width: 860px) {
     .sp-sidebar__collapse {
         display: none;
     }
+}
+
+
+/* ============================================================
+   LIGHT THEME — ACABAMENTOS
+============================================================= */
+
+[data-theme="light"] .sp-sidebar__collapse {
+    box-shadow:
+        0 4px 14px rgba(0, 0, 0, .08);
+}
+
+[data-theme="light"] .sp-hero {
+    background:
+        radial-gradient(
+            circle at 76% 48%,
+            var(--sp-accent-soft),
+            transparent 30%
+        ),
+        linear-gradient(
+            135deg,
+            rgba(255, 255, 255, .92),
+            rgba(255, 255, 255, .72)
+        );
 }

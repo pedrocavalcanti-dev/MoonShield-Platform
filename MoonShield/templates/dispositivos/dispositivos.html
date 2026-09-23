@@ -47,14 +47,14 @@
             <input class="dev-search" id="devSearch" type="text" placeholder="IP, hostname, MAC, vendor…" />
             <button class="dev-search__clear" id="devSearchClear" aria-label="Limpar busca">✕</button>
         </div>
-        <button class="dev-action-btn dev-action-btn--ghost" id="devRefreshBtn">
+        <button class="dev-action-btn dev-action-btn--ghost" id="devRefreshBtn" type="button">
             <i class="bi bi-arrow-clockwise"></i> Atualizar
         </button>
         <button class="dev-action-btn dev-action-btn--ghost" id="devMonitorBtn" type="button"><i class="bi bi-activity"></i> Monitoramento</button>
-        <button class="dev-action-btn dev-action-btn--scan" id="devScanBtn">
+        <button class="dev-action-btn dev-action-btn--scan" id="devScanBtn" type="button">
             <i class="bi bi-radar dev-scan-icon"></i> Escanear
         </button>
-        <button class="dev-action-btn dev-action-btn--primary" id="devExportBtn">
+        <button class="dev-action-btn dev-action-btn--primary" id="devExportBtn" type="button">
             <i class="bi bi-download"></i> Exportar
         </button>
     </div>
@@ -113,12 +113,12 @@
         <div class="dev-kpi__bar-track"><div class="dev-kpi__bar-fill" id="kpiUnknownBar"></div></div>
     </div>
 
-    <div class="dev-kpi dev-kpi--red">
+    <div class="dev-kpi dev-kpi--cyan">
         <div class="dev-kpi__top">
             <div class="dev-kpi__icon-wrap">
-                <i class="bi bi-x-octagon-fill"></i>
+                <i class="bi bi-activity"></i>
             </div>
-            <span class="dev-kpi__pulse-dot" style="background:#ef4444"></span>
+            <span class="dev-kpi__pulse-dot" style="background:#06b6d4"></span>
         </div>
         <p class="dev-kpi__val" id="kpiMonitored">—</p>
         <p class="dev-kpi__lbl">Redes monitoradas</p>

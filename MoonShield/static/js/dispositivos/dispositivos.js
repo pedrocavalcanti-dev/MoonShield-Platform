@@ -90,12 +90,23 @@
     function renderNetworks() {
       const target = $("devNetworksList"), count = $("devNetworksCount"); if (!target) return;
       if (count) count.textContent = `${state.networks.length} rede${state.networks.length === 1 ? "" : "s"}`;
-      target.innerHTML = state.networks.length ? state.networks.map((n) => `
+      target.innerHTML = state.networks.length ? state.networks.map((n) => {
+        let monitorText = "Monitor: Desativado";
+        if (n.monitored && state.monitorConfig && state.monitorConfig.enabled) {
+           monitorText = `Monitor: Ativo · ${state.monitorConfig.interval_minutes} min<br>Último probe: ${n.last_probe ? escapeHtml(relative(n.last_probe)) : "Ainda não executado"}`;
+           if (n.last_probe) {
+               const nextTs = new Date(n.last_probe).getTime() + (state.monitorConfig.interval_minutes * 60000);
+               const waitMin = Math.max(0, Math.round((nextTs - Date.now()) / 60000));
+               monitorText += `<br>Próximo: ~${waitMin} min`;
+           }
+        }
+        return `
         <article class="dev-network-item">
           <div class="dev-network-item__top"><span class="dev-network-item__role"><i class="bi ${n.role?.toLowerCase() === "wan" ? "bi-globe2" : "bi-diagram-3"}" aria-hidden="true"></i> ${escapeHtml(n.role || "Rede")}</span><span class="dev-network-item__state${n.allowed ? "" : " dev-network-item__state--unavailable"}">${n.allowed ? "Autorizada" : "Indisponível"}</span></div>
           <p class="dev-network-item__meta">${escapeHtml(n.interface || "—")}<span>${escapeHtml(n.cidr || "—")}</span></p>
-          <div class="dev-network-item__last"><span>${Number(n.device_count || 0)} dispositivos</span><span>${n.last_scan ? `Último scan: ${escapeHtml(relative(n.last_scan))}` : "Sem scan registrado"}</span></div>
-        </article>`).join("") : '<p class="dev-network-empty">Nenhuma rede monitorada disponível.</p>';
+          <div class="dev-network-item__last"><span>${Number(n.device_count || 0)} dispositivos</span><span>${monitorText}</span></div>
+        </article>`;
+      }).join("") : '<p class="dev-network-empty">Nenhuma rede disponível.</p>';
     }
 
     function renderKpis() {
@@ -106,7 +117,15 @@
       const monitored = state.networks.filter((n) => n.monitored).length;
       const newest = items.filter((d) => date(d.firstSeen) && now - date(d.firstSeen) <= 86400000).length;
       [["kpiTotal",items.length],["kpiOnline",online],["kpiOffline",offline],["kpiUnknown",unknownType],["kpiMonitored",monitored],["kpiNew",newest]].forEach(([id,v]) => set(id,v));
-      const mode = (key) => { const map = items.reduce((acc, d) => { const k = text(d[key], "Desconhecido"); acc[k] = (acc[k] || 0) + 1; return acc; }, {}); return Object.entries(map).sort((a,b) => b[1]-a[1])[0]?.[0] || "-"; };
+      const mode = (key) => {
+          const map = items.reduce((acc, d) => {
+              const k = text(d[key], "Desconhecido");
+              if (key === "type" && (k === "Desconhecido" || k === "Genérico" || !k)) return acc;
+              acc[k] = (acc[k] || 0) + 1;
+              return acc;
+          }, {});
+          return Object.entries(map).sort((a,b) => b[1]-a[1])[0]?.[0] || (key === "type" ? "Sem classificação" : "-");
+      };
       set("kpiTopType", mode("type")); set("kpiTopOS", mode("os"));
       const total = items.length || 1;
       [["kpiOnlineBar",online],["kpiOfflineBar",offline],["kpiUnknownBar",unknownType],["kpiMonitoredBar",monitored],["kpiNewBar",newest]].forEach(([id,v]) => { const bar = $(id); if (bar) bar.style.width = `${Math.round((v / total) * 100)}%`; });
@@ -291,6 +310,10 @@
 
     // Public API consumed by dispositivos-scan.js
     window.MoonShieldDevices = { urls, state, escapeHtml, getCsrfToken: csrf, notify, refreshInventory, loadNetworks, renderNetworks, renderKpis, renderAll };
+
+    // Refresh passivo periódico
+    setInterval(() => { refreshInventory(); loadNetworks(); }, 60000);
+
     refreshInventory(); loadNetworks();
   });
 })();

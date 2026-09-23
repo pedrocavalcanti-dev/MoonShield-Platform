@@ -427,3 +427,33 @@ class MonitorOnceTest(TestCase):
         from dispositivos.monitoring import monitor_once
         result = monitor_once()
         self.assertEqual(result.get("skipped"), "disabled")
+class ClassificationHeuristicTests(TestCase):
+    def test_workstation_heuristic_with_windows_and_445(self):
+        from dispositivos.services import _classificar
+        # Dispositivo sem tipo (desconhecido), Windows provável como os_guess, e porta 445 aberta
+        device = {'ip': '192.168.1.10', 'hostname': 'UnknownHost', 'vendor': 'Micro-Star Intl', 'open_ports': [445, 139]}
+        target = {'gateway': '192.168.1.1'}
+        device_type, os_guess, icon, conf = _classificar(device, target, inferred_os="Windows provável")
+        self.assertEqual(device_type, "Computador provável")
+        self.assertEqual(os_guess, "Windows provável")
+
+    def test_gateway_heuristic(self):
+        from dispositivos.services import _classificar
+        device = {'ip': '192.168.1.1', 'hostname': 'router', 'vendor': 'Cisco'}
+        target = {'gateway': '192.168.1.1'}
+        device_type, os_guess, icon, conf = _classificar(device, target)
+        self.assertEqual(device_type, "Gateway")
+
+    def test_server_heuristic(self):
+        from dispositivos.services import _classificar
+        device = {'ip': '192.168.1.20', 'hostname': 'srv-app', 'vendor': 'Dell', 'open_ports': [22, 80, 443]}
+        target = {'gateway': '192.168.1.1'}
+        device_type, os_guess, icon, conf = _classificar(device, target, inferred_os="Linux provável")
+        self.assertEqual(device_type, "Servidor")
+
+    def test_unknown_remains_unknown_if_no_evidence(self):
+        from dispositivos.services import _classificar
+        device = {'ip': '192.168.1.30', 'hostname': '', 'vendor': 'Generic', 'open_ports': []}
+        target = {'gateway': '192.168.1.1'}
+        device_type, os_guess, icon, conf = _classificar(device, target, inferred_os="Windows provável")
+        self.assertEqual(device_type, "Desconhecido")

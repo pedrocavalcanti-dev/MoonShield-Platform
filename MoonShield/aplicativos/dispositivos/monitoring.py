@@ -98,7 +98,8 @@ def _apply_probe(device, raw, now, interval):
         device.status = Dispositivo.Status.ONLINE
         device.last_seen = now
     else:
-        if not device.availability_checked_at or now - device.availability_checked_at > timedelta(minutes=interval * 3 + 1):
+        grace_minutes = max(10, interval * 3)
+        if not device.availability_checked_at or now - device.availability_checked_at > timedelta(minutes=grace_minutes + 1):
             device.availability_failures = 0
         device.availability_failures = min(3, device.availability_failures + 1)
         if device.availability_failures >= 3:

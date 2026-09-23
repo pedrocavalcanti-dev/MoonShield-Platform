@@ -32,6 +32,29 @@ class DiscoveryValidationError(ValueError):
     pass
 
 
+def is_local_appliance_address(ip: str = None, mac: str = None) -> bool:
+    """Verifica se o IP ou MAC pertence a alguma interface local do MoonShield."""
+    if not ip and not mac:
+        return False
+    from rede.services.topologia import obter_topologia
+    topologia = obter_topologia()
+    for role in ("wan", "lan", "mgmt", "dmz", "custom"):
+        group = topologia.get(role)
+        if isinstance(group, dict) and "interfaces" in group:
+            for interface in group["interfaces"]:
+                if ip and interface.get("ip") == ip:
+                    return True
+                if mac and interface.get("mac") and interface["mac"].lower() == mac.lower():
+                    return True
+        elif isinstance(group, list):
+            for interface in group:
+                if ip and interface.get("ip") == ip:
+                    return True
+                if mac and interface.get("mac") and interface["mac"].lower() == mac.lower():
+                    return True
+    return False
+
+
 def _normalizar_mac(value: Any) -> str | None:
     mac = str(value or "").strip().upper().replace("-", ":")
     return mac if _MAC_RE.fullmatch(mac) and mac != "00:00:00:00:00:00" and not (int(mac[:2], 16) & 1) else None
@@ -159,13 +182,19 @@ def selecionar_redes(network_ids: Any) -> list[dict]:
     return selected
 
 
-def _classificar(device: dict, target: dict) -> tuple[str, str, str, int]:
+def _classificar(device: dict, target: dict, inferred_os: str = None, current_os_guess: str = None, current_type: str = None) -> tuple[str, str, str, int]:
     ports = {int(port) for port in device.get("open_ports", []) if str(port).isdigit()}
     hostname = str(device.get("hostname") or "").lower()
     vendor = str(device.get("vendor") or "").lower()
     ip = device.get("ip")
+
+    # Resolver OS guess consolidado
+    resolved_os = inferred_os or current_os_guess or "Desconhecido"
+
     if ip and ip == target.get("gateway"):
         return "Gateway", "Desconhecido", "bi-router-fill", 95
+    if "virtualbox" in vendor or "vmware" in vendor or "qemu" in vendor:
+        return "Máquina virtual provável", resolved_os, "bi-pc-display", 80
     if {9100, 631}.intersection(ports) and (9100 in ports or "print" in hostname or "printer" in vendor):
         return "Impressora", "Desconhecido", "bi-printer-fill", 85
     if 554 in ports and ("cam" in hostname or "hik" in vendor or "dahua" in vendor or 80 in ports):
@@ -173,6 +202,17 @@ def _classificar(device: dict, target: dict) -> tuple[str, str, str, int]:
     if ("srv" in hostname or "server" in hostname or "dc" in hostname) and ({22, 445, 3389}.intersection(ports)):
         os_guess = "Windows provável" if {445, 3389}.intersection(ports) else "Linux provável"
         return "Servidor", os_guess, "bi-server", 80
+    if resolved_os == "Linux provável" and {22, 80, 443}.intersection(ports) and "srv" in hostname:
+        return "Servidor", "Linux provável", "bi-server", 75
+
+    # PC/Workstation evidence check
+    if resolved_os == "Windows provável" and (
+        "pc" in hostname or "desktop" in hostname or
+        {445, 3389}.intersection(ports) or
+        "lenovo" in vendor or "dell" in vendor
+    ):
+        return "Computador provável", "Windows provável", "bi-pc-display-horizontal", 70
+
     if {445, 3389}.intersection(ports) and ("pc" in hostname or "desktop" in hostname or "lenovo" in vendor):
         return "Computador", "Windows provável", "bi-pc-display-horizontal", 65
     if "android" in hostname or "iphone" in hostname or "mobile" in hostname:
@@ -236,12 +276,14 @@ def _persist_device(target: dict, raw: dict, now) -> Dispositivo | None:
     if not ip or ipaddress.IPv4Address(ip) not in ipaddress.IPv4Network(target["cidr"]):
         return None
     mac = _normalizar_mac(raw.get("mac"))
+    if is_local_appliance_address(ip, mac):
+        return None
     ports = sorted({int(port) for port in raw.get("open_ports", []) if str(port).isdigit() and 0 < int(port) < 65536})
     hostname = str(raw.get("hostname") or "").strip()[:120] or None
     vendor = str(raw.get("vendor") or "").strip()[:120] or None
     device = _get_or_promote_device(target, {"ip": ip, "mac": mac})
-    device_type, os_guess, icon, confidence = _classificar({"ip": ip, "hostname": hostname or device.detected_hostname, "vendor": vendor or device.vendor, "open_ports": ports}, target)
     inferred, os_confidence = _infer_os(raw, hostname or device.detected_hostname)
+    device_type, os_guess, icon, confidence = _classificar({"ip": ip, "hostname": hostname or device.detected_hostname, "vendor": vendor or device.vendor, "open_ports": ports}, target, inferred, device.os_guess, device.device_type)
     if inferred:
         os_guess = inferred
         confidence = max(confidence, os_confidence)
@@ -337,7 +379,13 @@ def marcar_inventario_stale() -> int:
     now = timezone.now()
     config = MonitorDispositivos.objects.filter(pk=1).first()
     interval = config.interval_minutes if config else 3
-    cutoff = now - timedelta(minutes=interval * 3 + 1)
+    grace_minutes = max(10, interval * 3)
+    cutoff = now - timedelta(minutes=grace_minutes)
+
+    # Registros muito antigos (mais de 24h) ficam Offline, preservando histórico
+    very_old = now - timedelta(hours=24)
+    Dispositivo.objects.filter(last_seen__lt=very_old).exclude(status=Dispositivo.Status.OFFLINE).update(status=Dispositivo.Status.OFFLINE)
+
     # Scan manual recém-concluído é evidência válida por 15 minutos.
     manual_cutoff = now - timedelta(minutes=15)
     manual = Q(last_scan__gte=manual_cutoff, last_seen__gte=manual_cutoff)

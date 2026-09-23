@@ -23,79 +23,6 @@
 
 
     <!-- ============================================================
-         TEMA INICIAL
-    ============================================================= -->
-
-    <script>
-        (() => {
-            'use strict';
-
-            const THEME_KEY =
-                'moonshield_network_theme';
-
-            const LEGACY_THEME_KEY =
-                'moonshield_theme';
-
-            let savedTheme = null;
-
-            try {
-                savedTheme =
-                    localStorage.getItem(
-                        THEME_KEY
-                    ) ||
-                    localStorage.getItem(
-                        LEGACY_THEME_KEY
-                    );
-
-                if (
-                    savedTheme === 'dark' ||
-                    savedTheme === 'light'
-                ) {
-                    document.documentElement.setAttribute(
-                        'data-theme',
-                        savedTheme
-                    );
-
-                    return;
-                }
-            } catch (error) {
-                console.warn(
-                    '[MoonShield Network] Falha ao ler tema:',
-                    error
-                );
-            }
-
-            const prefersDark =
-                window.matchMedia(
-                    '(prefers-color-scheme: dark)'
-                ).matches;
-
-            const initialTheme =
-                prefersDark
-                    ? 'dark'
-                    : 'light';
-
-            document.documentElement.setAttribute(
-                'data-theme',
-                initialTheme
-            );
-
-            try {
-                localStorage.setItem(
-                    THEME_KEY,
-                    initialTheme
-                );
-            } catch (error) {
-                console.warn(
-                    '[MoonShield Network] Falha ao salvar tema:',
-                    error
-                );
-            }
-        })();
-    </script>
-
-
-    <!-- ============================================================
          FONTES
     ============================================================= -->
 
@@ -119,6 +46,8 @@
     <!-- ============================================================
          CSS PRINCIPAL
     ============================================================= -->
+
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
 
     <link
         rel="stylesheet"
@@ -394,93 +323,6 @@
     ============================================================= -->
 
     {% include "rede/parciais/_modais.html" %}
-
-
-    <!-- ============================================================
-         TEMA
-    ============================================================= -->
-
-    <script>
-        (() => {
-            'use strict';
-
-            const THEME_KEY =
-                'moonshield_network_theme';
-
-            const button =
-                document.getElementById(
-                    'themeToggle'
-                );
-
-            const root =
-                document.documentElement;
-
-            if (!button) {
-                return;
-            }
-
-            const syncButton = () => {
-                const current =
-                    root.getAttribute(
-                        'data-theme'
-                    ) || 'dark';
-
-                const label =
-                    current === 'dark'
-                        ? 'Ativar tema claro'
-                        : 'Ativar tema escuro';
-
-                button.setAttribute(
-                    'aria-label',
-                    label
-                );
-
-                button.setAttribute(
-                    'title',
-                    label
-                );
-
-                button.dataset.theme =
-                    current;
-            };
-
-            button.addEventListener(
-                'click',
-                () => {
-                    const current =
-                        root.getAttribute(
-                            'data-theme'
-                        ) || 'dark';
-
-                    const next =
-                        current === 'dark'
-                            ? 'light'
-                            : 'dark';
-
-                    root.setAttribute(
-                        'data-theme',
-                        next
-                    );
-
-                    try {
-                        localStorage.setItem(
-                            THEME_KEY,
-                            next
-                        );
-                    } catch (error) {
-                        console.warn(
-                            '[MoonShield Network] Falha ao persistir tema:',
-                            error
-                        );
-                    }
-
-                    syncButton();
-                }
-            );
-
-            syncButton();
-        })();
-    </script>
 
 
     <!-- ============================================================

@@ -19,6 +19,12 @@ let resizeTimer = null;
 export function initBarraLateral() {
     restoreSidebarPreference();
 
+    $('btnCollapseSidebar')
+        ?.addEventListener(
+            'click',
+            toggleSidebar,
+        );
+
     $('btnOpenSidebar')
         ?.addEventListener(
             'click',
@@ -93,6 +99,10 @@ export function toggleSidebar() {
         isCollapsed,
     );
 
+    syncCollapseControl(
+        isCollapsed,
+    );
+
     closeMobileSidebarOnly();
 }
 
@@ -111,6 +121,10 @@ export function openSidebar() {
         );
 
         persistCollapsedPreference(
+            false,
+        );
+
+        syncCollapseControl(
             false,
         );
 
@@ -179,6 +193,10 @@ function restoreSidebarPreference() {
             'is-sidebar-collapsed',
         );
 
+        syncCollapseControl(
+            false,
+        );
+
         closeMobileSidebarOnly();
 
         return;
@@ -186,6 +204,10 @@ function restoreSidebarPreference() {
 
     document.body.classList.toggle(
         'is-sidebar-collapsed',
+        collapsed,
+    );
+
+    syncCollapseControl(
         collapsed,
     );
 
@@ -231,6 +253,23 @@ function persistCollapsedPreference(
 }
 
 
+function syncCollapseControl(collapsed) {
+    const button = $('btnCollapseSidebar');
+
+    if (!button) {
+        return;
+    }
+
+    const label = collapsed
+        ? 'Expandir barra lateral'
+        : 'Recolher barra lateral';
+
+    button.setAttribute('aria-expanded', String(!collapsed));
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+}
+
+
 /* ==========================================================================
    RESPONSIVIDADE
    ========================================================================== */
@@ -259,6 +298,10 @@ function handleResize() {
                     'is-sidebar-collapsed',
                 );
 
+                syncCollapseControl(
+                    false,
+                );
+
                 closeMobileSidebarOnly();
 
                 return;
@@ -270,6 +313,12 @@ function handleResize() {
             document.body.classList.toggle(
                 'is-sidebar-collapsed',
                 readCollapsedPreference(),
+            );
+
+            syncCollapseControl(
+                document.body.classList.contains(
+                    'is-sidebar-collapsed',
+                ),
             );
 
             closeMobileSidebarOnly();

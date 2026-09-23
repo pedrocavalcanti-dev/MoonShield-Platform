@@ -9,19 +9,12 @@
             class="sp-brand"
             aria-label="MoonShield Suricata"
         >
-            <span class="sp-brand__shield">
-                <svg
-                    width="17"
-                    height="17"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.7"
-                    aria-hidden="true"
-                >
-                    <path d="M12 2 3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7l-9-5Z" />
-                </svg>
-            </span>
+            <img
+                class="sp-brand__shield"
+                src="{% static 'favicon/favicon-32x32.png' %}"
+                alt=""
+                aria-hidden="true"
+            />
 
             <span class="sp-brand__copy">
                 <strong>MoonShield</strong>
@@ -48,6 +41,29 @@
         </button>
     </div>
 
+    <button
+        class="sp-sidebar__collapse"
+        id="btnCollapseSidebar"
+        type="button"
+        aria-label="Recolher barra lateral"
+        aria-expanded="true"
+        title="Recolher barra lateral"
+    >
+        <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+        >
+            <path d="M14 6 8 12l6 6" />
+        </svg>
+    </button>
+
     <div class="sp-sidebar__section-label">Monitoramento</div>
 
     <nav class="sp-nav" aria-label="Navegação do Suricata">
@@ -55,6 +71,8 @@
             class="sp-nav__item is-active"
             type="button"
             data-section-target="overview"
+            aria-label="Visão geral"
+            title="Visão geral"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -78,6 +96,8 @@
             class="sp-nav__item"
             type="button"
             data-section-target="health"
+            aria-label="Saúde da stack"
+            title="Saúde da stack"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -98,6 +118,8 @@
             class="sp-nav__item"
             type="button"
             data-section-target="configuration"
+            aria-label="Configuração"
+            title="Configuração"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -119,6 +141,8 @@
             class="sp-nav__item"
             type="button"
             data-section-target="rules"
+            aria-label="Regras"
+            title="Regras"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -140,6 +164,8 @@
             class="sp-nav__item"
             type="button"
             data-section-target="tasks"
+            aria-label="Tarefas"
+            title="Tarefas"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -162,6 +188,8 @@
             class="sp-nav__item"
             type="button"
             data-section-target="diagnostic"
+            aria-label="Diagnóstico"
+            title="Diagnóstico"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -187,6 +215,8 @@
         <a
             class="sp-nav__item"
             href="{% url 'incidentes:suricata_onboarding' %}"
+            aria-label="Configurar Suricata"
+            title="Configurar Suricata"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -207,6 +237,8 @@
         <a
             class="sp-nav__item"
             href="{% url 'painel:index' %}"
+            aria-label="Voltar ao MoonShield"
+            title="Voltar ao MoonShield"
         >
             <span class="sp-nav__icon">
                 <svg
@@ -240,27 +272,6 @@
 
         <div class="sp-sidebar__footer">
             <span>MoonShield 2026</span>
-
-            <button
-                class="sp-icon-btn sp-icon-btn--small"
-                id="themeToggle"
-                type="button"
-                aria-label="Alternar tema"
-                title="Alternar tema"
-            >
-                <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    aria-hidden="true"
-                >
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
-                </svg>
-            </button>
         </div>
     </div>
 </aside>

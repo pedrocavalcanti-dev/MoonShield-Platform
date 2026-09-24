@@ -287,6 +287,63 @@ def _sincronizar_tarefa(tarefa: TarefaSuricata, progresso, resultado=None) -> No
 
 
 
+_METADADOS_CHECKS_DIAGNOSTICO_AGENT = {
+    "suricata_instalado": ("Motor IDS", "Suricata instalado"),
+    "servico_ativo": ("Serviço", "Serviço Suricata ativo"),
+    "topologia_valida": ("Topologia", "Topologia válida"),
+    "yaml_existe": ("Configuração", "suricata.yaml disponível"),
+    "rules_ms_instaladas": ("Regras", "Regras MoonShield instaladas"),
+    "eve_existe": ("Eventos", "Arquivo EVE disponível"),
+    "sem_drift": ("Configuração", "Configuração sem drift"),
+}
+
+
+def _normalizar_diagnostico_serializado(
+    diagnostico: dict | None,
+) -> dict:
+    """Converte o contrato booleano atual do Agent em itens da UI."""
+    diagnostico = diagnostico if isinstance(diagnostico, dict) else {}
+    normalizado = dict(diagnostico)
+    itens = diagnostico.get("itens")
+
+    if isinstance(itens, list):
+        normalizado["itens"] = itens
+        return normalizado
+
+    checks = diagnostico.get("checks")
+    if not isinstance(checks, dict):
+        normalizado["itens"] = []
+        return normalizado
+
+    itens_normalizados = []
+    for identificador, ok in checks.items():
+        if not isinstance(ok, bool):
+            continue
+
+        identificador = str(identificador)
+        grupo, titulo = _METADADOS_CHECKS_DIAGNOSTICO_AGENT.get(
+            identificador,
+            ("Geral", identificador.replace("_", " ").capitalize()),
+        )
+        itens_normalizados.append(
+            {
+                "id": identificador,
+                "grupo": grupo,
+                "titulo": titulo,
+                "ok": ok,
+                "critico": not ok,
+                "mensagem": (
+                    "Verificação aprovada pelo MoonShield Agent."
+                    if ok
+                    else "Falha reportada pelo MoonShield Agent."
+                ),
+            }
+        )
+
+    normalizado["itens"] = itens_normalizados
+    return normalizado
+
+
 def _resumir_diagnostico_serializado(
     diagnostico: dict | None,
 ) -> dict:
@@ -295,11 +352,7 @@ def _resumir_diagnostico_serializado(
 
     Não executa checks, subprocessos ou `suricata -T`.
     """
-    diagnostico = (
-        diagnostico
-        if isinstance(diagnostico, dict)
-        else {}
-    )
+    diagnostico = _normalizar_diagnostico_serializado(diagnostico)
 
     itens = diagnostico.get("itens")
     itens = itens if isinstance(itens, list) else []
@@ -519,6 +572,9 @@ def _extrair_diagnostico_de_resultado_tarefa(
         diagnostico
         if isinstance(diagnostico, dict)
         else {}
+    )
+    diagnostico = _normalizar_diagnostico_serializado(
+        diagnostico,
     )
 
     resumo_informado = (

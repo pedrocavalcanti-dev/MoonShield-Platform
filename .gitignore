@@ -44,3 +44,5 @@ Desktop.ini
 
 # Linux e macOS
 .DS_Store
+# MoonShield runtime state
+MoonShield/var/

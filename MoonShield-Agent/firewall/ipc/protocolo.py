@@ -120,6 +120,7 @@ ACOES = frozenset({
     "suricata.service.start",
     "suricata.service.stop",
     "suricata.service.restart",
+    "suricata.rules.update",
     #
     # Diagnóstico de Rede.
     #

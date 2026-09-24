@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -315,12 +314,16 @@ def normalizar_request_id(
     request_id: Any,
 ) -> str:
     if request_id is None:
-        return str(uuid.uuid4())
+        raise RequisicaoSuricataInvalida(
+            "Campo 'id' da requisição IPC é obrigatório."
+        )
 
     valor = str(request_id).strip()
 
     if not valor:
-        return str(uuid.uuid4())
+        raise RequisicaoSuricataInvalida(
+            "Campo 'id' da requisição IPC é obrigatório."
+        )
 
     if len(valor) > MAX_REQUEST_ID:
         raise RequisicaoSuricataInvalida(
@@ -684,6 +687,8 @@ def tratar_requisicao_suricata(
     requisicao: dict[str, Any],
 ) -> dict[str, Any]:
     request_id = ""
+    acao_externa = ""
+    versao = VERSAO_PROTOCOLO
 
     try:
         if not isinstance(
@@ -698,10 +703,12 @@ def tratar_requisicao_suricata(
             )
 
         request_id = normalizar_request_id(
-            requisicao.get("request_id")
+            requisicao.get("id")
+            if "id" in requisicao
+            else requisicao.get("request_id")
         )
 
-        normalizar_versao(
+        versao = normalizar_versao(
             requisicao.get("versao")
         )
 
@@ -709,9 +716,8 @@ def tratar_requisicao_suricata(
             requisicao.get("modulo")
         )
 
-        acao = normalizar_acao(
-            requisicao.get("acao")
-        )
+        acao_externa = str(requisicao.get("acao") or "").strip()
+        acao = normalizar_acao(acao_externa)
 
         dados = normalizar_dados(
             requisicao.get("dados")
@@ -723,6 +729,9 @@ def tratar_requisicao_suricata(
         )
 
         return {
+            "versao": versao,
+            "id": request_id,
+            "acao": acao_externa,
             "ok": True,
             "request_id": request_id,
             "dados": _sanitizar(
@@ -740,11 +749,11 @@ def tratar_requisicao_suricata(
         )
 
         return {
+            "versao": versao,
+            "id": request_id,
+            "acao": acao_externa,
             "ok": False,
-            "request_id": (
-                request_id
-                or str(uuid.uuid4())
-            ),
+            "request_id": request_id,
             "erro": {
                 "codigo": codigo,
                 "mensagem": mensagem,

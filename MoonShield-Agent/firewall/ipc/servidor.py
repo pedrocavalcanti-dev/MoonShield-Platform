@@ -77,6 +77,7 @@ _servidor_ref: "_ServidorUnix | None" = None
 _thread_ref: threading.Thread | None = None
 _semaforo = threading.BoundedSemaphore(MAX_CONEXOES_SIMULTANEAS)
 _encerramento_solicitado = threading.Event()
+_firewall_monitor_stop = threading.Event()
 
 
 # =============================================================================
@@ -206,6 +207,30 @@ def _inicializar_firewall() -> None:
 # API PÚBLICA
 # =============================================================================
 
+def _inicializar_monitoramento_firewall() -> None:
+    """Inicia a coleta do journal do kernel no processo privilegiado do Agent."""
+    try:
+        from firewall.monitoramento.monitoramento import iniciar_monitoramento
+
+        _firewall_monitor_stop.clear()
+        iniciar_monitoramento({}, _firewall_monitor_stop)
+        logger.info("[firewall] monitor de eventos iniciado")
+    except Exception:
+        # A telemetria n\u00e3o pode impedir a abertura do IPC nem a recupera\u00e7\u00e3o
+        # do Firewall. O monitor registra e trata rein\u00edcios do journalctl.
+        logger.exception("[firewall] falha ao iniciar monitor de eventos")
+
+
+def _encerrar_monitoramento_firewall() -> None:
+    try:
+        from firewall.monitoramento.monitoramento import parar_monitoramento
+
+        _firewall_monitor_stop.set()
+        parar_monitoramento()
+    except Exception:
+        logger.exception("[firewall] falha ao encerrar monitor de eventos")
+
+
 def obter_stats() -> dict[str, Any]:
     with _estado_lock:
         return dict(_estado)
@@ -236,6 +261,7 @@ def iniciar_servidor(
     # cada módulo restaura apenas os recursos que possui.
     _inicializar_rede()
     _inicializar_firewall()
+    _inicializar_monitoramento_firewall()
 
     _preparar_socket_path(socket_path, grupo)
 
@@ -1092,6 +1118,8 @@ def _finalizar_servidor(
     socket_path: str,
 ) -> None:
     global _servidor_ref, _thread_ref
+
+    _encerrar_monitoramento_firewall()
 
     _remover_socket_se_existir(
         socket_path

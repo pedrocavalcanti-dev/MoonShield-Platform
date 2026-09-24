@@ -558,6 +558,35 @@ def _executar_tarefa_sincrona(
 # API — DATA GERAL
 # =============================================================================
 
+def _status_operacao_firewall(resultado: dict[str, Any]) -> int:
+    """Mantem rejeicoes conhecidas do dominio fora da categoria gateway."""
+    if resultado.get("ok"):
+        return 200
+
+    codigo = str(resultado.get("codigo") or "")
+
+    if codigo in {
+        "regras_invalidas",
+        "payload_invalido",
+        "validacao_falhou",
+    }:
+        return 422
+
+    if codigo in {
+        "topologia_rede_incompleta",
+        "firewall_nao_instalado",
+    }:
+        return 409
+
+    if codigo in {
+        "agent_indisponivel",
+        "timeout",
+    }:
+        return 503
+
+    return 502
+
+
 @require_GET
 @login_required(login_url=LOGIN_URL)
 def api_fw_data(request):
@@ -1569,11 +1598,7 @@ def api_apply_rules(request):
             "resultado": resultado,
             "sync": sync_status(),
         },
-        status=(
-            200
-            if resultado.get("ok")
-            else 502
-        ),
+        status=_status_operacao_firewall(resultado),
     )
 
 

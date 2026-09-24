@@ -174,6 +174,11 @@ def obter_cursor_path() -> Path:
     )
 
 
+def _obter_cursor_inode_path() -> Path:
+    path = obter_cursor_path()
+    return path.with_suffix(path.suffix + ".inode")
+
+
 # =============================================================================
 # CURSOR
 # =============================================================================
@@ -196,8 +201,22 @@ def ler_cursor() -> int:
         return 0
 
 
+def _ler_cursor_inode() -> int | None:
+    try:
+        valor = int(
+            _obter_cursor_inode_path().read_text(
+                encoding="utf-8",
+            ).strip()
+        )
+        return valor if valor >= 0 else None
+    except Exception:
+        return None
+
+
 def salvar_cursor(
     posicao: int,
+    *,
+    inode: int | None = None,
 ) -> None:
     path = obter_cursor_path()
 
@@ -221,6 +240,23 @@ def salvar_cursor(
         temporario,
         path,
     )
+
+    inode_path = _obter_cursor_inode_path()
+    if inode is None:
+        try:
+            inode_path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    inode_tmp = inode_path.with_suffix(
+        inode_path.suffix + ".tmp"
+    )
+    inode_tmp.write_text(
+        str(inode),
+        encoding="utf-8",
+    )
+    os.replace(inode_tmp, inode_path)
 
 
 def resetar_cursor() -> None:
@@ -252,8 +288,20 @@ def processar_novos_eventos(
             "arquivo_existe": False,
         }
 
-    tamanho = arquivo.stat().st_size
+    stat_arquivo = arquivo.stat()
+    tamanho = stat_arquivo.st_size
+    inode = stat_arquivo.st_ino
     cursor = ler_cursor()
+    cursor_inode = _ler_cursor_inode()
+
+    # When the monitor rotates events.jsonl, the new file can grow beyond
+    # the previous offset before the next cycle. Its identity prevents the
+    # worker from silently skipping those initial lines.
+    if cursor_inode is not None and cursor_inode != inode:
+        logger.info(
+            "Arquivo de eventos do Firewall foi rotacionado; reiniciando cursor."
+        )
+        cursor = 0
 
     # Arquivo rotacionado/truncado.
     if cursor > tamanho:
@@ -341,7 +389,8 @@ def processar_novos_eventos(
         resultado.cursor_final = fp.tell()
 
     salvar_cursor(
-        resultado.cursor_final
+        resultado.cursor_final,
+        inode=inode,
     )
 
     return {

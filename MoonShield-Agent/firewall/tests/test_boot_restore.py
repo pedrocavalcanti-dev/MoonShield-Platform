@@ -13,6 +13,7 @@ if not hasattr(socket, 'AF_UNIX'):
 
 # The function to test
 from firewall.ipc.servidor import _inicializar_firewall
+from firewall.nucleo.analisador import parsear_linha
 
 class TestFirewallBootRestore(unittest.TestCase):
     @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
@@ -32,6 +33,7 @@ class TestFirewallBootRestore(unittest.TestCase):
         _inicializar_firewall()
 
         mock_reparar.assert_called_once()
+
 
     @patch("firewall.nucleo.rollback.inicializar_rollback_pendente")
     @patch("firewall.nucleo.status.ARQUIVO_CONFIG")
@@ -123,3 +125,36 @@ class TestFirewallBootRestore(unittest.TestCase):
             self.fail(f"_inicializar_firewall raised {type(e).__name__} unexpectedly despite exception block!")
 
         mock_reparar.assert_called_once()
+
+
+class TestFirewallJournalParser(unittest.TestCase):
+    def test_parseia_drop_icmp(self):
+        evento = parsear_linha(
+            '2026-09-24T10:00:00+00:00 host kernel: MS-FW-DROP: '
+            'IN=enp0s8 OUT=enp0s3 SRC=192.168.52.10 DST=8.8.8.8 '
+            'LEN=60 PROTO=ICMP TYPE=8 CODE=0'
+        )
+
+        self.assertEqual(evento['acao'], 'DROP')
+        self.assertEqual(evento['proto'], 'ICMP')
+        self.assertEqual(evento['iface_entrada'], 'enp0s8')
+        self.assertEqual(evento['iface_saida'], 'enp0s3')
+        self.assertEqual(evento['src_ip'], '192.168.52.10')
+        self.assertEqual(evento['dst_ip'], '8.8.8.8')
+
+    def test_parseia_tcp_e_udp_com_portas(self):
+        tcp = parsear_linha(
+            'MS-FW-DROP: IN=lan0 OUT=wan0 SRC=10.0.0.2 DST=1.1.1.1 '
+            'PROTO=TCP SPT=49700 DPT=443 SYN'
+        )
+        udp = parsear_linha(
+            'MS-FW-ALLOW: IN=lan0 OUT=wan0 SRC=10.0.0.2 DST=8.8.8.8 '
+            'PROTO=UDP SPT=53000 DPT=53'
+        )
+
+        self.assertEqual((tcp['proto'], tcp['src_port'], tcp['dst_port']), ('TCP', 49700, 443))
+        self.assertEqual((udp['proto'], udp['src_port'], udp['dst_port']), ('UDP', 53000, 53))
+
+    def test_ignora_linha_invalida_ou_nao_moonshield(self):
+        self.assertIsNone(parsear_linha('kernel: evento sem estrutura'))
+        self.assertIsNone(parsear_linha('kernel: ACCEPT IN=lan0 SRC=10.0.0.2'))

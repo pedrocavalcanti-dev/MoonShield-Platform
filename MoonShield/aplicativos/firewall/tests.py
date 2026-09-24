@@ -20,10 +20,11 @@ Rodar:
 """
 
 import json
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .models import (
@@ -980,3 +981,126 @@ class FirewallModelTests(TestCase):
     def test_geoblock_str(self):
         g = GeoblockEntry.objects.create(code='RU', country='Rússia', dir='IN', enabled=True)
         self.assertEqual(str(g), 'GEO RU (Rússia)')
+
+
+class FirewallLocalEventWorkerTests(FirewallTestBase):
+    """Contrato do spool local produzido pelo monitor privilegiado."""
+
+    def setUp(self):
+        super().setUp()
+        self.temp_dir = TemporaryDirectory()
+        from pathlib import Path
+
+        base = Path(self.temp_dir.name)
+        self.events_file = base / 'events.jsonl'
+        self.cursor_file = base / 'events.cursor'
+        self.settings_override = override_settings(
+            MOONSHIELD_FIREWALL_EVENTS_FILE=str(self.events_file),
+            MOONSHIELD_FIREWALL_CURSOR_FILE=str(self.cursor_file),
+        )
+        self.settings_override.enable()
+
+    def tearDown(self):
+        self.settings_override.disable()
+        self.temp_dir.cleanup()
+        super().tearDown()
+
+    def _append(self, evento):
+        envelope = {'schema': 1, 'tipo_evento': 'firewall', 'evento': evento}
+        with self.events_file.open('a', encoding='utf-8') as handle:
+            handle.write(json.dumps(envelope) + '\n')
+
+    def _evento(self, **extra):
+        evento = {
+            'timestamp': '2026-09-24T10:00:00+00:00',
+            'acao': 'DROP',
+            'prefixo': 'MS-FW-DROP',
+            'proto': 'ICMP',
+            'src_ip': '192.168.52.10',
+            'dst_ip': '8.8.8.8',
+            'iface_entrada': 'enp0s8',
+            'iface_saida': 'enp0s3',
+            'raw': 'MS-FW-DROP: IN=enp0s8 OUT=enp0s3 SRC=192.168.52.10 DST=8.8.8.8 PROTO=ICMP',
+        }
+        evento.update(extra)
+        return evento
+
+    def test_worker_persiste_drop_icmp_e_feed(self):
+        from firewall.services.ingestao_local import processar_novos_eventos
+
+        self._append(self._evento())
+        resultado = processar_novos_eventos()
+
+        self.assertEqual(resultado['inseridos'], 1)
+        evento = EventoFirewall.objects.get()
+        self.assertEqual(evento.acao, 'DROP')
+        self.assertEqual(evento.proto, 'ICMP')
+        self.assertEqual(evento.iface, 'enp0s8')
+        self.assertEqual(evento.iface_saida, 'enp0s3')
+
+        resposta = self.client.get('/firewall/api/feed/')
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()['eventos'][0]['action'], 'DROP')
+
+        dashboard = self.client.get('/firewall/api/data/?period=24h')
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.json()['metrics']['drops'], 1)
+
+    def test_worker_persiste_tcp_udp_e_nao_duplica_apos_cursor_resetado(self):
+        from firewall.services.ingestao_local import processar_novos_eventos, resetar_cursor
+
+        self._append(self._evento(
+            proto='TCP', src_port=49700, dst_port=443,
+            timestamp='2026-09-24T10:00:01+00:00',
+        ))
+        self._append(self._evento(
+            proto='UDP', src_port=53000, dst_port=53,
+            timestamp='2026-09-24T10:00:02+00:00',
+        ))
+
+        self.assertEqual(processar_novos_eventos()['inseridos'], 2)
+        self.assertEqual(EventoFirewall.objects.filter(proto='TCP', dst_port=443).count(), 1)
+        self.assertEqual(EventoFirewall.objects.filter(proto='UDP', dst_port=53).count(), 1)
+
+        resetar_cursor()
+        resultado = processar_novos_eventos()
+        self.assertEqual(resultado['duplicados'], 2)
+        self.assertEqual(EventoFirewall.objects.count(), 2)
+
+    def test_worker_reinicia_offset_quando_arquivo_rotaciona(self):
+        from firewall.services.ingestao_local import processar_novos_eventos
+
+        self._append(self._evento())
+        self.assertEqual(processar_novos_eventos()['inseridos'], 1)
+
+        self.events_file.replace(self.events_file.with_suffix('.jsonl.1'))
+        self._append(self._evento(timestamp='2026-09-24T10:00:03+00:00'))
+
+        resultado = processar_novos_eventos()
+        self.assertEqual(resultado['inseridos'], 1)
+        self.assertEqual(EventoFirewall.objects.count(), 2)
+
+    def test_worker_ignora_envelope_invalido_sem_perder_cursor(self):
+        from firewall.services.ingestao_local import processar_novos_eventos
+
+        self.events_file.write_text('nao-e-json\n', encoding='utf-8')
+        self._append(self._evento())
+
+        resultado = processar_novos_eventos()
+        self.assertEqual(resultado['erros'], 1)
+        self.assertEqual(resultado['inseridos'], 1)
+        self.assertEqual(EventoFirewall.objects.count(), 1)
+
+    @patch('firewall.views.aplicar_regras_pendentes')
+    @patch('firewall.views.get_modo', return_value='prod')
+    def test_apply_regras_invalidas_retorna_422(self, _modo, aplicar):
+        aplicar.return_value = {
+            'ok': False,
+            'codigo': 'regras_invalidas',
+            'erro': 'A regra foi rejeitada pelo Agent.',
+        }
+
+        resposta = self.client.post('/firewall/api/rules/apply/')
+
+        self.assertEqual(resposta.status_code, 422)
+        self.assertEqual(resposta.json()['resultado']['codigo'], 'regras_invalidas')

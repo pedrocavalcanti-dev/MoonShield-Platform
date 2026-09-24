@@ -45,6 +45,9 @@ class Command(BaseCommand):
     WORKER_SERVICE_NAME = "moonshield-suricata-worker.service"
     WORKER_SERVICE_PATH = Path("/etc/systemd/system/moonshield-suricata-worker.service")
 
+    FIREWALL_WORKER_SERVICE_NAME = "moonshield-firewall-worker.service"
+    FIREWALL_WORKER_SERVICE_PATH = Path("/etc/systemd/system/moonshield-firewall-worker.service")
+
     MONITOR_SERVICE_NAME = "moonshield-suricata-monitor.service"
     MONITOR_SERVICE_PATH = Path("/etc/systemd/system/moonshield-suricata-monitor.service")
 
@@ -162,6 +165,11 @@ class Command(BaseCommand):
             forcar=forcar_service,
         )
 
+        firewall_worker_changed = self._garantir_firewall_worker_service(
+            paths=paths,
+            forcar=forcar_service,
+        )
+
         self._systemctl(["daemon-reload"], obrigatorio=True)
 
         if service_changed:
@@ -176,6 +184,12 @@ class Command(BaseCommand):
                 automatico,
             )
 
+        if firewall_worker_changed:
+            self._info(
+                "Arquivo moonshield-firewall-worker.service atualizado.",
+                automatico,
+            )
+
         self._systemctl(
             ["enable", self.SERVICE_NAME],
             obrigatorio=True,
@@ -183,6 +197,11 @@ class Command(BaseCommand):
 
         self._systemctl(
             ["enable", self.WORKER_SERVICE_NAME],
+            obrigatorio=True,
+        )
+
+        self._systemctl(
+            ["enable", self.FIREWALL_WORKER_SERVICE_NAME],
             obrigatorio=True,
         )
 
@@ -215,6 +234,16 @@ class Command(BaseCommand):
         self._systemctl(["start", self.WORKER_SERVICE_NAME], obrigatorio=False)
         if worker_changed:
             self._systemctl(["restart", self.WORKER_SERVICE_NAME], obrigatorio=False)
+
+        self._systemctl(
+            ["start", self.FIREWALL_WORKER_SERVICE_NAME],
+            obrigatorio=False,
+        )
+        if firewall_worker_changed:
+            self._systemctl(
+                ["restart", self.FIREWALL_WORKER_SERVICE_NAME],
+                obrigatorio=False,
+            )
 
         self._ativar_monitor(alterado=monitor_changed)
 
@@ -530,6 +559,81 @@ WantedBy=multi-user.target
         os.chmod(tmp, 0o644)
         os.replace(tmp, self.WORKER_SERVICE_PATH)
 
+        return True
+
+    def _firewall_worker_service_content(self, paths: dict) -> str:
+        python_exec = paths["python"]
+        gerenciar = paths["gerenciar"]
+        work_dir = paths["django_dir"]
+        cursor = self.DATA_DIR / "firewall" / "events.cursor"
+
+        return f"""[Unit]
+Description=MoonShield Firewall Event Worker
+After=network.target moonshield-agent.service postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User={self.GROUP_NAME}
+Group={self.GROUP_NAME}
+
+WorkingDirectory={work_dir}
+Environment=PYTHONUNBUFFERED=1
+Environment=MOONSHIELD_FIREWALL_CURSOR_FILE={cursor}
+
+ExecStart={python_exec} {gerenciar} processar_eventos_firewall --interval 1 --quiet
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+RuntimeDirectory=moonshield-firewall-worker
+RuntimeDirectoryMode=0750
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+    def _garantir_firewall_worker_service(
+        self,
+        *,
+        paths: dict,
+        forcar: bool,
+    ) -> bool:
+        try:
+            usuario = pwd.getpwnam(self.GROUP_NAME)
+        except KeyError as exc:
+            raise RuntimeError("Usuario moonshield nao foi provisionado.") from exc
+
+        cursor_dir = self.DATA_DIR / "firewall"
+        cursor_dir.mkdir(parents=True, exist_ok=True)
+        os.chown(cursor_dir, usuario.pw_uid, usuario.pw_gid)
+        os.chmod(cursor_dir, 0o750)
+
+        cursor = cursor_dir / "events.cursor"
+        if not cursor.exists():
+            cursor.touch(mode=0o640)
+        os.chown(cursor, usuario.pw_uid, usuario.pw_gid)
+        os.chmod(cursor, 0o640)
+
+        desired = self._firewall_worker_service_content(paths)
+        current = ""
+        if self.FIREWALL_WORKER_SERVICE_PATH.exists():
+            try:
+                current = self.FIREWALL_WORKER_SERVICE_PATH.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
+        if not forcar and current == desired:
+            return False
+
+        tmp = self.FIREWALL_WORKER_SERVICE_PATH.with_suffix(".service.tmp")
+        tmp.write_text(desired, encoding="utf-8")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, self.FIREWALL_WORKER_SERVICE_PATH)
         return True
 
     def _preparar_monitor(self, paths: dict) -> str:
@@ -886,6 +990,7 @@ WantedBy=multi-user.target
         units = [
             self.MONITOR_SERVICE_NAME,
             self.WORKER_SERVICE_NAME,
+            self.FIREWALL_WORKER_SERVICE_NAME,
             self.SERVICE_NAME,
             "moonshield-web.service",
         ]

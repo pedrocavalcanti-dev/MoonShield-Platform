@@ -57,7 +57,10 @@ ARQUIVO_EVENTOS_PADRAO = Path(
     "/var/log/moonshield/firewall/events.jsonl"
 )
 
-CURSOR_NOME = "firewall_events.cursor"
+CURSOR_PADRAO = Path(
+    "/var/lib/moonshield/firewall/events.cursor"
+)
+CURSOR_LEGADO_PADRAO = "firewall_events.cursor"
 
 MAX_LINHA_BYTES = 1024 * 1024
 
@@ -140,15 +143,22 @@ def obter_cursor_path() -> Path:
     )
 
     if valor:
-        path = Path(
+        return Path(
             str(valor)
         )
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-        return path
 
+    env = os.getenv(
+        "MOONSHIELD_FIREWALL_CURSOR_FILE",
+        "",
+    ).strip()
+
+    if env:
+        return Path(env)
+
+    return CURSOR_PADRAO
+
+
+def _obter_cursor_legado_path() -> Path:
     base_dir = Path(
         getattr(
             settings,
@@ -156,22 +166,7 @@ def obter_cursor_path() -> Path:
             Path.cwd(),
         )
     )
-
-    cursor_dir = (
-        base_dir
-        / "var"
-        / "cursors"
-    )
-
-    cursor_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    return (
-        cursor_dir
-        / CURSOR_NOME
-    )
+    return base_dir / "var" / "cursors" / CURSOR_LEGADO_PADRAO
 
 
 def _obter_cursor_inode_path() -> Path:
@@ -198,6 +193,17 @@ def ler_cursor() -> int:
             valor,
         )
     except Exception:
+        if path == CURSOR_PADRAO:
+            try:
+                valor = int(
+                    _obter_cursor_legado_path().read_text(
+                        encoding="utf-8",
+                    ).strip()
+                    or "0"
+                )
+                return max(0, valor)
+            except Exception:
+                pass
         return 0
 
 
@@ -219,6 +225,10 @@ def salvar_cursor(
     inode: int | None = None,
 ) -> None:
     path = obter_cursor_path()
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     temporario = path.with_suffix(
         path.suffix + ".tmp"

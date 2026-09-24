@@ -11,7 +11,7 @@ Destino:
     EventoFirewall
 
 Cursor:
-    <BASE_DIR>/var/cursors/firewall_events.cursor
+    /var/lib/moonshield/firewall/events.cursor
 
 Este command NÃO:
 - usa HTTP;

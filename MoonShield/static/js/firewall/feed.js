@@ -39,6 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
         filterProto: "all",
         search: "",
         lastTimestamp: null,
+        lastEventId: null,
         currentEvent: null,
         currentGroupHits: 1,
         pollTimer: null,
@@ -168,8 +169,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 limit: initial ? "200" : "100",
             });
 
-            if (!initial && state.lastTimestamp) {
-                params.set("since", state.lastTimestamp);
+            if (!initial && state.lastEventId !== null) {
+                params.set("after_id", String(state.lastEventId));
             }
 
             const data = await api(`${URLS.feed}?${params.toString()}`);
@@ -182,6 +183,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const normalized = events.map(normalizeEvent).filter(Boolean);
 
             const added = addEvents(normalized);
+
+            const cursor = Number(data.cursor);
+            if (Number.isSafeInteger(cursor) && cursor > 0) {
+                state.lastEventId = Math.max(state.lastEventId || 0, cursor);
+            }
 
             if (added > 0 && !state.paused) {
                 renderAll(added);
@@ -219,9 +225,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 poll().catch(() => {});
             }
         });
-    });
-            }
-        }, 2000);
     }
 
     async function refreshNow() {
@@ -431,6 +434,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let added = 0;
         let newestTimestamp = state.lastTimestamp;
+        let newestId = state.lastEventId;
 
         for (const event of events) {
             const key = eventKey(event);
@@ -451,10 +455,19 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
                 newestTimestamp = event.timestamp;
             }
+
+            const eventId = Number(event.id);
+            if (Number.isSafeInteger(eventId) && eventId > 0) {
+                newestId = Math.max(newestId || 0, eventId);
+            }
         }
 
         if (newestTimestamp) {
             state.lastTimestamp = newestTimestamp;
+        }
+
+        if (newestId !== null) {
+            state.lastEventId = newestId;
         }
 
         if (state.events.length > 3000) {
@@ -1140,6 +1153,7 @@ document.addEventListener("DOMContentLoaded", () => {
         state.events = [];
         state.ids.clear();
         state.lastTimestamp = null;
+        state.lastEventId = null;
         state.rateWindow = [];
         state.currentEvent = null;
 

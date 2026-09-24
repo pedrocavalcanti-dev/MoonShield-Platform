@@ -728,9 +728,16 @@ def api_fw_feed(request):
 
 
 
-    qs = EventoFirewall.objects.order_by(
-        "-timestamp"
+    qs = EventoFirewall.objects.order_by("-timestamp", "-id")
+
+    after_id = _int(
+        request.GET.get("after_id"),
+        default=0,
+        minimo=0,
     )
+
+    if after_id:
+        qs = qs.filter(id__gt=after_id).order_by("timestamp", "id")
 
     since = str(
         request.GET.get(
@@ -740,7 +747,7 @@ def api_fw_feed(request):
         or ""
     ).strip()
 
-    if since:
+    if since and not after_id:
         ts = parse_datetime(
             since
         )
@@ -765,6 +772,18 @@ def api_fw_feed(request):
                 timestamp__gt=ts
             )
 
+    acao = str(request.GET.get("action", "") or "").strip().upper()
+    if acao in {"ALLOW", "DROP", "DENY", "LOG"}:
+        qs = qs.filter(acao=acao)
+
+    proto = str(request.GET.get("proto", "") or "").strip().upper()
+    if proto:
+        qs = qs.filter(proto=proto[:15])
+
+    iface = str(request.GET.get("iface", "") or "").strip()
+    if iface:
+        qs = qs.filter(iface=iface[:32])
+
     eventos = list(
         qs[:limite]
     )
@@ -780,12 +799,24 @@ def api_fw_feed(request):
         )
     ]
 
+    if after_id:
+        payload_eventos = [
+            evento_to_log(e)
+            for e in eventos
+        ]
+
+    cursor = max(
+        (evento.id for evento in eventos),
+        default=after_id,
+    )
+
     return JsonResponse(
         {
             "ok": True,
             "mode": "prod",
             "modo": "real",
             "fonte": "local",
+            "cursor": cursor,
             "interfaces": interfaces.get(
                 "interfaces",
                 [],

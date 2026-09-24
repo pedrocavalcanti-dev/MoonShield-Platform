@@ -1104,3 +1104,109 @@ class FirewallLocalEventWorkerTests(FirewallTestBase):
 
         self.assertEqual(resposta.status_code, 422)
         self.assertEqual(resposta.json()['resultado']['codigo'], 'regras_invalidas')
+
+
+class FirewallFeedApiTests(FirewallTestBase):
+    def _evento(self, numero, **extra):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        dados = {
+            'timestamp': timezone.now() + timedelta(seconds=numero),
+            'acao': 'DROP',
+            'proto': 'ICMP',
+            'src_ip': f'192.168.52.{numero}',
+            'dst_ip': '8.8.8.8',
+            'iface': 'enp0s8',
+            'iface_saida': 'enp0s3',
+            'prefixo': 'MS-FW-DROP',
+            'event_hash': f'feed-event-{numero}',
+        }
+        dados.update(extra)
+        return EventoFirewall.objects.create(**dados)
+
+    def test_primeira_chamada_retorna_historico_recente(self):
+        eventos = [self._evento(numero) for numero in range(1, 4)]
+
+        resposta = self.client.get('/firewall/api/feed/?limit=2')
+
+        self.assertEqual(resposta.status_code, 200)
+        payload = resposta.json()
+        self.assertEqual(
+            [item['id'] for item in payload['eventos']],
+            [str(eventos[1].id), str(eventos[2].id)],
+        )
+        self.assertEqual(payload['cursor'], eventos[2].id)
+
+    def test_cursor_incremental_retorna_apenas_ids_posteriores(self):
+        primeiro = self._evento(1)
+        segundo = self._evento(2)
+        terceiro = self._evento(3)
+
+        resposta = self.client.get(
+            f'/firewall/api/feed/?after_id={segundo.id}'
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(
+            [item['id'] for item in resposta.json()['eventos']],
+            [str(terceiro.id)],
+        )
+        self.assertNotIn(str(primeiro.id), [item['id'] for item in resposta.json()['eventos']])
+
+    def test_feed_serializa_icmp_tcp_e_filtros(self):
+        icmp = self._evento(1)
+        tcp = self._evento(
+            2,
+            acao='ALLOW',
+            proto='TCP',
+            src_port=49700,
+            dst_port=443,
+            iface='enp0s3',
+            event_hash='feed-event-tcp',
+        )
+
+        icmp_payload = self.client.get(
+            f'/firewall/api/feed/?after_id={icmp.id - 1}&action=DROP&proto=icmp&iface=enp0s8'
+        ).json()['eventos']
+        tcp_payload = self.client.get(
+            f'/firewall/api/feed/?after_id={tcp.id - 1}'
+        ).json()['eventos']
+
+        self.assertEqual(len(icmp_payload), 1)
+        self.assertEqual(icmp_payload[0]['action'], 'DROP')
+        self.assertEqual(icmp_payload[0]['proto'], 'ICMP')
+        self.assertEqual(tcp_payload[0]['dst_port'], '443')
+        self.assertEqual(tcp_payload[0]['proto'], 'TCP')
+
+    def test_feed_vazio_so_quando_nao_existirem_eventos(self):
+        resposta = self.client.get('/firewall/api/feed/')
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json()['eventos'], [])
+
+    def test_feed_e_dashboard_consultam_eventofirewall(self):
+        self._evento(1)
+
+        feed = self.client.get('/firewall/api/feed/').json()
+        dashboard = self.client.get('/firewall/api/data/?period=24h').json()
+
+        self.assertEqual(len(feed['eventos']), 1)
+        self.assertEqual(dashboard['metrics']['drops'], 1)
+
+    def test_cursor_padrao_e_unit_nao_usam_source_tree(self):
+        from pathlib import Path
+        from configuracoes.management.commands.instalar_moonshield import Command
+        from firewall.services.ingestao_local import CURSOR_PADRAO, obter_cursor_path
+
+        with override_settings(MOONSHIELD_FIREWALL_CURSOR_FILE=''):
+            with patch.dict('os.environ', {'MOONSHIELD_FIREWALL_CURSOR_FILE': ''}):
+                self.assertEqual(obter_cursor_path(), CURSOR_PADRAO)
+
+        content = Command()._firewall_worker_service_content({
+            'python': Path('/opt/moonshield/venv/bin/python'),
+            'gerenciar': Path('/opt/moonshield/source/MoonShield/gerenciar.py'),
+            'django_dir': Path('/opt/moonshield/source/MoonShield'),
+        })
+        self.assertIn('MOONSHIELD_FIREWALL_CURSOR_FILE=/var/lib/moonshield/firewall/events.cursor', content)
+        self.assertNotIn('/opt/moonshield/source/MoonShield/var/cursors', content)

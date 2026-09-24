@@ -165,3 +165,23 @@ def parar_servico() -> dict:
 def reiniciar_servico() -> dict:
     """Reinicia o serviço do Suricata."""
     return requisitar_agent("suricata.service.restart", {}, timeout=120)
+
+
+def atualizar_regras(
+    *,
+    atualizar_moonshield: bool,
+    atualizar_et: bool,
+    validar_depois: bool,
+    reiniciar_depois: bool,
+) -> dict:
+    """Solicita atualização privilegiada dos rulesets oficiais ao Agent."""
+    return requisitar_agent(
+        "suricata.rules.update",
+        {
+            "atualizar_moonshield": atualizar_moonshield,
+            "atualizar_et": atualizar_et,
+            "validar_depois": validar_depois,
+            "reiniciar_depois": reiniciar_depois,
+        },
+        timeout=960,
+    )

@@ -36,6 +36,7 @@ from .agent import (
     validar_configuracao as validar_configuracao_agent,
     montar_payload_topologia,
     reiniciar_servico as reiniciar_suricata_agent,
+    atualizar_regras as atualizar_regras_agent,
     obter_diagnostico as obter_diagnostico_agent,
     obter_status as obter_status_agent,
     ErroSuricataAgent,
@@ -87,9 +88,7 @@ PARAMETROS_PERMITIDOS = {
     TipoTarefaSuricata.ATUALIZACAO_REGRAS: {
         "atualizar_et",
         "atualizar_moonshield",
-        "origem_moonshield",
         "validar_depois",
-        "yaml_path",
         "reiniciar_depois",
     },
     TipoTarefaSuricata.VALIDACAO: {
@@ -921,36 +920,64 @@ def executar_tarefa_configuracao(progresso: ProgressoTarefa, parametros: dict[st
 
 
 def executar_tarefa_atualizacao_regras(progresso: ProgressoTarefa, parametros: dict[str, object]) -> ResultadoEtapa:
-    """Bloqueia a atualização dinâmica de regras local, aguardando suporte no Agent."""
-    chk_cancel = _verificar_cancelamento(progresso, "tarefa_atualizar_regras")
-    if chk_cancel: return chk_cancel
+    """Orquestra a atualização de rulesets exclusivamente pelo Agent."""
+    etapa_id = "tarefa_atualizar_regras"
+    chk_cancel = _verificar_cancelamento(progresso, etapa_id)
+    if chk_cancel:
+        return chk_cancel
 
-    _adicionar_log_progresso(progresso, "Atualização de rulesets interceptada.", NivelLog.ERRO, "tarefa_atualizar_regras")
-    
-    res = ResultadoEtapa(
-        etapa="tarefa_atualizar_regras", 
-        status=StatusEtapa.ERRO, 
-        sucesso=False, 
-        mensagem="Atualização de rulesets não disponível pelo Agent nesta versão.", 
-        iniciado_em=_agora()
-    )
-    res.finalizar_erro("Atualização de rulesets não disponível pelo Agent nesta versão.")
-    
-    res.dados = {
-        "codigo": "rules_update_agent_nao_disponivel",
-        "executado": False,
-        "origem": "moonshield-agent",
-        "mensagem": "Atualização de rulesets não disponível pelo Agent nesta versão.",
-        "solicitado": {
-            "atualizar_et": bool(parametros.get("atualizar_et", True)),
-            "atualizar_moonshield": bool(parametros.get("atualizar_moonshield", True)),
-            "origem_moonshield": parametros.get("origem_moonshield"),
-            "validar_depois": bool(parametros.get("validar_depois", True)),
-            "yaml_path": parametros.get("yaml_path"),
-            "reiniciar_depois": bool(parametros.get("reiniciar_depois", False)),
-        }
+    opcoes = {
+        "atualizar_moonshield": bool(parametros.get("atualizar_moonshield", True)),
+        "atualizar_et": bool(parametros.get("atualizar_et", True)),
+        "validar_depois": bool(parametros.get("validar_depois", True)),
+        "reiniciar_depois": bool(parametros.get("reiniciar_depois", False)),
     }
-    
+
+    progresso.atualizar(10, "preparando_rulesets", "Preparando atualização de rulesets no MoonShield-Agent.")
+    if opcoes["atualizar_moonshield"]:
+        _adicionar_log_progresso(progresso, "Atualização das regras MoonShield solicitada.", NivelLog.INFO, "atualizando_moonshield")
+    if opcoes["atualizar_et"]:
+        _adicionar_log_progresso(progresso, "Atualização ET Open solicitada.", NivelLog.INFO, "atualizando_et_open")
+    if opcoes["validar_depois"]:
+        _adicionar_log_progresso(progresso, "Validação posterior com suricata -T solicitada.", NivelLog.INFO, "validando_rulesets")
+
+    progresso.atualizar(25, "executando_no_agent", "MoonShield-Agent atualizando os rulesets oficiais.")
+    try:
+        resposta = atualizar_regras_agent(**opcoes)
+    except Exception as exc:
+        detalhes = getattr(exc, "detalhes", {})
+        res = ResultadoEtapa(
+            etapa=etapa_id,
+            status=StatusEtapa.ERRO,
+            sucesso=False,
+            mensagem="Falha ao atualizar rulesets pelo MoonShield-Agent.",
+            erro=str(exc),
+            iniciado_em=_agora(),
+        )
+        res.dados = {
+            "origem": "moonshield-agent",
+            "solicitado": opcoes,
+            "erro_agent": detalhes if isinstance(detalhes, dict) else {},
+        }
+        res.finalizar_erro(res.mensagem, erro=str(exc))
+        return res
+
+    res = _resultado_agent_para_etapa(
+        etapa_id,
+        resposta,
+        "Rulesets atualizados com validação concluída pelo Agent.",
+    )
+    res.dados = {
+        **resposta,
+        "origem": "moonshield-agent",
+    }
+
+    if res.sucesso:
+        progresso.atualizar(90, "rulesets_validados", "Rulesets atualizados e validados pelo MoonShield-Agent.")
+        if opcoes["reiniciar_depois"]:
+            _adicionar_log_progresso(progresso, "Reinício do Suricata confirmado após validação aprovada.", NivelLog.INFO, "reinicio_suricata")
+        progresso.atualizar(100, "rulesets_concluidos", "Atualização de rulesets concluída.")
+
     return res
 
 

@@ -150,6 +150,7 @@ ACOES_OFICIAIS = frozenset({
     "service.start",
     "service.stop",
     "service.restart",
+    "rules.update",
 })
 
 
@@ -166,6 +167,8 @@ ALIASES_ACAO = {
     "suricata.service.start": "service.start",
     "suricata.service.stop": "service.stop",
     "suricata.service.restart": "service.restart",
+
+    "suricata.rules.update": "rules.update",
 }
 
 
@@ -452,6 +455,17 @@ def _acao_service_restart(
     return executar(dados)
 
 
+def _acao_rules_update(
+    dados: dict[str, Any],
+) -> dict[str, Any]:
+    executar = _resolver_funcao(
+        "regras",
+        "atualizar",
+    )
+
+    return executar(dados)
+
+
 _HANDLERS: dict[
     str,
     Callable[
@@ -469,6 +483,7 @@ _HANDLERS: dict[
     "service.start": _acao_service_start,
     "service.stop": _acao_service_stop,
     "service.restart": _acao_service_restart,
+    "rules.update": _acao_rules_update,
 }
 
 

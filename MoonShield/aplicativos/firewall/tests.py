@@ -1295,3 +1295,125 @@ class FirewallQuickBlockServiceTests(TestCase):
         self.assertFalse(
             BlocklistEntry.objects.filter(ip='192.168.52.0/24').exists()
         )
+
+class BlocklistParaAgentTests(TestCase):
+    """Testes para listar_blocklist_para_agent().
+
+    Semântica de BlocklistEntry.expires:
+        "∞"       → permanente (enviar sempre)
+        "1h"      → 1 hora desde criado_em
+        "24h"     → 24 horas
+        "7d"      → 7 dias (168h)
+        "30d"     → 30 dias (720h)
+        "1 hora"  → alias legado comprovado = 1h
+        qualquer outro → ignorado (fail-safe)
+    """
+
+    def _importar(self):
+        from .services.firewall_rules import listar_blocklist_para_agent
+        return listar_blocklist_para_agent
+
+    def _ips(self, payload):
+        return [p["ip"] for p in payload]
+
+    def test_permanente_infinito_entra(self):
+        BlocklistEntry.objects.create(ip="10.0.0.1", expires="∞")
+        payload = self._importar()()
+        self.assertIn("10.0.0.1", self._ips(payload))
+
+    def test_temporaria_1h_valida_entra(self):
+        BlocklistEntry.objects.create(ip="10.0.0.2", expires="1h")
+        payload = self._importar()()
+        self.assertIn("10.0.0.2", self._ips(payload))
+
+    def test_temporaria_1h_expirada_nao_entra(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        entry = BlocklistEntry.objects.create(ip="10.0.0.3", expires="1h")
+        BlocklistEntry.objects.filter(pk=entry.pk).update(
+            criado_em=timezone.now() - timedelta(hours=2),
+        )
+        payload = self._importar()()
+        self.assertNotIn("10.0.0.3", self._ips(payload))
+
+    def test_temporaria_24h_expirada_nao_entra(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        entry = BlocklistEntry.objects.create(ip="10.0.0.4", expires="24h")
+        BlocklistEntry.objects.filter(pk=entry.pk).update(
+            criado_em=timezone.now() - timedelta(hours=25),
+        )
+        payload = self._importar()()
+        self.assertNotIn("10.0.0.4", self._ips(payload))
+
+    def test_temporaria_7d_valida_entra(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        entry = BlocklistEntry.objects.create(ip="10.0.0.5", expires="7d")
+        BlocklistEntry.objects.filter(pk=entry.pk).update(
+            criado_em=timezone.now() - timedelta(days=6),
+        )
+        payload = self._importar()()
+        self.assertIn("10.0.0.5", self._ips(payload))
+
+    def test_temporaria_30d_valida_entra(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        entry = BlocklistEntry.objects.create(ip="10.0.0.6", expires="30d")
+        BlocklistEntry.objects.filter(pk=entry.pk).update(
+            criado_em=timezone.now() - timedelta(days=29),
+        )
+        payload = self._importar()()
+        self.assertIn("10.0.0.6", self._ips(payload))
+
+    def test_legado_1_hora_valido_entra(self):
+        BlocklistEntry.objects.create(ip="10.0.0.7", expires="1 hora")
+        payload = self._importar()()
+        self.assertIn("10.0.0.7", self._ips(payload))
+
+    def test_legado_1_hora_expirado_nao_entra(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        entry = BlocklistEntry.objects.create(ip="10.0.0.8", expires="1 hora")
+        BlocklistEntry.objects.filter(pk=entry.pk).update(
+            criado_em=timezone.now() - timedelta(hours=2),
+        )
+        payload = self._importar()()
+        self.assertNotIn("10.0.0.8", self._ips(payload))
+
+    def test_valor_desconhecido_nao_vira_permanente(self):
+        BlocklistEntry.objects.create(ip="10.0.0.9", expires="8")
+        payload = self._importar()()
+        self.assertNotIn("10.0.0.9", self._ips(payload))
+
+    def test_valor_invalido_nao_entra(self):
+        BlocklistEntry.objects.create(ip="10.0.0.10", expires="abc")
+        payload = self._importar()()
+        self.assertNotIn("10.0.0.10", self._ips(payload))
+
+    def test_vazio_nao_vira_permanente(self):
+        entry = BlocklistEntry.objects.create(ip="10.0.0.11")
+        BlocklistEntry.objects.filter(pk=entry.pk).update(expires="")
+        payload = self._importar()()
+        self.assertNotIn("10.0.0.11", self._ips(payload))
+
+    def test_payload_contem_somente_ip(self):
+        BlocklistEntry.objects.create(
+            ip="10.0.0.12", reason="motivo teste",
+            source="Manual", expires="∞",
+        )
+        payload = self._importar()()
+        self.assertEqual(len(payload), 1)
+        item = payload[0]
+        self.assertEqual(set(item.keys()), {"ip"})
+        self.assertEqual(item["ip"], "10.0.0.12")
+
+    def test_entrada_invalida_nao_impede_demais(self):
+        BlocklistEntry.objects.create(ip="10.0.0.13", expires="∞")
+        BlocklistEntry.objects.create(ip="10.0.0.14", expires="banana")
+        BlocklistEntry.objects.create(ip="10.0.0.15", expires="1h")
+        payload = self._importar()()
+        ips = self._ips(payload)
+        self.assertIn("10.0.0.13", ips)
+        self.assertNotIn("10.0.0.14", ips)
+        self.assertIn("10.0.0.15", ips)

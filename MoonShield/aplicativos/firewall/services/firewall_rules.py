@@ -98,18 +98,59 @@ def listar_allowlist_para_agent(
 
 
 def listar_blocklist_para_agent() -> list[dict[str, Any]]:
+    """Retorna lista de IPs ativos da blocklist para restore no Agent.
+
+    Semântica explícita de ``BlocklistEntry.expires``:
+
+    Permanentes (enviar sempre):
+        "∞"
+
+    Temporários (enviar somente se criado_em + duração > agora):
+        "1h", "24h", "7d", "30d"
+
+    Aliases legados comprovados:
+        "1 hora" → equivale a 1h
+
+    Qualquer outro valor é ignorado com warning (fail-safe).
+    """
+    from datetime import timedelta
     from django.utils import timezone
+
+    _PERMANENTES = {"∞"}
+
+    _TEMPORARIOS_HORAS = {
+        "1h": 1,
+        "24h": 24,
+        "7d": 168,
+        "30d": 720,
+        "1 hora": 1,
+    }
+
     qs = BlocklistEntry.objects.all()
     agora = timezone.now()
-    ativas = []
+    ativas: list[dict[str, Any]] = []
+
     for entry in qs:
-        if entry.expires_at and entry.expires_at <= agora:
+        expires_str = str(entry.expires or "").strip()
+
+        if expires_str in _PERMANENTES:
+            ativas.append({"ip": entry.ip})
             continue
-        ativas.append({
-            "ip": entry.ip,
-            "motivo": entry.reason,
-            "source": entry.source,
-        })
+
+        horas = _TEMPORARIOS_HORAS.get(expires_str)
+        if horas is not None:
+            expires_at = entry.criado_em + timedelta(hours=horas)
+            if expires_at > agora:
+                ativas.append({"ip": entry.ip})
+            continue
+
+        # Valor desconhecido/corrompido — NÃO transformar em permanente.
+        logger.warning(
+            "BlocklistEntry id=%s ip=%s possui expires=%r desconhecido; "
+            "ignorado no restore do Agent.",
+            entry.pk, entry.ip, expires_str,
+        )
+
     return ativas
 
 

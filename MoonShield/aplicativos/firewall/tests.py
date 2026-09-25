@@ -1210,3 +1210,55 @@ class FirewallFeedApiTests(FirewallTestBase):
         })
         self.assertIn('MOONSHIELD_FIREWALL_CURSOR_FILE=/var/lib/moonshield/firewall/events.cursor', content)
         self.assertNotIn('/opt/moonshield/source/MoonShield/var/cursors', content)
+
+
+class FirewallQuickBlockServiceTests(TestCase):
+    @patch('firewall.services.firewall_rules.agent_client.bloquear_ip')
+    def test_motivo_humano_e_expiracao_sao_persistidos_sem_alteracao(
+        self,
+        bloquear_agent,
+    ):
+        from firewall.services.firewall_rules import bloquear_ip
+
+        motivo = 'teste"; flush ruleset; #'
+        bloquear_agent.return_value = {
+            'ok': True,
+            'comentario': 'moonshield-emergency:0123456789abcdef0123',
+        }
+
+        resultado = bloquear_ip(
+            '192.168.52.2',
+            motivo=motivo,
+            expires='1 hora',
+        )
+
+        self.assertTrue(resultado['ok'])
+        entry = BlocklistEntry.objects.get(ip='192.168.52.2')
+        self.assertEqual(entry.reason, motivo)
+        self.assertEqual(entry.expires, '1 hora')
+        self.assertEqual(
+            bloquear_agent.call_args.kwargs['motivo'],
+            motivo,
+        )
+
+    @patch('firewall.services.firewall_rules.agent_client.liberar_ip')
+    def test_desbloqueio_remove_blocklist_apos_confirmacao_do_agent(
+        self,
+        liberar_agent,
+    ):
+        from firewall.services.firewall_rules import liberar_ip
+
+        BlocklistEntry.objects.create(
+            ip='192.168.52.0/24',
+            reason='bloqueio de rede',
+            expires='1 hora',
+        )
+        liberar_agent.return_value = {'ok': True, 'removidos': 1}
+
+        resultado = liberar_ip('192.168.52.0/24')
+
+        self.assertTrue(resultado['ok'])
+        self.assertEqual(resultado['blocklist_removidos'], 1)
+        self.assertFalse(
+            BlocklistEntry.objects.filter(ip='192.168.52.0/24').exists()
+        )

@@ -21,6 +21,7 @@ Este arquivo NÃO usa HTTP e NÃO conhece Django diretamente.
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 import re
@@ -905,21 +906,19 @@ def bloquear_ip(dados: dict[str, Any]) -> dict[str, Any]:
 
 
 def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
-    ip = str(dados.get("ip") or "").strip()
-    motivo = sanitizar_comentario(
-        dados.get("motivo") or "bloqueio emergencial"
-    )
+    endereco = _normalizar_endereco_emergency(dados.get("ip"))
+    motivo = str(dados.get("motivo") or "bloqueio emergencial")[:255]
 
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
+    if endereco is None:
         return {
             "ok": False,
             "codigo": "ip_invalido",
             "erro": "IP inválido.",
         }
 
-    if addr.is_loopback or addr.is_unspecified:
+    alvo, familia = endereco
+
+    if _endereco_emergency_protegido(alvo):
         return {
             "ok": False,
             "codigo": "ip_protegido",
@@ -940,7 +939,7 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
             "erro": "nft não encontrado.",
         }
 
-    familia = "ip6" if addr.version == 6 else "ip"
+    comentario = _comentario_emergency(alvo, familia)
 
     args = [
         nft,
@@ -951,11 +950,11 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         CHAIN_EMERGENCY,
         familia,
         "saddr",
-        str(addr),
+        alvo,
         "counter",
         "drop",
         "comment",
-        motivo,
+        f'"{comentario}"',
     ]
 
     r = subprocess.run(
@@ -975,8 +974,9 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "ok": True,
-        "ip": str(addr),
+        "ip": alvo,
         "motivo": motivo,
+        "comentario": comentario,
         "mensagem": "IP bloqueado na chain de emergência.",
     }
 
@@ -998,16 +998,17 @@ def liberar_ip(dados: dict[str, Any]) -> dict[str, Any]:
 
 
 def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
-    ip = str(dados.get("ip") or "").strip()
+    endereco = _normalizar_endereco_emergency(dados.get("ip"))
 
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
+    if endereco is None:
         return {
             "ok": False,
             "codigo": "ip_invalido",
             "erro": "IP inválido.",
         }
+
+    alvo, familia = endereco
+    comentario = _comentario_emergency(alvo, familia)
 
     nft = shutil.which("nft")
     if not nft:
@@ -1041,10 +1042,24 @@ def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
     removidos = 0
 
     for linha in r.stdout.splitlines():
-        if str(addr) not in linha or "# handle" not in linha:
+        if "# handle" not in linha:
             continue
 
-        handle = linha.rsplit("# handle", 1)[-1].strip().split()[0]
+        possui_marcador = f'comment "{comentario}"' in linha
+        legado_correspondente = _linha_emergency_legada_corresponde(
+            linha,
+            alvo=alvo,
+            familia=familia,
+        )
+
+        if not possui_marcador and not legado_correspondente:
+            continue
+
+        match_handle = re.search(r"# handle\s+(\d+)\s*$", linha)
+        if not match_handle:
+            continue
+
+        handle = match_handle.group(1)
 
         d = subprocess.run(
             [
@@ -1068,7 +1083,7 @@ def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "ok": True,
-        "ip": str(addr),
+        "ip": alvo,
         "removidos": removidos,
         "mensagem": (
             "Bloqueio removido."
@@ -1076,6 +1091,54 @@ def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
             else "Nenhum bloqueio ativo encontrado."
         ),
     }
+
+
+def _normalizar_endereco_emergency(valor: Any) -> tuple[str, str] | None:
+    """Aceita somente IP individual ou CIDR e devolve uma expressao nft segura."""
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+
+    try:
+        addr = ipaddress.ip_address(texto)
+        return str(addr), "ip6" if addr.version == 6 else "ip"
+    except ValueError:
+        pass
+
+    try:
+        rede = ipaddress.ip_network(texto, strict=False)
+    except ValueError:
+        return None
+
+    return str(rede), "ip6" if rede.version == 6 else "ip"
+
+
+def _endereco_emergency_protegido(alvo: str) -> bool:
+    try:
+        rede = ipaddress.ip_network(alvo, strict=False)
+    except ValueError:
+        return True
+
+    return bool(rede.is_loopback or rede.is_unspecified)
+
+
+def _comentario_emergency(alvo: str, familia: str) -> str:
+    """Marcador interno estavel; nunca incorpora campos enviados pelo usuario."""
+    digest = hashlib.sha256(
+        f"{familia}:{alvo}".encode("ascii")
+    ).hexdigest()[:20]
+    return f"moonshield-emergency:{digest}"
+
+
+def _linha_emergency_legada_corresponde(
+    linha: str,
+    *,
+    alvo: str,
+    familia: str,
+) -> bool:
+    """Permite remover regra legada sem confiar no comentario anterior."""
+    padrao = rf"\b{re.escape(familia)}\s+saddr\s+{re.escape(alvo)}(?:\s|$)"
+    return re.search(padrao, linha) is not None
 
 
 def desbloquear_ip(dados: dict[str, Any]) -> dict[str, Any]:

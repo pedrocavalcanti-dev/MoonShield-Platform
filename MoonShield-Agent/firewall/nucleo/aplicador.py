@@ -538,6 +538,7 @@ def _gerar_script(
 
     linhas.append("  }")
 
+    linhas.extend([
         f"  set {SET_ALLOW_IPV4} {{",
         "    type ipv4_addr;",
         "    flags interval;",
@@ -568,7 +569,9 @@ def _gerar_script(
 
         f"  chain {CHAIN_RULES_OUTPUT} {{",
         "  }",
+    ])
 
+    linhas.extend([
         f"  chain {CHAIN_INPUT} {{",
         "    type filter hook input priority 0; policy accept;",
         f"    jump {CHAIN_SYSTEM}",

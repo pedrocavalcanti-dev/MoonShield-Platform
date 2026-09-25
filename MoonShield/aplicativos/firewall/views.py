@@ -101,6 +101,10 @@ from .services.firewall_rules import (
     rollback as service_rollback,
     listar_allowlist_para_agent,
 )
+from .services.port_forwards import (
+    sincronizar_port_forwards,
+    validar_port_forward,
+)
 from rede.services.topologia import obter_topologia
 from .services.firewall_status import (
     obter_diagnostico,
@@ -2027,12 +2031,7 @@ def api_nat(request):
             {
                 "ok": True,
                 "entries": entries,
-                "runtime_applied": False,
-                "aviso": (
-                    "O cadastro NAT está preservado no Django, "
-                    "mas a aplicação nftables de NAT ainda não foi habilitada "
-                    "na arquitetura nova."
-                ),
+                "runtime_applied": True,
             }
         )
 
@@ -2091,14 +2090,25 @@ def api_nat(request):
 
     try:
         n.full_clean()
+        validar_port_forward(n)
         n.save()
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         return JsonResponse(
             _validation_error_payload(
                 exc
-            ),
+            ) if isinstance(exc, ValidationError) else {"ok": False, "erros": [str(exc)]},
             status=400,
         )
+
+    try:
+        sync_result = sincronizar_port_forwards()
+    except Exception as exc:
+        n.delete()
+        return JsonResponse({"ok": False, "erro": str(exc), "runtime_applied": False}, status=502)
+
+    if not sync_result.get("ok"):
+        n.delete()
+        return JsonResponse({"ok": False, "erro": sync_result.get("erro") or "Falha ao aplicar Port Forward.", "runtime_applied": False}, status=502)
 
     return JsonResponse(
         {
@@ -2106,7 +2116,8 @@ def api_nat(request):
             "nat": nat_to_dict(
                 n
             ),
-            "runtime_applied": False,
+            "runtime_applied": True,
+            "sync_result": sync_result,
         },
         status=201,
     )
@@ -2137,17 +2148,26 @@ def api_nat_detail(
                 "nat": nat_to_dict(
                     n
                 ),
-                "runtime_applied": False,
+                "runtime_applied": True,
             }
         )
 
     if request.method == "DELETE":
+        try:
+            sync_result = sincronizar_port_forwards(excluir_id=n.pk)
+        except Exception as exc:
+            return JsonResponse({"ok": False, "erro": str(exc), "runtime_applied": False}, status=502)
+
+        if not sync_result.get("ok"):
+            return JsonResponse({"ok": False, "erro": sync_result.get("erro") or "Falha ao aplicar exclusão do Port Forward.", "runtime_applied": False}, status=502)
+
         n.delete()
 
         return JsonResponse(
             {
                 "ok": True,
-                "runtime_applied": False,
+                "runtime_applied": True,
+                "sync_result": sync_result,
             }
         )
 
@@ -2189,14 +2209,23 @@ def api_nat_detail(
 
     try:
         n.full_clean()
+        validar_port_forward(n, excluir_id=n.pk)
         n.save()
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         return JsonResponse(
             _validation_error_payload(
                 exc
-            ),
+            ) if isinstance(exc, ValidationError) else {"ok": False, "erros": [str(exc)]},
             status=400,
         )
+
+    try:
+        sync_result = sincronizar_port_forwards()
+    except Exception as exc:
+        return JsonResponse({"ok": False, "erro": str(exc), "runtime_applied": False}, status=502)
+
+    if not sync_result.get("ok"):
+        return JsonResponse({"ok": False, "erro": sync_result.get("erro") or "Falha ao aplicar Port Forward.", "runtime_applied": False}, status=502)
 
     return JsonResponse(
         {
@@ -2204,7 +2233,8 @@ def api_nat_detail(
             "nat": nat_to_dict(
                 n
             ),
-            "runtime_applied": False,
+            "runtime_applied": True,
+            "sync_result": sync_result,
         }
     )
 
@@ -2540,8 +2570,7 @@ def api_geoblock(request):
             "created": criada,
             "runtime_applied": False,
             "aviso": (
-                "GeoBlock está persistido no Django. "
-                "A aplicação via nft sets será integrada em fase própria."
+                "GeoBlock requer dataset country→CIDR e ainda não possui enforcement runtime"
             ),
         },
         status=(

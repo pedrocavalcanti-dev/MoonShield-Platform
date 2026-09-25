@@ -46,6 +46,7 @@ from typing import Any
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncHour
 from django.utils import timezone
+from zoneinfo import ZoneInfo
 
 from .models import (
     AllowlistEntry,
@@ -1284,7 +1285,8 @@ def prod_data(
         qs_24
         .annotate(
             hora=TruncHour(
-                "timestamp"
+                "timestamp",
+                tzinfo=ZoneInfo("America/Sao_Paulo")
             )
         )
         .values(

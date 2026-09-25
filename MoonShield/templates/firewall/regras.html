@@ -329,7 +329,7 @@
             <i class="bi bi-database"></i>
             <div>
                 <strong>Configuração persistida no Django</strong>
-                <span>GeoBlock ainda não é aplicado no nftables pelo Agent. O painel não apresenta o cadastro como ativo no runtime.</span>
+                <span>GeoBlock requer dataset country&rarr;CIDR e ainda não possui enforcement runtime. O painel não apresenta o cadastro como ativo no runtime.</span>
             </div>
         </div>
 
@@ -384,7 +384,7 @@
             </div>
             <div class="fwr-inline-form__actions">
                 <button class="fwr-btn" id="geoAddCancelBtn" type="button">Cancelar</button>
-                <button class="fwr-btn fwr-btn--primary" id="geoAddConfirmBtn" type="button">Salvar cadastro</button>
+                <button class="fwr-btn fwr-btn--primary" id="geoAddConfirmBtn" type="button">Salvar port forward</button>
             </div>
         </div>
 
@@ -411,17 +411,11 @@
          NAT
     ================================================================= -->
     <section class="fwr-panel" id="panelNat">
-        <div class="fwr-runtime-warning">
-            <i class="bi bi-database"></i>
-            <div>
-                <strong>Port forwards ainda não são aplicados ao runtime</strong>
-                <span>Os registros ficam no Django até a etapa específica de NAT ser habilitada no MoonShield-Agent.</span>
-            </div>
-        </div>
+        
 
         <div class="fwr-toolbar">
             <div class="fwr-toolbar__left">
-                <span class="fwr-stat"><small>CADASTROS</small><strong id="natCount">0</strong></span>
+                <span class="fwr-stat"><small>REGRAS</small><strong id="natCount">0</strong></span>
             </div>
             <div class="fwr-toolbar__right">
                 <button class="fwr-btn fwr-btn--primary" id="fwrNewNatBtn" type="button">
@@ -574,17 +568,14 @@
     <aside class="fwr-drawer" id="fwrNatDrawer" aria-hidden="true">
         <header class="fwr-drawer__header">
             <div>
-                <span class="fwr-eyebrow">NAT / CADASTRO</span>
+                <span class="fwr-eyebrow">NAT / PORT FORWARD</span>
                 <h2 id="fwrNatDrawerTitle">Novo port forward</h2>
             </div>
             <button class="fwr-icon-btn" id="fwrNatDrawerClose" type="button" aria-label="Fechar"><i class="bi bi-x-lg"></i></button>
         </header>
 
         <div class="fwr-drawer__body">
-            <div class="fwr-runtime-warning fwr-runtime-warning--drawer">
-                <i class="bi bi-info-circle"></i>
-                <div><strong>Somente cadastro</strong><span>Este port forward ainda não será aplicado no nftables.</span></div>
-            </div>
+            
 
             <form id="fwrNatForm" autocomplete="off" novalidate>
                 <div class="fwr-form-row">
@@ -631,7 +622,7 @@
         <footer class="fwr-drawer__footer">
             <button class="fwr-btn" id="fwrNatDrawerCancel" type="button">Cancelar</button>
             <button class="fwr-btn fwr-btn--primary" id="fwrNatSaveBtn" type="button">
-                <i class="bi bi-floppy"></i> Salvar cadastro
+                <i class="bi bi-floppy"></i> Salvar port forward
             </button>
         </footer>
     </aside>

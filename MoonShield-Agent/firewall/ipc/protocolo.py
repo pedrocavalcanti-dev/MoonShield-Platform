@@ -67,6 +67,7 @@ ACOES = frozenset({
     "firewall.rollback",
     "firewall.block",
     "firewall.unblock",
+    "firewall.nat.sync",
 
     #
     # Firewall — contrato oficial de alteração.

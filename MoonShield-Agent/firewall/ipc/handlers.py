@@ -107,6 +107,7 @@ ACOES_OFICIAIS = frozenset({
     "rollback",    # legado temporário
     "block",
     "unblock",
+    "nat.sync",
     "change.apply",
     "change.confirm",
     "change.rollback",
@@ -128,6 +129,7 @@ ALIASES_ACAO = {
     "firewall.rollback": "rollback",
     "firewall.block": "block",
     "firewall.unblock": "unblock",
+    "firewall.nat.sync": "nat.sync",
     "firewall.change.apply": "change.apply",
     "firewall.change.confirm": "change.confirm",
     "firewall.change.rollback": "change.rollback",
@@ -379,6 +381,21 @@ def _acao_unblock(dados: dict[str, Any]) -> dict[str, Any]:
     return executar(dados)
 
 
+def _acao_nat_sync(dados: dict[str, Any]) -> dict[str, Any]:
+    regras = dados.get("port_forwards", [])
+    if not isinstance(regras, list):
+        raise RequisicaoFirewallInvalida("dados.port_forwards deve ser uma lista.")
+    try:
+        modulo = importlib.import_module("rede.nucleo.nat")
+        executar = getattr(modulo, "sincronizar_port_forwards")
+    except (ImportError, AttributeError) as exc:
+        raise ImplementacaoFirewallIndisponivel(
+            "rede.nucleo.nat",
+            ("sincronizar_port_forwards",),
+        ) from exc
+    return executar(regras)
+
+
 def _acao_change_apply(dados: dict[str, Any]) -> dict[str, Any]:
     payload = _normalizar_payload_regras(dados)
     alteracao_id = _obter_id_alteracao(payload, obrigatorio=False)
@@ -431,6 +448,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "rollback": _acao_rollback_legado,
     "block": _acao_block,
     "unblock": _acao_unblock,
+    "nat.sync": _acao_nat_sync,
     "change.apply": _acao_change_apply,
     "change.confirm": _acao_change_confirm,
     "change.rollback": _acao_change_rollback,

@@ -97,6 +97,22 @@ def listar_allowlist_para_agent(
     return [entry.ip for entry in qs]
 
 
+def listar_blocklist_para_agent() -> list[dict[str, Any]]:
+    from django.utils import timezone
+    qs = BlocklistEntry.objects.all()
+    agora = timezone.now()
+    ativas = []
+    for entry in qs:
+        if entry.expires_at and entry.expires_at <= agora:
+            continue
+        ativas.append({
+            "ip": entry.ip,
+            "motivo": entry.reason,
+            "source": entry.source,
+        })
+    return ativas
+
+
 # =============================================================================
 # APLICAÇÃO
 # =============================================================================
@@ -104,6 +120,7 @@ def listar_allowlist_para_agent(
 def aplicar_regras_pendentes(
     *,
     allowlist: list[str] | None = None,
+    blocklist: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Reaplica o conjunto completo de regras ativas.
@@ -155,6 +172,11 @@ def aplicar_regras_pendentes(
         if allowlist is None
         else list(allowlist)
     )
+    blocklist = (
+        listar_blocklist_para_agent()
+        if blocklist is None
+        else list(blocklist)
+    )
 
     # A aplicação nunca deriva topologia do status observado do Agent.
     # WAN/LAN/MGMT/HOME_NET são congelados a partir do Network Control.
@@ -173,6 +195,7 @@ def aplicar_regras_pendentes(
             iface_map=iface_map,
             config=config,
             allowlist=allowlist,
+            blocklist=blocklist,
         )
 
     except agent_client.OperacaoAgentFalhou as exc:

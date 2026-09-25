@@ -93,7 +93,8 @@ def _series_ataques(qs, periodo_cfg: dict, agora: datetime) -> dict:
         label_fmt = "%d/%m"
 
     from django.utils import timezone
-    tzinfo = timezone.get_current_timezone()
+    from zoneinfo import ZoneInfo
+    tzinfo = ZoneInfo('America/Sao_Paulo')
     agora_local = timezone.localtime(agora, tzinfo)
     step = timedelta(minutes=bucket_min)
     inicio_janela = agora_local - timedelta(hours=horas)

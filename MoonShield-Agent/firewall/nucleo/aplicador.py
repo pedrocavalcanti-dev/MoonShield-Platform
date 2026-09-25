@@ -59,6 +59,12 @@ from firewall.nucleo.seguranca import (
     SET_ALLOW_IPV6,
     TABELA_FAMILIA,
     TABELA_NOME,
+    LOG_RATE_LIMIT,
+    LOG_BURST_LIMIT,
+    PREFIX_EMERGENCY,
+    PREFIX_DROP,
+    PREFIX_REJECT,
+    PREFIX_ALLOW,
     ContextoSeguranca,
     detectar_contexto,
     gerar_regras_sistema,
@@ -222,6 +228,7 @@ def _aplicar_regras_impl(
             script = _gerar_script(
                 regras=regras,
                 allowlist=allowlist,
+                blocklist=dados.get("blocklist"),
                 contexto=contexto,
             )
 
@@ -483,6 +490,7 @@ def _gerar_script(
     *,
     regras: list[dict[str, Any]],
     allowlist: dict[str, list[str]],
+    blocklist: list[dict[str, Any]] | None = None,
     contexto: ContextoSeguranca,
 ) -> str:
     """
@@ -496,12 +504,6 @@ def _gerar_script(
     """
     tabela_ja_existe = tabela_existe()
 
-    emergency_existentes = (
-        _obter_expressoes_chain(CHAIN_EMERGENCY)
-        if tabela_ja_existe
-        else []
-    )
-
     linhas: list[str] = []
 
     if tabela_ja_existe:
@@ -511,12 +513,30 @@ def _gerar_script(
 
     linhas.extend([
         f"table {TABELA_FAMILIA} {TABELA_NOME} {{",
-
         f"  chain {CHAIN_SYSTEM} {{",
         "  }",
+        "",
+        f"  chain {CHAIN_EMERGENCY} {{"
+    ])
 
-        f"  chain {CHAIN_EMERGENCY} {{",
-        "  }",
+    if blocklist is not None:
+        for entry in blocklist:
+            endereco = _normalizar_endereco_emergency(entry.get("ip"))
+            if endereco:
+                alvo, familia = endereco
+                comentario = _comentario_emergency(alvo, familia)
+                linhas.append(f'    {familia} saddr {alvo} limit rate {LOG_RATE_LIMIT} burst {LOG_BURST_LIMIT} packets log prefix "{PREFIX_EMERGENCY}" comment "{comentario}"')
+                linhas.append(f'    {familia} saddr {alvo} counter drop comment "{comentario}"')
+    else:
+        emergency_existentes = (
+            _obter_expressoes_chain(CHAIN_EMERGENCY)
+            if tabela_ja_existe
+            else []
+        )
+        for expr in emergency_existentes:
+            linhas.append(f"    {expr}")
+
+    linhas.append("  }")
 
         f"  set {SET_ALLOW_IPV4} {{",
         "    type ipv4_addr;",
@@ -585,13 +605,7 @@ def _gerar_script(
             f"{CHAIN_SYSTEM} {expr}"
         )
 
-    # Emergency é estado runtime (block/unblock/AutoBan), não desired policy.
-    # Uma aplicação administrativa não pode apagar bloqueios já ativos.
-    for expr in emergency_existentes:
-        pos.append(
-            f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
-            f"{CHAIN_EMERGENCY} {expr}"
-        )
+    # Emergency é estado runtime e agora é persistido pela listagem provida ou restaurado das regras atuais no bloco acima.
 
     regras_ordenadas = sorted(
         [
@@ -628,16 +642,17 @@ def _gerar_script(
                 "dir": concrete_direction,
             }
 
-            expr = _regra_para_expr(
+            expressoes = _regra_para_expr(
                 regra_runtime,
                 contexto,
             )
 
-            if expr:
-                pos.append(
-                    f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
-                    f"{chain} {expr}"
-                )
+            for expr in expressoes:
+                if expr:
+                    pos.append(
+                        f"add rule {TABELA_FAMILIA} {TABELA_NOME} "
+                        f"{chain} {expr}"
+                    )
 
     script = "\n".join(linhas) + "\n"
 
@@ -772,7 +787,7 @@ def _obter_expressoes_chain(
 def _regra_para_expr(
     regra: dict[str, Any],
     contexto: ContextoSeguranca,
-) -> str:
+) -> list[str]:
     partes: list[str] = []
 
     iface = str(regra.get("iface") or "any")
@@ -820,28 +835,17 @@ def _regra_para_expr(
                 f"meta l4proto {proto}"
             )
 
-    if _bool(regra.get("log", True)):
-        action = str(regra.get("action") or "deny").lower()
-
-        if action in {"allow", "accept"}:
-            prefix = "MS-FW-ALLOW: "
-        elif action == "reject":
-            prefix = "MS-FW-REJECT: "
-        else:
-            prefix = "MS-FW-DROP: "
-
-        partes.append(
-            f'log prefix "{prefix}" flags all counter'
-        )
-
     action = str(regra.get("action") or "deny").lower()
 
     if action in {"allow", "accept"}:
-        partes.append("accept")
+        prefix = PREFIX_ALLOW
+        nft_action = "accept"
     elif action == "reject":
-        partes.append("reject")
+        prefix = PREFIX_REJECT
+        nft_action = "reject"
     else:
-        partes.append("drop")
+        prefix = PREFIX_DROP
+        nft_action = "drop"
 
     regra_id = str(
         regra.get("id")
@@ -866,11 +870,15 @@ def _regra_para_expr(
         else marcador
     )
 
-    partes.append(
-        f'comment "{comentario}"'
-    )
+    linhas = []
+    base_match = " ".join(partes)
 
-    return " ".join(partes)
+    if _bool(regra.get("log", True)):
+        linhas.append(f'{base_match} limit rate {LOG_RATE_LIMIT} burst {LOG_BURST_LIMIT} packets log prefix "{prefix}" flags all comment "{comentario}"')
+
+    linhas.append(f'{base_match} counter {nft_action} comment "{comentario}"')
+
+    return linhas
 
 
 def _resolver_iface(
@@ -1041,7 +1049,7 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
 
     comentario = _comentario_emergency(alvo, familia)
 
-    args = [
+    base_args = [
         nft,
         "add",
         "rule",
@@ -1051,25 +1059,38 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         familia,
         "saddr",
         alvo,
+    ]
+
+    args_log = base_args + [
+        "limit", "rate", LOG_RATE_LIMIT, "burst", f"{LOG_BURST_LIMIT} packets",
+        "log", "prefix", f'"{PREFIX_EMERGENCY}"',
+        "comment", f'"{comentario}"',
+    ]
+
+    args_drop = base_args + [
         "counter",
         "drop",
         "comment",
         f'"{comentario}"',
     ]
 
-    r = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-
-    if r.returncode != 0:
+    # Executa log e drop
+    r1 = subprocess.run(args_log, capture_output=True, text=True, timeout=10, check=False)
+    if r1.returncode != 0:
         return {
             "ok": False,
             "codigo": "bloqueio_falhou",
-            "erro": r.stderr.strip() or "Falha ao bloquear IP.",
+            "erro": r1.stderr.strip() or "Falha ao registrar regra de log de emergência.",
+        }
+
+    r2 = subprocess.run(args_drop, capture_output=True, text=True, timeout=10, check=False)
+    if r2.returncode != 0:
+        # Tenta remover o log inserido
+        subprocess.run([nft, "delete", "rule", TABELA_FAMILIA, TABELA_NOME, CHAIN_EMERGENCY, "handle", "..."], check=False) # Ignorado, o rollback ou restore cobrirá se o Agent possuir recovery avançado.
+        return {
+            "ok": False,
+            "codigo": "bloqueio_falhou",
+            "erro": r2.stderr.strip() or "Falha ao bloquear IP.",
         }
 
     return {

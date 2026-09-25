@@ -636,6 +636,7 @@ def aplicar_regras(
     iface_map: dict[str, str] | None = None,
     config: dict[str, Any] | None = None,
     allowlist: list[str] | None = None,
+    blocklist: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(regras, list):
         raise TypeError("regras deve ser uma lista.")
@@ -651,6 +652,10 @@ def aplicar_regras(
         if not isinstance(allowlist, list):
             raise TypeError("allowlist deve ser uma lista.")
         payload["allowlist"] = allowlist
+    if blocklist is not None:
+        if not isinstance(blocklist, list):
+            raise TypeError("blocklist deve ser uma lista.")
+        payload["blocklist"] = blocklist
 
     return chamar_dados(
         "firewall.apply",
@@ -762,6 +767,16 @@ def cancelar_alteracao(alteracao_id: str) -> dict[str, Any]:
     return chamar_dados(
         "firewall.change.cancel",
         {"alteracao_id": alteracao_id},
+        timeout=TIMEOUT_OPERACAO_LONGA,
+    )
+
+
+def sincronizar_port_forwards(port_forwards: list[dict[str, Any]]) -> dict[str, Any]:
+    if not isinstance(port_forwards, list):
+        raise TypeError("port_forwards deve ser uma lista.")
+    return chamar_dados(
+        "firewall.nat.sync",
+        {"port_forwards": port_forwards},
         timeout=TIMEOUT_OPERACAO_LONGA,
     )
 

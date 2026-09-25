@@ -565,7 +565,7 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         pruneRateWindow();
-        setText("kpiRate", `${state.rateWindow.length}/m`);
+        
 
         renderTopSources(stats.blockedSources);
     }

@@ -30,6 +30,7 @@ from typing import Any
 NFT_FAMILY = "ip"
 NFT_TABLE = "moonshield_nat"
 NFT_CHAIN = "postrouting"
+NFT_CHAIN_PORT_FORWARD = "prerouting"
 NFT_TIMEOUT = 15
 NFT_PRIORITY = 100
 
@@ -306,6 +307,48 @@ def normalizar_regra_nat(regra: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalizar_porta(valor: Any, campo: str) -> int:
+    try:
+        porta = int(str(valor).strip())
+    except (TypeError, ValueError) as exc:
+        raise RegraNatInvalida(f"Porta invÃ¡lida em '{campo}'.") from exc
+    if not 1 <= porta <= 65535:
+        raise RegraNatInvalida(f"Porta fora do intervalo em '{campo}'.")
+    return porta
+
+
+def normalizar_port_forward(regra: dict[str, Any]) -> dict[str, Any]:
+    """Valida somente dados estruturados para DNAT IPv4."""
+    if not isinstance(regra, dict):
+        raise RegraNatInvalida("Port forward precisa ser um objeto.")
+
+    try:
+        destino = ipaddress.ip_address(str(regra.get("lan_ip") or "").strip())
+    except ValueError as exc:
+        raise RegraNatInvalida("IP interno invÃ¡lido.") from exc
+
+    if destino.version != 4 or (
+        destino.is_loopback
+        or destino.is_multicast
+        or destino.is_unspecified
+    ):
+        raise RegraNatInvalida("IP interno nÃ£o permitido para DNAT.")
+
+    protocolo = str(regra.get("proto") or "").strip().lower()
+    if protocolo not in {"tcp", "udp", "any"}:
+        raise RegraNatInvalida("Protocolo de port forward invÃ¡lido.")
+
+    return {
+        "id": str(regra.get("id") or regra.get("nome") or "port-forward"),
+        "interface": _validar_interface(regra.get("interface"), "interface"),
+        "proto": protocolo,
+        "wan_port": _normalizar_porta(regra.get("wan_port"), "wan_port"),
+        "lan_ip": str(destino),
+        "lan_port": _normalizar_porta(regra.get("lan_port"), "lan_port"),
+        "ativa": _yes(regra.get("enabled", regra.get("ativa", True)), True),
+    }
+
+
 # =============================================================================
 # ESTADO
 # =============================================================================
@@ -454,6 +497,15 @@ def _regra_nft(regra: dict[str, Any]) -> str:
     return " ".join(partes)
 
 
+def _regra_port_forward_nft(regra: dict[str, Any], proto: str) -> str:
+    identificador = _comentario_id(regra["id"])
+    return (
+        f'iifname "{regra["interface"]}" {proto} dport {regra["wan_port"]} '
+        f'dnat to {regra["lan_ip"]}:{regra["lan_port"]} '
+        f'comment "moonshield-port-forward:{identificador}:{proto}"'
+    )
+
+
 def _gerar_ruleset(
     regras: list[dict[str, Any]],
     *,
@@ -570,6 +622,61 @@ def remover_nat() -> dict[str, Any]:
     }
 
 
+def sincronizar_port_forwards(regras: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sincroniza apenas a chain DNAT do namespace NAT MoonShield.
+
+    A chain postrouting/MASQUERADE nunca Ã© alterada por este caminho.
+    """
+    if not isinstance(regras, list):
+        raise RegraNatInvalida("'regras' precisa ser uma lista.")
+    if not tabela_existe():
+        raise NatErro("Tabela NAT MoonShield nÃ£o existe.", codigo="nat_nao_configurado")
+
+    normalizadas = [normalizar_port_forward(regra) for regra in regras]
+    ativas = [regra for regra in normalizadas if regra["ativa"]]
+    conflitos: set[tuple[str, str, int]] = set()
+    linhas_regras: list[str] = []
+    for regra in ativas:
+        protocolos = ("tcp", "udp") if regra["proto"] == "any" else (regra["proto"],)
+        for proto in protocolos:
+            chave = (regra["interface"], proto, regra["wan_port"])
+            if chave in conflitos:
+                raise RegraNatInvalida("Existe conflito de interface, protocolo e porta externa.")
+            conflitos.add(chave)
+            linhas_regras.append(_regra_port_forward_nft(regra, proto))
+
+    snapshot = exportar_estado_nat()
+    raw = snapshot.get("ruleset", "")
+    chain_existe = f"chain {NFT_CHAIN_PORT_FORWARD}" in raw
+    linhas: list[str] = []
+    if not chain_existe:
+        linhas.extend([
+            f"add chain {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN_PORT_FORWARD} "
+            "{ type nat hook prerouting priority dstnat; policy accept; }",
+        ])
+    else:
+        linhas.append(f"flush chain {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN_PORT_FORWARD}")
+    linhas.extend(
+        f"add rule {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN_PORT_FORWARD} {regra}"
+        for regra in linhas_regras
+    )
+    script = "\n".join(linhas) + "\n"
+
+    _executar(["-c", "-f", "-"], input_text=script)
+    try:
+        _executar(["-f", "-"], input_text=script)
+    except NatErro:
+        restaurar_estado_nat(snapshot)
+        raise
+
+    return {
+        "ok": True,
+        "total_port_forwards": len(linhas_regras),
+        "chain": NFT_CHAIN_PORT_FORWARD,
+        "tabela": NFT_TABLE,
+    }
+
+
 # =============================================================================
 # SNAPSHOT NAT
 # =============================================================================
@@ -637,15 +744,18 @@ __all__ = [
     "NFT_FAMILY",
     "NFT_TABLE",
     "NFT_CHAIN",
+    "NFT_CHAIN_PORT_FORWARD",
     "NatErro",
     "NatIndisponivel",
     "RegraNatInvalida",
     "nft_disponivel",
     "normalizar_regra_nat",
+    "normalizar_port_forward",
     "tabela_existe",
     "obter_status_nat",
     "aplicar_regras_nat",
     "remover_nat",
+    "sincronizar_port_forwards",
     "exportar_estado_nat",
     "restaurar_estado_nat",
 ]

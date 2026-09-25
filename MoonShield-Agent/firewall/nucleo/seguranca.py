@@ -55,6 +55,14 @@ from typing import Any, Iterable
 
 VERSAO_SEGURANCA = "1.1"
 
+LOG_RATE_LIMIT = "10/minute"
+LOG_BURST_LIMIT = "5"
+
+PREFIX_EMERGENCY = "MS-FW-EMERGENCY: "
+PREFIX_DROP = "MS-FW-DROP: "
+PREFIX_REJECT = "MS-FW-REJECT: "
+PREFIX_ALLOW = "MS-FW-ALLOW: "
+
 TABELA_FAMILIA = "inet"
 TABELA_NOME = "moonshield"
 

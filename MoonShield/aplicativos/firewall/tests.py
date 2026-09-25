@@ -380,30 +380,63 @@ class FirewallBlocklistTests(FirewallTestBase):
 
 class FirewallAllowlistTests(FirewallTestBase):
 
-    def test_adicionar_ip(self):
+    @patch('firewall.views.aplicar_regras_pendentes', return_value={'ok': True})
+    def test_adicionar_ip(self, sync):
         """POST /firewall/api/allowlist/ adiciona IP."""
         r = self.post_json('/firewall/api/allowlist/', {
             'ip':     '8.8.8.8',
             'reason': 'Google DNS',
         })
         self.assertEqual(r.status_code, 201)
-        self.assertEqual(r.json()['entry']['ip'], '8.8.8.8')
+        self.assertEqual(r.json()['entry']['ip'], '8.8.8.8/32')
+        self.assertTrue(r.json()['runtime_applied'])
+        sync.assert_called_once()
 
     def test_adicionar_dominio(self):
         """Aceita domínio além de IP."""
         r = self.post_json('/firewall/api/allowlist/', {'ip': 'cloudflare.com'})
-        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.status_code, 400)
 
     def test_ip_obrigatorio(self):
         """Sem IP → 400."""
         r = self.post_json('/firewall/api/allowlist/', {'reason': 'sem ip'})
         self.assertEqual(r.status_code, 400)
 
-    def test_remover_entry(self):
+    @patch('firewall.views.aplicar_regras_pendentes', return_value={'ok': True})
+    def test_adicionar_cidr_e_idempotente(self, sync):
+        primeiro = self.post_json('/firewall/api/allowlist/', {'ip': '192.168.52.10'})
+        segundo = self.post_json('/firewall/api/allowlist/', {'ip': '192.168.52.10/32'})
+
+        self.assertEqual(primeiro.status_code, 201)
+        self.assertEqual(segundo.status_code, 200)
+        self.assertTrue(segundo.json()['reutilizada'])
+        self.assertEqual(AllowlistEntry.objects.count(), 1)
+        self.assertEqual(AllowlistEntry.objects.get().ip, '192.168.52.10/32')
+        self.assertEqual(sync.call_count, 2)
+
+    def test_rejeita_payload_inseguro_e_rede_global(self):
+        for ip in ('192.168.52.10; flush ruleset', '0.0.0.0/0', '::/0'):
+            with self.subTest(ip=ip):
+                r = self.post_json('/firewall/api/allowlist/', {'ip': ip})
+                self.assertEqual(r.status_code, 400)
+        self.assertEqual(AllowlistEntry.objects.count(), 0)
+
+    @patch('firewall.views.aplicar_regras_pendentes', return_value={'ok': True})
+    def test_remover_entry(self, sync):
         """DELETE remove da allowlist."""
         entry = AllowlistEntry.objects.create(ip='10.0.0.0/8', reason='Rede local')
         r = self.client.delete(f'/firewall/api/allowlist/{entry.id}/')
         self.assertEqual(r.status_code, 200)
+        self.assertEqual(AllowlistEntry.objects.count(), 0)
+        self.assertTrue(r.json()['runtime_applied'])
+        sync.assert_called_once()
+
+    @patch('firewall.views.aplicar_regras_pendentes', return_value={'ok': False, 'erro': 'Agent indisponivel'})
+    def test_falha_do_agent_nao_marca_nova_entrada_como_ativa(self, sync):
+        r = self.post_json('/firewall/api/allowlist/', {'ip': '192.168.52.10'})
+
+        self.assertEqual(r.status_code, 502)
+        self.assertFalse(r.json()['runtime_applied'])
         self.assertEqual(AllowlistEntry.objects.count(), 0)
 
 

@@ -60,6 +60,10 @@ TABELA_NOME = "moonshield"
 
 CHAIN_SYSTEM = "ms_system"
 CHAIN_EMERGENCY = "ms_emergency"
+CHAIN_ALLOWLIST = "ms_allowlist"
+
+SET_ALLOW_IPV4 = "ms_allow_ipv4"
+SET_ALLOW_IPV6 = "ms_allow_ipv6"
 
 # `ms_rules` permanece somente como chain legada de compatibilidade.
 # As políticas novas são separadas por hook para impedir que uma regra INPUT
@@ -76,6 +80,7 @@ CHAIN_OUTPUT = "ms_output"
 CHAINS_GERENCIADAS = frozenset({
     CHAIN_SYSTEM,
     CHAIN_EMERGENCY,
+    CHAIN_ALLOWLIST,
     CHAIN_RULES,
     CHAIN_RULES_INPUT,
     CHAIN_RULES_FORWARD,
@@ -902,7 +907,6 @@ def gerar_regras_sistema(
         contexto = detectar_contexto(contexto)
 
     regras = [
-        "ct state established,related accept",
         'iifname "lo" accept',
     ]
 

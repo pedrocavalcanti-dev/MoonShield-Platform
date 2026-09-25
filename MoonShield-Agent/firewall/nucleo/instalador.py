@@ -45,6 +45,7 @@ Este módulo usa somente biblioteca padrão.
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import shutil
 import subprocess
@@ -61,6 +62,7 @@ from firewall.nucleo.rollback import (
 )
 from firewall.nucleo.seguranca import (
     CHAIN_EMERGENCY,
+    CHAIN_ALLOWLIST,
     CHAIN_FORWARD,
     CHAIN_INPUT,
     CHAIN_OUTPUT,
@@ -69,6 +71,8 @@ from firewall.nucleo.seguranca import (
     CHAIN_RULES_FORWARD,
     CHAIN_RULES_OUTPUT,
     CHAIN_SYSTEM,
+    SET_ALLOW_IPV4,
+    SET_ALLOW_IPV6,
     TABELA_FAMILIA,
     TABELA_NOME,
     detectar_contexto,
@@ -109,6 +113,11 @@ ARQUIVO_BASE = (
 ARQUIVO_RULES = (
     DIRETORIO_CONFIG
     / "rules.nft"
+)
+
+ARQUIVO_ALLOWLIST = (
+    DIRETORIO_CONFIG
+    / "allowlist.json"
 )
 
 ARQUIVO_NAT = (
@@ -769,6 +778,10 @@ def desinstalar(
                 missing_ok=True
             )
 
+            ARQUIVO_ALLOWLIST.unlink(
+                missing_ok=True
+            )
+
             ARQUIVO_NAT.unlink(
                 missing_ok=True
             )
@@ -836,6 +849,7 @@ def _gerar_base(
     O enforcement administrativo virá por ms_rules.
     A primeira instalação não fecha tráfego por padrão.
     """
+    allowlist = carregar_allowlist_cache()
     linhas: list[str] = []
 
     if tabela_existe():
@@ -855,6 +869,23 @@ def _gerar_base(
             f"    chain {CHAIN_EMERGENCY} {{",
             "    }",
 
+            f"    set {SET_ALLOW_IPV4} {{",
+            "        type ipv4_addr;",
+            "        flags interval;",
+            _set_elements(allowlist["ipv4"], indent="        "),
+            "    }",
+
+            f"    set {SET_ALLOW_IPV6} {{",
+            "        type ipv6_addr;",
+            "        flags interval;",
+            _set_elements(allowlist["ipv6"], indent="        "),
+            "    }",
+
+            f"    chain {CHAIN_ALLOWLIST} {{",
+            f"        ip saddr @{SET_ALLOW_IPV4} counter accept comment \"moonshield-allowlist:ipv4\"",
+            f"        ip6 saddr @{SET_ALLOW_IPV6} counter accept comment \"moonshield-allowlist:ipv6\"",
+            "    }",
+
             f"    chain {CHAIN_RULES} {{",
             "    }",
 
@@ -871,24 +902,28 @@ def _gerar_base(
             "        type filter hook input priority 0; policy accept;",
             f"        jump {CHAIN_SYSTEM}",
             f"        jump {CHAIN_EMERGENCY}",
+            f"        jump {CHAIN_ALLOWLIST}",
             f"        jump {CHAIN_RULES}",
             f"        jump {CHAIN_RULES_INPUT}",
+            "        ct state established,related accept",
             "    }",
 
             f"    chain {CHAIN_FORWARD} {{",
             "        type filter hook forward priority 0; policy accept;",
-            f"        jump {CHAIN_SYSTEM}",
             f"        jump {CHAIN_EMERGENCY}",
+            f"        jump {CHAIN_ALLOWLIST}",
             f"        jump {CHAIN_RULES}",
             f"        jump {CHAIN_RULES_FORWARD}",
+            "        ct state established,related accept",
             "    }",
 
             f"    chain {CHAIN_OUTPUT} {{",
             "        type filter hook output priority 0; policy accept;",
-            f"        jump {CHAIN_SYSTEM}",
             f"        jump {CHAIN_EMERGENCY}",
+            f"        jump {CHAIN_ALLOWLIST}",
             f"        jump {CHAIN_RULES}",
             f"        jump {CHAIN_RULES_OUTPUT}",
+            "        ct state established,related accept",
             "    }",
 
             "}",
@@ -913,6 +948,59 @@ def _gerar_base(
         )
         + "\n"
     )
+
+
+def carregar_allowlist_cache() -> dict[str, list[str]]:
+    """Le o cache de restore; PostgreSQL continua sendo o estado desejado."""
+    vazio = {"ipv4": [], "ipv6": []}
+    try:
+        bruto = json.loads(ARQUIVO_ALLOWLIST.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return vazio
+
+    if not isinstance(bruto, dict):
+        return vazio
+
+    resultado = {"ipv4": set(), "ipv6": set()}
+    for familia in resultado:
+        for item in bruto.get(familia, []):
+            try:
+                rede = ipaddress.ip_network(str(item), strict=False)
+            except ValueError:
+                continue
+            if (
+                rede.prefixlen == 0
+                or rede.is_loopback
+                or rede.is_multicast
+                or rede.is_unspecified
+            ):
+                continue
+            if (familia == "ipv6") != (rede.version == 6):
+                continue
+            resultado[familia].add(str(rede))
+
+    return {familia: sorted(valores) for familia, valores in resultado.items()}
+
+
+def salvar_allowlist_cache(allowlist: dict[str, list[str]]) -> None:
+    """Persiste apenas a representacao validada aplicada pelo Agent."""
+    dados = {
+        familia: list(allowlist.get(familia, []))
+        for familia in ("ipv4", "ipv6")
+    }
+    DIRETORIO_CONFIG.mkdir(parents=True, exist_ok=True)
+    temporario = ARQUIVO_ALLOWLIST.with_suffix(".tmp")
+    temporario.write_text(
+        json.dumps(dados, sort_keys=True),
+        encoding="utf-8",
+    )
+    temporario.replace(ARQUIVO_ALLOWLIST)
+
+
+def _set_elements(enderecos: list[str], *, indent: str) -> str:
+    if not enderecos:
+        return ""
+    return f"{indent}elements = {{ {', '.join(enderecos)} }}"
 
 
 # =============================================================================

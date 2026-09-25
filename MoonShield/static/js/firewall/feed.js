@@ -1025,8 +1025,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             toast(
-                `${event.src_ip} cadastrado na allowlist. O runtime ainda não é aplicado.`,
-                "warn"
+                `${event.src_ip} cadastrado na allowlist e aplicado ao runtime.`
             );
         } catch (error) {
             toast(error.message, "err");

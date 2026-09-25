@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ipaddress
 from datetime import datetime
 from typing import Any, Callable
 
@@ -98,6 +99,7 @@ from .services.firewall_rules import (
     obter_emergency_linux,
     obter_regras_linux,
     rollback as service_rollback,
+    listar_allowlist_para_agent,
 )
 from rede.services.topologia import obter_topologia
 from .services.firewall_status import (
@@ -2303,7 +2305,7 @@ def api_allowlist(request):
                     )
                     for item in AllowlistEntry.objects.all()
                 ],
-                "runtime_applied": False,
+                "runtime_applied": None,
             }
         )
 
@@ -2331,8 +2333,28 @@ def api_allowlist(request):
             status=400,
         )
 
+    try:
+        rede = ipaddress.ip_network(ip, strict=False)
+    except ValueError:
+        return JsonResponse(
+            {"ok": False, "erro": "Informe apenas IPv4, IPv6 ou CIDR valido."},
+            status=400,
+        )
+
+    if (
+        rede.prefixlen == 0
+        or rede.is_loopback
+        or rede.is_multicast
+        or rede.is_unspecified
+    ):
+        return JsonResponse(
+            {"ok": False, "erro": "Rede nao permitida na allowlist."},
+            status=400,
+        )
+
+    ip_normalizado = str(rede)
     entry = AllowlistEntry(
-        ip=ip,
+        ip=ip_normalizado,
         reason=str(
             dados.get(
                 "reason"
@@ -2342,8 +2364,19 @@ def api_allowlist(request):
     )
 
     try:
-        entry.full_clean()
-        entry.save()
+        with transaction.atomic():
+            existente = (
+                AllowlistEntry.objects.select_for_update()
+                .filter(ip=ip_normalizado)
+                .order_by("id")
+                .first()
+            )
+            criada = existente is None
+            if criada:
+                entry.full_clean()
+                entry.save()
+            else:
+                entry = existente
     except ValidationError as exc:
         return JsonResponse(
             _validation_error_payload(
@@ -2352,20 +2385,24 @@ def api_allowlist(request):
             status=400,
         )
 
+    sync_result = aplicar_regras_pendentes()
+    if not sync_result.get("ok") and criada:
+        entry.delete()
+
     return JsonResponse(
         {
-            "ok": True,
+            "ok": bool(sync_result.get("ok")),
             "entry": allow_to_dict(
                 entry
             ),
-            "runtime_applied": False,
+            "runtime_applied": bool(sync_result.get("ok")),
             "aviso": (
                 "Allowlist persistida no Django. "
                 "A aplicação dedicada de allowlist no Agent será integrada "
                 "na fase de sets/listas."
             ),
         },
-        status=201,
+        status=(201 if criada and sync_result.get("ok") else 200 if sync_result.get("ok") else 502),
     )
 
 
@@ -2392,8 +2429,22 @@ def api_allowlist_detail(
                 "entry": allow_to_dict(
                     entry
                 ),
-                "runtime_applied": False,
+                "runtime_applied": None,
             }
+        )
+
+    sync_result = aplicar_regras_pendentes(
+        allowlist=listar_allowlist_para_agent(excluir_id=entry.id),
+    )
+    if not sync_result.get("ok"):
+        return JsonResponse(
+            {
+                "ok": False,
+                "runtime_applied": False,
+                "erro": sync_result.get("erro") or "Falha ao remover allowlist do runtime.",
+                "sync_result": sync_result,
+            },
+            status=502,
         )
 
     entry.delete()
@@ -2401,7 +2452,7 @@ def api_allowlist_detail(
     return JsonResponse(
         {
             "ok": True,
-            "runtime_applied": False,
+            "runtime_applied": True,
         }
     )
 

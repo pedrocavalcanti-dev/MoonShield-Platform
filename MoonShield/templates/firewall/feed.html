@@ -357,8 +357,7 @@
             <div class="fwf-runtime-note" id="fwfAllowRuntimeNote">
                 <i class="bi bi-info-circle"></i>
                 <span>
-                    “Cadastrar na allowlist” salva o IP no Django. A aplicação dedicada da allowlist
-                    em nftables ainda não está habilitada no Agent atual.
+                    “Cadastrar na allowlist” confirma o IP no MoonShield-Agent e aplica a liberação em nftables.
                 </span>
             </div>
         </div>
@@ -392,5 +391,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/firewall/feed.js' %}"></script>
+<script src="{% static 'js/firewall/feed.js' %}?v=4"></script>
 {% endblock %}

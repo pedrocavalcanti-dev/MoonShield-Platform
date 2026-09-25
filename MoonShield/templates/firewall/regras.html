@@ -278,14 +278,14 @@
     </section>
 
     <!-- ================================================================
-         ALLOWLIST — SOMENTE PERSISTÊNCIA POR ENQUANTO
+         ALLOWLIST — ENFORCEMENT LOCAL
     ================================================================= -->
     <section class="fwr-panel" id="panelLiberados">
         <div class="fwr-runtime-warning">
             <i class="bi bi-database"></i>
             <div>
-                <strong>Configuração persistida no Django</strong>
-                <span>A aplicação dedicada da allowlist em nftables ainda não está habilitada no Agent atual.</span>
+                <strong>Allowlist local ativa</strong>
+                <span>Entradas confirmadas são aplicadas pelo MoonShield-Agent em nftables.</span>
             </div>
         </div>
 
@@ -657,5 +657,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/firewall/regras.js' %}?v=11"></script>
+<script src="{% static 'js/firewall/regras.js' %}?v=12"></script>
 {% endblock %}

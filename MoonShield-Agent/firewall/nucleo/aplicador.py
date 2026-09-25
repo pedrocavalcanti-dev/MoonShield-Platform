@@ -46,6 +46,7 @@ from firewall.nucleo.rollback import (
 )
 from firewall.nucleo.seguranca import (
     CHAIN_EMERGENCY,
+    CHAIN_ALLOWLIST,
     CHAIN_FORWARD,
     CHAIN_INPUT,
     CHAIN_OUTPUT,
@@ -54,6 +55,8 @@ from firewall.nucleo.seguranca import (
     CHAIN_RULES_INPUT,
     CHAIN_RULES_OUTPUT,
     CHAIN_SYSTEM,
+    SET_ALLOW_IPV4,
+    SET_ALLOW_IPV6,
     TABELA_FAMILIA,
     TABELA_NOME,
     ContextoSeguranca,
@@ -211,8 +214,14 @@ def _aplicar_regras_impl(
                     inicio=inicio,
                 )
 
+            allowlist = _normalizar_allowlist(
+                dados.get("allowlist", []),
+                contexto=contexto,
+            )
+
             script = _gerar_script(
                 regras=regras,
+                allowlist=allowlist,
                 contexto=contexto,
             )
 
@@ -375,6 +384,10 @@ def _aplicar_regras_impl(
                         inicio=inicio,
                     )
 
+                if not safe_apply:
+                    from firewall.nucleo.instalador import salvar_allowlist_cache
+                    salvar_allowlist_cache(allowlist)
+
                 duracao = time.monotonic() - inicio
 
                 if safe_apply and alteracao_id:
@@ -469,6 +482,7 @@ def _aplicar_regras_impl(
 def _gerar_script(
     *,
     regras: list[dict[str, Any]],
+    allowlist: dict[str, list[str]],
     contexto: ContextoSeguranca,
 ) -> str:
     """
@@ -504,6 +518,23 @@ def _gerar_script(
         f"  chain {CHAIN_EMERGENCY} {{",
         "  }",
 
+        f"  set {SET_ALLOW_IPV4} {{",
+        "    type ipv4_addr;",
+        "    flags interval;",
+        _set_elements(allowlist["ipv4"]),
+        "  }",
+
+        f"  set {SET_ALLOW_IPV6} {{",
+        "    type ipv6_addr;",
+        "    flags interval;",
+        _set_elements(allowlist["ipv6"]),
+        "  }",
+
+        f"  chain {CHAIN_ALLOWLIST} {{",
+        f"    ip saddr @{SET_ALLOW_IPV4} counter accept comment \"moonshield-allowlist:ipv4\"",
+        f"    ip6 saddr @{SET_ALLOW_IPV6} counter accept comment \"moonshield-allowlist:ipv6\"",
+        "  }",
+
         # Compatibilidade com leitores antigos. Políticas novas NÃO usam esta
         # chain porque cada hook possui sua chain administrativa própria.
         f"  chain {CHAIN_RULES} {{",
@@ -522,20 +553,25 @@ def _gerar_script(
         "    type filter hook input priority 0; policy accept;",
         f"    jump {CHAIN_SYSTEM}",
         f"    jump {CHAIN_EMERGENCY}",
+        f"    jump {CHAIN_ALLOWLIST}",
         f"    jump {CHAIN_RULES_INPUT}",
+        "    ct state established,related accept",
         "  }",
 
         f"  chain {CHAIN_FORWARD} {{",
         "    type filter hook forward priority 0; policy accept;",
-        "    ct state established,related accept",
         f"    jump {CHAIN_EMERGENCY}",
+        f"    jump {CHAIN_ALLOWLIST}",
         f"    jump {CHAIN_RULES_FORWARD}",
+        "    ct state established,related accept",
         "  }",
 
         f"  chain {CHAIN_OUTPUT} {{",
         "    type filter hook output priority 0; policy accept;",
-        "    ct state established,related accept",
+        f"    jump {CHAIN_EMERGENCY}",
+        f"    jump {CHAIN_ALLOWLIST}",
         f"    jump {CHAIN_RULES_OUTPUT}",
+        "    ct state established,related accept",
         "  }",
 
         "}",
@@ -606,6 +642,70 @@ def _gerar_script(
     script = "\n".join(linhas) + "\n"
 
     return script + "\n".join(pos) + ("\n" if pos else "")
+
+
+def _normalizar_allowlist(
+    valor: Any,
+    *,
+    contexto: ContextoSeguranca | None = None,
+) -> dict[str, list[str]]:
+    """Aceita somente enderecos estruturados para os sets da allowlist."""
+    if not isinstance(valor, list):
+        raise ValueError("dados.allowlist deve ser uma lista.")
+
+    normalizados: dict[str, set[str]] = {"ipv4": set(), "ipv6": set()}
+    for item in valor:
+        bruto = item.get("ip") if isinstance(item, dict) else item
+        try:
+            rede = ipaddress.ip_network(str(bruto or "").strip(), strict=False)
+        except ValueError as exc:
+            raise ValueError("Allowlist contem IP ou CIDR invalido.") from exc
+
+        if (
+            rede.prefixlen == 0
+            or rede.is_loopback
+            or rede.is_multicast
+            or rede.is_unspecified
+        ):
+            raise ValueError("Rede nao permitida na allowlist.")
+
+        if _endereco_allowlist_protegido(rede, contexto):
+            raise ValueError("Allowlist nao pode incluir endereco administrativo critico.")
+
+        chave = "ipv6" if rede.version == 6 else "ipv4"
+        normalizados[chave].add(str(rede))
+
+    return {
+        familia: sorted(enderecos)
+        for familia, enderecos in normalizados.items()
+    }
+
+
+def _endereco_allowlist_protegido(
+    rede: ipaddress.IPv4Network | ipaddress.IPv6Network,
+    contexto: ContextoSeguranca | None,
+) -> bool:
+    if contexto is None:
+        return False
+
+    candidatos = [
+        getattr(contexto, "gateway", ""),
+        *getattr(contexto, "ips_gerenciamento", []),
+    ]
+    for candidato in candidatos:
+        try:
+            endereco = ipaddress.ip_address(str(candidato))
+        except ValueError:
+            continue
+        if endereco.version == rede.version and endereco in rede:
+            return True
+    return False
+
+
+def _set_elements(enderecos: list[str]) -> str:
+    if not enderecos:
+        return ""
+    return f"    elements = {{ {', '.join(enderecos)} }}"
 
 
 def _obter_expressoes_chain(

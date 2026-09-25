@@ -27,6 +27,7 @@ from typing import Any
 from django.db import transaction
 
 from firewall.models import (
+    AllowlistEntry,
     BlocklistEntry,
     RegraFirewall,
 )
@@ -85,11 +86,25 @@ def listar_regras_para_agent() -> list[dict[str, Any]]:
     ]
 
 
+def listar_allowlist_para_agent(
+    *,
+    excluir_id: int | None = None,
+) -> list[str]:
+    """Retorna somente o estado desejado estruturado da allowlist."""
+    qs = AllowlistEntry.objects.order_by("ip", "id")
+    if excluir_id is not None:
+        qs = qs.exclude(pk=excluir_id)
+    return [entry.ip for entry in qs]
+
+
 # =============================================================================
 # APLICAÇÃO
 # =============================================================================
 
-def aplicar_regras_pendentes() -> dict[str, Any]:
+def aplicar_regras_pendentes(
+    *,
+    allowlist: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Reaplica o conjunto completo de regras ativas.
 
@@ -135,6 +150,11 @@ def aplicar_regras_pendentes() -> dict[str, Any]:
         }
 
     regras = listar_regras_para_agent()
+    allowlist = (
+        listar_allowlist_para_agent()
+        if allowlist is None
+        else list(allowlist)
+    )
 
     # A aplicação nunca deriva topologia do status observado do Agent.
     # WAN/LAN/MGMT/HOME_NET são congelados a partir do Network Control.
@@ -152,6 +172,7 @@ def aplicar_regras_pendentes() -> dict[str, Any]:
             regras,
             iface_map=iface_map,
             config=config,
+            allowlist=allowlist,
         )
 
     except agent_client.OperacaoAgentFalhou as exc:
@@ -211,6 +232,7 @@ def aplicar_regras_pendentes() -> dict[str, Any]:
             "Regras aplicadas.",
         ),
         "total_regras": len(regras),
+        "total_allowlist": len(allowlist),
         "resultado_agent": resultado,
         "topologia_fonte": "rede",
         "topologia": {

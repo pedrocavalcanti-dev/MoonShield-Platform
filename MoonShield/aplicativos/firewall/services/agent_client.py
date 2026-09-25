@@ -635,6 +635,7 @@ def aplicar_regras(
     *,
     iface_map: dict[str, str] | None = None,
     config: dict[str, Any] | None = None,
+    allowlist: list[str] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(regras, list):
         raise TypeError("regras deve ser uma lista.")
@@ -646,6 +647,10 @@ def aplicar_regras(
 
     if config:
         payload["config"] = config
+    if allowlist is not None:
+        if not isinstance(allowlist, list):
+            raise TypeError("allowlist deve ser uma lista.")
+        payload["allowlist"] = allowlist
 
     return chamar_dados(
         "firewall.apply",
@@ -683,6 +688,7 @@ def aplicar_alteracao(
     alteracao_id: str | None = None,
     iface_map: dict[str, str] | None = None,
     config: dict[str, Any] | None = None,
+    allowlist: list[str] | None = None,
     timeout_segundos: int = 60,
 ) -> dict[str, Any]:
     if not isinstance(regras, list):
@@ -697,6 +703,10 @@ def aplicar_alteracao(
         payload["alteracao_id"] = str(alteracao_id)
     if config:
         payload["config"] = config
+    if allowlist is not None:
+        if not isinstance(allowlist, list):
+            raise TypeError("allowlist deve ser uma lista.")
+        payload["allowlist"] = allowlist
 
     return chamar_dados(
         "firewall.change.apply",

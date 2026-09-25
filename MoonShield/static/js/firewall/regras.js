@@ -1177,7 +1177,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     /* =====================================================================
-       ALLOWLIST — persistence only
+       ALLOWLIST — local nftables enforcement
        ===================================================================== */
 
     function renderAllowlist() {
@@ -1196,7 +1196,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td class="fwr-cell-mono">${escapeHtml(a.ip || "—")}</td>
                 <td class="fwr-cell-muted">${escapeHtml(a.reason || "—")}</td>
                 <td class="fwr-cell-mono fwr-cell-muted">${escapeHtml(a.date || a.criado_em || "—")}</td>
-                <td><span class="fwr-runtime-badge fwr-runtime-badge--off">NÃO APLICADO</span></td>
+                <td><span class="fwr-runtime-badge">APLICADO</span></td>
                 <td><div class="fwr-row-actions"><button class="fwr-icon-btn fwr-icon-btn--danger" type="button" data-allow-delete="${a.id}" title="Remover"><i class="bi bi-trash3"></i></button></div></td>
             </tr>
         `).join("");
@@ -1235,9 +1235,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await api(URLS.allowlist, { method: "POST", body: JSON.stringify({ ip: result.ip, reason: result.reason || "Liberação manual" }) });
             if (!data.ok) throw new Error(data.erro || "Falha ao salvar allowlist.");
+            state.allowlist = state.allowlist.filter((item) => Number(item.id) !== Number(data.entry.id));
             state.allowlist.push(data.entry);
             renderAllowlist(); updateCounts();
-            toast("Cadastro salvo. Ainda não aplicado ao runtime.", "warn");
+            toast("Cadastro confirmado e aplicado ao runtime.");
         } catch (error) { toast(error.message, "err"); }
     }
 

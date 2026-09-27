@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     panel?.classList.add('open');
     panel?.setAttribute('aria-hidden', 'false');
     overlay?.classList.add('active');
+    document.body.classList.add('notif-open');
     fetchNotifs();
   }
 
@@ -39,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
     panel?.classList.remove('open');
     panel?.setAttribute('aria-hidden', 'true');
     overlay?.classList.remove('active');
+    document.body.classList.remove('notif-open');
   }
 
   // ── FILTROS ───────────────────────────────────────────────
@@ -93,14 +95,18 @@ document.addEventListener('DOMContentLoaded', () => {
     div.dataset.id = notif.id;
 
     div.innerHTML = `
-      <div class="notif-item__icon">${getIconSVG(notif.tipo)}</div>
+      <div class="notif-item__icon">${getIconSVG(notif.tipo, notif.severidade)}</div>
       <div class="notif-item__body">
         <p class="notif-item__title">${escapeHTML(notif.titulo)}</p>
-        <p class="notif-item__desc">${escapeHTML(notif.descricao)}</p>
-        <p class="notif-item__time">${formatTime(notif.timestamp)}</p>
+        <div class="notif-item__meta">
+          <span class="notif-item__desc">${escapeHTML(notif.descricao)}</span>
+          <span class="notif-item__meta-sep">&middot;</span>
+          <span class="notif-item__time">${formatTime(notif.timestamp)}</span>
+        </div>
+        <div class="notif-item__badge">${escapeHTML(notif.severidade)}</div>
       </div>
       <button class="notif-item__dismiss" aria-label="Dispensar">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
       </button>`;
@@ -163,14 +169,23 @@ document.addEventListener('DOMContentLoaded', () => {
     return d.toLocaleDateString('pt-BR');
   }
 
-  function getIconSVG(tipo) {
+  function getIconSVG(tipo, severidade) {
+    const w = 18, h = 18;
     const icons = {
-      ids:      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
-      scan:     `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
-      dns:      `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
-      firewall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+      ids:      `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+      scan:     `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
+      dns:      `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+      firewall: `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+      network:  `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>`,
+      info:     `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+      alert:    `<svg width="${w}" height="${h}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
     };
-    return icons[tipo] ?? icons.ids;
+
+    if (icons[tipo]) return icons[tipo];
+
+    if (severidade === 'critico' || severidade === 'alto') return icons.alert;
+    if (severidade === 'medio') return icons.ids;
+    return icons.info;
   }
 
   // Carrega contagem inicial

@@ -105,11 +105,24 @@
         searchController: null,
         toastTimer: null,
         settingsInitialized: false,
+        mapboxConfigured: false,
         currentPopover: null,
         popoverTrigger: null,
         resizeTimer: null,
         hasLoadedOnce: false
     };
+
+
+    function getMapboxToken() {
+        const tokenEl = document.getElementById('mapbox-token-data');
+        if (!tokenEl) return '';
+        try {
+            const token = JSON.parse(tokenEl.textContent);
+            return typeof token === 'string' ? token.trim() : '';
+        } catch (error) {
+            return '';
+        }
+    }
 
     const $ = (id) => document.getElementById(id);
 
@@ -1608,7 +1621,7 @@
         if (els.btnUseBrowser) els.btnUseBrowser.disabled = !canBrowserGeo;
         if (els.browserUnavailableMsg) els.browserUnavailableMsg.hidden = canBrowserGeo;
 
-        if (MAPBOX_TOKEN) {
+        if (state.mapboxConfigured) {
             // Already configured
             els.mapboxConfiguredState.hidden = false;
             els.mapboxInputState.hidden = true;
@@ -1709,7 +1722,7 @@
             }
 
             // Success
-            MAPBOX_TOKEN = token;
+            state.mapboxConfigured = true;
             goToStep2();
 
         } catch (err) {
@@ -2062,9 +2075,9 @@
             els.btnCancelLocation.addEventListener('click', () => {
                 // If mapbox token is configured, maybe just close modal or go back to step 1
                 // User requirement: step 1 is mapbox, step 2 is location.
-                if (MAPBOX_TOKEN && !state.node) {
+                if (state.mapboxConfigured && !state.node) {
                     closeLocationModal();
-                } else if (MAPBOX_TOKEN) {
+                } else if (state.mapboxConfigured) {
                     closeLocationModal();
                 } else {
                     goToStep1();
@@ -2174,13 +2187,7 @@
             return;
         }
 
-        const tokenEl = $('mapbox-token-data');
-        let token = '';
-        try {
-            token = tokenEl ? JSON.parse(tokenEl.textContent || '""') : '';
-        } catch (_) {
-            token = '';
-        }
+        const token = getMapboxToken();
 
         if (!token) {
             if (els.mapFailure) els.mapFailure.hidden = false;
@@ -2221,6 +2228,14 @@
 
     function boot() {
         if (!els.app) return;
+        state.mapboxConfigured = Boolean(getMapboxToken());
+
+        // Auto-open modal if mapbox or location is missing
+        if (!state.mapboxConfigured) {
+            openLocationModal();
+        } else if (state.node && (!hasFiniteNumber(state.node.latitude) || !hasFiniteNumber(state.node.longitude))) {
+            openLocationModal();
+        }
 
         loadFiltersCollapsed();
         updateFilterPanelState();

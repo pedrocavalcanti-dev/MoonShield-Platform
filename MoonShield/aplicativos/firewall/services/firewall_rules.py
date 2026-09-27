@@ -231,13 +231,23 @@ def aplicar_regras_pendentes(
     )
 
     try:
-        resultado = agent_client.aplicar_regras(
+        resultado = agent_client.aplicar_alteracao(
             regras,
             iface_map=iface_map,
             config=config,
             allowlist=allowlist,
             blocklist=blocklist,
+            timeout_segundos=15,
         )
+
+        alteracao_id = resultado.get("alteracao_id")
+        if alteracao_id:
+            try:
+                # Se a aplicação retornou sucesso (sem raise), confirmamos imediatamente
+                agent_client.confirmar_alteracao(alteracao_id)
+            except Exception as e:
+                logger.error("Falha ao confirmar alteração %s: %s", alteracao_id, str(e))
+
 
     except agent_client.OperacaoAgentFalhou as exc:
         logger.warning(

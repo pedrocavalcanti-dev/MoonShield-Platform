@@ -694,6 +694,7 @@ def aplicar_alteracao(
     iface_map: dict[str, str] | None = None,
     config: dict[str, Any] | None = None,
     allowlist: list[str] | None = None,
+    blocklist: list[dict[str, Any]] | None = None,
     timeout_segundos: int = 60,
 ) -> dict[str, Any]:
     if not isinstance(regras, list):
@@ -712,6 +713,10 @@ def aplicar_alteracao(
         if not isinstance(allowlist, list):
             raise TypeError("allowlist deve ser uma lista.")
         payload["allowlist"] = allowlist
+    if blocklist is not None:
+        if not isinstance(blocklist, list):
+            raise TypeError("blocklist deve ser uma lista.")
+        payload["blocklist"] = blocklist
 
     return chamar_dados(
         "firewall.change.apply",

@@ -2,9 +2,23 @@
 # MOONSHIELD | VARIÁVEIS DE AMBIENTE LOCAIS
 # ==========================================
 
+# Em produção, DEVE ser preenchida com um token criptográfico longo
 SECRET_KEY=sua-chave-secreta-forte-aqui
 
-DEBUG=True
+# Em produção, DEVE ser False
+DEBUG=False
 
-ALLOWED_HOSTS=*
+# Hostnames e IPs separados por vírgula. Não usar "*" em produção
+ALLOWED_HOSTS=moonshield,moonshield.local,127.0.0.1,localhost
 
+# Configurações de Banco de Dados
+DATABASE_URL=postgres://user:password@localhost:5432/moonshield
+
+# Rota do painel de administração do Django
+DJANGO_ADMIN_ENABLED=False
+DJANGO_ADMIN_PATH=admin-moonshield-hidden/
+
+# Configurações de Segurança de Cookies (Setar para True apenas quando utilizar HTTPS)
+SESSION_COOKIE_SECURE=False
+CSRF_COOKIE_SECURE=False
+SECURE_SSL_REDIRECT=False

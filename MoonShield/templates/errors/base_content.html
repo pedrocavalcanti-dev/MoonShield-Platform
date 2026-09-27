@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoonShield - {% block title %}Erro{% endblock %}</title>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        .error-container {
+            max-width: 500px;
+            padding: 2rem;
+            background: #1e293b;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border: 1px solid #334155;
+        }
+        h1 {
+            font-size: 4rem;
+            margin: 0;
+            color: #3b82f6;
+        }
+        h2 {
+            font-size: 1.5rem;
+            margin-top: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        p {
+            color: #94a3b8;
+            margin-bottom: 2rem;
+            line-height: 1.5;
+        }
+        a {
+            display: inline-block;
+            background: #2563eb;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        a:hover {
+            background: #1d4ed8;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>{% block code %}500{% endblock %}</h1>
+        <h2>{% block message %}Erro Interno{% endblock %}</h2>
+        <p>{% block description %}Ocorreu um erro inesperado no servidor.{% endblock %}</p>
+        <a href="/">Voltar ao Dashboard</a>
+    </div>
+</body>
+</html>

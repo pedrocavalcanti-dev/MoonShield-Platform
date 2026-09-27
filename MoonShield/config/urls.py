@@ -19,10 +19,7 @@ urlpatterns = [
     # DJANGO ADMIN
     # =========================================================================
 
-    path(
-        "admin/",
-        admin.site.urls,
-    ),
+
 
 
     # =========================================================================
@@ -193,3 +190,14 @@ if settings.DEBUG:
         settings.MEDIA_URL,
         document_root=settings.MEDIA_ROOT,
     )
+if settings.DJANGO_ADMIN_ENABLED:
+    admin_path = settings.DJANGO_ADMIN_PATH
+    if not admin_path.endswith('/'):
+        admin_path += '/'
+    urlpatterns.insert(0, path(admin_path, admin.site.urls))
+
+# Error handlers
+handler400 = 'MoonShield.views.custom_400'
+handler403 = 'MoonShield.views.custom_403'
+handler404 = 'MoonShield.views.custom_404'
+handler500 = 'MoonShield.views.custom_500'

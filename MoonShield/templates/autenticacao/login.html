@@ -42,8 +42,8 @@
       <div class="lc-divider"></div>
 
       <div class="lc-title-wrap">
-        <h1 class="lc-title">Iniciar Sessão</h1>
-        <p class="lc-subtitle">Acesso restrito a operadores autorizados.</p>
+        <h1 class="lc-title">{% if primeiro_boot %}Criar conta inicial{% else %}Iniciar Sessão{% endif %}</h1>
+        <p class="lc-subtitle">{% if primeiro_boot %}Primeiro acesso MoonShield. Crie sua conta.{% else %}Acesso restrito a operadores autorizados.{% endif %}</p>
       </div>
 
       {% if messages %}
@@ -57,6 +57,23 @@
 
       <form method="POST" action="{% url 'autenticacao:login' %}" id="loginForm" novalidate>
         {% csrf_token %}
+
+        {% if primeiro_boot %}
+        <div class="lc-field">
+          <label class="lc-field__label" for="first_name">Nome</label>
+          <div class="lc-field__wrap">
+            <input class="lc-field__input" type="text" id="first_name" name="first_name"
+              placeholder="Seu nome" autocomplete="given-name" required />
+          </div>
+        </div>
+        <div class="lc-field">
+          <label class="lc-field__label" for="last_name">Sobrenome</label>
+          <div class="lc-field__wrap">
+            <input class="lc-field__input" type="text" id="last_name" name="last_name"
+              placeholder="Seu sobrenome" autocomplete="family-name" />
+          </div>
+        </div>
+        {% endif %}
 
         <div class="lc-field">
           <label class="lc-field__label" for="username">Usuário</label>
@@ -97,7 +114,7 @@
         </div>
 
         <button type="submit" class="lc-btn" id="submitBtn">
-          <span class="lc-btn__text">AUTENTICAR</span>
+          <span class="lc-btn__text">{% if primeiro_boot %}CRIAR CONTA{% else %}AUTENTICAR{% endif %}</span>
           <svg class="lc-btn__arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <path d="M5 12h14M12 5l7 7-7 7"/>
           </svg>

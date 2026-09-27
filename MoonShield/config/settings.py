@@ -56,31 +56,30 @@ SYSTEM_VERSION = "1.0.0"
 # DJANGO / SEGURANÇA
 # =============================================================================
 
-SECRET_KEY = env(
-    "SECRET_KEY",
-    default="django-insecure-moonshield-development-only",
-)
+DEBUG = env.bool("DEBUG", default=False)
 
-DEBUG = env.bool(
-    "DEBUG",
-    default=False,
-)
-
-
+SECRET_KEY = env("SECRET_KEY", default="")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise RuntimeError("SECRET_KEY não configurada. Configure a variável no arquivo .env em produção!")
+    else:
+        SECRET_KEY = "django-insecure-moonshield-development-only"
 # =============================================================================
 # HOSTS
 # =============================================================================
 
 _allowed_hosts_raw = env(
     "ALLOWED_HOSTS",
-    default="127.0.0.1,localhost",
+    default="moonshield,moonshield.local,127.0.0.1,localhost",
 )
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in _allowed_hosts_raw.split(",")
-    if host.strip()
-]
+ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts_raw.split(",") if host.strip()]
+
+if DEBUG and "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("*")
+elif not DEBUG:
+    ALLOWED_HOSTS = [host for host in ALLOWED_HOSTS if host != "*"]
+
 
 
 # =============================================================================
@@ -391,10 +390,15 @@ DEFAULT_AUTO_FIELD = (
 # =============================================================================
 
 SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
 
 CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = "Lax"
 
 X_FRAME_OPTIONS = "DENY"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 
 
 # =============================================================================
@@ -417,6 +421,10 @@ CSRF_COOKIE_SECURE = env.bool(
     "CSRF_COOKIE_SECURE",
     default=False,
 )
+
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
 
 
 # =============================================================================
@@ -522,3 +530,9 @@ LOGGING = {
         ),
     },
 }
+# =============================================================================
+# DJANGO ADMIN
+# =============================================================================
+
+DJANGO_ADMIN_ENABLED = env.bool("DJANGO_ADMIN_ENABLED", default=False)
+DJANGO_ADMIN_PATH = env("DJANGO_ADMIN_PATH", default="admin-moonshield-hidden/")

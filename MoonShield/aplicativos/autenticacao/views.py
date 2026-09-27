@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -132,10 +133,52 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect("painel:index")
 
+    primeiro_boot = (User.objects.count() == 0)
+
     if request.method == "POST":
         username = request.POST.get("username", "").strip()
         password = request.POST.get("password", "")
-        user = authenticate(request, username=username, password=password)
+        first_name = request.POST.get("first_name", "").strip()
+        last_name = request.POST.get("last_name", "").strip()
+
+        if primeiro_boot:
+            if not username or not password or not first_name:
+                messages.error(request, "Informe usuário, nome e senha para criar a conta inicial.")
+                return render(request, "autenticacao/login.html", {"primeiro_boot": True})
+
+            try:
+                validate_password(password)
+            except ValidationError as exc:
+                for error in exc.messages:
+                    messages.error(request, error)
+                return render(request, "autenticacao/login.html", {"primeiro_boot": True})
+
+            try:
+                with transaction.atomic():
+                    ConfigSistema.objects.get_or_create(pk=1, defaults={"modo": "prod"})
+                    ConfigSistema.objects.select_for_update().get(pk=1)
+                    if User.objects.exists():
+                        primeiro_boot = False
+                        user = authenticate(request, username=username, password=password)
+                    else:
+                        user = User.objects.create_user(
+                            username=username,
+                            password=password,
+                            first_name=first_name,
+                            last_name=last_name,
+                            is_active=True,
+                            is_staff=False,
+                            is_superuser=False,
+                        )
+                        profile = user.profile
+                        profile.display_name = " ".join(filter(None, (first_name, last_name)))
+                        profile.last_password_change = timezone.now()
+                        profile.save(update_fields=["display_name", "last_password_change"])
+            except IntegrityError:
+                messages.error(request, "Não foi possível criar a conta inicial. Verifique o usuário informado.")
+                return render(request, "autenticacao/login.html", {"primeiro_boot": User.objects.count() == 0})
+        else:
+            user = authenticate(request, username=username, password=password)
 
         if user is not None:
             login(request, user)
@@ -150,7 +193,7 @@ def login_view(request):
         else:
             messages.error(request, "ACESSO NEGADO: Credenciais Inválidas.")
 
-    return render(request, "autenticacao/login.html")
+    return render(request, "autenticacao/login.html", {"primeiro_boot": primeiro_boot})
 
 
 def logout_view(request):

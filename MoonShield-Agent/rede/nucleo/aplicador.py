@@ -679,6 +679,7 @@ def aplicar_alteracao(payload: dict[str, Any]) -> dict[str, Any]:
                 metadados={
                     "interfaces": interfaces,
                 },
+                plano=plano,
             )
         except Exception as exc:
             logger.exception(

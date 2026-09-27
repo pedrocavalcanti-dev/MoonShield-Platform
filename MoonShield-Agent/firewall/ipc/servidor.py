@@ -135,6 +135,19 @@ def _inicializar_rede() -> None:
                 erro.get("erro"),
             )
 
+        if not (recuperadas or revertidas or erros):
+            from pathlib import Path
+            import json
+            arq_confirmado = Path("/var/lib/moonshield/rede/confirmed_plano.json")
+            if arq_confirmado.exists():
+                try:
+                    payload = json.loads(arq_confirmado.read_text(encoding="utf-8"))
+                    from rede.nucleo.aplicador import _aplicar_plano
+                    _aplicar_plano(payload)
+                    logger.info("[rede] boot restore: plano confirmado restaurado com sucesso.")
+                except Exception as e:
+                    logger.error("[rede] boot restore falhou: %s", str(e))
+
     except Exception:
         logger.exception(
             "[rede] falha durante inicialização do Safe Apply"
@@ -184,7 +197,25 @@ def _inicializar_firewall() -> None:
             )
 
         if not (recuperadas or revertidas or erros):
-            if ARQUIVO_CONFIG.exists():
+            from pathlib import Path
+            import json
+            arq_confirmado = Path("/var/lib/moonshield/firewall/confirmed_payload.json")
+            payload_restaurado = False
+            if arq_confirmado.exists():
+                try:
+                    payload = json.loads(arq_confirmado.read_text(encoding="utf-8"))
+                    from firewall.nucleo.aplicador import aplicar_regras
+                    logger.info("[firewall] boot restore: aplicando regras confirmadas.")
+                    res = aplicar_regras(payload)
+                    if res.get("ok"):
+                        payload_restaurado = True
+                        logger.info("[firewall] boot restore: concluído com sucesso.")
+                    else:
+                        logger.error("[firewall] boot restore falhou na aplicação: %s", res)
+                except Exception as e:
+                    logger.error("[firewall] boot restore falhou: %s", str(e))
+
+            if not payload_restaurado and ARQUIVO_CONFIG.exists():
                 estado_atual = obter_status()
                 if not estado_atual.get("instalado"):
                     logger.warning("[firewall] Configuração existe, mas tabela ausente. Executando reparo automático.")

@@ -593,6 +593,7 @@ def registrar_alteracao_aplicando(
     snapshot_id: str,
     timeout_segundos: int = TIMEOUT_SAFE_APPLY_PADRAO,
     metadados: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reserva o pipeline antes da mutação nft e persiste o snapshot de retorno."""
     with _lock:
@@ -618,6 +619,7 @@ def registrar_alteracao_aplicando(
             "versao": 1,
             "alteracao_id": alteracao_id,
             "snapshot_id": snapshot_id,
+            "payload": dict(payload or {}),
             "status": STATUS_APLICANDO,
             "criado_em": agora,
             "atualizado_em": agora,
@@ -798,6 +800,10 @@ def confirmar_alteracao(*, alteracao_id: str) -> dict[str, Any]:
             "erro": "",
         })
         _salvar_estado(estado)
+
+        if estado.get("payload"):
+            ARQUIVO_CONFIRMADO = BASE_STATE / "confirmed_payload.json"
+            _escrever_json_atomico(ARQUIVO_CONFIRMADO, estado["payload"])
         _limpar_ativo_se(alteracao_id)
 
         resultado = obter_status_alteracao(alteracao_id=alteracao_id)

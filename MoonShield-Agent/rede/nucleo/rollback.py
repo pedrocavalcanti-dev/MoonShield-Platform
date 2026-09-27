@@ -219,6 +219,7 @@ def armar_rollback(
     timeout_segundos: int,
     tipo: str,
     metadados: dict[str, Any] | None = None,
+    plano: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     alteracao_id = _validar_id(alteracao_id)
     agora = _agora_epoch()
@@ -248,6 +249,7 @@ def armar_rollback(
         "resultado_rollback": None,
         "erro": None,
         "metadados": dict(metadados or {}),
+        "plano": dict(plano or {}),
     }
 
     with _lock:
@@ -343,6 +345,10 @@ def confirmar_alteracao(alteracao_id: str) -> dict[str, Any]:
             estado["expira_epoch"] = None
             estado["expira_em"] = None
             _salvar_estado(estado)
+
+            if estado.get("plano"):
+                ARQUIVO_CONFIRMADO = Path("/var/lib/moonshield/rede/confirmed_plano.json")
+                _escrever_json_atomico(ARQUIVO_CONFIRMADO, estado["plano"])
 
     if expirou:
         return reverter_alteracao(

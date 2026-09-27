@@ -282,6 +282,7 @@ def _aplicar_regras_impl(
                                 "home_net": contexto.home_net,
                             },
                         },
+                        payload=dados,
                     )
                     safe_registrado = True
                 except Exception as exc:

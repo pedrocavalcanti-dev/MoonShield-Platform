@@ -506,38 +506,44 @@ def _regra_port_forward_nft(regra: dict[str, Any], proto: str) -> str:
     )
 
 
-def _gerar_ruleset(
+def _chain_existe(raw: str, chain: str) -> bool:
+    return bool(re.search(rf"\bchain\s+{re.escape(chain)}\s*\{{", raw))
+
+
+def _gerar_ruleset_masquerade(
     regras: list[dict[str, Any]],
     *,
-    remover_existente: bool,
+    tabela_existente: bool,
+    postrouting_existe: bool,
 ) -> str:
-    linhas = []
+    """Muda somente a chain que pertence ao MASQUERADE.
 
-    if remover_existente:
+    A tabela também é usada pelos Port Forwards. Por isso uma reaplicação de
+    NAT nunca pode recriar a tabela inteira nem tocar na chain ``prerouting``.
+    """
+    linhas: list[str] = []
+
+    if not tabela_existente:
+        if not regras:
+            return ""
+        linhas.extend([
+            f"add table {NFT_FAMILY} {NFT_TABLE}",
+            f"add chain {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN} "
+            f"{{ type nat hook postrouting priority {NFT_PRIORITY}; policy accept; }}",
+        ])
+    elif postrouting_existe:
+        linhas.append(f"flush chain {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN}")
+    elif regras:
         linhas.append(
-            f"delete table {NFT_FAMILY} {NFT_TABLE}"
+            f"add chain {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN} "
+            f"{{ type nat hook postrouting priority {NFT_PRIORITY}; policy accept; }}"
         )
 
-    if not regras:
-        return "\n".join(linhas) + "\n"
-
-    linhas.extend([
-        f"table {NFT_FAMILY} {NFT_TABLE} {{",
-        f"    chain {NFT_CHAIN} {{",
-        f"        type nat hook postrouting priority {NFT_PRIORITY}; policy accept;",
-    ])
-
-    for regra in regras:
-        linhas.append(
-            f"        {_regra_nft(regra)}"
-        )
-
-    linhas.extend([
-        "    }",
-        "}",
-    ])
-
-    return "\n".join(linhas) + "\n"
+    linhas.extend(
+        f"add rule {NFT_FAMILY} {NFT_TABLE} {NFT_CHAIN} {_regra_nft(regra)}"
+        for regra in regras
+    )
+    return "\n".join(linhas) + ("\n" if linhas else "")
 
 
 # =============================================================================
@@ -571,6 +577,7 @@ def aplicar_regras_nat(
     )
 
     existente = tabela_existe()
+    raw = _obter_tabela_raw() if existente else ""
 
     if not ativas and not existente:
         return {
@@ -580,9 +587,10 @@ def aplicar_regras_nat(
             "total_regras": 0,
         }
 
-    script = _gerar_ruleset(
+    script = _gerar_ruleset_masquerade(
         ativas,
-        remover_existente=existente,
+        tabela_existente=existente,
+        postrouting_existe=_chain_existe(raw, NFT_CHAIN),
     )
 
     if script.strip():

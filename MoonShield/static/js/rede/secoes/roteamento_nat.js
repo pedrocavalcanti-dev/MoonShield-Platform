@@ -918,25 +918,14 @@ async function aplicarConfiguracao() {
     let detalhes;
     let origemReserva;
 
-    if (roteamentoSujo && natSujo) {
-        endpoint = api.urls.aplicarTudo;
-        titulo = 'Aplicar roteamento e NAT?';
-        mensagem = 'Existem alterações pendentes em roteamento e NAT.';
-        detalhes = 'Os dois conjuntos serão aplicados em uma única alteração segura. O estado completo da Rede será enviado ao Agent.';
-        origemReserva = 'routing-nat:apply-all';
-    } else if (roteamentoSujo) {
-        endpoint = api.urls.aplicarRoteamento;
-        titulo = 'Aplicar roteamento?';
-        mensagem = 'O estado desejado de roteamento será enviado ao MoonShield Agent.';
-        detalhes = 'O Agent criará um snapshot, armará o rollback e aguardará confirmação.';
-        origemReserva = 'routing:apply';
-    } else {
-        endpoint = api.urls.aplicarNat;
-        titulo = 'Aplicar NAT?';
-        mensagem = 'As regras NAT desejadas serão enviadas ao MoonShield Agent.';
-        detalhes = 'O Agent aplicará somente a configuração NAT prevista pelo backend.';
-        origemReserva = 'nat:apply';
-    }
+    // Este é o botão "Aplicar Tudo" da seção: mesmo que somente um
+    // marcador visual esteja sujo, o plano deve restaurar o desired state
+    // completo, inclusive um MASQUERADE que tenha sumido do runtime.
+    endpoint = api.urls.aplicarTudo;
+    titulo = 'Aplicar configuração de rede?';
+    mensagem = 'O estado desejado completo de roteamento e NAT será aplicado.';
+    detalhes = 'O Agent criará um snapshot, armará o rollback e aplicará IPv4 Forward, rotas e NAT em uma única alteração segura.';
+    origemReserva = 'routing-nat:apply-all';
 
     const confirmado = await safeApply.confirmarOperacao({
         titulo,

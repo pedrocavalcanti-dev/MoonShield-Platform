@@ -782,6 +782,20 @@ def _comparar_rota_default(
 # =============================================================================
 
 
+def reconciliar_nat(*, observado: dict | None = None) -> dict:
+    """Atualiza o drift de NAT a partir do ``nat.status`` do Agent."""
+    if observado is None:
+        observado = obter_estado_nat_real()
+
+    _validar_dict_agent(
+        observado,
+        "Estado NAT devolvido pelo Agent é inválido.",
+    )
+
+    with transaction.atomic():
+        return _reconciliar_nat(observado)
+
+
 def _reconciliar_nat(
     observado: dict[str, Any],
 ) -> dict[str, Any]:
@@ -868,7 +882,9 @@ def _reconciliar_nat(
                     pendente = False
                 else:
                     status = EstadoSincronizacao.DRIFTED.value
-                    sincronizada = True
+                    # O observed vem de nat.status; não mantemos uma flag
+                    # armazenada como "sincronizada" se a regra sumiu do nft.
+                    sincronizada = False
                     pendente = True
             else:
                 # Desired novo/alterado não é promovido por simples observação.

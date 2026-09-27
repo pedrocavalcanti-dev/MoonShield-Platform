@@ -20,6 +20,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.test import TestCase
 from django.utils import timezone
 
@@ -615,6 +616,67 @@ class AlteracoesServiceTests(TestCase):
             "192.168.50.0/24",
         )
         self.assertEqual(regra.tipo, RegraNat.Tipo.MASQUERADE)
+
+    def test_aplicar_tudo_inclui_regra_nat_ativa_no_plano_geral(self):
+        origem, saida = self.criar_interfaces_nat()
+        regra = nat.salvar_regra_nat({
+            "interface_origem_id": origem.id,
+            "interface_saida_id": saida.id,
+            "origem_cidr": "192.168.50.0/24",
+            "ativa": True,
+        })
+        p1, p2, p3 = self.patch_criacao()
+
+        with p1, p2, p3:
+            alteracao = service.criar_alteracao_geral(usuario=self.usuario)
+
+        self.assertEqual(alteracao.tipo, AlteracaoRede.Tipo.GERAL)
+        self.assertEqual(alteracao.configuracao_solicitada["nat"]["regras"], [{
+            "id": regra.id,
+            "tipo": "masquerade",
+            "interface_origem": origem.nome,
+            "interface_saida": saida.nome,
+            "origem_cidr": "192.168.50.0/24",
+            "prioridade": 100,
+            "ativa": True,
+            "sincronizada": False,
+            "pendente": True,
+        }])
+
+    def test_aplicar_tudo_nao_envia_regra_nat_inativa_para_aplicacao(self):
+        origem, saida = self.criar_interfaces_nat()
+        regra = nat.salvar_regra_nat({
+            "interface_origem_id": origem.id,
+            "interface_saida_id": saida.id,
+            "ativa": True,
+        })
+        nat.excluir_regra_nat(regra.id)
+        p1, p2, p3 = self.patch_criacao()
+
+        with p1, p2, p3:
+            alteracao = service.criar_alteracao_geral(usuario=self.usuario)
+
+        regra_plano = alteracao.configuracao_solicitada["nat"]["regras"][0]
+        self.assertFalse(regra_plano["ativa"])
+
+    def test_reconciliacao_nat_ausente_remove_flag_sincronizada(self):
+        origem, saida = self.criar_interfaces_nat()
+        regra = RegraNat.objects.create(
+            interface_origem=origem,
+            interface_saida=saida,
+            origem_cidr="192.168.50.0/24",
+            ativa=True,
+            sincronizada=True,
+            pendente=False,
+        )
+
+        with transaction.atomic():
+            relatorio = reconciliacao._reconciliar_nat({"regras": []})
+
+        regra.refresh_from_db()
+        self.assertTrue(relatorio["drift"])
+        self.assertFalse(regra.sincronizada)
+        self.assertTrue(regra.pendente)
 
     def test_nat_rejeita_interfaces_sem_papeis_validos_ou_iguais(self):
         origem, saida = self.criar_interfaces_nat()

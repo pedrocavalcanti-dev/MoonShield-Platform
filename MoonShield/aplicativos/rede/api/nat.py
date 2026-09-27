@@ -45,6 +45,7 @@ from rede.services.nat import (
     salvar_regra_nat,
     serializar_regra_nat,
 )
+from rede.services.reconciliacao import reconciliar_nat
 
 
 def _resposta(dados=None, *, status: int = 200) -> JsonResponse:
@@ -150,6 +151,10 @@ def api_nat(request):
 
     if request.method == "GET":
         try:
+            # Atualiza desired x observed antes de expor os badges do painel.
+            # Se o runtime perdeu moonshield_nat, a regra não pode continuar
+            # apresentada como sincronizada somente por uma flag persistida.
+            reconciliar_nat()
             regras = listar_regras_nat()
             return _resposta({"total": len(regras), "regras": regras})
         except RedeErro as exc:

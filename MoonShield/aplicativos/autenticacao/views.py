@@ -10,11 +10,12 @@ from django.contrib.auth import authenticate, login, logout, update_session_auth
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
+from django.core.exceptions import DisallowedHost, ValidationError
 from django.db import IntegrityError, transaction
-from django.http import JsonResponse
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_POST
 
 from configuracoes.models import ConfigSistema
@@ -134,6 +135,7 @@ def login_view(request):
         return redirect("painel:index")
 
     primeiro_boot = (User.objects.count() == 0)
+    next_url = request.POST.get("next") or request.GET.get("next", "")
 
     if request.method == "POST":
         username = request.POST.get("username", "").strip()
@@ -184,8 +186,21 @@ def login_view(request):
             login(request, user)
             profile, criado = UserProfile.objects.get_or_create(user=user)
 
-            if not ConfigSistema.get_solo().appliance_onboarding_completo:
+            configuracao = ConfigSistema.get_solo()
+            if not configuracao.appliance_onboarding_completo:
                 return redirect("autenticacao:onboarding")
+
+            if next_url:
+                try:
+                    host_atual = request.get_host()
+                except DisallowedHost:
+                    host_atual = ""
+                if host_atual and url_has_allowed_host_and_scheme(
+                    next_url,
+                    allowed_hosts={host_atual},
+                    require_https=request.is_secure(),
+                ):
+                    return HttpResponseRedirect(next_url)
 
             # ← SÓ chega aqui se onboarding já foi feito (2ª vez+)
             request.session["mostrar_boasvindas"] = True  # ← essa linha tem que estar aqui
@@ -193,9 +208,14 @@ def login_view(request):
         else:
             messages.error(request, "ACESSO NEGADO: Credenciais Inválidas.")
 
-    return render(request, "autenticacao/login.html", {"primeiro_boot": primeiro_boot})
+    return render(request, "autenticacao/login.html", {
+        "primeiro_boot": primeiro_boot,
+        "next": next_url,
+    })
 
 
+@require_POST
+@login_required(login_url="autenticacao:login")
 def logout_view(request):
     logout(request)
     return redirect("autenticacao:login")
@@ -631,7 +651,10 @@ def _get_uptime():
             return f"{d}d {h}h {m}m"
         elif platform.system() == "Windows":
             import subprocess
-            out = subprocess.check_output("net statistics workstation", shell=True).decode("cp850", errors="ignore")
+            out = subprocess.check_output(
+                ["net", "statistics", "workstation"],
+                timeout=3,
+            ).decode("cp850", errors="ignore")
             for line in out.splitlines():
                 if "Statistics since" in line or "Estatísticas desde" in line:
                     return line.split("since")[-1].strip()

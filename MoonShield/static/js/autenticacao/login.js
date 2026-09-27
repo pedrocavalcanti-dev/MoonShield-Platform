@@ -1,15 +1,5 @@
-/**
- * MOONSHIELD — LOGIN.JS  v8
- * Developed by Pedro Cavalcanti — BUILD-2026.05
- *
- * ESTRATÉGIA CORRETA:
- *  O form submete normalmente — Django controla o redirect.
- *  1ª vez  → Django manda para /auth/onboarding/
- *  2ª vez+ → Django manda para /painel/ → dashboard.js dispara o warp
- *
- *  Aqui cuidamos só do UX da tela de login:
- *  estrelas, lua (agora com terminador + glint + rotação lenta),
- *  terminal, toggle senha, shake, loader.
+/* MOONSHIELD — LOGIN.JS v8
+ * Interações visuais da tela de acesso.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -201,12 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 
-  /* ══ 4. SUBMIT — form normal, Django controla redirect ══════
-   *
-   *  NÃO usamos fetch/redirect:manual.
-   *  O Django decide: onboarding (1ª vez) ou painel (2ª vez+).
-   *  O warp de boas-vindas é disparado pelo dashboard ao carregar.
-   * ══════════════════════════════════════════════════════════ */
+  /* SUBMIT — envio normal do formulário */
   const loginForm = document.getElementById('loginForm');
   const submitBtn = document.getElementById('submitBtn');
 
@@ -217,7 +202,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const pw = passwordInput?.value.trim();
       if (!user || !pw) { e.preventDefault(); shakeCard(); return; }
       submitBtn.classList.add('is-loading');
-      /* Form submete normalmente — Django redireciona */
     });
   }
 

@@ -1,21 +1,16 @@
 # =============================================================================
-# incidentes/receptor/consumidor.py  v5.2
+# incidentes/receptor/consumidor.py
 #
-# Mudanças v5.2:
-#   ✓ Auto-recovery de token INVÁLIDO: quando o sensor manda um token que não
-#     bate com o banco, o servidor aceita e emite um novo token no response.
-#     Isso resolve o loop de 403 após restart/downtime prolongado.
-#   ✓ Lógica: se o sensor já existe E o token recebido é não-vazio E errado,
-#     o servidor regenera o token, salva e devolve no body do 200 (aceita
-#     o lote) em vez de rejeitar — o sensor vai salvar o novo token
-#     automaticamente via _enviar() do sensor.py.
-#   ✓ Mantido: token AUSENTE ainda dispara re-bootstrap com 403 + novo token.
+# Ingestão de eventos autenticada por token de sensor previamente provisionado.
+# O endpoint exige X-MS-TOKEN válido e não cria sensores, regenera credenciais
+# nem retorna tokens nas respostas.
 # =============================================================================
 
+import hmac
 import ipaddress
 import json
 import logging
-import uuid
+import re
 
 from django.db import transaction
 from django.http import JsonResponse
@@ -47,29 +42,8 @@ def _validar_ip(ip: str) -> str:
         return '0.0.0.0'
 
 
-def _obter_sensor(sensor_nome: str, ip_origem: str) -> tuple[Sensor, bool]:
-    try:
-        sensor, created = Sensor.objects.get_or_create(
-            nome=sensor_nome,
-            defaults={
-                'ip':    ip_origem,
-                'token': uuid.uuid4().hex,
-            },
-        )
-        return sensor, created
-
-    except Sensor.MultipleObjectsReturned:
-        logger.warning(
-            f"Múltiplos sensores com nome '{sensor_nome}' encontrados. "
-            f"Usando o mais recente."
-        )
-        sensor = (
-            Sensor.objects
-            .filter(nome=sensor_nome)
-            .order_by('-last_seen')
-            .first()
-        )
-        return sensor, False
+def _obter_sensor(sensor_nome: str) -> Sensor | None:
+    return Sensor.objects.filter(nome=sensor_nome).order_by('-last_seen').first()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -238,77 +212,43 @@ def processar_lote(eventos_brutos: list, sensor: Sensor) -> dict:
 # VIEW — endpoint do sensor
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Endpoint máquina-a-máquina (não usa sessão/cookies do navegador): exige o
+# token X-MS-TOKEN de sensor previamente provisionado antes de aceitar eventos.
 @csrf_exempt
 @require_POST
 def receber_eventos(request):
+    """Ingestão service-to-service autenticada por X-MS-TOKEN provisionado."""
     try:
         payload     = json.loads(request.body.decode('utf-8') or '{}')
-        eventos     = payload.get('eventos', [])
-        sensor_nome = (payload.get('sensor') or 'sensor-1').strip()
+        if not isinstance(payload, dict):
+            return JsonResponse({'ok': False, 'error': 'Corpo JSON inválido.'}, status=400)
+
+        eventos = payload.get('eventos', [])
+        sensor_nome = payload.get('sensor', '')
+        if not isinstance(sensor_nome, str):
+            return JsonResponse({'ok': False, 'error': 'Sensor inválido.'}, status=400)
+        sensor_nome = sensor_nome.strip()
+        if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}', sensor_nome):
+            return JsonResponse({'ok': False, 'error': 'Sensor inválido.'}, status=400)
 
         token_recebido = request.headers.get('X-MS-TOKEN', '').strip()
 
-        if not isinstance(eventos, list):
+        if not isinstance(eventos, list) or any(not isinstance(evento, dict) for evento in eventos):
             return JsonResponse(
-                {'ok': False, 'error': "campo 'eventos' deve ser uma lista"},
+                {'ok': False, 'error': "campo 'eventos' deve ser uma lista de objetos"},
                 status=400,
             )
 
-        ip_raw = (
-            request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
-            or request.META.get('REMOTE_ADDR', '0.0.0.0')
-        )
+        ip_raw = request.META.get('REMOTE_ADDR', '0.0.0.0')
         ip_origem = _validar_ip(ip_raw)
 
-        sensor, created = _obter_sensor(sensor_nome, ip_origem)
+        sensor = _obter_sensor(sensor_nome)
 
         if sensor is None:
-            logger.error(f"Não foi possível obter ou criar sensor '{sensor_nome}'")
-            return JsonResponse(
-                {'ok': False, 'error': 'Erro interno ao registrar sensor.'},
-                status=500,
-            )
-
-        # ── Validação de token ────────────────────────────────────────────────
-        if not created:
-
-            # Caso 1: token AUSENTE → re-bootstrap com 403 + novo token
-            if not token_recebido:
-                sensor.token = uuid.uuid4().hex
-                sensor.save(update_fields=['token'])
-                logger.warning(
-                    f"Token ausente para sensor '{sensor_nome}' (IP: {ip_origem}). "
-                    f"Novo token emitido via re-bootstrap."
-                )
-                return JsonResponse(
-                    {
-                        'ok':    False,
-                        'error': 'Token ausente. Novo token emitido.',
-                        'token': sensor.token,
-                    },
-                    status=403,
-                )
-
-            # Caso 2: token INVÁLIDO (divergência após downtime/restart)
-            # → regenera token, aceita o lote normalmente e devolve o novo token.
-            # O sensor.py salva o novo token automaticamente via _enviar().
-            if token_recebido != sensor.token:
-                novo_token   = uuid.uuid4().hex
-                sensor.token = novo_token
-                sensor.save(update_fields=['token'])
-                logger.warning(
-                    f"Token inválido para sensor '{sensor_nome}' (IP: {ip_origem}). "
-                    f"Token regenerado automaticamente — auto-recovery ativo."
-                )
-                # Não rejeita: processa o lote e devolve o novo token.
-                # Na próxima requisição o sensor já usa o token correto.
-                token_para_resposta = novo_token
-            else:
-                token_para_resposta = sensor.token
-
-        else:
-            # Sensor recém-criado: token já foi definido no get_or_create
-            token_para_resposta = sensor.token
+            return JsonResponse({'ok': False, 'error': 'Sensor não autorizado.'}, status=403)
+        if not token_recebido or not hmac.compare_digest(token_recebido, sensor.token):
+            logger.warning("Token inválido para ingestão de sensor.")
+            return JsonResponse({'ok': False, 'error': 'Token inválido. Acesso negado.'}, status=403)
 
         # ── Atualiza last_seen e IP ───────────────────────────────────────────
         agora         = timezone.now()
@@ -327,8 +267,7 @@ def receber_eventos(request):
             return JsonResponse({
                 'ok':          True,
                 'sensor':      sensor.nome,
-                'novo_sensor': created,
-                'token':       token_para_resposta,
+                'novo_sensor': False,
                 'heartbeat':   True,
                 'last_seen':   agora.isoformat(),
             })
@@ -342,8 +281,7 @@ def receber_eventos(request):
         return JsonResponse({
             'ok':          True,
             'sensor':      sensor.nome,
-            'novo_sensor': created,
-            'token':       token_para_resposta,
+            'novo_sensor': False,
             'last_seen':   agora.isoformat(),
             **resumo,
         })
@@ -352,4 +290,4 @@ def receber_eventos(request):
         return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
     except Exception as exc:
         logger.exception('Falha ao receber/processar eventos')
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=500)
+        return JsonResponse({'ok': False, 'error': 'Falha interna ao processar eventos.'}, status=500)

@@ -14,15 +14,6 @@
 </head>
 <body>
 
-  <script>
-    window.MS_LOGIN = {
-      onboardingCompleto: {% if request.user.is_authenticated and request.user.profile.onboarding_completo %}true{% else %}false{% endif %},
-      fullName:    "{{ request.user.get_full_name|default:request.user.username|escapejs }}",
-      username:    "{{ request.user.username|escapejs }}",
-      dashboardUrl: "{% url 'painel:index' %}",
-    };
-  </script>
-
   <div class="bg-space">
     <canvas id="starsCanvas"></canvas>
     <div class="bg-moon"></div>
@@ -57,6 +48,7 @@
 
       <form method="POST" action="{% url 'autenticacao:login' %}" id="loginForm" novalidate>
         {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}" />{% endif %}
 
         {% if primeiro_boot %}
         <div class="lc-field">

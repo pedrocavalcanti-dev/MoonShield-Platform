@@ -19,9 +19,10 @@
 # =============================================================================
 
 import ipaddress
+import hmac
 import json
 import logging
-import uuid
+import re
 from datetime import datetime, timezone as dt_tz
 
 from django.db import transaction
@@ -92,26 +93,19 @@ def _parse_timestamp(ts_str) -> datetime:
     return timezone.now()
 
 
-def _obter_ou_criar_sensor(sensor_nome: str, ip_origem: str):
+def _obter_sensor_configurado(sensor_nome: str):
     """
-    Busca ou cria o Sensor no app incidentes.
-    Retorna (sensor, criado). Se incidentes não disponível, retorna (None, False).
+    Procura apenas sensores provisionados pelo fluxo local/operator.
     """
     try:
         from incidentes.models import Sensor
     except ImportError:
         logger.warning('App incidentes não encontrado — processando sem Sensor.')
-        return None, False
+        return None
 
     try:
-        sensor, criado = Sensor.objects.get_or_create(
-            nome=sensor_nome,
-            defaults={
-                'ip':    ip_origem,
-                'token': uuid.uuid4().hex,
-            },
-        )
-        return sensor, criado
+        sensor = Sensor.objects.filter(nome=sensor_nome).order_by('-last_seen').first()
+        return sensor
 
     except Sensor.MultipleObjectsReturned:
         logger.warning(
@@ -123,37 +117,18 @@ def _obter_ou_criar_sensor(sensor_nome: str, ip_origem: str):
             .order_by('-last_seen')
             .first()
         )
-        return sensor, False
+        return sensor
 
 
-def _validar_token(sensor, created: bool, token_recv: str):
+def _validar_token(sensor, token_recv: str):
     """
     Valida o token X-MS-TOKEN enviado pelo sensor.
     Retorna None se OK, ou JsonResponse de erro se inválido.
 
-    Auto-recovery: se sensor existente chegar sem token, emite um novo.
+    O endpoint não provisiona sensores nem recupera tokens a partir de pedidos
+    não autenticados. A rotação deve ocorrer por fluxo administrativo local.
     """
-    if created:
-        # Sensor novo — sem token a validar
-        return None
-
-    if not token_recv:
-        # Sensor existente sem token → emite novo (RE-BOOTSTRAP)
-        sensor.token = uuid.uuid4().hex
-        sensor.save(update_fields=['token'])
-        logger.warning(
-            f"Token ausente para sensor '{sensor.nome}'. Novo token emitido."
-        )
-        return JsonResponse(
-            {
-                'ok':    False,
-                'error': 'Token ausente. Novo token emitido.',
-                'token': sensor.token,
-            },
-            status=403,
-        )
-
-    if token_recv != sensor.token:
+    if sensor is None or not token_recv or not hmac.compare_digest(token_recv, sensor.token):
         logger.warning(f"Token inválido para sensor '{sensor.nome}'.")
         return JsonResponse(
             {'ok': False, 'error': 'Token inválido. Acesso negado.'},
@@ -240,45 +215,49 @@ def _processar_lote(eventos_raw: list, sensor) -> dict:
 @csrf_exempt
 @require_POST
 def receber_eventos(request):
-    """POST /firewall/api/ingest/"""
+    """Ingestão de serviço, autenticada por token de sensor provisionado."""
     try:
-        payload     = json.loads(request.body.decode('utf-8') or '{}')
-        eventos     = payload.get('eventos', [])
-        sensor_nome = (payload.get('sensor') or 'fw-sensor-1').strip()
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+        if not isinstance(payload, dict):
+            return JsonResponse({'ok': False, 'error': 'Corpo JSON inválido.'}, status=400)
+        eventos = payload.get('eventos', [])
+        sensor_nome = payload.get('sensor', '')
+        if not isinstance(sensor_nome, str):
+            return JsonResponse({'ok': False, 'error': 'Sensor inválido.'}, status=400)
+        sensor_nome = sensor_nome.strip()
+        if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}', sensor_nome):
+            return JsonResponse({'ok': False, 'error': 'Sensor inválido.'}, status=400)
         token_recv  = request.headers.get('X-MS-TOKEN', '').strip()
 
-        if not isinstance(eventos, list):
+        if not isinstance(eventos, list) or any(not isinstance(evento, dict) for evento in eventos):
             return JsonResponse(
-                {'ok': False, 'error': "campo 'eventos' deve ser uma lista"},
+                {'ok': False, 'error': "campo 'eventos' deve ser uma lista de objetos"},
                 status=400,
             )
 
         # IP de origem do sensor
         ip_raw    = (
-            request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
-            or request.META.get('REMOTE_ADDR', '0.0.0.0')
+            request.META.get('REMOTE_ADDR', '0.0.0.0')
         )
         ip_origem = _validar_ip(ip_raw) or '0.0.0.0'
 
         # ── Sensor ──────────────────────────────────────────────────────────
-        sensor, criado = _obter_ou_criar_sensor(sensor_nome, ip_origem)
+        sensor = _obter_sensor_configurado(sensor_nome)
+        if sensor is None:
+            return JsonResponse({'ok': False, 'error': 'Sensor não autorizado.'}, status=403)
 
-        if sensor is not None:
-            erro_token = _validar_token(sensor, criado, token_recv)
-            if erro_token:
-                return erro_token
+        erro_token = _validar_token(sensor, token_recv)
+        if erro_token:
+            return erro_token
 
-            agora_ts = timezone.now()
-            campos   = ['last_seen']
-            sensor.last_seen = agora_ts
-            if sensor.ip != ip_origem:
-                sensor.ip = ip_origem
-                campos.append('ip')
-            sensor.save(update_fields=campos)
-        else:
-            agora_ts = timezone.now()
+        agora_ts = timezone.now()
+        campos = ['last_seen']
+        sensor.last_seen = agora_ts
+        if sensor.ip != ip_origem:
+            sensor.ip = ip_origem
+            campos.append('ip')
+        sensor.save(update_fields=campos)
 
-        token_resposta = sensor.token if sensor else ''
 
         # ── Heartbeat (lote vazio) ───────────────────────────────────────────
         if not eventos:
@@ -293,8 +272,7 @@ def receber_eventos(request):
             return JsonResponse({
                 'ok':          True,
                 'sensor':      sensor_nome,
-                'novo_sensor': criado,
-                'token':       token_resposta,
+                'novo_sensor': False,
                 'heartbeat':   True,
                 'last_seen':   agora_ts.isoformat(),
             })
@@ -309,8 +287,7 @@ def receber_eventos(request):
         return JsonResponse({
             'ok':          True,
             'sensor':      sensor_nome,
-            'novo_sensor': criado,
-            'token':       token_resposta,
+            'novo_sensor': False,
             'last_seen':   agora_ts.isoformat(),
             **resumo,
         })
@@ -319,4 +296,4 @@ def receber_eventos(request):
         return JsonResponse({'ok': False, 'error': 'JSON inválido'}, status=400)
     except Exception as exc:
         logger.exception('Erro no ingest do firewall')
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=500)
+        return JsonResponse({'ok': False, 'error': 'Falha interna ao processar eventos.'}, status=500)

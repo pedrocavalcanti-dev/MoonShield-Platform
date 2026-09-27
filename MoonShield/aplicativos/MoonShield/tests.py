@@ -29,40 +29,58 @@ class SecurityHardeningTests(TestCase):
 
     @override_settings(DEBUG=False)
     def test_500_page(self):
-        from django.contrib.auth.models import AnonymousUser
         from django.test import RequestFactory
         from MoonShield.views import custom_500
 
         request = RequestFactory().get("/")
-        request.user = AnonymousUser()
         response = custom_500(request)
         self.assertEqual(response.status_code, 500)
         self.assertIn(b"Erro Interno do Servidor", response.content)
         self.assertNotIn(b"Traceback", response.content)
 
-    @override_settings(DJANGO_ADMIN_ENABLED=True)
-    def test_moonshield_user_cannot_access_admin(self):
+    def _reload_urlconf(self):
         import importlib
-        import sys
+        import config.urls
 
-        if "config.urls" in sys.modules:
-            importlib.reload(sys.modules["config.urls"])
+        importlib.reload(config.urls)
         clear_url_caches()
-        self.client.login(username="moonshield_user", password="password123")
-        response = self.client.get("/admin-moonshield-hidden/", follow=True)
-        self.assertTrue(any("/admin-moonshield-hidden/login/" in url for url, _ in response.redirect_chain))
 
-    @override_settings(DJANGO_ADMIN_ENABLED=True)
-    def test_superuser_can_access_admin(self):
-        import importlib
-        import sys
+    def test_admin_disabled_is_404_for_any_user(self):
+        with override_settings(
+            DJANGO_ADMIN_ENABLED=False,
+            DJANGO_ADMIN_PATH="admin-moonshield-hidden/",
+        ):
+            self._reload_urlconf()
+            for user, password in ((self.user, "password123"), (self.superuser, "password123")):
+                client = Client()
+                client.force_login(user)
+                for path in ("/admin/", "/admin-moonshield-hidden/"):
+                    self.assertEqual(client.get(path).status_code, 404)
+        self._reload_urlconf()
 
-        if "config.urls" in sys.modules:
-            importlib.reload(sys.modules["config.urls"])
-        clear_url_caches()
-        self.client.login(username="admin_user", password="password123")
-        response = self.client.get("/admin-moonshield-hidden/", follow=True)
-        self.assertEqual(response.status_code, 200)
+    def test_admin_enabled_allows_only_django_superuser(self):
+        with override_settings(
+            DJANGO_ADMIN_ENABLED=True,
+            DJANGO_ADMIN_PATH="admin-moonshield-hidden/",
+        ):
+            self._reload_urlconf()
+            self.client.force_login(self.user)
+            response = self.client.get("/admin-moonshield-hidden/")
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("/admin-moonshield-hidden/login/", response["Location"])
+
+            self.client.force_login(self.superuser)
+            self.assertEqual(self.client.get("/admin-moonshield-hidden/").status_code, 200)
+        self._reload_urlconf()
+
+    @override_settings(ALLOWED_HOSTS=["moonshield"])
+    def test_invalid_host_returns_safe_400(self):
+        client = Client(raise_request_exception=False)
+        response = client.get("/", HTTP_HOST="atacante.example")
+        self.assertEqual(response.status_code, 400)
+        body = response.content.decode("utf-8", errors="replace")
+        for sensitive in ("Traceback", "DisallowedHost", "settings.py", "SECRET_KEY", "DATABASE_URL"):
+            self.assertNotIn(sensitive, body)
 
     @override_settings(ALLOWED_HOSTS=["moonshield"])
     def test_allowed_hosts_production(self):
@@ -160,3 +178,122 @@ class FirstSetupTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(User.objects.count(), 0)
+
+    def test_existing_user_prevents_public_first_setup_creation(self):
+        User.objects.create_user(username="existing", password="L0ng-Unique-Existing-Password!")
+        response = self.client.post(reverse("autenticacao:login"), {
+            "username": "second-admin",
+            "password": "L0ng-Unique-Second-Password!",
+            "first_name": "Segundo",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(User.objects.count(), 1)
+
+
+class LoginRedirectTests(TestCase):
+    def setUp(self):
+        from configuracoes.models import ConfigSistema
+
+        self.user = User.objects.create_user(username="redirect-user", password="valid-login-password")
+        config = ConfigSistema.get_solo()
+        config.appliance_onboarding_completo = True
+        config.save(update_fields=["appliance_onboarding_completo", "updated_at"])
+
+    def _login_with_next(self, next_url):
+        return self.client.post(reverse("autenticacao:login"), {
+            "username": "redirect-user",
+            "password": "valid-login-password",
+            "next": next_url,
+        })
+
+    def test_internal_next_is_allowed(self):
+        response = self._login_with_next("/incidentes/")
+        self.assertRedirects(response, "/incidentes/", fetch_redirect_response=False)
+
+    def test_external_next_is_rejected(self):
+        for next_url in ("https://evil.example/", "//evil.example/", "http://evil.example/"):
+            with self.subTest(next=next_url):
+                response = self._login_with_next(next_url)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response["Location"], reverse("painel:index"))
+
+    def test_logout_requires_post_and_csrf(self):
+        from django.test import Client
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("autenticacao:logout")).status_code, 405)
+
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        response = csrf_client.post(reverse("autenticacao:logout"))
+        self.assertEqual(response.status_code, 403)
+
+
+class IncidentIngestSecurityTests(TestCase):
+    def test_unprovisioned_sensor_cannot_register_or_receive_token(self):
+        from incidentes.models import Sensor
+
+        response = self.client.post(
+            "/incidentes/api/ingest/",
+            data='{"sensor":"remote-sensor","eventos":[]}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("token", response.json())
+        self.assertFalse(Sensor.objects.filter(nome="remote-sensor").exists())
+
+    def test_invalid_ingest_token_does_not_rotate_or_accept_events(self):
+        from incidentes.models import Sensor
+
+        sensor = Sensor.objects.create(nome="provisioned-sensor", ip="127.0.0.1", token="known-secret")
+        response = self.client.post(
+            "/incidentes/api/ingest/",
+            data='{"sensor":"provisioned-sensor","eventos":[]}',
+            content_type="application/json",
+            HTTP_X_MS_TOKEN="wrong-secret",
+        )
+        sensor.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(sensor.token, "known-secret")
+        self.assertNotIn("token", response.json())
+
+
+class SecuritySurfaceTests(TestCase):
+    def setUp(self):
+        from configuracoes.models import ConfigSistema
+
+        self.user = User.objects.create_user(username="surface-user", password="surface-password")
+        config = ConfigSistema.get_solo()
+        config.appliance_onboarding_completo = True
+        config.save(update_fields=["appliance_onboarding_completo", "updated_at"])
+
+    def test_sensitive_pages_require_authentication(self):
+        paths = (
+            "/painel/", "/mapa/", "/incidentes/", "/rede/", "/dns/",
+            "/firewall/", "/dispositivos/", "/moonai/", "/relatorios/",
+            "/configuracoes/",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertIn(response.status_code, (302, 401, 403))
+
+    def test_sensitive_apis_require_authentication(self):
+        paths = (
+            "/painel/api/overview/", "/mapa/api/overview/", "/incidentes/api/data/",
+            "/rede/api/status/", "/dns/api/data/", "/firewall/api/data/",
+            "/dispositivos/api/inventory/", "/relatorios/diagnostico/api/contexto/",
+            "/configuracoes/api/config/",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertIn(response.status_code, (302, 401, 403))
+
+    def test_write_endpoint_rejects_get_and_session_post_requires_csrf(self):
+        self.assertEqual(self.client.get("/auth/api/onboarding/completar/").status_code, 405)
+        csrf_client = Client(enforce_csrf_checks=True)
+        response = csrf_client.post(reverse("autenticacao:login"), {
+            "username": "no-user", "password": "invalid",
+        })
+        self.assertEqual(response.status_code, 403)

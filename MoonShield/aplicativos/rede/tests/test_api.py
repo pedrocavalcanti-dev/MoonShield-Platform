@@ -35,7 +35,7 @@ from rede.dominio.erros import (
     AgentTimeoutErro,
     AlteracaoEstadoInvalidoErro,
 )
-from rede.models import AlteracaoRede
+from rede.models import AlteracaoRede, InterfaceRede
 
 
 User = get_user_model()
@@ -111,6 +111,41 @@ class RedeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertFalse(self.json(response)["ok"])
+
+    def test_ip_invalido_em_configuracao_de_interface_retorna_400(self):
+        interface = InterfaceRede.objects.create(nome="lab0")
+        request = self.request_post(
+            f"/rede/api/interfaces/{interface.pk}/configurar/",
+            {
+                "papel": "lan",
+                "ipv4_modo": "static",
+                "ipv4_endereco": "999.1.1.1",
+                "ipv4_prefixo": 24,
+            },
+        )
+        with patch.object(api_interfaces, "_bloquear_configuracao_durante_safe_apply", return_value=None):
+            response = api_interfaces.api_interface_configurar(request, interface.pk)
+        self.assertEqual(response.status_code, 400)
+
+    def test_cidr_invalido_retorna_400_e_interface_de_shell_e_rejeitada(self):
+        request = self.request_post(
+            "/rede/api/nat/",
+            {
+                "interface_origem": "eth0",
+                "interface_saida": "eth1",
+                "origem_cidr": "not-a-cidr",
+                "ativa": True,
+            },
+        )
+        with patch.object(api_nat, "_bloquear_mutacao_durante_safe_apply", return_value=None):
+            response = api_nat.api_nat(request)
+        self.assertEqual(response.status_code, 400)
+
+        from rede.dominio.erros import InterfaceInvalidaErro
+        from rede.dominio.validacoes import validar_nome_interface
+
+        with self.assertRaises(InterfaceInvalidaErro):
+            validar_nome_interface("eth0; touch /tmp/pwned")
 
     def test_roteamento_real_mapeia_erros_do_agent(self):
         casos = (

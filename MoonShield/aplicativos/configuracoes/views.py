@@ -87,6 +87,9 @@ def _config_editavel(cfg: ConfigSistema, topologia: dict) -> dict:
             "oui": cfg.scan_oui,
         },
         "retencao": {"devices": cfg.ret_devices, "logs": cfg.ret_logs, "dns": cfg.ret_dns, "incidents": cfg.ret_incidents},
+        "mapbox": {
+            "accessToken": cfg.mapbox_access_token
+        },
         "seguranca": {
             "sessionExpiry": cfg.session_expiry,
             "maxLoginAttempts": cfg.max_login_attempts,
@@ -421,6 +424,7 @@ def api_salvar_config(request):
     node = data.get("node") or {}
     scanner = data.get("scanner") or {}
     retencao = data.get("retencao") or {}
+    mapbox = data.get("mapbox") or {}
     seguranca = data.get("seguranca") or {}
     cfg.node_name = node.get("name", cfg.node_name)
     cfg.node_ambiente = node.get("ambiente", cfg.node_ambiente)
@@ -442,6 +446,8 @@ def api_salvar_config(request):
     cfg.force_https = bool(seguranca.get("forceHttps", cfg.force_https))
     cfg.access_log = bool(seguranca.get("accessLog", cfg.access_log))
     cfg.ip_ban = bool(seguranca.get("ipBan", cfg.ip_ban))
+    if "accessToken" in mapbox:
+        cfg.mapbox_access_token = mapbox.get("accessToken", "").strip()
     if seguranca.get("logLevel") in {"DEBUG", "INFO", "WARNING", "ERROR"}:
         cfg.log_level = seguranca["logLevel"]
     cfg.save()

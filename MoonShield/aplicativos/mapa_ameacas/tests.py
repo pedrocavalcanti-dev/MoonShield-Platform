@@ -376,6 +376,10 @@ class TestMapaLocationEndpoints(TestCase):
         self.client = Client()
         self.user = User.objects.create_user(username="testuser", password="password")
         self.client.login(username="testuser", password="password")
+        cfg = ConfigSistema.get_solo()
+        cfg.mapbox_access_token = "fake"
+        cfg.appliance_onboarding_completo = True
+        cfg.save()
 
     def test_set_location_requires_authentication(self):
         self.client.logout()
@@ -419,7 +423,6 @@ class TestMapaLocationEndpoints(TestCase):
         response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
         self.assertEqual(response.status_code, 400)
 
-    @override_settings(MAPBOX_ACCESS_TOKEN="fake_token")
     @patch("urllib.request.urlopen")
     def test_geocode_success(self, mock_urlopen):
         mock_response = MagicMock()
@@ -453,10 +456,12 @@ class TestMapaLocationEndpoints(TestCase):
         call_args = mock_urlopen.call_args[0][0]
         # Since urllib.request.Request is passed, we check req.full_url
         self.assertTrue("api.mapbox.com/geocoding/v5/mapbox.places" in call_args.full_url)
-        self.assertTrue("access_token=fake_token" in call_args.full_url)
+        self.assertTrue("access_token=fake" in call_args.full_url)
 
-    @override_settings(MAPBOX_ACCESS_TOKEN="")
     def test_geocode_fails_when_token_is_missing(self):
+        cfg = ConfigSistema.get_solo()
+        cfg.mapbox_access_token = ""
+        cfg.save()
         payload = {"address": "Rua X"}
         response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
         self.assertEqual(response.status_code, 503)
@@ -466,7 +471,6 @@ class TestMapaLocationEndpoints(TestCase):
         response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
         self.assertEqual(response.status_code, 400)
 
-    @override_settings(MAPBOX_ACCESS_TOKEN="fake")
     @patch("urllib.request.urlopen")
     def test_geocode_returns_404_when_no_features(self, mock_urlopen):
         mock_response = MagicMock()
@@ -477,7 +481,6 @@ class TestMapaLocationEndpoints(TestCase):
         response = self.client.post("/mapa/api/location/geocode/", json.dumps(payload), content_type="application/json")
         self.assertEqual(response.status_code, 404)
 
-    @override_settings(MAPBOX_ACCESS_TOKEN="fake")
     @patch("urllib.request.urlopen")
     def test_geocode_returns_502_on_provider_timeout(self, mock_urlopen):
         mock_urlopen.side_effect = urllib.error.URLError("Timeout")
@@ -491,7 +494,6 @@ class TestMapaLocationEndpoints(TestCase):
         response = self.client.post("/mapa/api/location/geocode/", "{}", content_type="application/json")
         self.assertEqual(response.status_code, 302)
 
-    @override_settings(MAPBOX_ACCESS_TOKEN="fake")
     @patch("urllib.request.urlopen")
     def test_geocode_input_limit_exceeded_returns_400_and_does_not_call_mapbox(self, mock_urlopen):
         payload = {"address": "A" * 201}

@@ -124,10 +124,16 @@ def _overview_payload(normalizer, horas, limit):
     }
 
 
+from configuracoes.models import ConfigSistema
+
+def _obter_mapbox_token():
+    config = ConfigSistema.get_solo()
+    return config.mapbox_access_token.strip()
+
 @login_required(login_url="autenticacao:login")
 def mapa_view(request):
     return render(request, "mapa_ameacas/mapa.html", {
-        "mapbox_token": getattr(settings, "MAPBOX_ACCESS_TOKEN", ""),
+        "mapbox_token": _obter_mapbox_token(),
     })
 
 
@@ -281,7 +287,7 @@ def api_geocode(request):
     if not query or len(query) > 200:
         return JsonResponse({"ok": False, "erro": "Endereço vazio ou muito longo"}, status=400)
 
-    token = getattr(settings, "MAPBOX_ACCESS_TOKEN", "")
+    token = _obter_mapbox_token()
     if not token:
         return JsonResponse({"ok": False, "erro": "Geocoding não configurado (token ausente)"}, status=503)
 

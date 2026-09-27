@@ -87,6 +87,9 @@ class ConfigSistema(models.Model):
     node_location_accuracy = models.CharField(max_length=50, blank=True)
     node_location_confirmed_at = models.DateTimeField(null=True, blank=True)
 
+    # Configuração Mapbox
+    mapbox_access_token = models.CharField(max_length=512, blank=True, default="")
+
     # Primeiro boot da appliance. Este estado é global e não substitui o
     # onboarding individual mantido em UserProfile.
     appliance_onboarding_completo = models.BooleanField(

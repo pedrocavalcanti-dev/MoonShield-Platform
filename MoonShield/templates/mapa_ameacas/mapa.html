@@ -185,8 +185,9 @@
         <div id="map"></div>
 
         <div class="map-failure-state" id="map-failure" hidden>
-          <h3>Mapa indisponível</h3>
-          <p>A telemetria continua disponível no SOC e nos relatórios.</p>
+          <h3>Mapbox não configurado</h3>
+          <p>Configure um token Mapbox para habilitar o mapa interativo.</p>
+          <a href="{% url 'configuracoes:painel' %}?tab=servicos" class="tm-v2__btn tm-v2__btn--primary" style="margin-top: 15px; text-decoration: none;">Configurar</a>
         </div>
 
         <div class="map-no-location" id="no-location-warning">

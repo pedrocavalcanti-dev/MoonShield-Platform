@@ -383,11 +383,7 @@ DEFAULT_AUTO_FIELD = (
 # =============================================================================
 # MAPBOX
 # =============================================================================
-
-MAPBOX_ACCESS_TOKEN = env(
-    "MAPBOX_ACCESS_TOKEN",
-    default="",
-)
+# Removido: O token agora é armazenado via UI em ConfigSistema.mapbox_access_token
 
 
 # =============================================================================

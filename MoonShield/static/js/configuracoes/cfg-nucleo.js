@@ -38,7 +38,8 @@
   }
 
   function fillFormFromState() {
-    const { node = {}, scanner = {}, retencao = {}, seguranca = {} } = STATE;
+    const { node = {}, scanner = {}, retencao = {}, seguranca = {}, mapbox = {} } = STATE;
+    setValue("fieldMapboxToken", mapbox.accessToken || "");
     setValue("fieldNodeName", node.name);
     setValue("fieldAmbiente", node.ambiente);
     setValue("fieldTag", node.tag);
@@ -99,6 +100,9 @@
         logs: integer("fieldRetLogs", STATE.retencao?.logs || 7),
         dns: integer("fieldRetDns", STATE.retencao?.dns || 7),
         incidents: integer("fieldRetIncidents", STATE.retencao?.incidents || 90),
+      },
+      mapbox: {
+        accessToken: value("fieldMapboxToken", STATE.mapbox?.accessToken || ""),
       },
       seguranca: {
         sessionExpiry: integer("fieldSession", STATE.seguranca?.sessionExpiry || 480),

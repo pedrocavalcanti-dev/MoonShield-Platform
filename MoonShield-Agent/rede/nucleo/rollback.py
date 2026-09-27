@@ -131,6 +131,36 @@ def _salvar_estado(estado: dict[str, Any]) -> None:
         ) from exc
 
 
+
+def _escrever_json_atomico(caminho: Path, dados: dict) -> None:
+    garantir_diretorios()
+    temporario = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=str(caminho.parent),
+            prefix=f".{caminho.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as arquivo:
+            temporario = Path(arquivo.name)
+            import json
+            json.dump(dados, arquivo, ensure_ascii=False, indent=2, sort_keys=True)
+            arquivo.flush()
+            import os
+            os.fsync(arquivo.fileno())
+
+        os.chmod(temporario, 0o640)
+        os.replace(temporario, caminho)
+    except OSError:
+        if temporario:
+            try:
+                temporario.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+
 def _carregar_estado(alteracao_id: str) -> dict[str, Any]:
     caminho = _caminho(alteracao_id)
 

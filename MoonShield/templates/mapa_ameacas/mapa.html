@@ -1,359 +1,717 @@
 {% extends "base.html" %}
+
 {% load static %}
+
+
 
 {% block title %}Mapa de Ameaças | MoonShield{% endblock %}
 
+
+
 {% block extra_css %}
+
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+
   <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa-mapbox.css' %}">
+
   <link rel="stylesheet" href="{% static 'css/mapa_ameacas/mapa.css' %}">
+
 {% endblock %}
 
+
+
 {% block conteudo %}
+
 {{ mapbox_token|json_script:"mapbox-token-data" }}
+
 <script id="tm-config-data" type="application/json">
+
 {
+
   "overviewUrl": "{% url 'mapa_ameacas:api_map_overview' %}",
+
   "feedUrl": "{% url 'mapa_ameacas:api_map_feed' %}",
+
   "facetsUrl": "{% url 'mapa_ameacas:api_map_facets' %}",
+
   "searchUrl": "{% url 'mapa_ameacas:api_map_search' %}",
+
   "setLocationUrl": "{% url 'mapa_ameacas:api_set_location' %}",
+
   "incidentsUrl": "{% url 'incidentes:painel' %}",
+
   "investigateIpUrl": "{% url 'incidentes:investigar' ip='__IP__' %}"
+
 }
+
 </script>
 
+
+
 <section class="tm-v2" id="tm-app" aria-label="Mapa de Ameaças">
+
   <header class="tm-v2__topbar">
+
     <div class="tm-v2__summary" aria-label="Resumo operacional">
+
       <div class="tm-v2__metric">
+
         <span>Eventos</span>
+
         <strong id="kpi-events">--</strong>
+
         <small id="kpi-rate">0 evt/min</small>
+
       </div>
+
       <div class="tm-v2__metric tm-v2__metric--critical">
+
         <span>Críticos</span>
+
         <strong id="kpi-critical">--</strong>
+
       </div>
+
       <div class="tm-v2__metric">
+
         <span>Geo no mapa</span>
+
         <strong id="kpi-geo">--</strong>
+
       </div>
+
       <div class="tm-v2__metric">
+
         <span>Top país</span>
+
         <strong id="kpi-top-country">—</strong>
+
       </div>
+
     </div>
 
+
+
     <div class="tm-v2__top-actions">
+
       <div class="tm-v2__health" aria-label="Saúde dos serviços">
+
         <span class="tm-health unknown" id="health-ids" title="IDS / Suricata">IDS</span>
+
         <span class="tm-health unknown" id="health-firewall" title="Firewall">FW</span>
+
         <span class="tm-health unknown" id="health-dns" title="DNS / AdGuard">DNS</span>
+
       </div>
+
+
 
       <span class="tm-v2__divider" aria-hidden="true"></span>
 
+
+
       <button class="tm-v2__live is-live" id="btn-pause" type="button" aria-pressed="false" title="Pausar ou retomar atualização">
+
         <span class="tm-v2__live-dot" aria-hidden="true"></span>
+
         <span class="status-label">LIVE</span>
+
       </button>
+
+
 
       <button class="tm-v2__icon-btn" id="btn-projection" type="button" aria-label="Alternar globo e mapa" aria-pressed="true" title="Globo / mapa">
+
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path></svg>
+
       </button>
+
       <button class="tm-v2__icon-btn tm-v2__desktop-only" id="btn-toggle-panels" type="button" aria-label="Ocultar painéis laterais" aria-pressed="false" title="Ocultar painéis">
+
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M8 4v16M16 4v16"></path></svg>
+
       </button>
+
       <button class="tm-v2__icon-btn" id="btn-cinema" type="button" aria-label="Tela cheia" aria-pressed="false" title="Tela cheia">
+
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H4v4M16 3h4v4M20 17v4h-4M8 21H4v-4"></path></svg>
+
       </button>
+
       <button class="tm-v2__icon-btn" id="btn-clear" type="button" aria-label="Limpar seleção do mapa" title="Limpar seleção">
+
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M7 6l1 14h8l1-14"></path></svg>
+
       </button>
+
+
 
       <div class="tm-v2__settings">
+
         <button class="tm-v2__icon-btn" id="btn-settings" type="button" aria-label="Configurações do mapa" aria-expanded="false" aria-controls="settings-popover" title="Configurações">
+
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.5 1a8 8 0 0 0-1.7-1L14.3 3h-4.6L9.3 6a8 8 0 0 0-1.7 1L5.1 6l-2 3.4L5.1 11a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.5-1a8 8 0 0 0 1.7 1l.4 3h4.6l.4-3a8 8 0 0 0 1.7-1l2.5 1 2-3.4L18.9 13c.1-.3.1-.7.1-1z"></path></svg>
+
         </button>
+
         <div class="tm-v2__popover tm-v2__popover--settings" id="settings-popover" hidden>
+
           <div class="tm-v2__popover-head">
+
             <strong>Configurações do mapa</strong>
+
             <button type="button" data-close-popover aria-label="Fechar">×</button>
+
           </div>
+
           <label class="tm-v2__field">Máx. eventos
+
             <select id="setting-max-events">
+
               <option value="50">50</option>
+
               <option value="100">100</option>
+
               <option value="150">150</option>
+
               <option value="200" selected>200</option>
+
             </select>
+
           </label>
+
           <label class="tm-v2__field">Duração da trilha
+
             <select id="setting-trail">
+
               <option value="5000">5 segundos</option>
+
               <option value="15000" selected>15 segundos</option>
+
               <option value="30000">30 segundos</option>
+
             </select>
+
           </label>
+
           <label class="tm-v2__field">Rotação do globo
+
             <select id="setting-rot">
+
               <option value="0">Desligada</option>
+
               <option value="0.02">Lenta</option>
+
               <option value="0.05" selected>Normal</option>
+
               <option value="0.1">Rápida</option>
+
             </select>
+
           </label>
+
         </div>
+
       </div>
+
     </div>
+
   </header>
 
+
+
   <div class="tm-v2__mobile-actions" aria-label="Painéis do mapa">
+
     <button id="btn-mobile-filters" type="button" aria-controls="panel-filters" aria-expanded="false">Filtros</button>
+
     <button id="btn-mobile-events" type="button" aria-controls="panel-events" aria-expanded="false">Eventos</button>
+
   </div>
 
+
+
   <div class="tm-v2__layout" id="main-grid">
+
     <aside class="tm-v2__filters" id="panel-filters" aria-label="Filtros do mapa">
+
       <div class="tm-v2__panel-title">
+
         <div>
+
           <span>Mapa de ameaças</span>
+
           <h2>Filtros</h2>
+
         </div>
+
         <button class="tm-v2__collapse-btn" id="btn-collapse-filters" type="button" aria-label="Recolher filtros" aria-expanded="true">«</button>
+
       </div>
 
+
+
       <div class="tm-v2__filters-content">
+
         <label class="tm-v2__field">Período
+
           <select id="filter-period">
+
             <option value="1h">1 Hora</option>
+
             <option value="6h">6 Horas</option>
+
             <option value="24h" selected>24 Horas</option>
+
             <option value="7d">7 Dias</option>
+
           </select>
+
         </label>
+
+
 
         <label class="tm-v2__field">Severidade
+
           <select id="filter-sev">
+
             <option value="all" selected>Todas as severidades</option>
+
             <option value="critical">Crítico</option>
+
             <option value="high">Alto</option>
+
             <option value="medium">Médio</option>
+
             <option value="low">Baixo</option>
+
             <option value="info">Info</option>
+
           </select>
+
         </label>
+
+
 
         <label class="tm-v2__field">Fonte
+
           <select id="filter-source">
+
             <option value="all" selected>Todas as fontes</option>
+
           </select>
+
         </label>
 
+
+
         <button class="tm-v2__select-trigger" id="btn-categories" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="categories-popover">
+
           <span>Categoria</span>
+
           <strong id="categories-label">Todas as categorias</strong>
+
           <b aria-hidden="true">›</b>
+
         </button>
 
+
+
         <button class="tm-v2__select-trigger" id="btn-countries" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="countries-popover">
+
           <span>País de origem</span>
+
           <strong id="countries-label">Todos os países</strong>
+
           <b aria-hidden="true">›</b>
+
         </button>
+
+
 
         <button class="tm-v2__more-btn" id="btn-more-filters" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="more-filters-popover">+ Mais filtros</button>
 
+
+
         <div class="tm-v2__active-wrap">
+
           <div class="tm-v2__subheading">
+
             <span>Filtros ativos</span>
+
             <button id="btn-reset-filters" type="button">Limpar</button>
+
           </div>
+
           <div class="tm-v2__chips" id="active-filters-bar" aria-live="polite">
+
             <span class="tm-v2__no-filters">Nenhum filtro adicional</span>
+
           </div>
+
         </div>
+
       </div>
+
     </aside>
 
+
+
     <main class="tm-v2__map" id="panel-map">
+
       <div class="map-container">
+
         <div class="map-banner map-banner-error" id="banner-error" hidden>Falha ao atualizar dados do mapa.</div>
+
         <div class="map-banner map-banner-warning" id="banner-stale" hidden>Dados desatualizados.</div>
+
+
 
         <div id="map"></div>
 
+
+
         <div class="map-failure-state" id="map-failure" hidden>
+
           <h3>Mapbox não configurado</h3>
+
           <p>Configure um token Mapbox para habilitar o mapa interativo.</p>
-          <a href="{% url 'configuracoes:painel' %}?tab=servicos" class="tm-v2__btn tm-v2__btn--primary" style="margin-top: 15px; text-decoration: none;">Configurar</a>
+
+          <a href="{% url 'configuracoes:index' %}?tab=sistema" class="tm-v2__btn tm-v2__btn--primary" style="margin-top: 15px; text-decoration: none;">Configurar</a>
+
         </div>
+
+
 
         <div class="map-no-location" id="no-location-warning">
+
           <div class="map-no-location-icon" aria-hidden="true">!</div>
+
           <div class="map-no-location-text">
+
             <strong>Localização do node não configurada.</strong>
+
             <span>Rotas geográficas ficam indisponíveis até configurar o appliance.</span>
+
           </div>
+
           <button class="tm-v2__small-btn" id="btn-open-location-modal" type="button">Configurar</button>
+
         </div>
+
+
 
         <div class="tm-v2__legend" aria-label="Legenda de severidade">
+
           <span class="sev-critical">● Crítico</span>
+
           <span class="sev-high">● Alto</span>
+
           <span class="sev-medium">● Médio</span>
+
           <span class="sev-low">● Baixo</span>
+
         </div>
+
+
 
         <form class="tm-v2__search" id="search-form" role="search">
+
           <label class="sr-only" for="search-input">Pesquisar no mapa</label>
+
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+
           <input id="search-input" autocomplete="off" placeholder="IP, domínio, assinatura, SID, ASN..." type="search">
+
           <button type="submit" aria-label="Pesquisar">Buscar</button>
+
         </form>
+
       </div>
+
     </main>
 
+
+
     <aside class="tm-v2__right-panel" id="panel-events" aria-label="Eventos e contexto">
+
       <section class="tm-v2__events-panel" id="events-panel">
+
         <div class="tm-v2__panel-title">
+
           <div>
+
             <span>Feed geográfico</span>
+
             <h2>Eventos ao vivo</h2>
+
           </div>
+
           <small id="feed-count">0 eventos</small>
+
         </div>
+
+
 
         <div class="tm-v2__events" id="feed-container" aria-live="polite"></div>
 
+
+
         <div class="tm-v2__empty-geo" id="feed-empty-state">
+
           <div class="tm-v2__empty-icon">◎</div>
+
           <h3>Nenhum evento geolocalizado</h3>
+
           <p>Os eventos atuais são internos ou não possuem coordenadas públicas disponíveis.</p>
+
           <a class="tm-v2__small-btn" id="incidents-link" href="{% url 'incidentes:painel' %}">Ver Incidentes</a>
+
         </div>
+
       </section>
 
+
+
       <section class="tm-v2__context" id="details-panel" hidden aria-live="polite"></section>
+
     </aside>
+
   </div>
+
+
 
   <div class="tm-v2__popover tm-v2__multi-popover" id="categories-popover" role="dialog" aria-modal="false" aria-label="Categorias" hidden>
+
     <div class="tm-v2__popover-head">
+
       <strong>Categorias</strong>
+
       <button data-close-popover type="button" aria-label="Fechar">×</button>
+
     </div>
+
     <input id="categories-search" type="search" placeholder="Buscar categoria..." autocomplete="off">
+
     <div class="tm-v2__multi-options" id="categories-options"></div>
+
     <div class="tm-v2__popover-actions">
+
       <button data-clear-multi="categories" type="button">Limpar</button>
+
       <button data-apply-multi="categories" class="tm-v2__small-btn" type="button">Aplicar</button>
+
     </div>
+
   </div>
+
+
 
   <div class="tm-v2__popover tm-v2__multi-popover" id="countries-popover" role="dialog" aria-modal="false" aria-label="Países de origem" hidden>
+
     <div class="tm-v2__popover-head">
+
       <strong>Países de origem</strong>
+
       <button data-close-popover type="button" aria-label="Fechar">×</button>
+
     </div>
+
     <input id="countries-search" type="search" placeholder="Buscar país..." autocomplete="off">
+
     <div class="tm-v2__multi-options" id="countries-options"></div>
+
     <div class="tm-v2__popover-actions">
+
       <button data-clear-multi="countries" type="button">Limpar</button>
+
       <button data-apply-multi="countries" class="tm-v2__small-btn" type="button">Aplicar</button>
+
     </div>
+
   </div>
 
+
+
   <div class="tm-v2__popover tm-v2__advanced-popover" id="more-filters-popover" role="dialog" aria-modal="false" aria-label="Mais filtros" hidden>
+
     <div class="tm-v2__popover-head">
+
       <strong>Mais filtros</strong>
+
       <button data-close-popover type="button" aria-label="Fechar">×</button>
+
     </div>
+
     <label class="tm-v2__field">Protocolo
+
       <select id="filter-protocol"><option value="all">Todos</option></select>
+
     </label>
+
     <label class="tm-v2__field">Direção
+
       <select id="filter-direction"><option value="all">Todas</option></select>
+
     </label>
+
     <label class="tm-v2__field">Zona
+
       <select id="filter-zone"><option value="all">Todas</option></select>
+
     </label>
+
   </div>
+
 </section>
+
+
 
 <div class="tm-v2__drawer-backdrop" id="drawer-backdrop" hidden></div>
 
+
+
 <div class="tm-v2__modal-backdrop" id="location-modal" hidden>
+
   <div class="tm-v2__modal" role="dialog" aria-modal="true" aria-labelledby="location-modal-title">
+
     <div class="tm-v2__popover-head">
+
       <strong id="location-modal-title">Localização do appliance</strong>
+
       <button id="btn-close-location" type="button" aria-label="Fechar">✕</button>
+
     </div>
+
+
 
     <p class="tm-v2__modal-note">A localização configura o node do MoonShield. Ela nunca é usada como posição de uma ameaça.</p>
 
+
+
     <button class="tm-v2__outline-btn" id="btn-use-browser" type="button" style="width:100%; justify-content:center;">Usar minha localização</button>
+
     <p class="tm-v2__help" id="browser-unavailable-msg" hidden>Localização automática requer HTTPS. Informe os dados abaixo.</p>
 
+
+
     <div id="address-fields-container" style="margin-top: 1rem;">
+
       <div style="text-align: center; margin-bottom: 1rem; color: var(--tm-text-muted);">OU</div>
+
       <label class="tm-v2__field">CEP
+
         <input id="loc-cep" type="text" placeholder="Ex: 13000-000">
+
       </label>
+
       <label class="tm-v2__field">Endereço
+
         <input id="loc-endereco" type="text" placeholder="Rua, Avenida, número">
+
       </label>
+
       <div style="display: flex; gap: 1rem;">
+
         <label class="tm-v2__field" style="flex: 2;">Cidade
+
           <input id="loc-cidade" type="text" placeholder="Sua cidade">
+
         </label>
+
         <label class="tm-v2__field" style="flex: 1;">Estado
+
           <input id="loc-estado" type="text" placeholder="SP">
+
         </label>
+
       </div>
+
       <label class="tm-v2__field" style="margin-top: 1rem;">País
+
         <select id="loc-pais">
+
           <option value="BR">Brasil</option>
+
           <option value="">Outro / Internacional</option>
+
         </select>
+
       </label>
+
       <div class="tm-v2__modal-actions" style="margin-top: 1rem;">
+
         <button class="tm-v2__small-btn" id="btn-search-address" type="button" style="width: 100%; justify-content: center;">Buscar endereço</button>
+
       </div>
+
     </div>
+
+
 
     <div class="tm-v2__browser-confirm" id="browser-confirm-box" hidden>
+
       <p id="location-confirm-display" style="margin:0 0 0.5rem 0; font-weight:600;">--</p>
+
       <p>Latitude <strong id="browser-confirm-lat">--</strong> · Longitude <strong id="browser-confirm-lon">--</strong></p>
+
       <button class="tm-v2__small-btn" id="btn-confirm-browser-location" type="button">Usar esta localização</button>
+
     </div>
 
+
+
     <details style="margin-top: 1.5rem;">
+
       <summary style="cursor: pointer; color: var(--tm-text-muted); font-size: 0.85rem;">Opções avançadas (coordenadas)</summary>
+
       <div class="tm-v2__coordinate-fields" style="margin-top: 1rem;">
+
         <label class="tm-v2__field">Latitude
+
           <input id="loc-lat" type="number" step="any" min="-90" max="90" placeholder="-90 a 90">
+
         </label>
+
         <label class="tm-v2__field">Longitude
+
           <input id="loc-lon" type="number" step="any" min="-180" max="180" placeholder="-180 a 180">
+
         </label>
+
       </div>
+
       <div class="tm-v2__modal-actions" style="margin-top: 1rem;">
+
         <button id="btn-cancel-location" type="button">Cancelar</button>
+
         <button class="tm-v2__small-btn" id="btn-save-location" type="button">Salvar</button>
+
       </div>
+
     </details>
 
+
+
     <p class="tm-v2__form-error" id="loc-error" hidden></p>
+
   </div>
+
 </div>
 
+
+
 <div class="tm-v2__toast" id="tm-toast"  role="status" aria-live="polite" hidden></div>
+
 {% endblock %}
 
+
+
 {% block extra_js %}
+
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+
   <script src="{% static 'js/mapa_ameacas/mapa-renderer.js' %}"></script>
+
   <script src="{% static 'js/mapa_ameacas/mapa.js' %}"></script>
+
 {% endblock %}

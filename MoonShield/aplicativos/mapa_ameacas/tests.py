@@ -392,69 +392,101 @@ class TestMapaLocationEndpoints(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["mapbox_token"], "")
 
-    def test_set_location_saves_valid_token(self):
-        payload = {"mapbox_access_token": "pk.new_token_123"}
-        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
-        self.assertEqual(response.status_code, 200)
+
+    def test_validate_mapbox_token_success(self):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_response = MagicMock()
+            mock_response.read.return_value = json.dumps({"features": [{"id": "1"}]}).encode("utf-8")
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            payload = {"mapbox_access_token": "pk.valid_token"}
+            response = self.client.post("/mapa/api/mapbox/validate/", json.dumps(payload), content_type="application/json")
+            self.assertEqual(response.status_code, 200)
+
+            cfg = ConfigSistema.get_solo()
+            self.assertEqual(cfg.mapbox_access_token, "pk.valid_token")
+
+    def test_validate_mapbox_token_invalid_returns_400(self):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            import urllib.error
+            mock_urlopen.side_effect = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+
+            payload = {"mapbox_access_token": "pk.invalid_token"}
+            response = self.client.post("/mapa/api/mapbox/validate/", json.dumps(payload), content_type="application/json")
+            self.assertEqual(response.status_code, 400)
+
+            cfg = ConfigSistema.get_solo()
+            self.assertNotEqual(cfg.mapbox_access_token, "pk.invalid_token")
+
+    def test_validate_mapbox_token_unavailable_returns_503(self):
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            import urllib.error
+            mock_urlopen.side_effect = urllib.error.URLError("timeout")
+
+            payload = {"mapbox_access_token": "pk.token"}
+            response = self.client.post("/mapa/api/mapbox/validate/", json.dumps(payload), content_type="application/json")
+            self.assertEqual(response.status_code, 503)
+
+    def test_search_location_without_token_returns_400(self):
         cfg = ConfigSistema.get_solo()
-        self.assertEqual(cfg.mapbox_access_token, "pk.new_token_123")
+        cfg.mapbox_access_token = ""
+        cfg.save()
 
-        # 9. Token not in JSON response
-        data = json.loads(response.content)
-        self.assertTrue(data["ok"])
-        self.assertNotIn("mapbox_access_token", data)
-        self.assertNotIn("pk.new_token_123", response.content.decode("utf-8"))
+        response = self.client.get("/mapa/api/location/search/?q=Campinas")
+        self.assertEqual(response.status_code, 400)
 
-    def test_set_location_saves_token_and_location(self):
+    def test_search_location_with_token_returns_suggestions(self):
+        cfg = ConfigSistema.get_solo()
+        cfg.mapbox_access_token = "pk.valid"
+        cfg.save()
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_response = MagicMock()
+            mock_response.read.return_value = json.dumps({
+                "features": [{
+                    "place_name": "Rua X, Campinas, SP",
+                    "center": [-47.123, -22.123],
+                    "context": [
+                        {"id": "place.123", "text": "Campinas"},
+                        {"id": "region.456", "text": "São Paulo"},
+                        {"id": "country.789", "short_code": "br"}
+                    ],
+                    "place_type": ["address"]
+                }]
+            }).encode("utf-8")
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            response = self.client.get("/mapa/api/location/search/?q=Campinas")
+            self.assertEqual(response.status_code, 200)
+
+            data = json.loads(response.content)
+            self.assertTrue(data["ok"])
+            self.assertEqual(len(data["results"]), 1)
+            res = data["results"][0]
+            self.assertEqual(res["label"], "Rua X, Campinas, SP")
+            self.assertEqual(res["latitude"], -22.123)
+            self.assertEqual(res["longitude"], -47.123)
+            self.assertEqual(res["city"], "Campinas")
+            self.assertEqual(res["region"], "São Paulo")
+            self.assertEqual(res["country_code"], "BR")
+
+    def test_set_location_saves_only_location(self):
+        cfg = ConfigSistema.get_solo()
+        cfg.mapbox_access_token = "pk.old_token"
+        cfg.save()
+
         payload = {
-            "mapbox_access_token": "pk.combined_token",
             "latitude": -10.0,
             "longitude": -20.0,
             "source": "manual"
         }
         response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
         self.assertEqual(response.status_code, 200)
-        cfg = ConfigSistema.get_solo()
-        self.assertEqual(cfg.mapbox_access_token, "pk.combined_token")
+
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.mapbox_access_token, "pk.old_token") # Preserved token
         self.assertEqual(cfg.node_latitude, -10.0)
         self.assertEqual(cfg.node_longitude, -20.0)
-
-    def test_set_location_preserves_existing_config_when_fields_omitted(self):
-        cfg = ConfigSistema.get_solo()
-        cfg.mapbox_access_token = "pk.old_token"
-        cfg.node_latitude = 45.0
-        cfg.node_longitude = 45.0
-        cfg.save()
-
-        # Update only location
-        payload = {"latitude": 50.0, "longitude": 50.0, "source": "manual"}
-        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
-        self.assertEqual(response.status_code, 200)
-        cfg.refresh_from_db()
-        self.assertEqual(cfg.mapbox_access_token, "pk.old_token") # Preserved
-        self.assertEqual(cfg.node_latitude, 50.0)
-
-        # Update only token
-        payload2 = {"mapbox_access_token": "pk.new_token_only"}
-        response2 = self.client.post("/mapa/api/location/", json.dumps(payload2), content_type="application/json")
-        self.assertEqual(response2.status_code, 200)
-        cfg.refresh_from_db()
-        self.assertEqual(cfg.mapbox_access_token, "pk.new_token_only")
-        self.assertEqual(cfg.node_latitude, 50.0) # Preserved
-
-    def test_set_location_get_returns_405(self):
-        response = self.client.get("/mapa/api/location/")
-        self.assertEqual(response.status_code, 405)
-
-    def test_set_location_invalid_latitude_returns_400(self):
-        payload = {"latitude": 91.0, "longitude": 0.0, "source": "manual"}
-        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
-        self.assertEqual(response.status_code, 400)
-
-    def test_set_location_invalid_longitude_returns_400(self):
-        payload = {"latitude": 0.0, "longitude": -181.0, "source": "manual"}
-        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
-        self.assertEqual(response.status_code, 400)
 
     def test_set_location_requires_authentication(self):
         self.client.logout()

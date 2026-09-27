@@ -15,6 +15,8 @@
         facets: CONFIG.facetsUrl || '/mapa/api/facets/',
         search: CONFIG.searchUrl || '/mapa/api/search/',
         location: CONFIG.setLocationUrl || '/mapa/api/location/',
+        mapboxValidate: '/mapa/api/mapbox/validate/',
+        locationSearch: '/mapa/api/location/search/',
         incidents: CONFIG.incidentsUrl || '/incidentes/',
         investigate: CONFIG.investigateIpUrl || '/incidentes/investigar/__IP__/'
     };
@@ -198,17 +200,35 @@
         locEndereco: $('loc-endereco'),
         locCidade: $('loc-cidade'),
         locEstado: $('loc-estado'),
-        locPais: $('loc-pais'),
-        btnSearchAddress: $('btn-search-address'),
         mapboxTokenInput: $('mapbox-token-input'),
         mapboxConfiguredState: $('mapbox-configured-state'),
         mapboxInputState: $('mapbox-input-state'),
         btnChangeToken: $('btn-change-token'),
         btnOpenModalFromFailure: $('btn-open-modal-from-failure'),
-        locationConfirmDisplay: $('location-confirm-display'),
+
+        modalStep1: $('modal-step-1'),
+        modalStep2: $('modal-step-2'),
+        mapboxError: $('mapbox-error'),
+        btnValidateToken: $('btn-validate-token'),
+        btnContinueStep1: $('btn-continue-step1'),
+        btnCancelStep1: $('btn-cancel-step1'),
+
+        locSearchInput: $('loc-search-input'),
+        locSuggestions: $('loc-suggestions'),
+        locSelectedSummary: $('loc-selected-summary'),
+        locSummaryText: $('loc-summary-text'),
+        advancedCoordsDetails: $('advanced-coords-details'),
 
         toast: $('tm-toast')
     };
+
+    function debounce(func, wait) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
 
     function createEl(tag, className, text) {
         const node = document.createElement(tag);
@@ -649,12 +669,12 @@
 
     function buildGeoGroups(feed) {
         const groups = new Map();
-        
+
         feed.forEach(ev => {
             const externalIp = ev.external_ip || ev.src_ip;
             const source = ev.source || 'unknown';
             const groupKey = `${source}|${externalIp}`;
-            
+
             if (!groups.has(groupKey)) {
                 groups.set(groupKey, {
                     groupKey: groupKey,
@@ -671,12 +691,12 @@
                     _sevRank: getSeverityRank(ev.severity)
                 });
             }
-            
+
             const g = groups.get(groupKey);
             g.eventCount++;
             g.totalOccurrences += Number(ev.count || 1);
             if (ev.signature || ev.name || ev.title) g.signatures.add(ev.signature || ev.name || ev.title);
-            
+
             const rank = getSeverityRank(ev.severity);
             if (rank > g._sevRank) {
                 g._sevRank = rank;
@@ -687,7 +707,7 @@
                 g.latestEvent = ev;
             }
         });
-        
+
         return Array.from(groups.values()).map(g => {
             return {
                 ...g.latestEvent,
@@ -797,7 +817,7 @@
 
             const titleText = ev.signature || ev.action || ev.category || 'Evento de segurança';
             const title = createEl('div', 'tm-v2__event-title', titleText);
-            
+
             const locationText = eventLocationLabel(ev);
             let locString = locationText;
             if (ev.isGroup && ev.eventCount > 0) {
@@ -1577,24 +1597,76 @@
     function openLocationModal() {
         if (!els.locationModal) return;
 
+        hideMapboxError();
         hideLocationError();
         state.pendingBrowserLocation = null;
-        if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
+        if (els.locSelectedSummary) els.locSelectedSummary.hidden = true;
+        if (els.locSuggestions) els.locSuggestions.hidden = true;
+        if (els.locSearchInput) els.locSearchInput.value = '';
 
         const canBrowserGeo = !!(window.isSecureContext && navigator.geolocation);
         if (els.btnUseBrowser) els.btnUseBrowser.disabled = !canBrowserGeo;
         if (els.browserUnavailableMsg) els.browserUnavailableMsg.hidden = canBrowserGeo;
 
+        if (MAPBOX_TOKEN) {
+            // Already configured
+            els.mapboxConfiguredState.hidden = false;
+            els.mapboxInputState.hidden = true;
+            els.btnValidateToken.hidden = true;
+            els.btnContinueStep1.hidden = false;
+
+            // If location is missing, jump to step 2 automatically? Yes.
+            const hasLocation = state.node && hasFiniteNumber(state.node.latitude) && hasFiniteNumber(state.node.longitude);
+            if (!hasLocation) {
+                goToStep2();
+            } else {
+                goToStep1();
+            }
+        } else {
+            // Not configured
+            els.mapboxConfiguredState.hidden = true;
+            els.mapboxInputState.hidden = false;
+            els.btnValidateToken.hidden = false;
+            els.btnContinueStep1.hidden = true;
+            if (els.mapboxTokenInput) els.mapboxTokenInput.value = '';
+            goToStep1();
+        }
+
         els.locationModal.hidden = false;
-        if (els.locLat) els.locLat.focus();
+    }
+
+    function goToStep1() {
+        if (els.modalStep1) els.modalStep1.hidden = false;
+        if (els.modalStep2) els.modalStep2.hidden = true;
+        if (els.mapboxTokenInput && !els.mapboxInputState.hidden) els.mapboxTokenInput.focus();
+    }
+
+    function goToStep2() {
+        if (els.modalStep1) els.modalStep1.hidden = true;
+        if (els.modalStep2) els.modalStep2.hidden = false;
+        if (els.locSearchInput) els.locSearchInput.focus();
     }
 
     function closeLocationModal() {
         if (!els.locationModal) return;
         els.locationModal.hidden = true;
         state.pendingBrowserLocation = null;
-        if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
+        if (els.locSelectedSummary) els.locSelectedSummary.hidden = true;
+        if (els.locSuggestions) els.locSuggestions.hidden = true;
+        hideMapboxError();
         hideLocationError();
+    }
+
+    function showMapboxError(message) {
+        if (!els.mapboxError) return;
+        els.mapboxError.textContent = message;
+        els.mapboxError.hidden = false;
+    }
+
+    function hideMapboxError() {
+        if (!els.mapboxError) return;
+        els.mapboxError.textContent = '';
+        els.mapboxError.hidden = true;
     }
 
     function showLocationError(message) {
@@ -1609,66 +1681,120 @@
         els.locError.hidden = true;
     }
 
-    async function searchAddress() {
-        hideLocationError();
-        const cep = (els.locCep ? els.locCep.value : '').trim();
-        const address = (els.locEndereco ? els.locEndereco.value : '').trim();
-        const city = (els.locCidade ? els.locCidade.value : '').trim();
-        const stateStr = (els.locEstado ? els.locEstado.value : '').trim();
-        const country = (els.locPais ? els.locPais.value : 'BR');
-
-        if (!cep && !address && !city && !stateStr) {
-            showLocationError('Preencha ao menos um campo para buscar.');
+    async function validateMapboxToken() {
+        hideMapboxError();
+        const token = els.mapboxTokenInput.value.trim();
+        if (!token) {
+            showMapboxError('Informe um token válido.');
             return;
         }
 
-        if (els.btnSearchAddress) els.btnSearchAddress.disabled = true;
+        if (els.btnValidateToken) els.btnValidateToken.disabled = true;
 
         try {
-            const geocodeUrl = ENDPOINTS.location + 'geocode/';
-            const response = await fetch(geocodeUrl, {
+            const response = await fetch(ENDPOINTS.mapboxValidate, {
                 method: 'POST',
-                credentials: 'same-origin',
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRFToken': getCookie('csrftoken') || ''
                 },
-                body: JSON.stringify({ cep, address, city, state: stateStr, country, mapbox_access_token: (els.mapboxTokenInput && !els.mapboxInputState.hidden) ? els.mapboxTokenInput.value.trim() : '' })
+                body: JSON.stringify({ mapbox_access_token: token })
             });
-            const data = await response.json();
 
-            if (response.ok && data.ok && data.result) {
-                state.pendingBrowserLocation = {
-                    latitude: data.result.latitude,
-                    longitude: data.result.longitude,
-                    source: 'address',
-                    extra: {
-                        city: data.result.city || '',
-                        region: data.result.region || '',
-                        country_code: data.result.country_code || ''
-                    }
-                };
-                if (els.locationConfirmDisplay) els.locationConfirmDisplay.textContent = data.result.display_name;
-                if (els.browserConfirmLat) els.browserConfirmLat.textContent = data.result.latitude.toFixed(6);
-                if (els.browserConfirmLon) els.browserConfirmLon.textContent = data.result.longitude.toFixed(6);
-                if (els.browserConfirmBox) els.browserConfirmBox.hidden = false;
-            } else {
-                showLocationError(data.erro || 'Endereço não encontrado.');
-                if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
-                state.pendingBrowserLocation = null;
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+                throw new Error(data.error || data.erro || 'Falha ao validar token.');
             }
-        } catch (error) {
-            showLocationError('Não foi possível consultar o endereço agora.');
-            if (els.browserConfirmBox) els.browserConfirmBox.hidden = true;
-            state.pendingBrowserLocation = null;
+
+            // Success
+            MAPBOX_TOKEN = token;
+            goToStep2();
+
+        } catch (err) {
+            showMapboxError(err.message);
         } finally {
-            if (els.btnSearchAddress) els.btnSearchAddress.disabled = false;
+            if (els.btnValidateToken) els.btnValidateToken.disabled = false;
         }
     }
 
-    function requestBrowserLocation() {
+    async function performLocationSearch(query) {
+        if (!query || query.length < 3) {
+            els.locSuggestions.hidden = true;
+            return;
+        }
+
+        try {
+            const response = await fetch(ENDPOINTS.locationSearch + '?q=' + encodeURIComponent(query), {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+            const data = await response.json();
+
+            if (response.ok && data.ok && data.results) {
+                els.locSuggestions.innerHTML = '';
+                if (data.results.length === 0) {
+                    els.locSuggestions.innerHTML = '<div style="padding: 10px; color: var(--tm-text-muted);">Nenhum resultado encontrado.</div>';
+                } else {
+                    data.results.forEach(res => {
+                        const item = document.createElement('div');
+                        item.className = 'tm-v2__suggestion-item';
+                        item.style.padding = '10px';
+                        item.style.cursor = 'pointer';
+                        item.style.borderBottom = '1px solid var(--tm-border)';
+
+                        let html = `<strong>📍 ${res.label}</strong>`;
+                        if (res.postcode) html += `<br><small style="color: var(--tm-text-muted);">${res.postcode}</small>`;
+                        item.innerHTML = html;
+
+                        item.addEventListener('click', () => {
+                            selectLocationSuggestion(res);
+                        });
+
+                        els.locSuggestions.appendChild(item);
+                    });
+                }
+                els.locSuggestions.hidden = false;
+            } else {
+                els.locSuggestions.hidden = true;
+            }
+        } catch (err) {
+            console.warn('[ThreatMap] Busca falhou', err);
+            els.locSuggestions.hidden = true;
+        }
+    }
+
+    const debouncedSearch = debounce((q) => performLocationSearch(q), 350);
+
+    function selectLocationSuggestion(res) {
+        els.locSuggestions.hidden = true;
+        els.locSearchInput.value = '';
+
+        state.pendingBrowserLocation = {
+            latitude: res.latitude,
+            longitude: res.longitude,
+            source: 'address',
+            extra: {
+                city: res.city || '',
+                region: res.region || '',
+                country_code: res.country_code || ''
+            }
+        };
+
+        els.locSummaryText.innerHTML = `<strong>${res.label}</strong><br>Lat: ${res.latitude.toFixed(5)} • Lon: ${res.longitude.toFixed(5)}`;
+        els.locSelectedSummary.hidden = false;
+
+        if (els.locLat) els.locLat.value = res.latitude;
+        if (els.locLon) els.locLon.value = res.longitude;
+        if (els.locCidade) els.locCidade.value = res.city || '';
+        if (els.locEstado) els.locEstado.value = res.region || '';
+        if (els.locPais) els.locPais.value = res.country_code || 'BR';
+    }
+
+        function requestBrowserLocation() {
         hideLocationError();
 
         if (!window.isSecureContext || !navigator.geolocation) {
@@ -1680,16 +1806,28 @@
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 if (els.btnUseBrowser) els.btnUseBrowser.disabled = false;
+
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
                 state.pendingBrowserLocation = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
+                    latitude: lat,
+                    longitude: lon,
                     source: 'browser',
                     extra: {}
                 };
-                if (els.locationConfirmDisplay) els.locationConfirmDisplay.textContent = "Localização do navegador";
-                if (els.browserConfirmLat) els.browserConfirmLat.textContent = position.coords.latitude.toFixed(6);
-                if (els.browserConfirmLon) els.browserConfirmLon.textContent = position.coords.longitude.toFixed(6);
-                if (els.browserConfirmBox) els.browserConfirmBox.hidden = false;
+
+                if (els.locSuggestions) els.locSuggestions.hidden = true;
+                if (els.locSearchInput) els.locSearchInput.value = '';
+
+                if (els.locSummaryText) els.locSummaryText.innerHTML = `<strong>Localização do navegador</strong><br>Lat: ${lat.toFixed(5)} • Lon: ${lon.toFixed(5)}`;
+                if (els.locSelectedSummary) els.locSelectedSummary.hidden = false;
+
+                if (els.locLat) els.locLat.value = lat;
+                if (els.locLon) els.locLon.value = lon;
+                if (els.locCidade) els.locCidade.value = '';
+                if (els.locEstado) els.locEstado.value = '';
+                if (els.locPais) els.locPais.value = '';
             },
             () => {
                 if (els.btnUseBrowser) els.btnUseBrowser.disabled = false;
@@ -1699,33 +1837,47 @@
         );
     }
 
-    async function submitLocation(latitude, longitude, source, extra = {}) {
-        const lat = Number(latitude);
-        const lon = Number(longitude);
-
-        if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-            showLocationError('Latitude deve estar entre -90 e 90.');
-            return;
-        }
-        if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
-            showLocationError('Longitude deve estar entre -180 e 180.');
-            return;
-        }
-
+    async function submitMapConfig() {
         hideLocationError();
         if (els.btnSaveLocation) els.btnSaveLocation.disabled = true;
 
         try {
-            const payload = {
-                latitude: lat,
-                longitude: lon,
-                source: source || 'manual'
-            };
-            if (extra) Object.assign(payload, extra);
+            const payload = {};
+
+            let lat = null;
+            let lon = null;
+            let source = 'empty';
+
+            if (state.pendingBrowserLocation) {
+                lat = state.pendingBrowserLocation.latitude;
+                lon = state.pendingBrowserLocation.longitude;
+                source = state.pendingBrowserLocation.source;
+                Object.assign(payload, state.pendingBrowserLocation.extra || {});
+            } else if (els.locLat && els.locLat.value && els.locLon && els.locLon.value) {
+                lat = Number(els.locLat.value);
+                lon = Number(els.locLon.value);
+                source = 'manual';
+                if (els.locCidade) payload.city = els.locCidade.value;
+                if (els.locEstado) payload.region = els.locEstado.value;
+                if (els.locPais) payload.country_code = els.locPais.value;
+            }
+
+            if (lat !== null && lon !== null) {
+                if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+                    throw new Error('Latitude deve estar entre -90 e 90.');
+                }
+                if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+                    throw new Error('Longitude deve estar entre -180 e 180.');
+                }
+                payload.latitude = lat;
+                payload.longitude = lon;
+                payload.source = source;
+            } else {
+                throw new Error('Informe ou busque uma localização.');
+            }
 
             const response = await fetch(ENDPOINTS.location, {
                 method: 'POST',
-                credentials: 'same-origin',
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/json',
@@ -1737,44 +1889,13 @@
 
             const data = await response.json().catch(() => ({}));
             if (!response.ok || data.ok === false) {
-                throw new Error(data.erro || data.error || `HTTP ${response.status}`);
+                throw new Error(data.error || data.erro || `HTTP ${response.status}`);
             }
 
-            // Success
-            state.node = state.node || {};
-            state.node.latitude = lat;
-            state.node.longitude = lon;
-            
-            if (els.noLocationWarning) {
-                els.noLocationWarning.classList.remove('visible');
-            }
-            if (els.browserConfirmBox) {
-                els.browserConfirmBox.hidden = true;
-            }
-            state.pendingBrowserLocation = null;
-
-            const renderer = getRenderer();
-            if (renderer && typeof renderer.setNode === 'function') {
-                renderer.setNode({
-                    ...(state.node || {}),
-                    latitude: lat,
-                    longitude: lon
-                });
-                if (typeof renderer.focusNode === 'function') {
-                    renderer.focusNode();
-                }
-            }
-            
-            closeLocationModal();
-            showToast('Localização do appliance atualizada.');
-            
-            if (state.live) {
-                refreshAll({ force: true }).catch(console.error);
-            }
+            window.location.reload();
         } catch (error) {
             console.warn('[ThreatMap] Falha ao salvar localização.', error);
             showLocationError(error.message || 'Falha ao salvar localização.');
-        } finally {
             if (els.btnSaveLocation) els.btnSaveLocation.disabled = false;
         }
     }
@@ -1933,29 +2054,60 @@
         if (els.drawerBackdrop) els.drawerBackdrop.addEventListener('click', closeMobileDrawers);
 
         if (els.btnOpenLocationModal) els.btnOpenLocationModal.addEventListener('click', openLocationModal);
+        if (els.btnOpenModalFromFailure) els.btnOpenModalFromFailure.addEventListener('click', openLocationModal);
+
         if (els.btnCloseLocation) els.btnCloseLocation.addEventListener('click', closeLocationModal);
-        if (els.btnCancelLocation) els.btnCancelLocation.addEventListener('click', closeLocationModal);
+        if (els.btnCancelStep1) els.btnCancelStep1.addEventListener('click', closeLocationModal);
+        if (els.btnCancelLocation) {
+            els.btnCancelLocation.addEventListener('click', () => {
+                // If mapbox token is configured, maybe just close modal or go back to step 1
+                // User requirement: step 1 is mapbox, step 2 is location.
+                if (MAPBOX_TOKEN && !state.node) {
+                    closeLocationModal();
+                } else if (MAPBOX_TOKEN) {
+                    closeLocationModal();
+                } else {
+                    goToStep1();
+                }
+            });
+        }
         if (els.locationModal) {
             els.locationModal.addEventListener('click', (event) => {
                 if (event.target === els.locationModal) closeLocationModal();
             });
         }
 
-        if (els.btnUseBrowser) els.btnUseBrowser.addEventListener('click', requestBrowserLocation);
-        if (els.btnConfirmBrowserLocation) {
-            els.btnConfirmBrowserLocation.addEventListener('click', () => {
-                if (!state.pendingBrowserLocation) return;
-                submitLocation(
-                    state.pendingBrowserLocation.latitude,
-                    state.pendingBrowserLocation.longitude,
-                    state.pendingBrowserLocation.source || 'browser',
-                    state.pendingBrowserLocation.extra
-                ).catch(console.error);
+        if (els.btnValidateToken) els.btnValidateToken.addEventListener('click', validateMapboxToken);
+        if (els.btnContinueStep1) els.btnContinueStep1.addEventListener('click', goToStep2);
+
+        if (els.btnChangeToken) {
+            els.btnChangeToken.addEventListener('click', () => {
+                if (els.mapboxConfiguredState) els.mapboxConfiguredState.hidden = true;
+                if (els.mapboxInputState) els.mapboxInputState.hidden = false;
+                if (els.btnValidateToken) els.btnValidateToken.hidden = false;
+                if (els.btnContinueStep1) els.btnContinueStep1.hidden = true;
+                if (els.mapboxTokenInput) {
+                    els.mapboxTokenInput.value = '';
+                    els.mapboxTokenInput.focus();
+                }
             });
         }
-        if (els.btnSearchAddress) {
-            els.btnSearchAddress.addEventListener('click', searchAddress);
+
+        if (els.locSearchInput) {
+            els.locSearchInput.addEventListener('input', (e) => debouncedSearch(e.target.value));
+            els.locSearchInput.addEventListener('focus', (e) => {
+                if (els.locSuggestions && els.locSuggestions.innerHTML.trim() !== '') {
+                    els.locSuggestions.hidden = false;
+                }
+            });
+            document.addEventListener('click', (e) => {
+                if (els.locSuggestions && !els.locSearchInput.contains(e.target) && !els.locSuggestions.contains(e.target)) {
+                    els.locSuggestions.hidden = true;
+                }
+            });
         }
+
+        if (els.btnUseBrowser) els.btnUseBrowser.addEventListener('click', requestBrowserLocation);
 
         if (els.btnSaveLocation) {
             els.btnSaveLocation.addEventListener('click', () => {

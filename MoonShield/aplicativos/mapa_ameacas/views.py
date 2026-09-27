@@ -229,16 +229,7 @@ def api_set_location(request):
     if source not in ["manual", "browser", "config", "geoip", "address", "unknown", "empty"]:
         return JsonResponse({"ok": False, "erro": "Source invalido"}, status=400)
 
-    # Validar mapbox token, se enviado
-    mapbox_token = None
-    if "mapbox_access_token" in data:
-        mapbox_token = str(data["mapbox_access_token"]).strip()
-        if not mapbox_token:
-            return JsonResponse({"ok": False, "erro": "Informe um token Mapbox válido."}, status=400)
-
     cfg = ConfigSistema.get_solo()
-    if mapbox_token is not None:
-        cfg.mapbox_access_token = mapbox_token
     if "latitude" in data:
         cfg.node_latitude = lat
     if "longitude" in data:
@@ -277,11 +268,11 @@ def api_geocode(request):
     if state:
         parts.append(state)
     is_br = False
-    
+
     br_states = {"AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"}
     if state.upper() in br_states:
         is_br = True
-        
+
     if cep:
         import re
         cep_norm = cep.replace("-", "").strip()
@@ -352,3 +343,94 @@ def api_geocode(request):
             "country_code": country_res
         }
     })
+
+@require_POST
+@login_required(login_url="autenticacao:login")
+def api_validate_mapbox_token(request):
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"ok": False, "error": "JSON inválido."}, status=400)
+
+    token = str(data.get("mapbox_access_token", "")).strip()[:512]
+    if not token:
+        return JsonResponse({"ok": False, "error": "Token não informado."}, status=400)
+
+    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/Campinas.json?access_token={urllib.parse.quote(token)}&limit=1"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'MoonShield'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in [401, 403]:
+            return JsonResponse({"ok": False, "error": "Token Mapbox inválido."}, status=400)
+        return JsonResponse({"ok": False, "error": "Não foi possível validar o Mapbox neste momento."}, status=503)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Mapbox validation error: {e}")
+        return JsonResponse({"ok": False, "error": "Não foi possível validar o Mapbox neste momento."}, status=503)
+
+    if "features" not in res_data:
+        return JsonResponse({"ok": False, "error": "Token Mapbox inválido."}, status=400)
+
+    cfg = ConfigSistema.get_solo()
+    cfg.mapbox_access_token = token
+    cfg.save()
+    return JsonResponse({"ok": True})
+
+@require_GET
+@login_required(login_url="autenticacao:login")
+def api_search_location(request):
+    token = _obter_mapbox_token()
+    if not token:
+        return JsonResponse({"ok": False, "error": "Configure o Mapbox antes de pesquisar localização."}, status=400)
+
+    query = request.GET.get("q", "").strip()
+    if len(query) < 3 or len(query) > 200:
+        return JsonResponse({"ok": False, "error": "Busca muito curta ou muito longa."}, status=400)
+
+    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{urllib.parse.quote(query)}.json?access_token={urllib.parse.quote(token)}&limit=5&types=address,place,postcode,poi,neighborhood,district,locality"
+
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'MoonShield'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Mapbox search error: {e}")
+        return JsonResponse({"ok": False, "error": "Falha ao buscar endereço."}, status=503)
+
+    results = []
+    for f in res_data.get("features", []):
+        center = f.get("center", [0, 0])
+        city_res = ""
+        region_res = ""
+        country_res = ""
+        postcode_res = ""
+
+        # Check contexts
+        for ctx in f.get("context", []):
+            cid = ctx.get("id", "")
+            if cid.startswith("place."): city_res = ctx.get("text", "")
+            elif cid.startswith("region."): region_res = ctx.get("text", "")
+            elif cid.startswith("country."): country_res = ctx.get("short_code", "").upper()
+            elif cid.startswith("postcode."): postcode_res = ctx.get("text", "")
+
+        # Check primary feature type if it represents city/region/etc
+        ftype = f.get("place_type", [])
+        if "place" in ftype and not city_res: city_res = f.get("text", "")
+        elif "region" in ftype and not region_res: region_res = f.get("text", "")
+        elif "country" in ftype and not country_res: country_res = f.get("properties", {}).get("short_code", f.get("text", "")).upper()
+        elif "postcode" in ftype and not postcode_res: postcode_res = f.get("text", "")
+
+        results.append({
+            "label": f.get("place_name", query),
+            "latitude": center[1],
+            "longitude": center[0],
+            "city": city_res,
+            "region": region_res,
+            "country_code": country_res,
+            "postcode": postcode_res
+        })
+
+    return JsonResponse({"ok": True, "results": results})

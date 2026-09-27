@@ -10,5 +10,7 @@ urlpatterns = [
     path('api/facets/', views.api_map_facets, name='api_map_facets'),
     path('api/search/', views.api_map_search, name='api_map_search'),
     path('api/location/', views.api_set_location, name='api_set_location'),
-    path('api/location/geocode/', views.api_geocode, name='api_geocode'),
+        path('api/location/geocode/', views.api_geocode, name='api_geocode'),
+    path('api/mapbox/validate/', views.api_validate_mapbox_token, name='api_validate_mapbox_token'),
+    path('api/location/search/', views.api_search_location, name='api_search_location'),
 ]

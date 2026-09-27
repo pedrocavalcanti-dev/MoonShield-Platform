@@ -226,13 +226,25 @@ def api_set_location(request):
         except (TypeError, ValueError):
             return JsonResponse({"ok": False, "erro": "Coordenadas invalidas"}, status=400)
 
-    if source not in ["manual", "browser", "config", "geoip", "address", "unknown"]:
+    if source not in ["manual", "browser", "config", "geoip", "address", "unknown", "empty"]:
         return JsonResponse({"ok": False, "erro": "Source invalido"}, status=400)
 
+    # Validar mapbox token, se enviado
+    mapbox_token = None
+    if "mapbox_access_token" in data:
+        mapbox_token = str(data["mapbox_access_token"]).strip()
+        if not mapbox_token:
+            return JsonResponse({"ok": False, "erro": "Informe um token Mapbox válido."}, status=400)
+
     cfg = ConfigSistema.get_solo()
-    cfg.node_latitude = lat
-    cfg.node_longitude = lon
-    cfg.node_location_source = source
+    if mapbox_token is not None:
+        cfg.mapbox_access_token = mapbox_token
+    if "latitude" in data:
+        cfg.node_latitude = lat
+    if "longitude" in data:
+        cfg.node_longitude = lon
+    if "source" in data:
+        cfg.node_location_source = source
     if "city" in data: cfg.node_city = data.get("city", "")[:100]
     if "region" in data: cfg.node_region = data.get("region", "")[:100]
     if "country_code" in data: cfg.node_country_code = data.get("country_code", "")[:10]
@@ -287,7 +299,11 @@ def api_geocode(request):
     if not query or len(query) > 200:
         return JsonResponse({"ok": False, "erro": "Endereço vazio ou muito longo"}, status=400)
 
-    token = _obter_mapbox_token()
+    token = data.get("mapbox_access_token")
+    if token:
+        token = str(token).strip()
+    if not token:
+        token = _obter_mapbox_token()
     if not token:
         return JsonResponse({"ok": False, "erro": "Geocoding não configurado (token ausente)"}, status=503)
 

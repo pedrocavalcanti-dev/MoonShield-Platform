@@ -381,6 +381,81 @@ class TestMapaLocationEndpoints(TestCase):
         cfg.appliance_onboarding_completo = True
         cfg.save()
 
+
+    def test_mapa_view_token_vazio_location_vazia_returns_200(self):
+        cfg = ConfigSistema.get_solo()
+        cfg.mapbox_access_token = ""
+        cfg.node_latitude = None
+        cfg.node_longitude = None
+        cfg.save()
+        response = self.client.get("/mapa/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["mapbox_token"], "")
+
+    def test_set_location_saves_valid_token(self):
+        payload = {"mapbox_access_token": "pk.new_token_123"}
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        cfg = ConfigSistema.get_solo()
+        self.assertEqual(cfg.mapbox_access_token, "pk.new_token_123")
+
+        # 9. Token not in JSON response
+        data = json.loads(response.content)
+        self.assertTrue(data["ok"])
+        self.assertNotIn("mapbox_access_token", data)
+        self.assertNotIn("pk.new_token_123", response.content.decode("utf-8"))
+
+    def test_set_location_saves_token_and_location(self):
+        payload = {
+            "mapbox_access_token": "pk.combined_token",
+            "latitude": -10.0,
+            "longitude": -20.0,
+            "source": "manual"
+        }
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        cfg = ConfigSistema.get_solo()
+        self.assertEqual(cfg.mapbox_access_token, "pk.combined_token")
+        self.assertEqual(cfg.node_latitude, -10.0)
+        self.assertEqual(cfg.node_longitude, -20.0)
+
+    def test_set_location_preserves_existing_config_when_fields_omitted(self):
+        cfg = ConfigSistema.get_solo()
+        cfg.mapbox_access_token = "pk.old_token"
+        cfg.node_latitude = 45.0
+        cfg.node_longitude = 45.0
+        cfg.save()
+
+        # Update only location
+        payload = {"latitude": 50.0, "longitude": 50.0, "source": "manual"}
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.mapbox_access_token, "pk.old_token") # Preserved
+        self.assertEqual(cfg.node_latitude, 50.0)
+
+        # Update only token
+        payload2 = {"mapbox_access_token": "pk.new_token_only"}
+        response2 = self.client.post("/mapa/api/location/", json.dumps(payload2), content_type="application/json")
+        self.assertEqual(response2.status_code, 200)
+        cfg.refresh_from_db()
+        self.assertEqual(cfg.mapbox_access_token, "pk.new_token_only")
+        self.assertEqual(cfg.node_latitude, 50.0) # Preserved
+
+    def test_set_location_get_returns_405(self):
+        response = self.client.get("/mapa/api/location/")
+        self.assertEqual(response.status_code, 405)
+
+    def test_set_location_invalid_latitude_returns_400(self):
+        payload = {"latitude": 91.0, "longitude": 0.0, "source": "manual"}
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_set_location_invalid_longitude_returns_400(self):
+        payload = {"latitude": 0.0, "longitude": -181.0, "source": "manual"}
+        response = self.client.post("/mapa/api/location/", json.dumps(payload), content_type="application/json")
+        self.assertEqual(response.status_code, 400)
+
     def test_set_location_requires_authentication(self):
         self.client.logout()
         response = self.client.post("/mapa/api/location/", "{}", content_type="application/json")

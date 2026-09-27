@@ -200,6 +200,11 @@
         locEstado: $('loc-estado'),
         locPais: $('loc-pais'),
         btnSearchAddress: $('btn-search-address'),
+        mapboxTokenInput: $('mapbox-token-input'),
+        mapboxConfiguredState: $('mapbox-configured-state'),
+        mapboxInputState: $('mapbox-input-state'),
+        btnChangeToken: $('btn-change-token'),
+        btnOpenModalFromFailure: $('btn-open-modal-from-failure'),
         locationConfirmDisplay: $('location-confirm-display'),
 
         toast: $('tm-toast')
@@ -1630,7 +1635,7 @@
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRFToken': getCookie('csrftoken') || ''
                 },
-                body: JSON.stringify({ cep, address, city, state: stateStr, country })
+                body: JSON.stringify({ cep, address, city, state: stateStr, country, mapbox_access_token: (els.mapboxTokenInput && !els.mapboxInputState.hidden) ? els.mapboxTokenInput.value.trim() : '' })
             });
             const data = await response.json();
 
@@ -1954,11 +1959,7 @@
 
         if (els.btnSaveLocation) {
             els.btnSaveLocation.addEventListener('click', () => {
-                submitLocation(
-                    els.locLat ? els.locLat.value : '',
-                    els.locLon ? els.locLon.value : '',
-                    'manual'
-                ).catch(console.error);
+                submitMapConfig().catch(console.error);
             });
         }
 

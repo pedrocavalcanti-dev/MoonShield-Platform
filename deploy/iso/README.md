@@ -2,9 +2,10 @@
 
 This builds `MoonShield-0.1.0-alpha.1-amd64.iso` from a clean, pinned Debian 13
 amd64 netinst image. It does not snapshot a running VM or install MoonShield on
-the builder. The Debian Installer remains interactive for disk layout and
-identity; the profile selects only the standard system task (no desktop) and
-schedules the offline MoonShield installer for the installed system's first boot.
+the builder. The Debian Installer keeps disk selection and partition
+confirmation interactive; the profile sets appliance locale/network defaults,
+selects only the standard system task (no desktop), and schedules the offline
+MoonShield installer for the installed system's first boot.
 
 ## Builder prerequisites
 
@@ -103,6 +104,19 @@ Verify the finished file with:
 cd build/iso
 sha256sum --check MoonShield-0.1.0-alpha.1-amd64.iso.sha256
 ```
+
+The BIOS and UEFI menus are branded `MOONSHIELD - Network Security Appliance`
+and `MOONSHIELD`, respectively, with `Install MoonShield` as the default and
+`Advanced options` as the alternate entry. Both menus wait five seconds before
+starting the installer. The ISO volume ID is `MOONSHIELD_ALPHA1`. Installer
+defaults are Brazilian Portuguese (`pt_BR.UTF-8`), Brazilian keyboard, the
+`America/Sao_Paulo` timezone, hostname `moonshield`, domain `local`, and
+automatic network interface selection with DHCP. No desktop, popularity
+reporting, APT mirror, Debian root login, or interactive Debian user account is
+configured; first-use web onboarding remains the application account flow.
+No `partman` answers are preseeded, so the operator must still choose the target
+disk and confirm partitioning in the Debian Installer. A menu timeout only
+starts the installer; it does not select or erase a disk.
 
 The remaster maps the release to `/moonshield/release`, the offline bundle to
 `/moonshield/offline-bundle`, and the preseed/hook to `/moonshield/`. The Debian

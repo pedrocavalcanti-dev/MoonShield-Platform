@@ -1,0 +1,15 @@
+title-text: "MOONSHIELD"
+title-font: "unicode"
+title-color: "#DDF4FF"
+desktop-color: "#08111F"
+
++ label {
+    top = 20%
+    left = 0
+    width = 100%
+    height = 30
+    text = "Network Security Appliance"
+    align = "center"
+    color = "#9AB3C7"
+    font = "unicode"
+}

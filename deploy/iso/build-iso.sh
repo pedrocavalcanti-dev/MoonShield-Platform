@@ -142,14 +142,19 @@ if not patched_grub:
 grub_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 
+cp -- "$SCRIPT_DIR/templates/isolinux-menu.cfg" "$WORK/moonshield-menu.cfg"
+cp -- "$SCRIPT_DIR/templates/grub.cfg" "$WORK/moonshield-grub.cfg"
+
 printf '[INFO] Remasterizando mídia e preservando os parâmetros de boot da ISO original.\n'
 xorriso -indev "$BASE_ISO" -outdev "$TEMP_ISO" \
   -map "$SCRIPT_DIR/preseed.cfg" /moonshield/preseed.cfg \
   -map "$SCRIPT_DIR/late-command.sh" /moonshield/late-command.sh \
   -map "$RELEASE" /moonshield/release \
   -map "$BUNDLE" /moonshield/offline-bundle \
-  -map "$WORK/txt.cfg" /isolinux/txt.cfg \
-  -map "$WORK/grub.cfg" /boot/grub/grub.cfg \
+  -map "$WORK/moonshield-menu.cfg" /isolinux/menu.cfg \
+  -map "$WORK/moonshield-grub.cfg" /boot/grub/grub.cfg \
+  -map "$SCRIPT_DIR/templates/moonshield-theme.txt" /boot/grub/moonshield-theme.txt \
+  -volid MOONSHIELD_ALPHA1 \
   -boot_image any replay -commit -end
 
 [[ -s "$TEMP_ISO" ]] || die 'xorriso não gerou uma ISO de saída.'

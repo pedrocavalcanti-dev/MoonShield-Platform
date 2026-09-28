@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PASS=0
+WARN=0
+FAIL=0
+
+pass() { printf '[PASS] %s\n' "$1"; PASS=$((PASS + 1)); }
+warn() { printf '[WARN] %s\n' "$1"; WARN=$((WARN + 1)); }
+fail() { printf '[FAIL] %s\n' "$1"; FAIL=$((FAIL + 1)); }
+
+check_service() {
+  local service="$1" required="$2"
+  if systemctl is-active --quiet "$service"; then pass "$service ativo"; elif [[ "$required" == yes ]]; then fail "$service inativo"; else warn "$service inativo"; fi
+  if ! systemctl list-unit-files --no-legend "$service" 2>/dev/null | grep -q "$service"; then
+    [[ "$required" == yes ]] && fail "unit $service não instalado" || warn "unit $service não instalado"
+  fi
+}
+
+check_loopback_listener() {
+  local port="$1" label="$2" output
+  output="$(ss -H -ltn "sport = :$port" 2>/dev/null || true)"
+  if [[ -z "$output" ]]; then fail "$label sem listener TCP na porta $port"; return; fi
+  if printf '%s\n' "$output" | awk '{print $4}' | grep -Eq '^(0\.0\.0\.0|\*|\[::\]):'; then
+    fail "$label exposto em endereço wildcard na porta $port"
+  elif printf '%s\n' "$output" | awk '{print $4}' | grep -Eq '^(127\.0\.0\.1|\[::1\]):'; then
+    pass "$label restrito a loopback na porta $port"
+  else
+    fail "$label escutando em endereço inesperado na porta $port"
+  fi
+}
+
+if [[ -x /opt/moonshield/venv/bin/python && -f /opt/moonshield/source/MoonShield/gerenciar.py ]]; then
+  if (cd /opt/moonshield/source/MoonShield && /opt/moonshield/venv/bin/python gerenciar.py check >/dev/null 2>&1); then pass "Django check"; else fail "Django check"; fi
+else
+  fail "código/venv Django ausente"
+fi
+
+command -v pg_isready >/dev/null 2>&1 && pg_isready -h 127.0.0.1 -p 5432 >/dev/null 2>&1 && pass "PostgreSQL pronto em loopback" || fail "PostgreSQL indisponível em 127.0.0.1:5432"
+check_service nginx.service yes
+check_service moonshield-web.service yes
+check_service moonshield-agent.service yes
+check_service moonshield-suricata-monitor.service yes
+check_service moonshield-suricata-worker.service yes
+check_service NetworkManager.service no
+check_service nftables.service no
+check_service suricata.service yes
+check_service AdGuardHome.service no
+check_service postgresql.service yes
+
+check_loopback_listener 8000 Gunicorn
+check_loopback_listener 5432 PostgreSQL
+if systemctl is-active --quiet AdGuardHome.service; then
+  check_loopback_listener 3000 'AdGuard Admin'
+else
+  warn 'AdGuard aguardando topologia DNS ser configurada no onboarding'
+fi
+
+ss -H -ltn '( sport = :80 or sport = :443 )' 2>/dev/null | grep -q . && pass 'Nginx listener em 80/443' || fail 'Nginx sem listener HTTP/HTTPS'
+if systemctl is-active --quiet AdGuardHome.service; then
+  ss -H -lun '( sport = :53 )' 2>/dev/null | grep -q . && pass 'DNS UDP/53 ativo' || fail 'DNS UDP/53 indisponível'
+  ss -H -ltn '( sport = :53 )' 2>/dev/null | grep -q . && pass 'DNS TCP/53 ativo' || fail 'DNS TCP/53 indisponível'
+else
+  warn 'DNS UDP/53 pendente da topologia do onboarding'
+  warn 'DNS TCP/53 pendente da topologia do onboarding'
+fi
+
+if curl --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1/ 2>/dev/null; then pass 'HTTP local via Nginx'; else fail 'HTTP local via Nginx'; fi
+for path in /etc/moonshield /etc/moonshield/secrets /var/lib/moonshield /var/lib/moonshield/firewall /var/lib/moonshield/rede /var/lib/moonshield/suricata /var/log/moonshield /run/moonshield; do
+  [[ -d "$path" ]] && pass "diretório $path" || fail "diretório $path ausente"
+done
+
+if [[ -f /etc/moonshield/database.env ]]; then
+  mode="$(stat -c '%a:%U:%G' /etc/moonshield/database.env 2>/dev/null || true)"
+  [[ "$mode" == 640:root:moonshield ]] && pass 'permissões de database.env' || fail 'database.env deve ser root:moonshield 0640'
+else
+  fail 'database.env ausente'
+fi
+if [[ -f /etc/moonshield/secrets/django_secret_key ]]; then
+  mode="$(stat -c '%a:%U:%G' /etc/moonshield/secrets/django_secret_key 2>/dev/null || true)"
+  [[ "$mode" == 640:root:moonshield ]] && pass 'permissões da SECRET_KEY' || fail 'SECRET_KEY deve ser root:moonshield 0640'
+else
+  fail 'SECRET_KEY de appliance ausente'
+fi
+
+printf '\nResultado: %d PASS, %d WARN, %d FAIL\n' "$PASS" "$WARN" "$FAIL"
+(( FAIL == 0 ))

@@ -1,0 +1,25 @@
+[Unit]
+Description=MoonShield Django web application
+Wants=network-online.target
+After=network-online.target postgresql.service NetworkManager.service moonshield-agent.service AdGuardHome.service
+
+[Service]
+Type=exec
+User=moonshield
+Group=moonshield
+WorkingDirectory=/opt/moonshield/source/MoonShield
+EnvironmentFile=/etc/moonshield/appliance.conf
+EnvironmentFile=/etc/moonshield/database.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/moonshield/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/moonshield /var/log/moonshield /run/moonshield
+
+[Install]
+WantedBy=multi-user.target

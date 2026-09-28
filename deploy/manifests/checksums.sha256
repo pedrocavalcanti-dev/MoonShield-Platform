@@ -1,0 +1,2 @@
+# AdGuard's release-asset SHA-256 is pinned in external-artifacts.env.
+# Revalidate that official checksum when changing the pinned release version.

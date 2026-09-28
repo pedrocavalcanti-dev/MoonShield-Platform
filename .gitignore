@@ -44,3 +44,10 @@ Desktop.ini
 .DS_Store
 # MoonShield runtime state
 MoonShield/var/
+
+# Appliance release/offline build staging (generated, never source)
+/build/moonshield-root/
+/build/offline-bundle/
+/deploy/offline-bundle/
+/deploy/certificates/optional/*.crt
+/deploy/certificates/optional/*.pem

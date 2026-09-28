@@ -1,0 +1,24 @@
+# Required appliance/runtime packages, one package name per line.
+acl
+ca-certificates
+curl
+dnsutils
+iproute2
+iputils-ping
+mtr-tiny
+network-manager
+nginx
+nftables
+openssl
+postgresql
+postgresql-client
+python3
+python3-venv
+python3-pip
+procps
+suricata
+suricata-update
+traceroute
+
+# Optional feature dependency: advanced device discovery uses nmap; quick scan does not.
+nmap

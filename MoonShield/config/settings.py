@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -27,6 +28,10 @@ PROJECT_ROOT = BASE_DIR.parent
 # /home/moonshield/MoonShield-Platform/.env
 #
 ENV_FILE = PROJECT_ROOT / ".env"
+APPLIANCE_CONFIG_DIR = Path("/etc/moonshield")
+APPLIANCE_CONF_FILE = APPLIANCE_CONFIG_DIR / "appliance.conf"
+APPLIANCE_DATABASE_FILE = APPLIANCE_CONFIG_DIR / "database.env"
+APPLIANCE_MODE = APPLIANCE_CONF_FILE.is_file()
 
 
 # =============================================================================
@@ -37,7 +42,25 @@ env = environ.Env(
     DEBUG=(bool, False),
 )
 
-if ENV_FILE.exists():
+if APPLIANCE_MODE:
+    if not APPLIANCE_DATABASE_FILE.is_file():
+        raise RuntimeError("Modo appliance ativo, mas /etc/moonshield/database.env está ausente.")
+    environ.Env.read_env(APPLIANCE_CONF_FILE, overwrite=True)
+    environ.Env.read_env(APPLIANCE_DATABASE_FILE, overwrite=True)
+    _secret_key_file = Path(
+        os.environ.get(
+            "SECRET_KEY_FILE",
+            str(APPLIANCE_CONFIG_DIR / "secrets" / "django_secret_key"),
+        )
+    )
+    try:
+        _appliance_secret_key = _secret_key_file.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError("SECRET_KEY da appliance não pode ser lida do arquivo externo configurado.") from exc
+    if not _appliance_secret_key:
+        raise RuntimeError("SECRET_KEY da appliance está vazia.")
+    os.environ["SECRET_KEY"] = _appliance_secret_key
+elif ENV_FILE.exists():
     environ.Env.read_env(
         ENV_FILE,
     )
@@ -354,8 +377,8 @@ STATICFILES_DIRS = [
 ]
 
 
-STATIC_ROOT = (
-    BASE_DIR / "staticfiles"
+STATIC_ROOT = Path(
+    env("STATIC_ROOT", default=str(Path("/var/lib/moonshield/static") if APPLIANCE_MODE else BASE_DIR / "staticfiles"))
 )
 
 
@@ -365,8 +388,8 @@ STATIC_ROOT = (
 
 MEDIA_URL = "/media/"
 
-MEDIA_ROOT = (
-    BASE_DIR / "media"
+MEDIA_ROOT = Path(
+    env("MEDIA_ROOT", default=str(Path("/var/lib/moonshield/media") if APPLIANCE_MODE else BASE_DIR / "media"))
 )
 
 
@@ -450,7 +473,12 @@ SECURE_PROXY_SSL_HEADER = (
 # /var/log/moonshield/
 
 
-LOG_DIR = BASE_DIR / "logs"
+LOG_DIR = Path(
+    env(
+        "MOONSHIELD_LOG_DIR",
+        default=str(Path("/var/log/moonshield/app") if APPLIANCE_MODE else BASE_DIR / "logs"),
+    )
+)
 
 
 LOG_DIR.mkdir(

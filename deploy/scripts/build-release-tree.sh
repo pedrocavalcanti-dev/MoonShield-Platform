@@ -21,7 +21,7 @@ if target.exists():
 excluded_dirs = {
     ".git", ".venv", "venv", "env", "node_modules", "__pycache__",
     ".pytest_cache", "staticfiles", "media", "logs", "offline-bundle",
-    "build", ".vscode", ".idea", "tests", "test", "__tests__",
+    "build", ".vscode", ".idea", "tests", "test", "__tests__", "support",
 }
 excluded_names = {
     ".env", "config.json", "AdGuardHome_linux_amd64.tar.gz",
@@ -39,6 +39,16 @@ def ignore(directory: str, names: list[str]) -> set[str]:
             ignored.add(name)
         elif name.endswith((".pyc", ".pyo", ".sqlite3", ".log", ".tmp")):
             ignored.add(name)
+        elif "private" in name.lower() or path.suffix.lower() == ".key":
+            ignored.add(name)
+        elif path.is_file() and path.suffix.lower() in {".pem", ".p8", ".p12", ".pfx"}:
+            try:
+                header = path.open("rb").read(512).upper()
+            except OSError:
+                ignored.add(name)
+            else:
+                if b"PRIVATE KEY" in header or path.suffix.lower() in {".p8", ".p12", ".pfx"}:
+                    ignored.add(name)
         elif name == "tests.py" or (name.startswith("test_") and name.endswith(".py")):
             ignored.add(name)
         elif name.startswith(".env."):

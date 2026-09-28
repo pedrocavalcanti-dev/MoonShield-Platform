@@ -11,6 +11,11 @@ install_django_application() {
   [[ -d /var/lib/moonshield/static ]] || die "STATIC_ROOT esperado não foi criado."
   chown -R moonshield:www-data /var/lib/moonshield/static /var/lib/moonshield/media
   chmod 0750 /var/lib/moonshield/static /var/lib/moonshield/media
-  (cd "$django_dir" && "$python_bin" gerenciar.py check) || die "Django check final falhou."
+  [[ ! -L /var/log/moonshield && ! -L /var/log/moonshield/app ]] || die "Diretório de logs Django é symlink; destino preservado sem alteração."
+  install -d -o moonshield -g moonshield -m 0750 /var/log/moonshield/app
+  chown -R moonshield:moonshield /var/log/moonshield/app
+  find /var/log/moonshield/app -type d -exec chmod 0750 {} +
+  find /var/log/moonshield/app -type f -exec chmod 0640 {} +
+  (cd "$django_dir" && runuser -u moonshield -- "$python_bin" gerenciar.py check) || die "Django check final falhou como usuário do serviço."
   ok "Migrations/collectstatic concluídos; nenhuma conta inicial ou Django superuser foi criada."
 }

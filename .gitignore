@@ -51,3 +51,13 @@ MoonShield/var/
 /deploy/offline-bundle/
 /deploy/certificates/optional/*.crt
 /deploy/certificates/optional/*.pem
+/deploy/console/*private*
+/deploy/console/*.key
+/deploy/console/*.p8
+/deploy/console/*.p12
+/deploy/console/*.pfx
+/deploy/support/*private*
+/deploy/support/*.key
+/deploy/support/*.p8
+/deploy/support/*.p12
+/deploy/support/*.pfx

@@ -21,6 +21,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 . "$SCRIPT_DIR/lib/django.sh"
 # shellcheck source=lib/services.sh
 . "$SCRIPT_DIR/lib/services.sh"
+# shellcheck source=lib/console.sh
+. "$SCRIPT_DIR/lib/console.sh"
+
+FINAL_ISO_MODE=0
 
 usage() {
   cat <<'USAGE'
@@ -33,6 +37,7 @@ Usage: sudo bash ./deploy/install.sh [--online | --offline [DIR]] [--ca-cert FIL
   --offline-bundle DIR alias explícito de --offline DIR
   --ca-cert FILE       CA corporativa PEM fornecida explicitamente pelo operador
   --repair             reconcilia dependências/serviços sem resetar estado persistente
+  --final-iso          aplica políticas de console/TTY/SSH da imagem final e exige chave pública
   --check              executa apenas preflight e healthcheck read-only
   -h, --help           mostra esta ajuda
 USAGE
@@ -62,6 +67,7 @@ while (($#)); do
       shift 2
       ;;
     --repair) REPAIR_MODE=1; shift ;;
+    --final-iso) FINAL_ISO_MODE=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Argumento desconhecido: $1" ;;
@@ -73,9 +79,13 @@ export DEBIAN_FRONTEND=noninteractive
 init_logging
 preflight
 
+if (( FINAL_ISO_MODE )); then
+  validate_maintenance_public_key
+fi
+
 if (( CHECK_ONLY )); then
-  [[ -x /opt/moonshield/venv/bin/python && -x /opt/moonshield/source/deploy/scripts/moonshield-install-check ]] || die "Healthcheck instalado ausente; --check não instala arquivos."
-  exec /opt/moonshield/source/deploy/scripts/moonshield-install-check
+  [[ -x /opt/moonshield/venv/bin/python && -x /usr/local/sbin/moonshield-install-check ]] || die "Healthcheck instalado ausente; --check não instala arquivos."
+  exec /usr/local/sbin/moonshield-install-check
 fi
 
 if [[ "$INSTALL_MODE" == offline ]]; then
@@ -103,8 +113,9 @@ install_adguard_binary
 install_systemd_services
 install_nginx_site
 provision_moonshield_local_services
+install_console
 
-check_script=/opt/moonshield/source/deploy/scripts/moonshield-install-check
+check_script=/usr/local/sbin/moonshield-install-check
 [[ -x "$check_script" ]] || die "Healthcheck não foi incluído na release."
 "$check_script" || die "Healthcheck final sinalizou falhas; log e estado existentes foram preservados para diagnóstico."
 ok "MoonShield Appliance instalada. Crie a primeira conta exclusivamente pela interface de onboarding/login."

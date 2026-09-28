@@ -19,6 +19,7 @@ procps
 suricata
 suricata-update
 traceroute
+util-linux
 
 # Optional feature dependency: advanced device discovery uses nmap; quick scan does not.
 nmap

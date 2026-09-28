@@ -1,0 +1,30 @@
+[Unit]
+Description=MoonShield local appliance console on TTY1
+After=systemd-user-sessions.service network.target getty@tty1.service
+Wants=network.target
+Conflicts=getty@tty1.service
+StartLimitIntervalSec=60s
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/moonshield
+ExecStart=/opt/moonshield/venv/bin/python /opt/moonshield/console/moonshield_console.py
+Environment=TERM=linux
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+UtmpIdentifier=tty1
+UtmpMode=user
+
+[Install]
+WantedBy=multi-user.target

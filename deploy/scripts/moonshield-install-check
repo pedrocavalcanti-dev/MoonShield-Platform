@@ -31,7 +31,11 @@ check_loopback_listener() {
 }
 
 if [[ -x /opt/moonshield/venv/bin/python && -f /opt/moonshield/source/MoonShield/gerenciar.py ]]; then
-  if (cd /opt/moonshield/source/MoonShield && /opt/moonshield/venv/bin/python gerenciar.py check >/dev/null 2>&1); then pass "Django check"; else fail "Django check"; fi
+  if command -v runuser >/dev/null 2>&1; then
+    if (cd /opt/moonshield/source/MoonShield && runuser -u moonshield -- /opt/moonshield/venv/bin/python gerenciar.py check >/dev/null 2>&1); then pass "Django check como moonshield"; else fail "Django check como moonshield"; fi
+  else
+    fail "runuser ausente; Django não foi validado como usuário do serviço"
+  fi
 else
   fail "código/venv Django ausente"
 fi
@@ -66,9 +70,55 @@ else
 fi
 
 if curl --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1/ 2>/dev/null; then pass 'HTTP local via Nginx'; else fail 'HTTP local via Nginx'; fi
-for path in /etc/moonshield /etc/moonshield/secrets /var/lib/moonshield /var/lib/moonshield/firewall /var/lib/moonshield/rede /var/lib/moonshield/suricata /var/log/moonshield /run/moonshield; do
+for path in /etc/moonshield /etc/moonshield/secrets /var/lib/moonshield /var/lib/moonshield/firewall /var/lib/moonshield/rede /var/lib/moonshield/suricata /var/log/moonshield /var/log/moonshield/app /run/moonshield; do
   [[ -d "$path" ]] && pass "diretório $path" || fail "diretório $path ausente"
 done
+mode="$(stat -c '%a:%U:%G' /var/log/moonshield/app 2>/dev/null || true)"
+[[ "$mode" == 750:moonshield:moonshield ]] && pass 'permissões do diretório de logs Django' || fail 'logs Django devem ser moonshield:moonshield 0750'
+
+[[ -f /opt/moonshield/console/moonshield_console.py ]] && pass 'console instalada' || fail 'console instalada ausente'
+[[ -x /usr/local/sbin/moonshield-install-check ]] && pass 'healthcheck gerenciado instalado' || fail 'healthcheck gerenciado ausente'
+if systemctl is-enabled --quiet moonshield-console.service; then pass 'console habilitada'; else fail 'console não habilitada'; fi
+if systemctl is-active --quiet moonshield-console.service; then
+  pass 'console ativa'
+else
+  warn 'console habilitada para iniciar no próximo boot (TTY1 não interrompida durante instalação)'
+fi
+tty_path="$(systemctl show --property=TTYPath --value moonshield-console.service 2>/dev/null || true)"
+tty_owner="$(stat -c '%U:%G' /dev/tty1 2>/dev/null || true)"
+if [[ -c /dev/tty1 && "$tty_path" == /dev/tty1 && "$tty_owner" == root:tty ]] \
+  && grep -Fxq 'StandardInput=tty' /etc/systemd/system/moonshield-console.service \
+  && grep -Fxq 'User=root' /etc/systemd/system/moonshield-console.service \
+  && grep -Fxq 'ExecStart=/opt/moonshield/venv/bin/python /opt/moonshield/console/moonshield_console.py' /etc/systemd/system/moonshield-console.service; then
+  pass 'TTY1 ownership/configuração da console'
+else
+  fail 'TTY1 ausente ou ownership/configuração da console incorreta'
+fi
+if [[ -f /etc/moonshield/support/maintenance_public.pem && ! -L /etc/moonshield/support/maintenance_public.pem ]]; then
+  key_mode="$(stat -c '%a:%U:%G' /etc/moonshield/support/maintenance_public.pem 2>/dev/null || true)"
+  if [[ "$key_mode" == 644:root:root ]] \
+    && openssl pkey -pubin -in /etc/moonshield/support/maintenance_public.pem -text -noout 2>/dev/null | grep -Eq 'Public-Key: \((3072|[4-9][0-9]{3,}|[1-9][0-9]{4,}) bit\)'; then
+    pass 'chave pública de manutenção RSA >= 3072 bits, root:root 0644'
+  else
+    fail 'chave pública de manutenção inválida ou menor que 3072 bits'
+  fi
+elif [[ -f /etc/moonshield/final-iso ]]; then
+  fail 'chave pública de manutenção obrigatória ausente no modo final ISO'
+else
+  warn 'MAINTENANCE_PUBLIC_KEY=REQUIRED_BEFORE_ISO'
+fi
+if [[ -f /etc/moonshield/final-iso ]]; then
+  for tty in 2 3 4 5 6; do
+    [[ -L "/etc/systemd/system/getty@tty${tty}.service" && "$(readlink "/etc/systemd/system/getty@tty${tty}.service")" == /dev/null ]] \
+      && pass "getty TTY$tty mascarado" || fail "getty TTY$tty não está mascarado no modo final ISO"
+  done
+  if systemctl is-enabled --quiet ssh.service 2>/dev/null || systemctl is-enabled --quiet ssh.socket 2>/dev/null \
+    || systemctl is-active --quiet ssh.service 2>/dev/null || systemctl is-active --quiet ssh.socket 2>/dev/null; then
+    fail 'SSH habilitado no modo final ISO'
+  else
+    pass 'SSH desabilitado no modo final ISO'
+  fi
+fi
 
 if [[ -f /etc/moonshield/database.env ]]; then
   mode="$(stat -c '%a:%U:%G' /etc/moonshield/database.env 2>/dev/null || true)"

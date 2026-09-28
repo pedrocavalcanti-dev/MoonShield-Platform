@@ -9,6 +9,11 @@ offline bundle, use `sudo bash ./deploy/install.sh --offline /path/to/bundle`.
 `--repair` re-runs idempotent reconciliation; it does not reset application data,
 rotate the Django key/database password, or overwrite an existing release source.
 `--check` runs preflight and the installed read-only healthcheck.
+The console is enabled for TTY1 and starts on the next boot. Use `--final-iso`
+only on a clean final-image target: it requires an RSA maintenance public key at
+`deploy/console/maintenance_public.pem`, masks getty on TTY2-6, and disables SSH.
+Do not use this option on a development appliance before validating local
+recovery. Development/repair mode does not change existing TTY2-6 or SSH access.
 
 The installer requires root, systemd, Debian 13 amd64, available disk/RAM, and an
 online default route plus DNS unless operating from an offline bundle. It does not
@@ -50,6 +55,15 @@ NetworkManager profiles, nftables rules, and unrelated Nginx/systemd files are n
 reset. Installer-managed Nginx/web files are backed up before replacement. Failed
 package/service stages stop with a classified diagnostic; the installer does not
 attempt a destructive whole-machine rollback.
+
+The `moonshield` account is created as a system service account with
+`/usr/sbin/nologin` on clean install. An existing account is not converted or
+removed from groups automatically; interactive shell or `sudo` membership is
+reported for explicit migration planning. Maintenance signing keys are external:
+`deploy/support/sign-maintenance-challenge.py` requires a private key outside
+the repository. `build-release-tree.sh` excludes `deploy/support` and private-key
+material. The final ISO public key remains `REQUIRED_BEFORE_ISO` until supplied
+and reviewed. Missing public key is a development warning and a final-mode error.
 
 ## Validation boundary
 

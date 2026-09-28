@@ -1,139 +1,305 @@
-# MoonShield ISO Alpha 1
+# MoonShield ISO 0.1.0-alpha.2
 
-This builds `MoonShield-0.1.0-alpha.1-amd64.iso` from a clean, pinned Debian 13
-amd64 netinst image. It does not snapshot a running VM or install MoonShield on
-the builder. The Debian Installer keeps disk selection and partition
-confirmation interactive; the profile sets appliance locale/network defaults,
-selects only the standard system task (no desktop), and schedules the offline
-MoonShield installer for the installed system's first boot.
+A ISO Alpha 2 transforma o Debian Installer no motor interno de instalação da
+MoonShield Appliance. O fluxo normal é apresentado em português do Brasil e não
+cria usuário Linux humano nem senha padrão.
 
-## Builder prerequisites
+## Experiência esperada
 
-Run the build on Debian 13 amd64. The builder must already have `bash`,
-`xorriso`, `openssl`, `python3`, `dpkg`, `coreutils`, and `util-linux` available.
-`xorriso` performs the ISO remaster; its `-boot_image any replay` operation
-replays the source ISO's boot configuration after the files are mapped. The
-script also verifies the expected Debian BIOS (`isolinux`) and UEFI (GRUB EFI)
-layout before writing. It does not install packages or alter builder services,
-network, TTY, SSH, or databases. The separate offline-bundle preparation step
-uses the existing APT and pip download tools and requires an internet-connected
-Debian 13 amd64 host with root access.
-
-## 1. Obtain and authenticate the Debian base
-
-The pinned base is Debian `13.7.0`, amd64 netinst. Its versioned source is:
-
-`https://cdimage.debian.org/debian-cd/13.7.0/amd64/iso-cd/debian-13.7.0-amd64-netinst.iso`
-
-Do not substitute a `current` or `latest` image. Download the ISO and its
-checksum/signature files from that same versioned directory. Verify the Debian
-signature using a trusted Debian CD signing keyring, then verify the ISO hash
-against the signed `SHA256SUMS` entry:
-
-```bash
-BASE_DIR=/var/tmp/moonshield-debian-base
-mkdir -p "$BASE_DIR"
-cd "$BASE_DIR"
-curl -fL --proto '=https' --tlsv1.2 \
-  https://cdimage.debian.org/debian-cd/13.7.0/amd64/iso-cd/debian-13.7.0-amd64-netinst.iso \
-  -o debian-13.7.0-amd64-netinst.iso
-curl -fL --proto '=https' --tlsv1.2 \
-  https://cdimage.debian.org/debian-cd/13.7.0/amd64/iso-cd/SHA256SUMS \
-  -o SHA256SUMS
-curl -fL --proto '=https' --tlsv1.2 \
-  https://cdimage.debian.org/debian-cd/13.7.0/amd64/iso-cd/SHA256SUMS.sign \
-  -o SHA256SUMS.sign
-gpgv --keyring /usr/share/keyrings/debian-cd-archive-keyring.gpg SHA256SUMS.sign SHA256SUMS
-grep -F '  debian-13.7.0-amd64-netinst.iso' SHA256SUMS | sha256sum --check
+```text
+Boot
+→ MOONSHIELD — Appliance de Segurança de Rede
+→ Instalar MoonShield
+→ seleção segura do disco
+→ confirmação explícita digitando INSTALAR
+→ instalação mínima automatizada do Debian 13
+→ late-command prepara o bootstrap offline
+→ reboot
+→ Preparando sua appliance...
+→ deploy/install.sh --offline ... --final-iso
+→ moonshield-install-check
+→ MoonShield Console
+→ First Setup web
 ```
 
-The repo manifest deliberately keeps
-`DEBIAN_ISO_SHA256=REQUIRED_BEFORE_BUILD` until that signature and checksum have
-been verified by the release operator. Copy the exact 64-character digest from
-the verified `SHA256SUMS` entry into
-`deploy/iso/manifests/debian-base.env`. The builder rejects the required marker,
-any malformed digest, another filename, or a checksum mismatch; it never
-guesses a value or follows a moving URL.
+O item `Opções avançadas` mantém um caminho técnico com prioridade baixa do
+Debian Installer para diagnóstico. O fluxo normal usa `auto=true` e
+`priority=critical`.
 
-## 2. Provision the public maintenance key
+## Segurança do disco
 
-Place only the approved RSA public key at
-`deploy/console/maintenance_public.pem` before creating the release tree. It
-must be valid PEM and at least 3072 bits. The ISO builder fails with
-`MAINTENANCE_PUBLIC_KEY=REQUIRED_BEFORE_ISO` if absent and rejects an invalid or
-undersized key. Do not generate, copy, or include the signing private key on the
-builder, release tree, or ISO.
+A ISO não escolhe silenciosamente o primeiro `/dev/sdX`. O script
+`installer/select-disk.sh` é executado por `partman/early_command`, quando os
+discos já estão visíveis para o Debian Installer. Ele:
 
-## 3. Create release and offline bundle
+- lista discos válidos;
+- ignora loop, RAM, CD-ROM e mídia marcada como removível;
+- mostra device, modelo e tamanho;
+- exige seleção numérica;
+- exige a palavra `INSTALAR` antes de autorizar a operação destrutiva;
+- grava o mesmo device em `partman-auto/disk` e `grub-installer/bootdev`.
 
-Use fresh output paths outside the source checkout; these commands preserve an
-existing output rather than replacing it:
+Depois dessa confirmação, Partman pode particionar automaticamente o disco
+selecionado.
 
-```bash
-sudo bash deploy/scripts/build-release-tree.sh /var/tmp/moonshield-alpha1-release
-sudo bash deploy/scripts/prepare-offline-bundle.sh /var/tmp/moonshield-alpha1-offline
+## Preseed embutido no initrd
+
+O builder extrai `/install.amd/initrd.gz`, detecta sua compressão, inclui:
+
+```text
+/preseed.cfg
+/moonshield/select-disk.sh
 ```
 
-The release tree excludes development secrets/state, `.git`, logs, SQLite,
-tests, and `deploy/support`. The offline bundle contains the packages, Python
-wheels, pinned AdGuard artifact, and its own `SHA256SUMS`; the ISO builder
-revalidates that bundle before embedding it.
+e reconstrói o initrd em staging. A ISO Debian original nunca é alterada.
 
-## 4. Build and verify the ISO
+Depois de gerar a ISO final, o builder extrai novamente o initrd da mídia final
+e confirma a presença desses arquivos. Se a prova falhar, o build é abortado.
 
-After replacing the Debian SHA marker with the operator-verified value, run on
-the Debian 13 amd64 builder:
+O preseed elimina o fluxo normal de:
+
+- usuário/senha Linux;
+- senha root;
+- tasksel;
+- desktop;
+- popularity-contest;
+- mirror APT;
+- media scan adicional;
+- escolha manual do target do GRUB.
+
+Defaults:
+
+```text
+Locale:       pt_BR.UTF-8
+Teclado:      br
+Timezone:     America/Sao_Paulo
+Hostname:     moonshield
+Domain:       local
+Rede inicial: DHCP
+```
+
+## Firstboot
+
+`late-command.sh` copia release e offline bundle para:
+
+```text
+/var/lib/moonshield-iso-bootstrap/
+```
+
+Também instala uma console gate independente do Django e o serviço one-shot de
+firstboot. TTY1 é mascarado para getty antes do primeiro reboot; assim uma falha
+não cai em `Debian login:`.
+
+Arquivos principais:
+
+```text
+firstboot/moonshield-firstboot.py
+firstboot/moonshield-console-gate.py
+firstboot/moonshield-iso-firstboot.service
+firstboot/moonshield-iso-console-gate.service
+```
+
+A gate mostra progresso real por fases, sem porcentagens falsas. O installer é
+executado com:
+
+```bash
+/bin/bash /var/lib/moonshield-iso-bootstrap/release/deploy/install.sh \
+  --offline /var/lib/moonshield-iso-bootstrap/offline-bundle \
+  --final-iso
+```
+
+Em seguida o healthcheck gerenciado roda novamente antes do handoff para o
+console local.
+
+### Sucesso
+
+Somente após installer + healthcheck + inicialização do console é criado:
+
+```text
+/var/lib/moonshield/.installation-complete
+```
+
+O firstboot é desabilitado e o payload duplicado de bootstrap é removido.
+
+### Falha
+
+É criado:
+
+```text
+/var/lib/moonshield/.installation-failed
+```
+
+Log persistente:
+
+```text
+/var/log/moonshield/firstboot-install.log
+```
+
+O firstboot é desabilitado para impedir loop de reinstalação. A TTY1 permanece
+na tela MoonShield de falha. F12 abre o fluxo RSA challenge-response de
+manutenção; não existe senha universal de fallback.
+
+## Builder
+
+Requisitos do builder:
+
+- Debian 13 amd64;
+- bash;
+- xorriso;
+- cpio;
+- gzip;
+- openssl;
+- python3;
+- dpkg/coreutils;
+- xz ou zstd apenas se a ISO base usar esse formato de initrd.
+
+### Debian base autenticada
+
+Versão fixa:
+
+```text
+Debian 13.7.0 amd64 netinst
+```
+
+SHA256 autenticado e fixado no manifest:
+
+```text
+a7ef94ac2fb9a7fec454552abd629b7cc9d5155c886165a45649f5ce6167e355
+```
+
+Arquivo esperado:
+
+```text
+debian-13.7.0-amd64-netinst.iso
+```
+
+Não trocar por URLs `current`/`latest` sem novo processo de validação.
+
+## Chave de manutenção
+
+Antes de criar a release tree, disponibilize **somente a chave pública** em:
+
+```text
+deploy/console/maintenance_public.pem
+```
+
+Ela deve ser RSA >= 3072 bits.
+
+A chave privada nunca entra em:
+
+- Git;
+- release tree;
+- offline bundle;
+- ISO.
+
+## Gerar release tree
+
+A partir da raiz do repositório:
+
+```bash
+sudo bash deploy/scripts/build-release-tree.sh \
+  /var/tmp/moonshield-alpha2-release
+```
+
+## Offline bundle
+
+Se as dependências não mudaram em relação ao bundle já validado, ele pode ser
+reutilizado. Para gerar um novo:
+
+```bash
+sudo bash deploy/scripts/prepare-offline-bundle.sh \
+  /opt/moonshield-offline-bundle
+```
+
+## Gerar ISO
+
+Exemplo usando os paths do builder MoonShield:
 
 ```bash
 sudo bash deploy/iso/build-iso.sh \
-  /var/tmp/moonshield-debian-base/debian-13.7.0-amd64-netinst.iso \
-  /var/tmp/moonshield-alpha1-release \
-  /var/tmp/moonshield-alpha1-offline
+  /opt/moonshield-iso-base/debian-13.7.0-amd64-netinst.iso \
+  /var/tmp/moonshield-alpha2-release \
+  /opt/moonshield-offline-bundle
 ```
 
-The output is ignored by Git and is written to `build/iso/`:
+Output:
 
 ```text
-build/iso/MoonShield-0.1.0-alpha.1-amd64.iso
-build/iso/MoonShield-0.1.0-alpha.1-amd64.iso.sha256
+build/iso/MoonShield-0.1.0-alpha.2-amd64.iso
+build/iso/MoonShield-0.1.0-alpha.2-amd64.iso.sha256
 ```
 
-Verify the finished file with:
+Volume ID:
+
+```text
+MOONSHIELD_ALPHA2
+```
+
+O builder não sobrescreve uma saída existente.
+
+## Validações automáticas do builder
+
+Antes de publicar a ISO, o script verifica:
+
+- hash da ISO Debian;
+- release tree;
+- ausência de material de chave privada;
+- RSA pública >= 3072 bits;
+- checksum do offline bundle;
+- boot BIOS;
+- boot UEFI;
+- initrd reconstruído;
+- preseed no initrd;
+- seletor de disco no initrd;
+- menus em português;
+- late-command;
+- firstboot;
+- release payload;
+- offline bundle;
+- BUILD-INFO;
+- volume ID Alpha 2;
+- checksum final da mídia.
+
+## Teste obrigatório em VM limpa
+
+Não considere Alpha 2 validada apenas por testes estáticos. Use uma VM
+descartável com disco vazio.
+
+Checklist:
+
+1. BIOS: menu MoonShield aparece.
+2. UEFI: menu MoonShield aparece.
+3. `Instalar MoonShield` é a opção normal.
+4. Nenhum usuário/senha Debian é solicitado.
+5. Nenhum tasksel/popularity/mirror é solicitado.
+6. MoonShield lista os discos.
+7. Nenhum disco é apagado sem `INSTALAR`.
+8. Particionamento conclui automaticamente depois da confirmação.
+9. GRUB usa o mesmo disco selecionado.
+10. Reboot não mostra `Debian login:`.
+11. TTY1 mostra `Preparando sua appliance...`.
+12. Installer offline conclui.
+13. Healthcheck conclui sem FAIL.
+14. MoonShield Console assume TTY1.
+15. First Setup web fica acessível quando houver DHCP.
+16. Segundo reboot volta ao MoonShield Console.
+17. TTY2-6 estão bloqueados no modo final.
+18. SSH está desabilitado por padrão.
+19. F12 exige resposta RSA válida.
+
+## Logs úteis
+
+Durante/apos a instalação:
+
+```text
+/var/log/moonshield/late-command.log
+/var/log/moonshield/firstboot-install.log
+```
+
+Depois da instalação:
 
 ```bash
-cd build/iso
-sha256sum --check MoonShield-0.1.0-alpha.1-amd64.iso.sha256
+/usr/local/sbin/moonshield-install-check
+systemctl status moonshield-console.service
+systemctl status moonshield-web.service
 ```
-
-The BIOS and UEFI menus are branded `MOONSHIELD - Network Security Appliance`
-and `MOONSHIELD`, respectively, with `Install MoonShield` as the default and
-`Advanced options` as the alternate entry. Both menus wait five seconds before
-starting the installer. The ISO volume ID is `MOONSHIELD_ALPHA1`. Installer
-defaults are Brazilian Portuguese (`pt_BR.UTF-8`), Brazilian keyboard, the
-`America/Sao_Paulo` timezone, hostname `moonshield`, domain `local`, and
-automatic network interface selection with DHCP. No desktop, popularity
-reporting, APT mirror, Debian root login, or interactive Debian user account is
-configured; first-use web onboarding remains the application account flow.
-No `partman` answers are preseeded, so the operator must still choose the target
-disk and confirm partitioning in the Debian Installer. A menu timeout only
-starts the installer; it does not select or erase a disk.
-
-The remaster maps the release to `/moonshield/release`, the offline bundle to
-`/moonshield/offline-bundle`, and the preseed/hook to `/moonshield/`. The Debian
-text installer and GRUB installer entry are pointed at that preseed. Its
-late-command copies both payloads into the installed target and enables a
-one-shot first-boot unit. The unit invokes
-`deploy/install.sh --offline /var/lib/moonshield-iso-bootstrap/offline-bundle
---final-iso` after the installed system has booted under systemd. Thus the existing installer applies the
-TTY1 console, TTY2-6, SSH, and maintenance-key policies; this ISO layer does not
-reimplement those policies. No Django account is pre-created; onboarding
-remains the existing first-user flow.
-
-`xorriso -boot_image any replay` preserves the base media's BIOS/UEFI boot
-metadata, and the builder refuses a base missing the expected BIOS/UEFI files.
-This is a static/layout check, not proof that firmware boots the result. Boot
-the ISO in a new disposable VM with an empty virtual disk, complete the Debian
-Installer prompts, then verify after reboot that TTY1 opens MoonShield Console,
-the web onboarding is reachable when networking is configured, and the
-offline/final-install policies match expectations. Do not point the ISO
-installer at a development appliance or a disk containing data to preserve.

@@ -1,0 +1,20 @@
+[Unit]
+Description=Provisionamento inicial da MoonShield Appliance
+Wants=moonshield-iso-console-gate.service
+After=local-fs.target moonshield-iso-console-gate.service
+Before=multi-user.target
+ConditionPathExists=!/var/lib/moonshield/.installation-complete
+ConditionPathExists=!/var/lib/moonshield/.installation-failed
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /usr/local/lib/moonshield-iso/moonshield-firstboot.py
+TimeoutStartSec=infinity
+StandardOutput=journal
+StandardError=journal
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

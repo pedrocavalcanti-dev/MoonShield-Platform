@@ -2,60 +2,83 @@
 set -eu
 
 MEDIA=/cdrom/moonshield
-STAGE=/target/var/lib/moonshield-iso-bootstrap
 RELEASE="$MEDIA/release"
 BUNDLE="$MEDIA/offline-bundle"
+FIRSTBOOT="$MEDIA/firstboot"
+TARGET=/target
+STAGE="$TARGET/var/lib/moonshield-iso-bootstrap"
+RUNTIME="$TARGET/usr/local/lib/moonshield-iso"
+SYSTEMD="$TARGET/etc/systemd/system"
+WANTS="$SYSTEMD/multi-user.target.wants"
+LOG_DIR="$TARGET/var/log/moonshield"
+LOG="$LOG_DIR/late-command.log"
 
 fail() {
-  printf '[MOONSHIELD ISO] ERRO: %s\n' "$*" >&2
-  exit 1
+    printf '[MOONSHIELD ISO] ERRO: %s\n' "$*" >&2
+    exit 1
 }
 
-if [ "${1:-}" = --firstboot ]; then
-  BOOT_STAGE=/var/lib/moonshield-iso-bootstrap
-  [ "$(id -u)" -eq 0 ] || fail 'bootstrap exige root.'
-  [ -f "$BOOT_STAGE/release/deploy/install.sh" ] || fail 'release stage ausente.'
-  /bin/bash "$BOOT_STAGE/release/deploy/install.sh" \
-    --offline "$BOOT_STAGE/offline-bundle" --final-iso
-  systemctl disable moonshield-iso-firstboot.service
-  rm -f -- /etc/systemd/system/moonshield-iso-firstboot.service
-  systemctl daemon-reload
-  systemctl start moonshield-console.service
-  [ "$BOOT_STAGE" = /var/lib/moonshield-iso-bootstrap ] || fail 'caminho de staging inesperado.'
-  [ ! -L "$BOOT_STAGE" ] || fail 'staging virou symlink; preservado para diagnóstico.'
-  rm -rf -- "$BOOT_STAGE"
-  exit 0
+[ -d "$TARGET" ] || fail 'Diretório /target do Debian Installer ausente.'
+mkdir -p "$LOG_DIR"
+chmod 0750 "$LOG_DIR"
+: >"$LOG"
+chmod 0600 "$LOG"
+exec >>"$LOG" 2>&1
+
+printf '[MOONSHIELD ISO] Iniciando late-command.\n'
+[ -f "$RELEASE/deploy/install.sh" ] || fail 'Release tree ausente na mídia.'
+[ -f "$RELEASE/deploy/console/maintenance_public.pem" ] || fail 'Chave pública de manutenção ausente na release.'
+[ -f "$BUNDLE/SHA256SUMS" ] || fail 'Offline bundle ausente ou sem SHA256SUMS.'
+[ -f "$FIRSTBOOT/moonshield-firstboot.py" ] || fail 'Firstboot MoonShield ausente da mídia.'
+[ -f "$FIRSTBOOT/moonshield-console-gate.py" ] || fail 'Console gate MoonShield ausente da mídia.'
+[ -f "$FIRSTBOOT/moonshield-iso-firstboot.service" ] || fail 'Unit firstboot ausente da mídia.'
+[ -f "$FIRSTBOOT/moonshield-iso-console-gate.service" ] || fail 'Unit console gate ausente da mídia.'
+
+if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$BUNDLE" && sha256sum --check --status SHA256SUMS) || fail 'Checksum do offline bundle falhou ainda na mídia.'
+else
+    fail 'sha256sum não está disponível no Debian Installer.'
 fi
 
-[ -d /target ] || fail 'alvo Debian Installer ausente.'
-[ -f "$RELEASE/deploy/install.sh" ] || fail 'release tree ausente na mídia.'
-[ -f "$RELEASE/deploy/console/maintenance_public.pem" ] || fail 'MAINTENANCE_PUBLIC_KEY=REQUIRED_BEFORE_ISO'
-[ -f "$BUNDLE/SHA256SUMS" ] || fail 'offline bundle ausente ou sem SHA256SUMS.'
-[ ! -e "$STAGE" ] && [ ! -L "$STAGE" ] || fail "staging já existe: $STAGE"
+[ ! -e "$STAGE" ] && [ ! -L "$STAGE" ] || fail "Staging já existe no sistema alvo: $STAGE"
+mkdir -p "$STAGE/release" "$STAGE/offline-bundle" "$STAGE/state" "$RUNTIME" "$WANTS"
+chmod 0700 "$STAGE" "$STAGE/state"
 
-mkdir -p -- "$STAGE/release" "$STAGE/offline-bundle"
-cp -a -- "$RELEASE/." "$STAGE/release/"
-cp -a -- "$BUNDLE/." "$STAGE/offline-bundle/"
-cp -- "$0" /target/var/lib/moonshield-iso-bootstrap/firstboot.sh
-chmod 0755 /target/var/lib/moonshield-iso-bootstrap/firstboot.sh
-WANTS=/target/etc/systemd/system/multi-user.target.wants
-UNIT_LINK="$WANTS/moonshield-iso-firstboot.service"
-[ ! -e "$UNIT_LINK" ] && [ ! -L "$UNIT_LINK" ] || fail 'unit de bootstrap já existe no sistema-alvo.'
-mkdir -p -- "$WANTS"
-cat >/target/etc/systemd/system/moonshield-iso-firstboot.service <<'UNIT'
-[Unit]
-Description=Install MoonShield from the Alpha ISO payload
-After=local-fs.target
-Before=multi-user.target
+printf '[MOONSHIELD ISO] Copiando release e bundle offline para o sistema alvo.\n'
+cp -a "$RELEASE/." "$STAGE/release/"
+cp -a "$BUNDLE/." "$STAGE/offline-bundle/"
 
-[Service]
-Type=oneshot
-ExecStart=/var/lib/moonshield-iso-bootstrap/firstboot.sh --firstboot
-TimeoutStartSec=infinity
+cp "$FIRSTBOOT/moonshield-firstboot.py" "$RUNTIME/moonshield-firstboot.py"
+cp "$FIRSTBOOT/moonshield-console-gate.py" "$RUNTIME/moonshield-console-gate.py"
+cp "$FIRSTBOOT/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-firstboot.service"
+cp "$FIRSTBOOT/moonshield-iso-console-gate.service" "$SYSTEMD/moonshield-iso-console-gate.service"
+chmod 0755 "$RUNTIME/moonshield-firstboot.py" "$RUNTIME/moonshield-console-gate.py"
+chmod 0644 "$SYSTEMD/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-console-gate.service"
 
-[Install]
-WantedBy=multi-user.target
-UNIT
-ln -s ../moonshield-iso-firstboot.service "$UNIT_LINK"
+cat >"$STAGE/state/status.json" <<'JSON'
+{
+  "phase": "waiting",
+  "message": "Aguardando início do provisionamento...",
+  "steps": {
+    "base": "ok",
+    "payload": "pending",
+    "platform": "pending",
+    "health": "pending",
+    "console": "pending"
+  },
+  "detail": ""
+}
+JSON
+chmod 0600 "$STAGE/state/status.json"
 
-printf '[MOONSHIELD ISO] Installer agendado para o primeiro boot do sistema-alvo.\n'
+# TTY1 nunca deve cair em login Debian normal. A gate assume esse terminal no primeiro boot.
+TTY1_MASK="$SYSTEMD/getty@tty1.service"
+if [ -e "$TTY1_MASK" ] || [ -L "$TTY1_MASK" ]; then
+    rm -f "$TTY1_MASK"
+fi
+ln -s /dev/null "$TTY1_MASK"
+
+ln -s ../moonshield-iso-console-gate.service "$WANTS/moonshield-iso-console-gate.service"
+ln -s ../moonshield-iso-firstboot.service "$WANTS/moonshield-iso-firstboot.service"
+
+printf '[MOONSHIELD ISO] Bootstrap preparado. No próximo boot a appliance será provisionada offline.\n'

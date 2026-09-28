@@ -113,7 +113,7 @@ def interfaces() -> list[tuple[str, str, str]]:
 
 def default_route() -> str:
     route = command(["ip", "-4", "route", "show", "default"])
-    return route or "not identified"
+    return route or "não identificado"
 
 
 def dns_servers() -> str:
@@ -129,32 +129,32 @@ def dns_servers() -> str:
     try:
         servers = [line.split()[1] for line in Path("/etc/resolv.conf").read_text().splitlines()
                    if line.startswith("nameserver ")]
-        return ", ".join(dict.fromkeys(servers)) or "not identified"
+        return ", ".join(dict.fromkeys(servers)) or "não identificado"
     except (OSError, IndexError):
-        return "not identified"
+        return "não identificado"
 
 
 def management_ip() -> str:
     values = config_values()
     configured = values.get("MOONSHIELD_MGMT_IP", values.get("MOONSHIELD_MANAGEMENT_IP", ""))
     try:
-        return str(ipaddress.ip_address(configured)) if configured else "not identified"
+        return str(ipaddress.ip_address(configured)) if configured else "não identificado"
     except ValueError:
-        return "not identified"
+        return "não identificado"
 
 
 def lan_ip() -> str:
     configured = config_values().get("MOONSHIELD_LAN_IP", "")
     try:
-        return str(ipaddress.ip_address(configured)) if configured else "not identified"
+        return str(ipaddress.ip_address(configured)) if configured else "não identificado"
     except ValueError:
-        return "not identified"
+        return "não identificado"
 
 
 def appliance_url() -> str:
     host = management_ip()
-    if host == "not identified":
-        return "pending network configuration"
+    if host == "não identificado":
+        return "configuração de rede pendente"
     secure = config_values().get("SECURE_SSL_REDIRECT", "False").lower() == "true"
     return f"{'https' if secure else 'http'}://{host}/"
 
@@ -172,7 +172,7 @@ def internet_status() -> bool:
         return False
 
 
-def draw_header(screen, subtitle: str = "Network Security Appliance") -> int:
+def draw_header(screen, subtitle: str = "Appliance de Segurança de Rede") -> int:
     height, width = screen.getmaxyx()
     screen.erase()
     if curses.has_colors():
@@ -186,7 +186,7 @@ def draw_header(screen, subtitle: str = "Network Security Appliance") -> int:
             screen.attroff(curses.color_pair(1) | curses.A_BOLD)
         except curses.error:
             pass
-    screen.addnstr(1, 2, "System  Firewall  IDS  DNS", max(0, width - 4))
+    screen.addnstr(1, 2, "Sistema  Firewall  IDS  DNS", max(0, width - 4))
     screen.addnstr(2, 1, "-" * max(0, width - 2), max(0, width - 2))
     return 4
 
@@ -205,31 +205,31 @@ def lines_screen(screen, title: str, lines: list[str]) -> None:
 def status_lines() -> list[str]:
     active = {name: service_active(unit) for name, unit in SERVICES.items()}
     core_state = (active["Web"], active["Agent"], active["Nginx"], active["PostgreSQL"])
-    system = "ONLINE" if all(core_state) else "OFFLINE" if not any(core_state) else "DEGRADED"
+    system = "ONLINE" if all(core_state) else "OFFLINE" if not any(core_state) else "DEGRADADO"
     firewall = active["nftables"]
     ids = active["Suricata"]
     dns = active["AdGuard Home"]
     return [
-        f"System: {system}",
-        f"Firewall: {'PROTECTED' if firewall else 'DEGRADED'}",
-        f"IDS: {'MONITORING' if ids else 'OFFLINE'}",
-        f"DNS: {'ACTIVE' if dns else 'OFFLINE'}",
+        f"Sistema: {system}",
+        f"Firewall: {'PROTEGIDO' if firewall else 'DEGRADADO'}",
+        f"IDS: {'MONITORANDO' if ids else 'OFFLINE'}",
+        f"DNS: {'ATIVO' if dns else 'OFFLINE'}",
         "",
         f"Hostname: {socket.gethostname()}",
-        f"Management IP: {management_ip()}",
-        f"Web URL: {appliance_url()}",
-        f"Uptime: {uptime_text()}",
-        f"MoonShield version: {version()}",
+        f"IP de gerenciamento: {management_ip()}",
+        f"URL Web: {appliance_url()}",
+        f"Tempo ativo: {uptime_text()}",
+        f"Versão MoonShield: {version()}",
     ]
 
 
 def network_lines() -> list[str]:
     rows = interfaces()
-    lines = ["Interfaces (read-only):"]
+    lines = ["Interfaces (somente leitura):"]
     lines.extend(f"  {name:<16} {address:<20} {state}" for name, address, state in rows)
     if not rows:
-        lines.append("  Interfaces unavailable")
-    lines.extend(["", f"Default route: {default_route()}", f"DNS: {dns_servers()}"])
+        lines.append("  Interfaces indisponíveis")
+    lines.extend(["", f"Rota padrão: {default_route()}", f"DNS: {dns_servers()}"])
     lines.extend([f"MGMT: {management_ip()}", f"LAN: {lan_ip()}"])
     return lines
 
@@ -241,7 +241,7 @@ def diagnostic_lines() -> list[str]:
     dns_ok = bool(command(["getent", "ahostsv4", "deb.debian.org"], timeout=4.0))
     checks = [
         ("Gateway", gateway_ok),
-        ("DNS resolution", dns_ok),
+        ("Resolução DNS", dns_ok),
         ("Nginx", service_active("nginx.service")),
         ("PostgreSQL", service_active("postgresql.service")),
         ("Suricata", service_active("suricata.service")),
@@ -254,7 +254,7 @@ def diagnostic_lines() -> list[str]:
 
 
 def system_lines() -> list[str]:
-    memory = "unavailable"
+    memory = "indisponível"
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
             if line.startswith("MemTotal:"):
@@ -264,16 +264,16 @@ def system_lines() -> list[str]:
         pass
     return [
         f"Hostname: {socket.gethostname()}",
-        f"System: {command(['uname', '-sr']) or 'unavailable'}",
-        f"Uptime: {uptime_text()}",
-        f"Memory total: {memory}",
+        f"Sistema: {command(['uname', '-sr']) or 'indisponível'}",
+        f"Tempo ativo: {uptime_text()}",
+        f"Memória total: {memory}",
         f"MoonShield: {version()}",
-        f"Python: {command(['/usr/bin/python3', '--version']) or 'unavailable'}",
+        f"Python: {command(['/usr/bin/python3', '--version']) or 'indisponível'}",
     ]
 
 
 def service_lines() -> list[str]:
-    return [f"{'ACTIVE' if service_active(unit) else 'INACTIVE':<8} {name}"
+    return [f"{'ATIVO' if service_active(unit) else 'INATIVO':<8} {name}"
             for name, unit in SERVICES.items()]
 
 
@@ -285,8 +285,8 @@ def wait_key(screen, prompt: str) -> int:
 
 
 def confirm(screen, action: str) -> bool:
-    key = wait_key(screen, f"Confirmar {action}? Digite Y para continuar; qualquer outra tecla cancela: ")
-    return key in (ord("y"), ord("Y"))
+    key = wait_key(screen, f"Confirmar {action}? Digite S para continuar; qualquer outra tecla cancela: ")
+    return key in (ord("s"), ord("S"))
 
 
 def controlled_action(screen, action: str, args: list[str]) -> None:
@@ -297,8 +297,8 @@ def controlled_action(screen, action: str, args: list[str]) -> None:
         succeeded = result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         succeeded = False
-    message = f"{action}: {'solicitado' if succeeded else 'falhou'}"
-    lines_screen(screen, "Action", [message])
+    message = f"{action}: {'concluído' if succeeded else 'falhou'}"
+    lines_screen(screen, "Ação", [message])
 
 
 def maintenance_identity() -> str:
@@ -311,26 +311,26 @@ def maintenance_identity() -> str:
 
 def maintenance_shell(screen) -> None:
     if not PUBLIC_KEY.is_file():
-        lines_screen(screen, "Maintenance", ["Maintenance Mode: NOT PROVISIONED", "Public key missing."])
+        lines_screen(screen, "Manutenção", ["Modo de manutenção: NÃO PROVISIONADO", "Chave pública ausente."])
         return
     failures = 0
     cooldown_until = 0.0
     while True:
-        start = draw_header(screen, "MOONSHIELD MAINTENANCE")
+        start = draw_header(screen, "MANUTENÇÃO MOONSHIELD")
         height, width = screen.getmaxyx()
         if time.monotonic() < cooldown_until:
             remaining = int(cooldown_until - time.monotonic()) + 1
-            screen.addnstr(start, 2, f"ACCESS DENIED. Aguarde {remaining}s.", max(0, width - 4))
+            screen.addnstr(start, 2, f"ACESSO NEGADO. Aguarde {remaining}s.", max(0, width - 4))
             wait_key(screen, "Esc: voltar")
             return
         challenge = f"MOONSHIELD-MAINT-V1|{maintenance_identity()}|{secrets.token_hex(32)}"
         screen.addnstr(start, 2, f"Appliance: {maintenance_identity()}", max(0, width - 4))
-        screen.addnstr(start + 2, 2, "Challenge:", max(0, width - 4))
+        screen.addnstr(start + 2, 2, "Desafio:", max(0, width - 4))
         challenge_lines = textwrap.wrap(challenge, max(1, width - 4))
         for offset, line in enumerate(challenge_lines):
             screen.addnstr(start + 3 + offset, 2, line, max(0, width - 4))
         response_row = start + 4 + len(challenge_lines)
-        screen.addnstr(response_row, 2, "Response (Base64):", max(0, width - 4))
+        screen.addnstr(response_row, 2, "Resposta (Base64):", max(0, width - 4))
         screen.refresh()
         curses.echo()
         try:
@@ -360,7 +360,7 @@ def maintenance_shell(screen) -> None:
                 raise ValueError("signature verification failed")
         except (ValueError, OSError, subprocess.TimeoutExpired):
             failures += 1
-            screen.addnstr(start + 8, 2, "ACCESS DENIED", max(0, width - 4))
+            screen.addnstr(start + 8, 2, "ACESSO NEGADO", max(0, width - 4))
             screen.refresh()
             time.sleep(1)
             if failures >= FAILURE_LIMIT:
@@ -369,7 +369,7 @@ def maintenance_shell(screen) -> None:
 
         subprocess.run(["logger", "-t", "moonshield-console", "maintenance session opened"],
                        check=False, capture_output=True, timeout=3)
-        screen.addnstr(start + 8, 2, "ACCESS GRANTED. Encerrando shell retorna ao console.", max(0, width - 4))
+        screen.addnstr(start + 8, 2, "ACESSO AUTORIZADO. Ao encerrar o shell, você retorna ao console.", max(0, width - 4))
         screen.refresh()
         time.sleep(1)
         curses.def_prog_mode()
@@ -399,15 +399,15 @@ def main(screen) -> None:
         try:
             curses.start_color()
             curses.use_default_colors()
-            curses.init_pair(1, curses.COLOR_CYAN, -1)
+            curses.init_pair(1, curses.COLOR_MAGENTA, -1)
         except curses.error:
             pass
     menu = [
         ("1", "Status da appliance"),
-        ("2", "Network information"),
-        ("3", "Diagnostics"),
-        ("4", "Services"),
-        ("5", "System information"),
+        ("2", "Informações de rede"),
+        ("3", "Diagnóstico"),
+        ("4", "Serviços"),
+        ("5", "Informações do sistema"),
         ("8", "Reiniciar"),
         ("9", "Desligar"),
     ]
@@ -438,14 +438,14 @@ def main(screen) -> None:
         if key == ord("1"):
             lines_screen(screen, "Status da appliance", status_lines())
         elif key == ord("2"):
-            lines_screen(screen, "Network information", network_lines())
+            lines_screen(screen, "Informações de rede", network_lines())
         elif key == ord("3"):
-            lines_screen(screen, "Read-only diagnostics", diagnostic_lines())
+            lines_screen(screen, "Diagnóstico somente leitura", diagnostic_lines())
         elif key == ord("4"):
-            draw_header(screen, "Services")
+            draw_header(screen, "Serviços")
             for idx, line in enumerate(service_lines()):
                 screen.addnstr(4 + idx, 2, line, max(0, width - 4))
-            screen.addnstr(height - 2, 2, "R: restart selected MoonShield service only", max(0, width - 4))
+            screen.addnstr(height - 2, 2, "R: reiniciar apenas um serviço MoonShield selecionado", max(0, width - 4))
             screen.addnstr(height - 1, 2, "Esc: voltar", max(0, width - 4))
             screen.refresh()
             choice = screen.getch()
@@ -453,7 +453,7 @@ def main(screen) -> None:
                 restartable = sorted(RESTARTABLE)
                 selected_service = 0
                 while True:
-                    service_start = draw_header(screen, "Restartable services")
+                    service_start = draw_header(screen, "Serviços reiniciáveis")
                     height, width = screen.getmaxyx()
                     for service_index, unit in enumerate(restartable):
                         label = f"{service_index + 1}: {unit}"
@@ -461,7 +461,7 @@ def main(screen) -> None:
                             screen.addnstr(service_start + service_index, 3, label, max(0, width - 6), curses.A_REVERSE)
                         else:
                             screen.addnstr(service_start + service_index, 3, label, max(0, width - 6))
-                    screen.addnstr(height - 1, 2, "Arrows/Enter: select  |  Esc: cancel", max(0, width - 4))
+                    screen.addnstr(height - 1, 2, "Setas/Enter: selecionar  |  Esc: cancelar", max(0, width - 4))
                     screen.refresh()
                     selection = screen.getch()
                     if selection == 27:
@@ -472,10 +472,10 @@ def main(screen) -> None:
                         selected_service = (selected_service + 1) % len(restartable)
                     elif selection in (10, 13, curses.KEY_ENTER):
                         unit = restartable[selected_service]
-                        controlled_action(screen, f"restart {unit}", ["systemctl", "restart", unit])
+                        controlled_action(screen, f"reiniciar {unit}", ["systemctl", "restart", unit])
                         break
         elif key == ord("5"):
-            lines_screen(screen, "System information", system_lines())
+            lines_screen(screen, "Informações do sistema", system_lines())
         elif key == ord("8") and confirm(screen, "reiniciar a appliance"):
             controlled_action(screen, "reiniciar a appliance", ["systemctl", "reboot"])
         elif key == ord("9") and confirm(screen, "desligar a appliance"):

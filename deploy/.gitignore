@@ -1,0 +1,64 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Django
+*.sqlite3
+MoonShield/media/
+MoonShield/staticfiles/
+
+# MoonShield Agent
+MoonShield-Agent/config.json
+MoonShield-Agent/rede/dados/ms_rede.json
+MoonShield-Agent/logs/
+MoonShield-Agent/*.log
+
+# Repositórios Git internos
+MoonShield/.git/
+MoonShield-Agent/.git/
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux e macOS
+.DS_Store
+# MoonShield runtime state
+MoonShield/var/
+
+# Appliance release/offline build staging (generated, never source)
+/build/moonshield-root/
+/build/offline-bundle/
+/build/iso/
+/deploy/offline-bundle/
+/deploy/certificates/optional/*.crt
+/deploy/certificates/optional/*.pem
+/deploy/console/*private*
+/deploy/console/*.key
+/deploy/console/*.p8
+/deploy/console/*.p12
+/deploy/console/*.pfx
+/deploy/support/*private*
+/deploy/support/*.key
+/deploy/support/*.p8
+/deploy/support/*.p12
+/deploy/support/*.pfx

@@ -307,6 +307,21 @@ validate_sources() {
   if grep -RIlE -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' "$SCRIPT_DIR" | grep -q .; then
     die 'deploy/iso contém chave privada.'
   fi
+
+  # Debian Installer/user-setup força a criação de um utilizador normal quando
+  # passwd/root-login=false. Para uma appliance sem utilizador humano, o d-i
+  # deve manter root-login=true, bloquear a senha root com "*" e desabilitar
+  # explicitamente a criação do utilizador normal.
+  grep -Eq '^d-i[[:space:]]+passwd/root-login[[:space:]]+boolean[[:space:]]+true[[:space:]]*$' \
+    "$SCRIPT_DIR/preseed.cfg" || die 'Preseed deve manter passwd/root-login=true durante o Debian Installer.'
+  grep -Eq '^d-i[[:space:]]+passwd/root-password-crypted[[:space:]]+password[[:space:]]+\*[[:space:]]*$' \
+    "$SCRIPT_DIR/preseed.cfg" || die 'Preseed deve bloquear a senha root com passwd/root-password-crypted=*.'
+  grep -Eq '^d-i[[:space:]]+passwd/make-user[[:space:]]+boolean[[:space:]]+false[[:space:]]*$' \
+    "$SCRIPT_DIR/preseed.cfg" || die 'Preseed deve desabilitar a criação de utilizador humano.'
+  if grep -Eq '^d-i[[:space:]]+passwd/root-login[[:space:]]+boolean[[:space:]]+false[[:space:]]*$' \
+    "$SCRIPT_DIR/preseed.cfg"; then
+    die 'Combinação passwd/root-login=false é incompatível com appliance sem utilizador humano.'
+  fi
 }
 
 validate_sources

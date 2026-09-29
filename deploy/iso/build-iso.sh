@@ -223,6 +223,7 @@ build_iso() {
   info 'Remasterizando mídia e preservando metadados de boot da ISO Debian.'
   xorriso -indev "$BASE_ISO" -outdev "$TEMP_ISO" \
     -map "$WORK/moonshield-initrd.gz" /install.amd/initrd.gz \
+    -map "$SCRIPT_DIR/preseed.cfg" /preseed.cfg \
     -map "$SCRIPT_DIR/preseed.cfg" /moonshield/preseed.cfg \
     -map "$SCRIPT_DIR/installer/select-disk.sh" /moonshield/select-disk.sh \
     -map "$SCRIPT_DIR/late-command.sh" /moonshield/late-command.sh \
@@ -248,6 +249,7 @@ validate_final_iso() {
     -extract /boot/grub/grub.cfg "$verify/grub.cfg" \
     -extract /isolinux/menu.cfg "$verify/menu.cfg" \
     -extract /install.amd/initrd.gz "$final_initrd" \
+    -extract /preseed.cfg "$verify/cdrom-preseed.cfg" \
     -extract /moonshield/preseed.cfg "$verify/preseed.cfg" \
     -extract /moonshield/select-disk.sh "$verify/select-disk.sh" \
     -extract /moonshield/late-command.sh "$verify/late-command.sh" \
@@ -264,7 +266,10 @@ validate_final_iso() {
   grep -Fq 'Opções avançadas' "$verify/grub.cfg" || die 'Menu UEFI final não contém Opções avançadas.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'
   grep -Fq 'Opções avançadas' "$verify/menu.cfg" || die 'Menu BIOS final não contém Opções avançadas.'
+  cmp -s "$verify/cdrom-preseed.cfg" "$verify/preseed.cfg" || die 'Cópias do preseed na ISO divergem.'
   grep -Fq 'partman/early_command' "$verify/preseed.cfg" || die 'Preseed final sem seletor de disco.'
+  grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/grub.cfg" || die 'Menu UEFI não aponta para /cdrom/preseed.cfg.'
+  grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/menu.cfg" || die 'Menu BIOS não aponta para /cdrom/preseed.cfg.'
   grep -Fq 'FIRSTBOOT="$MEDIA/firstboot"' "$verify/late-command.sh" || die 'Late-command final não referencia firstboot.'
   grep -Fq '0.1.0-alpha.2' "$verify/BUILD-INFO" || die 'BUILD-INFO final com versão incorreta.'
 

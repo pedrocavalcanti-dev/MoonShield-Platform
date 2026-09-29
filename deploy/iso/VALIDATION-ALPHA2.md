@@ -49,3 +49,12 @@ Se o seletor falhar, execute apenas para diagnóstico:
 ```sh
 /bin/sh -x /moonshield/select-disk.sh
 ```
+
+## Late-command / primeiro boot
+
+- [ ] `late-command.sh` não usa `sha256sum --status`/`-s` no ambiente d-i.
+- [ ] TTY1-6 ficam mascarados antes da cópia do payload grande.
+- [ ] `moonshield-iso-console-gate.service` e `moonshield-iso-firstboot.service` ficam habilitados em `multi-user.target.wants`.
+- [ ] A chave pública de manutenção é copiada para `/etc/moonshield/support/maintenance_public.pem` ainda no late-command.
+- [ ] Em falha simulada após preparar a gate, o próximo boot não expõe `login:` Debian e mostra estado de falha MoonShield.
+- [ ] Em sucesso, o reboot mostra `Preparando sua appliance...` e o firstboot valida `SHA256SUMS` antes de executar `deploy/install.sh`.

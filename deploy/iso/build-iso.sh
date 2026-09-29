@@ -290,6 +290,12 @@ validate_final_iso() {
   grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/grub.cfg" || die 'Menu UEFI não aponta para /cdrom/preseed.cfg.'
   grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/menu.cfg" || die 'Menu BIOS não aponta para /cdrom/preseed.cfg.'
   grep -Fq 'FIRSTBOOT="$MEDIA/firstboot"' "$verify/late-command.sh" || die 'Late-command final não referencia firstboot.'
+  grep -Fq 'enable_boot_gate' "$verify/late-command.sh" || die 'Late-command final não prepara gate de recuperação.'
+  grep -Fq 'getty@tty${tty}.service' "$verify/late-command.sh" || die 'Late-command final não mascara consoles Debian.'
+  grep -Fq 'integridade completa será validada no primeiro boot' "$verify/late-command.sh" || die 'Late-command final não delega a validação completa ao firstboot.'
+  if grep -Eq 'sha256sum[[:space:]].*(--status|-s)([[:space:]]|$)' "$verify/late-command.sh"; then
+    die 'Late-command final usa modo sha256sum incompatível com o ambiente reduzido do d-i.'
+  fi
   grep -Fq '0.1.0-alpha.2' "$verify/BUILD-INFO" || die 'BUILD-INFO final com versão incorreta.'
 
   rm -rf -- "$WORK/final-initrd-root"
@@ -358,6 +364,13 @@ validate_sources() {
     || die 'Templates Debconf sem moonshield/disk.'
   grep -Fq 'Template: moonshield/confirm' "$SCRIPT_DIR/installer/moonshield-disk.templates" \
     || die 'Templates Debconf sem moonshield/confirm.'
+  grep -Fq 'enable_boot_gate' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command deve preparar gate de recuperação antes de copiar o payload.'
+  grep -Fq 'getty@tty${tty}.service' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command deve mascarar TTY1-6 para não expor login Debian.'
+  if grep -Eq 'sha256sum[[:space:]].*(--status|-s)([[:space:]]|$)' "$SCRIPT_DIR/late-command.sh"; then
+    die 'Late-command não deve usar --status/-s do sha256sum no ambiente d-i.'
+  fi
 }
 
 validate_sources

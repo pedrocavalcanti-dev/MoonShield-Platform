@@ -312,3 +312,11 @@ próprio Debian Installer. Os templates estão em
 `select-disk.sh`. A implementação não depende de `openvt`, `chvt` nem de leitura
 direta de `/dev/tty*`; isso evita o bloqueio observado durante `A iniciar o
 particionador` e mantém a confirmação destrutiva dentro da interface do instalador.
+
+## Bootstrap resiliente no `late_command`
+
+O `late-command.sh` é executado dentro do ambiente reduzido do Debian Installer. Por isso ele evita opções específicas do GNU coreutils que podem não existir nos udebs/BusyBox. A validação SHA-256 completa do bundle acontece novamente no primeiro boot, já no Debian instalado.
+
+Antes de copiar o payload grande, o late-command instala a console gate, o firstboot, a chave pública de manutenção e mascara `getty@tty1` até `getty@tty6`. Assim, se uma etapa posterior de staging falhar e o instalador for continuado manualmente, o próximo boot mostra a tela de falha MoonShield em vez de um prompt de login Debian.
+
+O log de staging fica em `/var/log/moonshield/late-command.log` no sistema alvo. Em falha, também são gravados o estado em `/var/lib/moonshield-iso-bootstrap/state/status.json` e o marcador `/var/lib/moonshield/.installation-failed`.

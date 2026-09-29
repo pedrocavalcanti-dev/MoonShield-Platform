@@ -218,6 +218,14 @@ META
 build_iso() {
   cp -- "$SCRIPT_DIR/templates/isolinux-menu.cfg" "$WORK/moonshield-menu.cfg"
   cp -- "$SCRIPT_DIR/templates/grub.cfg" "$WORK/moonshield-grub.cfg"
+
+  # O firstboot é mapeado a partir de staging limpo para não carregar .pyc/
+  # __pycache__ gerados por validações locais do builder.
+  mkdir -p -- "$WORK/firstboot"
+  cp -a -- "$SCRIPT_DIR/firstboot/." "$WORK/firstboot/"
+  find "$WORK/firstboot" -type d -name __pycache__ -prune -exec rm -rf -- {} +
+  find "$WORK/firstboot" -type f -name '*.pyc' -delete
+
   prepare_metadata
 
   info 'Remasterizando mídia e preservando metadados de boot da ISO Debian.'
@@ -227,7 +235,7 @@ build_iso() {
     -map "$SCRIPT_DIR/preseed.cfg" /moonshield/preseed.cfg \
     -map "$SCRIPT_DIR/installer/select-disk.sh" /moonshield/select-disk.sh \
     -map "$SCRIPT_DIR/late-command.sh" /moonshield/late-command.sh \
-    -map "$SCRIPT_DIR/firstboot" /moonshield/firstboot \
+    -map "$WORK/firstboot" /moonshield/firstboot \
     -map "$RELEASE" /moonshield/release \
     -map "$BUNDLE" /moonshield/offline-bundle \
     -map "$WORK/BUILD-INFO" /moonshield/BUILD-INFO \
@@ -265,7 +273,7 @@ validate_final_iso() {
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
   grep -Fq 'Opções avançadas' "$verify/grub.cfg" || die 'Menu UEFI final não contém Opções avançadas.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'
-  grep -Fq 'Opções avançadas' "$verify/menu.cfg" || die 'Menu BIOS final não contém Opções avançadas.'
+  grep -Fq 'Opcoes avancadas' "$verify/menu.cfg" || die 'Menu BIOS final não contém Opcoes avancadas.'
   cmp -s "$verify/cdrom-preseed.cfg" "$verify/preseed.cfg" || die 'Cópias do preseed na ISO divergem.'
   grep -Fq 'partman/early_command' "$verify/preseed.cfg" || die 'Preseed final sem seletor de disco.'
   grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/grub.cfg" || die 'Menu UEFI não aponta para /cdrom/preseed.cfg.'
@@ -322,6 +330,10 @@ validate_sources() {
     "$SCRIPT_DIR/preseed.cfg"; then
     die 'Combinação passwd/root-login=false é incompatível com appliance sem utilizador humano.'
   fi
+  grep -Fq 'openvt -c "$UI_VT" -s -w' "$SCRIPT_DIR/installer/select-disk.sh" \
+    || die 'Seletor de disco deve executar a UI em VT dedicado via openvt.'
+  grep -Fq 'UI_VT=5' "$SCRIPT_DIR/installer/select-disk.sh" \
+    || die 'Seletor de disco deve reservar tty5 para a UI interativa.'
 }
 
 validate_sources

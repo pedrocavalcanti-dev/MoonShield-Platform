@@ -1,17 +1,36 @@
 #!/bin/sh
 set -eu
 
-TTY=/dev/tty1
-[ -c "$TTY" ] || TTY=/dev/console
+MODE="${1:-main}"
 STATE=/tmp/moonshield-selected-disk
+UI_VT=5
+UI_TTY="/dev/tty${UI_VT}"
+
+if [ "$MODE" = "ui" ] && [ -c /dev/tty ]; then
+    TTY=/dev/tty
+else
+    TTY=/dev/tty1
+    [ -c "$TTY" ] || TTY=/dev/console
+fi
 
 PURPLE='\033[1;35m'
 BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+log_msg() {
+    if command -v logger >/dev/null 2>&1; then
+        logger -t moonshield-select-disk -- "$*" 2>/dev/null || true
+    fi
+}
+
 out() { printf '%b\n' "$*" >"$TTY"; }
 clear_screen() { printf '\033[2J\033[H' >"$TTY"; }
+restore_installer_vt() {
+    if command -v chvt >/dev/null 2>&1; then
+        chvt 1 >/dev/null 2>&1 || true
+    fi
+}
 fail() {
     clear_screen
     out "${PURPLE}${BOLD}MOONSHIELD${RESET}"
@@ -22,6 +41,7 @@ fail() {
     out ""
     out "A instalação foi interrompida para evitar alterações em um disco incorreto."
     out "Reinicie o equipamento e tente novamente."
+    log_msg "ERRO: $*"
     exit 1
 }
 
@@ -68,7 +88,6 @@ size_for() {
     fi
 }
 
-
 installer_media_disk() {
     source_dev="$(awk '$2 == "/cdrom" {print $1; exit}' /proc/mounts 2>/dev/null || true)"
     case "$source_dev" in
@@ -109,11 +128,57 @@ collect_disks() {
     fi
 }
 
+apply_selected_disk() {
+    selected="$1"
+    valid_disk "$selected" || fail "O disco selecionado deixou de estar disponível."
+    set_debconf partman-auto/disk "$selected"
+    set_debconf grub-installer/bootdev "$selected"
+}
+
+# partman/early_command é executado enquanto o frontend cdebconf ocupa tty1.
+# Ler diretamente de /dev/tty1 deixa o hook bloqueado atrás do diálogo de
+# progresso ("A iniciar o particionador 0%"). Execute a UI em um VT dedicado,
+# com terminal controlador próprio, e retorne ao instalador somente ao concluir.
+if [ "$MODE" != "--ui" ]; then
+    if [ -s "$STATE" ]; then
+        selected="$(cat "$STATE" 2>/dev/null || true)"
+        if valid_disk "$selected"; then
+            apply_selected_disk "$selected"
+            exit 0
+        fi
+        rm -f "$STATE"
+    fi
+
+    if command -v openvt >/dev/null 2>&1 && [ -c "$UI_TTY" ]; then
+        log_msg "Abrindo seletor de disco no tty${UI_VT} via openvt."
+        if openvt -c "$UI_VT" -s -w /bin/sh "$0" ui; then
+            restore_installer_vt
+            selected="$(cat "$STATE" 2>/dev/null || true)"
+            [ -n "$selected" ] || fail "O seletor terminou sem registrar um disco."
+            apply_selected_disk "$selected"
+            log_msg "Disco confirmado: $selected"
+            exit 0
+        fi
+        restore_installer_vt
+        fail "O seletor de disco encerrou com erro no console dedicado."
+    fi
+
+    # Fallback para ambientes d-i sem openvt. Mudamos o VT visível antes de
+    # usar o dispositivo diretamente, evitando ficar escondido atrás do cdebconf.
+    if command -v chvt >/dev/null 2>&1 && [ -c "$UI_TTY" ]; then
+        log_msg "openvt indisponível; usando tty${UI_VT} diretamente."
+        TTY="$UI_TTY"
+        chvt "$UI_VT" >/dev/null 2>&1 || fail "Não foi possível ativar o console de seleção de disco."
+        trap 'restore_installer_vt' EXIT HUP INT TERM
+    else
+        fail "O Debian Installer não disponibilizou openvt/chvt para a seleção segura de disco."
+    fi
+fi
+
 if [ -s "$STATE" ]; then
     selected="$(cat "$STATE" 2>/dev/null || true)"
     if valid_disk "$selected"; then
-        set_debconf partman-auto/disk "$selected"
-        set_debconf grub-installer/bootdev "$selected"
+        apply_selected_disk "$selected"
         exit 0
     fi
 fi
@@ -127,6 +192,8 @@ done
 DISKS="$(printf '%b' "$DISKS" | sed '/^$/d')"
 COUNT="$(printf '%s\n' "$DISKS" | sed '/^$/d' | wc -l | tr -d ' ')"
 [ "$COUNT" -gt 0 ] || fail "Nenhum disco de instalação válido foi encontrado."
+
+log_msg "Seletor iniciado no modo $MODE; $COUNT disco(s) válido(s) detectado(s)."
 
 while :; do
     clear_screen
@@ -171,13 +238,13 @@ while :; do
         INSTALAR|instalar|Instalar)
             printf '%s\n' "$selected" >"$STATE"
             chmod 0600 "$STATE" 2>/dev/null || true
-            set_debconf partman-auto/disk "$selected"
-            set_debconf grub-installer/bootdev "$selected"
+            apply_selected_disk "$selected"
             clear_screen
             out "${PURPLE}${BOLD}MOONSHIELD${RESET}"
             out ""
             out "Disco confirmado: ${BOLD}$selected${RESET}"
             out "Preparando a instalação do sistema base..."
+            log_msg "Disco confirmado pelo usuário: $selected"
             sleep 1
             exit 0
             ;;

@@ -1,0 +1,35 @@
+Template: moonshield/disk-title
+Type: title
+Description: MoonShield - Installation
+Description-pt_BR.UTF-8: MoonShield - Instalação
+
+Template: moonshield/disk
+Type: select
+Choices: ${CHOICES}
+Description: Select the installation disk
+ Select the disk where MoonShield will be installed.
+ .
+ The selected disk will be completely erased.
+Description-pt_BR.UTF-8: Selecionar disco de instalação
+ Selecione o disco onde o MoonShield será instalado.
+ .
+ O disco selecionado será completamente apagado.
+
+Template: moonshield/confirm
+Type: boolean
+Default: false
+Description: Erase ${SELECTED} and install MoonShield?
+ Selected disk: ${MODEL} - ${SIZE} (${SELECTED})
+ .
+ ALL DATA ON THIS DISK WILL BE PERMANENTLY ERASED.
+Description-pt_BR.UTF-8: Apagar ${SELECTED} e instalar o MoonShield?
+ Disco selecionado: ${MODEL} - ${SIZE} (${SELECTED})
+ .
+ TODOS OS DADOS DESTE DISCO SERÃO APAGADOS PERMANENTEMENTE.
+
+Template: moonshield/error
+Type: error
+Description: MoonShield installation disk error
+ ${ERROR}
+Description-pt_BR.UTF-8: Erro na seleção do disco MoonShield
+ ${ERROR}

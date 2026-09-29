@@ -1,22 +1,12 @@
 #!/bin/sh
-set -eu
+# MoonShield Alpha 2 - disk selector for Debian Installer
+# Uses the installer cdebconf frontend instead of direct TTY/VT access.
+set -e
 
-MODE="${1:-main}"
 STATE=/tmp/moonshield-selected-disk
-UI_VT=5
-UI_TTY="/dev/tty${UI_VT}"
-
-if [ "$MODE" = "ui" ] && [ -c /dev/tty ]; then
-    TTY=/dev/tty
-else
-    TTY=/dev/tty1
-    [ -c "$TTY" ] || TTY=/dev/console
-fi
-
-PURPLE='\033[1;35m'
-BOLD='\033[1m'
-DIM='\033[2m'
-RESET='\033[0m'
+TEMPLATES=/moonshield/moonshield-disk.templates
+OWNER=moonshield-installer
+DEBCONF_READY=0
 
 log_msg() {
     if command -v logger >/dev/null 2>&1; then
@@ -24,37 +14,8 @@ log_msg() {
     fi
 }
 
-out() { printf '%b\n' "$*" >"$TTY"; }
-clear_screen() { printf '\033[2J\033[H' >"$TTY"; }
-restore_installer_vt() {
-    if command -v chvt >/dev/null 2>&1; then
-        chvt 1 >/dev/null 2>&1 || true
-    fi
-}
-fail() {
-    clear_screen
-    out "${PURPLE}${BOLD}MOONSHIELD${RESET}"
-    out ""
-    out "ERRO NA SELEÇÃO DO DISCO"
-    out ""
-    out "$*"
-    out ""
-    out "A instalação foi interrompida para evitar alterações em um disco incorreto."
-    out "Reinicie o equipamento e tente novamente."
-    log_msg "ERRO: $*"
-    exit 1
-}
-
-set_debconf() {
-    key="$1"
-    value="$2"
-    command -v debconf-set >/dev/null 2>&1 || fail "O Debian Installer não disponibilizou debconf-set."
-    debconf-set "$key" "$value"
-}
-
 base_name() {
-    dev="$1"
-    basename "$dev"
+    basename "$1"
 }
 
 is_removable() {
@@ -69,7 +30,8 @@ model_for() {
         model="$(tr -d '\000' < "/sys/block/$name/device/model" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
     fi
     [ -n "$model" ] || model="Disco $name"
-    printf '%s' "$model"
+    # Debconf select choices are comma separated. Keep dynamic labels comma-free.
+    printf '%s' "$model" | tr ',' ' '
 }
 
 size_for() {
@@ -80,7 +42,7 @@ size_for() {
     bytes=$((sectors * 512))
     if [ "$bytes" -ge 1073741824 ]; then
         tenths=$((bytes * 10 / 1073741824))
-        printf '%s,%s GiB' $((tenths / 10)) $((tenths % 10))
+        printf '%s.%s GiB' $((tenths / 10)) $((tenths % 10))
     elif [ "$bytes" -ge 1048576 ]; then
         printf '%s MiB' $((bytes / 1048576))
     else
@@ -111,7 +73,7 @@ valid_disk() {
     [ -b "$dev" ] || return 1
     [ -z "$INSTALL_MEDIA_DISK" ] || [ "$dev" != "$INSTALL_MEDIA_DISK" ] || return 1
     case "$dev" in
-        /dev/loop*|/dev/ram*|/dev/sr*|/dev/fd*) return 1 ;;
+        /dev/loop*|/dev/ram*|/dev/sr*|/dev/fd*|/dev/dm-*) return 1 ;;
     esac
     is_removable "$dev" && return 1
     return 0
@@ -128,131 +90,130 @@ collect_disks() {
     fi
 }
 
-apply_selected_disk() {
-    selected="$1"
-    valid_disk "$selected" || fail "O disco selecionado deixou de estar disponível."
-    set_debconf partman-auto/disk "$selected"
-    set_debconf grub-installer/bootdev "$selected"
+load_debconf_templates() {
+    [ -f "$TEMPLATES" ] || return 1
+
+    if command -v debconf-loadtemplate >/dev/null 2>&1; then
+        debconf-loadtemplate "$OWNER" "$TEMPLATES" >/dev/null 2>&1 || return 1
+    elif [ -x /usr/lib/cdebconf/debconf-loadtemplate ]; then
+        /usr/lib/cdebconf/debconf-loadtemplate "$OWNER" "$TEMPLATES" >/dev/null 2>&1 || return 1
+    else
+        return 1
+    fi
+
+    [ -r /usr/share/debconf/confmodule ] || return 1
+    # confmodule intentionally configures file descriptors used by the active d-i frontend.
+    # shellcheck disable=SC1091
+    . /usr/share/debconf/confmodule
+    DEBCONF_READY=1
+    db_capb backup 2>/dev/null || true
+    # partman may leave a progress dialog active while early_command runs.
+    # Stop it before presenting MoonShield questions through the same frontend.
+    db_progress STOP >/dev/null 2>&1 || true
+    return 0
 }
 
-# partman/early_command é executado enquanto o frontend cdebconf ocupa tty1.
-# Ler diretamente de /dev/tty1 deixa o hook bloqueado atrás do diálogo de
-# progresso ("A iniciar o particionador 0%"). Execute a UI em um VT dedicado,
-# com terminal controlador próprio, e retorne ao instalador somente ao concluir.
-if [ "$MODE" != "--ui" ]; then
-    if [ -s "$STATE" ]; then
-        selected="$(cat "$STATE" 2>/dev/null || true)"
-        if valid_disk "$selected"; then
-            apply_selected_disk "$selected"
-            exit 0
-        fi
-        rm -f "$STATE"
+show_error() {
+    message="$1"
+    log_msg "ERRO: $message"
+    if [ "$DEBCONF_READY" = 1 ]; then
+        db_subst moonshield/error ERROR "$message" >/dev/null 2>&1 || true
+        db_fset moonshield/error seen false >/dev/null 2>&1 || true
+        db_input critical moonshield/error >/dev/null 2>&1 || true
+        db_go >/dev/null 2>&1 || true
     fi
+}
 
-    if command -v openvt >/dev/null 2>&1 && [ -c "$UI_TTY" ]; then
-        log_msg "Abrindo seletor de disco no tty${UI_VT} via openvt."
-        if openvt -c "$UI_VT" -s -w /bin/sh "$0" ui; then
-            restore_installer_vt
-            selected="$(cat "$STATE" 2>/dev/null || true)"
-            [ -n "$selected" ] || fail "O seletor terminou sem registrar um disco."
-            apply_selected_disk "$selected"
-            log_msg "Disco confirmado: $selected"
-            exit 0
-        fi
-        restore_installer_vt
-        fail "O seletor de disco encerrou com erro no console dedicado."
-    fi
+fail() {
+    show_error "$*"
+    exit 1
+}
 
-    # Fallback para ambientes d-i sem openvt. Mudamos o VT visível antes de
-    # usar o dispositivo diretamente, evitando ficar escondido atrás do cdebconf.
-    if command -v chvt >/dev/null 2>&1 && [ -c "$UI_TTY" ]; then
-        log_msg "openvt indisponível; usando tty${UI_VT} diretamente."
-        TTY="$UI_TTY"
-        chvt "$UI_VT" >/dev/null 2>&1 || fail "Não foi possível ativar o console de seleção de disco."
-        trap 'restore_installer_vt' EXIT HUP INT TERM
+set_debconf_value() {
+    key="$1"
+    value="$2"
+    if [ "$DEBCONF_READY" = 1 ]; then
+        db_set "$key" "$value" || fail "Não foi possível configurar $key."
+    elif command -v debconf-set >/dev/null 2>&1; then
+        debconf-set "$key" "$value" || fail "Não foi possível configurar $key."
     else
-        fail "O Debian Installer não disponibilizou openvt/chvt para a seleção segura de disco."
+        fail "O Debian Installer não disponibilizou acesso ao banco Debconf."
     fi
-fi
+}
 
-if [ -s "$STATE" ]; then
-    selected="$(cat "$STATE" 2>/dev/null || true)"
-    if valid_disk "$selected"; then
+apply_selected_disk() {
+    selected="$1"
+    valid_disk "$selected" || fail "O disco selecionado deixou de estar disponível: $selected"
+    set_debconf_value partman-auto/disk "$selected"
+    set_debconf_value grub-installer/bootdev "$selected"
+    printf '%s\n' "$selected" >"$STATE"
+    chmod 0600 "$STATE" 2>/dev/null || true
+    log_msg "Disco aplicado ao Partman e GRUB: $selected"
+}
+
+load_debconf_templates || fail "O Debian Installer não disponibilizou o frontend Debconf necessário para selecionar o disco com segurança."
+
+# Build dynamic choices only from non-removable whole disks, excluding install media.
+CHOICES=""
+FIRST_CHOICE=""
+COUNT=0
+for dev in $(collect_disks); do
+    valid_disk "$dev" || continue
+    model="$(model_for "$dev")"
+    size="$(size_for "$dev")"
+    choice="$dev | $model | $size"
+    if [ -z "$CHOICES" ]; then
+        CHOICES="$choice"
+        FIRST_CHOICE="$choice"
+    else
+        CHOICES="$CHOICES, $choice"
+    fi
+    COUNT=$((COUNT + 1))
+    log_msg "Disco candidato: $dev model='$model' size='$size'"
+done
+
+[ "$COUNT" -gt 0 ] || fail "Nenhum disco interno válido foi encontrado para instalar o MoonShield."
+log_msg "$COUNT disco(s) válido(s) detectado(s)."
+
+while :; do
+    db_settitle moonshield/disk-title || true
+    db_subst moonshield/disk CHOICES "$CHOICES" || fail "Falha ao preparar a lista de discos."
+    db_set moonshield/disk "$FIRST_CHOICE" >/dev/null 2>&1 || true
+    db_fset moonshield/disk seen false >/dev/null 2>&1 || true
+
+    input_rc=0
+    db_input critical moonshield/disk >/dev/null 2>&1 || input_rc=$?
+    [ "$input_rc" -eq 0 ] || [ "$input_rc" -eq 30 ] || fail "Falha ao abrir a seleção de disco (Debconf rc=$input_rc)."
+    db_go >/dev/null 2>&1 || continue
+    db_get moonshield/disk || fail "Falha ao obter o disco selecionado."
+    selected_label="$RET"
+    selected="${selected_label%% | *}"
+
+    valid_disk "$selected" || {
+        show_error "O disco escolhido não está mais disponível. Selecione outro disco."
+        continue
+    }
+
+    model="$(model_for "$selected")"
+    size="$(size_for "$selected")"
+    db_subst moonshield/confirm SELECTED "$selected" || true
+    db_subst moonshield/confirm MODEL "$model" || true
+    db_subst moonshield/confirm SIZE "$size" || true
+    db_set moonshield/confirm false >/dev/null 2>&1 || true
+    db_fset moonshield/confirm seen false >/dev/null 2>&1 || true
+
+    input_rc=0
+    db_input critical moonshield/confirm >/dev/null 2>&1 || input_rc=$?
+    [ "$input_rc" -eq 0 ] || [ "$input_rc" -eq 30 ] || fail "Falha ao abrir a confirmação do disco (Debconf rc=$input_rc)."
+    if ! db_go >/dev/null 2>&1; then
+        continue
+    fi
+    db_get moonshield/confirm || fail "Falha ao obter a confirmação da instalação."
+
+    if [ "$RET" = true ]; then
         apply_selected_disk "$selected"
         exit 0
     fi
-fi
 
-DISKS=""
-for dev in $(collect_disks); do
-    if valid_disk "$dev"; then
-        DISKS="${DISKS}${dev}\n"
-    fi
-done
-DISKS="$(printf '%b' "$DISKS" | sed '/^$/d')"
-COUNT="$(printf '%s\n' "$DISKS" | sed '/^$/d' | wc -l | tr -d ' ')"
-[ "$COUNT" -gt 0 ] || fail "Nenhum disco de instalação válido foi encontrado."
-
-log_msg "Seletor iniciado no modo $MODE; $COUNT disco(s) válido(s) detectado(s)."
-
-while :; do
-    clear_screen
-    out "${PURPLE}${BOLD}MOONSHIELD${RESET}"
-    out "${BOLD}Appliance de Segurança de Rede${RESET}"
-    out ""
-    out "${BOLD}Selecionar disco de instalação${RESET}"
-    out ""
-    index=1
-    printf '%s\n' "$DISKS" | while IFS= read -r dev; do
-        [ -n "$dev" ] || continue
-        out "  ${PURPLE}${BOLD}$index.${RESET} $(model_for "$dev")"
-        out "     $(size_for "$dev")   ${DIM}$dev${RESET}"
-        out ""
-        index=$((index + 1))
-    done
-    out "Todos os dados do disco escolhido serão apagados."
-    out ""
-    printf 'Digite o número do disco e pressione Enter: ' >"$TTY"
-    IFS= read -r choice <"$TTY" || fail "Não foi possível ler a seleção do disco."
-    case "$choice" in ''|*[!0-9]*) continue ;; esac
-    [ "$choice" -ge 1 ] 2>/dev/null || continue
-    [ "$choice" -le "$COUNT" ] 2>/dev/null || continue
-    selected="$(printf '%s\n' "$DISKS" | sed -n "${choice}p")"
-    valid_disk "$selected" || fail "O disco selecionado deixou de estar disponível."
-
-    clear_screen
-    out "${PURPLE}${BOLD}MOONSHIELD${RESET}"
-    out "${BOLD}Confirmar instalação${RESET}"
-    out ""
-    out "MoonShield será instalado em:"
-    out ""
-    out "  ${BOLD}$(model_for "$selected")${RESET}"
-    out "  $(size_for "$selected")"
-    out "  $selected"
-    out ""
-    out "${BOLD}ATENÇÃO: TODOS OS DADOS DESTE DISCO SERÃO APAGADOS.${RESET}"
-    out ""
-    printf 'Digite INSTALAR para confirmar ou CANCELAR para voltar: ' >"$TTY"
-    IFS= read -r confirm <"$TTY" || fail "Não foi possível ler a confirmação."
-    case "$confirm" in
-        INSTALAR|instalar|Instalar)
-            printf '%s\n' "$selected" >"$STATE"
-            chmod 0600 "$STATE" 2>/dev/null || true
-            apply_selected_disk "$selected"
-            clear_screen
-            out "${PURPLE}${BOLD}MOONSHIELD${RESET}"
-            out ""
-            out "Disco confirmado: ${BOLD}$selected${RESET}"
-            out "Preparando a instalação do sistema base..."
-            log_msg "Disco confirmado pelo usuário: $selected"
-            sleep 1
-            exit 0
-            ;;
-        CANCELAR|cancelar|Cancelar)
-            continue
-            ;;
-        *)
-            continue
-            ;;
-    esac
+    log_msg "Usuário recusou a confirmação para $selected; retornando à seleção."
 done

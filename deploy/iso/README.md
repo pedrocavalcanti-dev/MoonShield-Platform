@@ -303,3 +303,12 @@ Depois da instalação:
 systemctl status moonshield-console.service
 systemctl status moonshield-web.service
 ```
+
+## Alpha 2 — seleção de disco via Debconf
+
+O seletor de disco executado por `partman/early_command` usa o frontend cdebconf do
+próprio Debian Installer. Os templates estão em
+`installer/moonshield-disk.templates` e são embutidos no initrd junto com
+`select-disk.sh`. A implementação não depende de `openvt`, `chvt` nem de leitura
+direta de `/dev/tty*`; isso evita o bloqueio observado durante `A iniciar o
+particionador` e mantém a confirmação destrutiva dentro da interface do instalador.

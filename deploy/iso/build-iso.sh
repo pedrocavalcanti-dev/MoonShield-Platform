@@ -186,6 +186,7 @@ embed_preseed() {
   mkdir -p -- "$overlay/moonshield"
   install -m 0644 "$SCRIPT_DIR/preseed.cfg" "$overlay/preseed.cfg"
   install -m 0755 "$SCRIPT_DIR/installer/select-disk.sh" "$overlay/moonshield/select-disk.sh"
+  install -m 0644 "$SCRIPT_DIR/installer/moonshield-disk.templates" "$overlay/moonshield/moonshield-disk.templates"
   (cd -- "$overlay" && find . -mindepth 1 -print0 | LC_ALL=C sort -z \
     | cpio --null --quiet -o -H newc -A -F "$raw") \
     || die 'Falha ao acrescentar preseed/seletor ao initrd Debian.'
@@ -197,8 +198,9 @@ embed_preseed() {
   [[ "$verify_compression" == "$compression" ]] || die 'Compressão do initrd mudou inesperadamente.'
   [[ -f "$WORK/initrd-verify/preseed.cfg" ]] || die 'preseed.cfg não está no initrd reconstruído.'
   [[ -f "$WORK/initrd-verify/moonshield/select-disk.sh" ]] || die 'Seletor de disco não está no initrd reconstruído.'
+  [[ -f "$WORK/initrd-verify/moonshield/moonshield-disk.templates" ]] || die 'Templates Debconf do seletor não estão no initrd reconstruído.'
   grep -Fq 'partman/early_command' "$WORK/initrd-verify/preseed.cfg" || die 'Preseed embutido não contém hook de disco.'
-  ok 'Preseed e seletor de disco embutidos no initrd de staging.'
+  ok 'Preseed, seletor e templates Debconf embutidos no initrd de staging.'
 }
 
 prepare_metadata() {
@@ -234,11 +236,13 @@ build_iso() {
     -map "$SCRIPT_DIR/preseed.cfg" /preseed.cfg \
     -map "$SCRIPT_DIR/preseed.cfg" /moonshield/preseed.cfg \
     -map "$SCRIPT_DIR/installer/select-disk.sh" /moonshield/select-disk.sh \
+    -map "$SCRIPT_DIR/installer/moonshield-disk.templates" /moonshield/moonshield-disk.templates \
     -map "$SCRIPT_DIR/late-command.sh" /moonshield/late-command.sh \
     -map "$WORK/firstboot" /moonshield/firstboot \
     -map "$RELEASE" /moonshield/release \
     -map "$BUNDLE" /moonshield/offline-bundle \
     -map "$WORK/BUILD-INFO" /moonshield/BUILD-INFO \
+    -map "$WORK/BUILD-INFO" /moonshield/BUILD-INFO.txt \
     -map "$WORK/moonshield-menu.cfg" /isolinux/menu.cfg \
     -map "$WORK/moonshield-grub.cfg" /boot/grub/grub.cfg \
     -map "$SCRIPT_DIR/templates/moonshield-theme.txt" /boot/grub/moonshield-theme.txt \
@@ -260,6 +264,7 @@ validate_final_iso() {
     -extract /preseed.cfg "$verify/cdrom-preseed.cfg" \
     -extract /moonshield/preseed.cfg "$verify/preseed.cfg" \
     -extract /moonshield/select-disk.sh "$verify/select-disk.sh" \
+    -extract /moonshield/moonshield-disk.templates "$verify/moonshield-disk.templates" \
     -extract /moonshield/late-command.sh "$verify/late-command.sh" \
     -extract /moonshield/firstboot/moonshield-firstboot.py "$verify/firstboot.py" \
     -extract /moonshield/firstboot/moonshield-console-gate.py "$verify/console-gate.py" \
@@ -276,6 +281,12 @@ validate_final_iso() {
   grep -Fq 'Opcoes avancadas' "$verify/menu.cfg" || die 'Menu BIOS final não contém Opcoes avancadas.'
   cmp -s "$verify/cdrom-preseed.cfg" "$verify/preseed.cfg" || die 'Cópias do preseed na ISO divergem.'
   grep -Fq 'partman/early_command' "$verify/preseed.cfg" || die 'Preseed final sem seletor de disco.'
+  grep -Fq 'Template: moonshield/disk' "$verify/moonshield-disk.templates" || die 'ISO final sem template de seleção de disco.'
+  grep -Fq 'Template: moonshield/confirm' "$verify/moonshield-disk.templates" || die 'ISO final sem template de confirmação destrutiva.'
+  grep -Fq '/usr/share/debconf/confmodule' "$verify/select-disk.sh" || die 'Seletor final não usa o frontend Debconf do Debian Installer.'
+  if grep -Eq '(^|[^[:alnum:]_])(openvt|chvt)([^[:alnum:]_]|$)' "$verify/select-disk.sh"; then
+    die 'Seletor final ainda depende de openvt/chvt, indisponíveis no d-i testado.'
+  fi
   grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/grub.cfg" || die 'Menu UEFI não aponta para /cdrom/preseed.cfg.'
   grep -Fq 'preseed/file=/cdrom/preseed.cfg' "$verify/menu.cfg" || die 'Menu BIOS não aponta para /cdrom/preseed.cfg.'
   grep -Fq 'FIRSTBOOT="$MEDIA/firstboot"' "$verify/late-command.sh" || die 'Late-command final não referencia firstboot.'
@@ -286,6 +297,7 @@ validate_final_iso() {
   [[ "$compression" != unknown ]] || die 'Initrd final inválido.'
   [[ -f "$WORK/final-initrd-root/preseed.cfg" ]] || die 'ISO final não contém preseed.cfg no initrd.'
   [[ -f "$WORK/final-initrd-root/moonshield/select-disk.sh" ]] || die 'ISO final não contém seletor de disco no initrd.'
+  [[ -f "$WORK/final-initrd-root/moonshield/moonshield-disk.templates" ]] || die 'ISO final não contém templates Debconf no initrd.'
 
   xorriso -indev "$TEMP_ISO" -pvd_info 2>&1 \
     | grep -Fq "$VOLUME_ID" \
@@ -303,6 +315,7 @@ validate_sources() {
     "$SCRIPT_DIR/preseed.cfg" \
     "$SCRIPT_DIR/late-command.sh" \
     "$SCRIPT_DIR/installer/select-disk.sh" \
+    "$SCRIPT_DIR/installer/moonshield-disk.templates" \
     "$SCRIPT_DIR/firstboot/moonshield-firstboot.py" \
     "$SCRIPT_DIR/firstboot/moonshield-console-gate.py" \
     "$SCRIPT_DIR/firstboot/moonshield-iso-firstboot.service" \
@@ -330,10 +343,21 @@ validate_sources() {
     "$SCRIPT_DIR/preseed.cfg"; then
     die 'Combinação passwd/root-login=false é incompatível com appliance sem utilizador humano.'
   fi
-  grep -Fq 'openvt -c "$UI_VT" -s -w' "$SCRIPT_DIR/installer/select-disk.sh" \
-    || die 'Seletor de disco deve executar a UI em VT dedicado via openvt.'
-  grep -Fq 'UI_VT=5' "$SCRIPT_DIR/installer/select-disk.sh" \
-    || die 'Seletor de disco deve reservar tty5 para a UI interativa.'
+  grep -Fq '/usr/share/debconf/confmodule' "$SCRIPT_DIR/installer/select-disk.sh" \
+    || die 'Seletor de disco deve usar o frontend Debconf do Debian Installer.'
+  grep -Fq 'debconf-loadtemplate' "$SCRIPT_DIR/installer/select-disk.sh" \
+    || die 'Seletor de disco deve carregar templates Debconf próprios.'
+  grep -Fq 'db_input critical moonshield/disk' "$SCRIPT_DIR/installer/select-disk.sh" \
+    || die 'Seletor de disco deve apresentar a escolha pelo Debconf.'
+  grep -Fq 'db_input critical moonshield/confirm' "$SCRIPT_DIR/installer/select-disk.sh" \
+    || die 'Seletor de disco deve exigir confirmação destrutiva pelo Debconf.'
+  if grep -Eq '(^|[^[:alnum:]_])(openvt|chvt)([^[:alnum:]_]|$)' "$SCRIPT_DIR/installer/select-disk.sh"; then
+    die 'Seletor de disco não deve depender de openvt/chvt no Debian Installer.'
+  fi
+  grep -Fq 'Template: moonshield/disk' "$SCRIPT_DIR/installer/moonshield-disk.templates" \
+    || die 'Templates Debconf sem moonshield/disk.'
+  grep -Fq 'Template: moonshield/confirm' "$SCRIPT_DIR/installer/moonshield-disk.templates" \
+    || die 'Templates Debconf sem moonshield/confirm.'
 }
 
 validate_sources

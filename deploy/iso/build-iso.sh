@@ -117,6 +117,8 @@ validate_bundle() {
     || die 'Offline bundle incompleto.'
   grep -qx 'Debian=13' "$BUNDLE/BUILD-INFO" || die 'Offline bundle não foi preparado em Debian 13.'
   grep -qx 'Architecture=amd64' "$BUNDLE/BUILD-INFO" || die 'Offline bundle não é amd64.'
+  grep -qx 'BundleFormat=2' "$BUNDLE/BUILD-INFO" || die 'Offline bundle antigo: regenere com prepare-offline-bundle.sh desta release.'
+  grep -qx 'DependencyClosure=full' "$BUNDLE/BUILD-INFO" || die 'Offline bundle sem fechamento completo de dependências.'
   (cd -- "$BUNDLE" && sha256sum --check --status SHA256SUMS) || die 'Checksum do offline bundle falhou.'
   ok 'Offline bundle validado.'
 }
@@ -276,9 +278,12 @@ validate_final_iso() {
 
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
-  grep -Fq 'Opções avançadas' "$verify/grub.cfg" || die 'Menu UEFI final não contém Opções avançadas.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'
-  grep -Fq 'Opcoes avancadas' "$verify/menu.cfg" || die 'Menu BIOS final não contém Opcoes avancadas.'
+  grep -Fq 'noshell BOOT_DEBUG=0' "$verify/grub.cfg" || die 'Menu UEFI final não bloqueia shells interativos do Debian Installer.'
+  grep -Fq 'noshell BOOT_DEBUG=0' "$verify/menu.cfg" || die 'Menu BIOS final não bloqueia shells interativos do Debian Installer.'
+  if grep -Fq 'moonshield-advanced' "$verify/grub.cfg" || grep -Fq 'moonshield-advanced' "$verify/menu.cfg"; then
+    die 'ISO final contém entrada avançada que amplia desnecessariamente a superfície do instalador.'
+  fi
   cmp -s "$verify/cdrom-preseed.cfg" "$verify/preseed.cfg" || die 'Cópias do preseed na ISO divergem.'
   grep -Fq 'partman/early_command' "$verify/preseed.cfg" || die 'Preseed final sem seletor de disco.'
   grep -Fq 'Template: moonshield/disk' "$verify/moonshield-disk.templates" || die 'ISO final sem template de seleção de disco.'
@@ -292,7 +297,9 @@ validate_final_iso() {
   grep -Fq 'FIRSTBOOT="$MEDIA/firstboot"' "$verify/late-command.sh" || die 'Late-command final não referencia firstboot.'
   grep -Fq 'enable_boot_gate' "$verify/late-command.sh" || die 'Late-command final não prepara gate de recuperação.'
   grep -Fq 'getty@tty${tty}.service' "$verify/late-command.sh" || die 'Late-command final não mascara consoles Debian.'
-  grep -Fq 'integridade completa será validada no primeiro boot' "$verify/late-command.sh" || die 'Late-command final não delega a validação completa ao firstboot.'
+  grep -Fq 'integridade completa sera validada no primeiro boot' "$verify/late-command.sh" || die 'Late-command final não delega a validação completa ao firstboot.'
+  grep -Fq 'apply_installed_branding' "$verify/late-command.sh" || die 'Late-command final sem branding do sistema instalado.'
+  grep -Fq 'tentativa automatica de reparo' "$verify/firstboot.py" || die 'Firstboot final sem retry/reparo controlado.'
   if grep -Eq 'sha256sum[[:space:]].*(--status|-s)([[:space:]]|$)' "$verify/late-command.sh"; then
     die 'Late-command final usa modo sha256sum incompatível com o ambiente reduzido do d-i.'
   fi
@@ -328,7 +335,9 @@ validate_sources() {
     "$SCRIPT_DIR/firstboot/moonshield-iso-console-gate.service" \
     "$SCRIPT_DIR/templates/grub.cfg" \
     "$SCRIPT_DIR/templates/isolinux-menu.cfg" \
-    "$SCRIPT_DIR/templates/moonshield-theme.txt"; do
+    "$SCRIPT_DIR/templates/moonshield-theme.txt" \
+    "$SCRIPT_DIR/templates/grub-installed.cfg" \
+    "$SCRIPT_DIR/templates/moonshield-installed-theme.txt"; do
     [[ -f "$path" ]] || die "Arquivo ISO obrigatório ausente: $path"
   done
   if grep -RIlE -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' "$SCRIPT_DIR" | grep -q .; then
@@ -368,6 +377,59 @@ validate_sources() {
     || die 'Late-command deve preparar gate de recuperação antes de copiar o payload.'
   grep -Fq 'getty@tty${tty}.service' "$SCRIPT_DIR/late-command.sh" \
     || die 'Late-command deve mascarar TTY1-6 para não expor login Debian.'
+  grep -Fq 'apply_installed_branding' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command deve aplicar branding MoonShield ao sistema instalado.'
+  grep -Fq 'preserve_installer_logs' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command deve preservar logs essenciais do Debian Installer.'
+  grep -Fq 'GRUB_DISTRIBUTOR="MOONSHIELD"' "$SCRIPT_DIR/templates/grub-installed.cfg" \
+    || die 'Config do GRUB instalado não define MOONSHIELD como distribuidor.'
+  grep -Fq 'GRUB_TIMEOUT_STYLE=menu' "$SCRIPT_DIR/templates/grub-installed.cfg" \
+    || die 'Config do GRUB instalado deve exibir menu MoonShield curto.'
+  grep -Fq 'GRUB_TIMEOUT=2' "$SCRIPT_DIR/templates/grub-installed.cfg" \
+    || die 'Config do GRUB instalado deve usar timeout curto de 2 segundos.'
+  grep -Fq 'GRUB_THEME="/boot/grub/themes/moonshield/theme.txt"' "$SCRIPT_DIR/templates/grub-installed.cfg" \
+    || die 'Config do GRUB instalado sem tema MoonShield.'
+  grep -Fq 'systemd.show_status=auto' "$SCRIPT_DIR/templates/grub-installed.cfg" \
+    || die 'GRUB instalado deve manter status automatico do systemd para diagnostico de falhas.'
+  grep -Fq 'update-grub' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command deve regenerar o GRUB do sistema instalado.'
+  grep -Fq 'MOONSHIELD GNU\/Linux/MOONSHIELD' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command sem fallback para remover sufixo GNU/Linux do menu MoonShield.'
+  grep -Fq 'PRETTY_HOSTNAME=MOONSHIELD' "$SCRIPT_DIR/late-command.sh" \
+    || die 'Late-command sem identidade MoonShield em /etc/machine-info.'
+  grep -Eq '^d-i[[:space:]]+debian-installer/theme[[:space:]]+string[[:space:]]+dark[[:space:]]*$' "$SCRIPT_DIR/preseed.cfg" \
+    || die 'Preseed deve forcar o tema dark oficial do Debian Installer.'
+  grep -Fq 'DEBIAN_FRONTEND=newt theme=dark' "$SCRIPT_DIR/templates/grub.cfg" \
+    || die 'GRUB da ISO deve iniciar o Debian Installer em newt/dark.'
+  grep -Fq 'DEBIAN_FRONTEND=newt theme=dark' "$SCRIPT_DIR/templates/isolinux-menu.cfg" \
+    || die 'ISOLINUX deve iniciar o Debian Installer em newt/dark.'
+  grep -Fq 'noshell BOOT_DEBUG=0' "$SCRIPT_DIR/templates/grub.cfg" \
+    || die 'GRUB da ISO deve bloquear shells interativos do Debian Installer.'
+  grep -Fq 'noshell BOOT_DEBUG=0' "$SCRIPT_DIR/templates/isolinux-menu.cfg" \
+    || die 'ISOLINUX deve bloquear shells interativos do Debian Installer.'
+  if grep -Fq 'moonshield-advanced' "$SCRIPT_DIR/templates/grub.cfg" || grep -Fq 'moonshield-advanced' "$SCRIPT_DIR/templates/isolinux-menu.cfg"; then
+    die 'Menus da ISO não devem expor entrada avançada/root shell no fluxo normal da appliance.'
+  fi
+  grep -Eq '^d-i[[:space:]]+finish-install/keep-consoles[[:space:]]+boolean[[:space:]]+false[[:space:]]*$' "$SCRIPT_DIR/preseed.cfg" \
+    || die 'Preseed deve manter consoles virtuais extras desabilitados na finalização.'
+  grep -Fq 'moonshield-compatible' "$SCRIPT_DIR/templates/grub.cfg" \
+    || die 'GRUB da ISO deve oferecer modo compativel de video.'
+  grep -Fq 'moonshield-compatible' "$SCRIPT_DIR/templates/isolinux-menu.cfg" \
+    || die 'ISOLINUX deve oferecer modo compativel de video.'
+  grep -Fq 'NETWORK SECURITY APPLIANCE' "$SCRIPT_DIR/templates/moonshield-theme.txt" \
+    || die 'Tema UEFI sem identidade visual MoonShield.'
+  grep -Fq 'NETWORK SECURITY APPLIANCE' "$SCRIPT_DIR/templates/moonshield-installed-theme.txt" \
+    || die 'Tema GRUB instalado sem identidade visual MoonShield.'
+  grep -Fq 'BOOTSTRAP SEGURO' "$SCRIPT_DIR/firstboot/moonshield-console-gate.py" \
+    || die 'Console gate sem painel visual de bootstrap MoonShield.'
+  grep -Fq 'FALHA NO PROVISIONAMENTO' "$SCRIPT_DIR/firstboot/moonshield-console-gate.py" \
+    || die 'Console gate sem tela visual de falha.'
+  grep -Fq 'gate fara handoff do TTY1' "$SCRIPT_DIR/firstboot/moonshield-firstboot.py" \
+    || die 'Firstboot deve finalizar por handoff da gate, sem corrida no TTY1.'
+  grep -Fq 'tentativa automatica de reparo' "$SCRIPT_DIR/firstboot/moonshield-firstboot.py" \
+    || die 'Firstboot deve possuir retry/reparo automático controlado.'
+  grep -Fq 'install-stage' "$SCRIPT_DIR/firstboot/moonshield-firstboot.py" \
+    || die 'Firstboot deve reportar a etapa do installer que falhou.'
   if grep -Eq 'sha256sum[[:space:]].*(--status|-s)([[:space:]]|$)' "$SCRIPT_DIR/late-command.sh"; then
     die 'Late-command não deve usar --status/-s do sha256sum no ambiente d-i.'
   fi

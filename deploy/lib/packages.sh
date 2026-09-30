@@ -11,7 +11,7 @@ install_packages() {
   ((${#packages[@]} > 0)) || die "Manifest Debian vazio."
   if [[ "$INSTALL_MODE" == offline ]]; then
     [[ -d "$OFFLINE_BUNDLE/debs" && -f "$OFFLINE_BUNDLE/SHA256SUMS" ]] || die "Bundle offline de pacotes ausente/incompleto."
-    (cd "$OFFLINE_BUNDLE" && sha256sum --check --status SHA256SUMS) || die "Checksum do bundle offline falhou."
+    (cd "$OFFLINE_BUNDLE" && sha256sum --check SHA256SUMS >/dev/null) || die "Checksum do bundle offline falhou."
     shopt -s nullglob
     deb_files=("$OFFLINE_BUNDLE"/debs/*.deb)
     ((${#deb_files[@]} > 0)) || die "Bundle offline não contém .deb."

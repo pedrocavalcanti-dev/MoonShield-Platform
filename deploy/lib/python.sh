@@ -14,7 +14,7 @@ install_python_runtime() {
   python_bin="$venv/bin/python"
   if [[ "$INSTALL_MODE" == offline ]]; then
     [[ -d "$OFFLINE_BUNDLE/wheelhouse" && -f "$OFFLINE_BUNDLE/SHA256SUMS" ]] || die "Wheelhouse offline ausente."
-    (cd "$OFFLINE_BUNDLE" && sha256sum --check --status SHA256SUMS) || die "Checksum do bundle offline falhou."
+    (cd "$OFFLINE_BUNDLE" && sha256sum --check SHA256SUMS >/dev/null) || die "Checksum do bundle offline falhou."
     run_checked "pip offline" "$python_bin" -m pip install --disable-pip-version-check --no-index --find-links "$OFFLINE_BUNDLE/wheelhouse" --requirement /opt/moonshield/source/requirements-prod.txt || die "Instalação Python offline falhou; nenhuma tentativa de rede foi feita."
   else
     run_with_tls_retry "pip install" "$python_bin" -m pip install --disable-pip-version-check --requirement /opt/moonshield/source/requirements-prod.txt || die "Instalação das dependências Python falhou."

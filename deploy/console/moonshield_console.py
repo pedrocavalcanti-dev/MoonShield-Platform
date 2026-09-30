@@ -43,6 +43,43 @@ RESTARTABLE = {
 FAILURE_LIMIT = 3
 COOLDOWN_SECONDS = 30
 
+C_ACCENT = 1
+C_MUTED = 2
+C_OK = 3
+C_WARN = 4
+C_ERROR = 5
+C_SELECTED = 6
+
+
+def cp(index: int) -> int:
+    return curses.color_pair(index) if curses.has_colors() else 0
+
+
+def init_colors(screen) -> None:
+    if not curses.has_colors():
+        return
+    try:
+        curses.start_color()
+        try:
+            curses.use_default_colors()
+        except curses.error:
+            pass
+        bg = curses.COLOR_BLACK
+        curses.init_pair(C_ACCENT, curses.COLOR_MAGENTA, bg)
+        curses.init_pair(C_MUTED, curses.COLOR_CYAN, bg)
+        curses.init_pair(C_OK, curses.COLOR_GREEN, bg)
+        curses.init_pair(C_WARN, curses.COLOR_YELLOW, bg)
+        curses.init_pair(C_ERROR, curses.COLOR_RED, bg)
+        curses.init_pair(C_SELECTED, curses.COLOR_WHITE, curses.COLOR_MAGENTA)
+        screen.bkgd(" ", 0)
+    except curses.error:
+        pass
+
+
+def selected_attr() -> int:
+    return (cp(C_SELECTED) | curses.A_BOLD) if curses.has_colors() else curses.A_REVERSE
+
+
 
 def command(args: list[str], timeout: float = 3.0) -> str:
     try:
@@ -172,22 +209,20 @@ def internet_status() -> bool:
         return False
 
 
-def draw_header(screen, subtitle: str = "Appliance de Segurança de Rede") -> int:
+def draw_header(screen, subtitle: str = "Appliance de Seguranca de Rede") -> int:
     height, width = screen.getmaxyx()
     screen.erase()
-    if curses.has_colors():
-        try:
-            screen.attron(curses.color_pair(1) | curses.A_BOLD)
-        except curses.error:
-            pass
-    screen.addnstr(0, 2, f"{TITLE}  |  {subtitle}", max(0, width - 4))
-    if curses.has_colors():
-        try:
-            screen.attroff(curses.color_pair(1) | curses.A_BOLD)
-        except curses.error:
-            pass
-    screen.addnstr(1, 2, "Sistema  Firewall  IDS  DNS", max(0, width - 4))
-    screen.addnstr(2, 1, "-" * max(0, width - 2), max(0, width - 2))
+    try:
+        screen.bkgd(" ", 0)
+    except curses.error:
+        pass
+    title = f"{TITLE} // {subtitle}"
+    screen.addnstr(0, 2, title, max(0, width - 4), cp(C_ACCENT) | curses.A_BOLD)
+    badge = " SECURE CONSOLE "
+    if width > len(badge) + len(title) + 8:
+        screen.addnstr(0, width - len(badge) - 2, badge, len(badge), selected_attr())
+    screen.addnstr(1, 2, "SYSTEM   FIREWALL   IDS   DNS   NETWORK", max(0, width - 4), cp(C_MUTED) | curses.A_DIM)
+    screen.addnstr(2, 1, "-" * max(0, width - 2), max(0, width - 2), cp(C_ACCENT) | curses.A_DIM)
     return 4
 
 
@@ -395,13 +430,7 @@ def main(screen) -> None:
         pass
     screen.keypad(True)
     screen.timeout(-1)
-    if curses.has_colors():
-        try:
-            curses.start_color()
-            curses.use_default_colors()
-            curses.init_pair(1, curses.COLOR_MAGENTA, -1)
-        except curses.error:
-            pass
+    init_colors(screen)
     menu = [
         ("1", "Status da appliance"),
         ("2", "Informações de rede"),
@@ -418,7 +447,7 @@ def main(screen) -> None:
         for index, (number, label) in enumerate(menu):
             text = f"[{number}]  {label}"
             if index == selected:
-                screen.addnstr(start + index, 3, text, max(0, width - 6), curses.A_REVERSE)
+                screen.addnstr(start + index, 3, text, max(0, width - 6), selected_attr())
             else:
                 screen.addnstr(start + index, 3, text, max(0, width - 6))
         screen.addnstr(height - 2, 2, f"{socket.gethostname()}  |  {management_ip()}  |  {uptime_text()}", max(0, width - 4))
@@ -458,7 +487,7 @@ def main(screen) -> None:
                     for service_index, unit in enumerate(restartable):
                         label = f"{service_index + 1}: {unit}"
                         if service_index == selected_service:
-                            screen.addnstr(service_start + service_index, 3, label, max(0, width - 6), curses.A_REVERSE)
+                            screen.addnstr(service_start + service_index, 3, label, max(0, width - 6), selected_attr())
                         else:
                             screen.addnstr(service_start + service_index, 3, label, max(0, width - 6))
                     screen.addnstr(height - 1, 2, "Setas/Enter: selecionar  |  Esc: cancelar", max(0, width - 4))

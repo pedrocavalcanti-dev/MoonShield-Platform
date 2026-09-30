@@ -1,5 +1,5 @@
-# MoonShield ISO GRUB theme - no external images required.
-# This intentionally uses only GRUB primitives for maximum firmware/VM compatibility.
+# MoonShield installed appliance GRUB theme.
+# Primitive-only theme: no PNG/JPEG module dependency.
 title-text: "MOONSHIELD"
 title-font: "unicode"
 title-color: "#FFFFFF"
@@ -23,7 +23,7 @@ terminal-box: "0"
     top = 20%
     left = 0
     width = 100%
-    height = 26
+    height = 25
     text = "NETWORK SECURITY APPLIANCE"
     align = "center"
     color = "#9595FB"
@@ -31,21 +31,21 @@ terminal-box: "0"
 }
 
 + label {
-    top = 26%
+    top = 27%
     left = 0
     width = 100%
-    height = 24
-    text = "Instalacao segura // offline // Debian 13 amd64"
+    height = 22
+    text = "Inicializacao protegida"
     align = "center"
     color = "#777785"
     font = "unicode"
 }
 
 + boot_menu {
-    left = 24%
-    width = 52%
-    top = 38%
-    height = 29%
+    left = 26%
+    width = 48%
+    top = 39%
+    height = 24%
     item_font = "unicode"
     item_color = "#C8C8D0"
     selected_item_color = "#FFFFFF"
@@ -55,11 +55,11 @@ terminal-box: "0"
 }
 
 + label {
-    top = 74%
+    top = 75%
     left = 0
     width = 100%
     height = 24
-    text = "ENTER para continuar // setas para selecionar"
+    text = "Appliance de Seguranca de Rede"
     align = "center"
     color = "#8E8E9A"
     font = "unicode"

@@ -1,35 +1,35 @@
 Template: moonshield/disk-title
 Type: title
-Description: MoonShield - Installation
-Description-pt_BR.UTF-8: MoonShield - Instalação
+Description: MOONSHIELD // STORAGE
+Description-pt_BR.UTF-8: MOONSHIELD // ARMAZENAMENTO
 
 Template: moonshield/disk
 Type: select
 Choices: ${CHOICES}
-Description: Select the installation disk
- Select the disk where MoonShield will be installed.
+Description: Select the MoonShield installation disk
+ MoonShield will use the selected disk as the appliance system disk.
  .
- The selected disk will be completely erased.
-Description-pt_BR.UTF-8: Selecionar disco de instalação
- Selecione o disco onde o MoonShield será instalado.
+ The disk will be completely erased before installation.
+Description-pt_BR.UTF-8: Selecione o disco de instalação do MoonShield
+ O MoonShield utilizará o disco selecionado como disco do sistema da appliance.
  .
- O disco selecionado será completamente apagado.
+ O disco será completamente apagado antes da instalação.
 
 Template: moonshield/confirm
 Type: boolean
 Default: false
-Description: Erase ${SELECTED} and install MoonShield?
+Description: Confirm destructive installation on ${SELECTED}?
  Selected disk: ${MODEL} - ${SIZE} (${SELECTED})
  .
  ALL DATA ON THIS DISK WILL BE PERMANENTLY ERASED.
-Description-pt_BR.UTF-8: Apagar ${SELECTED} e instalar o MoonShield?
+Description-pt_BR.UTF-8: Confirmar instalação destrutiva em ${SELECTED}?
  Disco selecionado: ${MODEL} - ${SIZE} (${SELECTED})
  .
  TODOS OS DADOS DESTE DISCO SERÃO APAGADOS PERMANENTEMENTE.
 
 Template: moonshield/error
 Type: error
-Description: MoonShield installation disk error
+Description: MoonShield installation error
  ${ERROR}
-Description-pt_BR.UTF-8: Erro na seleção do disco MoonShield
+Description-pt_BR.UTF-8: Erro no instalador MoonShield
  ${ERROR}

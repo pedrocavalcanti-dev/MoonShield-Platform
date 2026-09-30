@@ -1,8 +1,9 @@
 [Unit]
 Description=Provisionamento inicial da MoonShield Appliance
 Wants=moonshield-iso-console-gate.service
-After=local-fs.target moonshield-iso-console-gate.service
+After=local-fs.target systemd-remount-fs.service systemd-tmpfiles-setup.service moonshield-iso-console-gate.service
 Before=multi-user.target
+RequiresMountsFor=/var /opt /usr
 ConditionPathExists=!/var/lib/moonshield/.installation-complete
 ConditionPathExists=!/var/lib/moonshield/.installation-failed
 
@@ -10,11 +11,16 @@ ConditionPathExists=!/var/lib/moonshield/.installation-failed
 Type=oneshot
 User=root
 Group=root
+ExecStartPre=/usr/bin/test -x /usr/bin/python3
+ExecStartPre=/usr/bin/test -f /usr/local/lib/moonshield-iso/moonshield-firstboot.py
 ExecStart=/usr/bin/python3 /usr/local/lib/moonshield-iso/moonshield-firstboot.py
 TimeoutStartSec=infinity
 StandardOutput=journal
 StandardError=journal
 UMask=0077
+Nice=-5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=4
 
 [Install]
 WantedBy=multi-user.target

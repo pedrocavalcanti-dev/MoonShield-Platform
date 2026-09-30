@@ -320,3 +320,21 @@ O `late-command.sh` é executado dentro do ambiente reduzido do Debian Installer
 Antes de copiar o payload grande, o late-command instala a console gate, o firstboot, a chave pública de manutenção e mascara `getty@tty1` até `getty@tty6`. Assim, se uma etapa posterior de staging falhar e o instalador for continuado manualmente, o próximo boot mostra a tela de falha MoonShield em vez de um prompt de login Debian.
 
 O log de staging fica em `/var/log/moonshield/late-command.log` no sistema alvo. Em falha, também são gravados o estado em `/var/lib/moonshield-iso-bootstrap/state/status.json` e o marcador `/var/lib/moonshield/.installation-failed`.
+
+## Alpha 2 - bundle v2 e firstboot resiliente
+
+A imagem final exige um offline bundle regenerado com a mesma release. O formato v2 usa resolucao de dependencias com estado dpkg vazio (`DependencyClosure=full`), evitando que uma dependencia presente no builder seja esquecida na VM limpa.
+
+No primeiro boot, a gate MoonShield ocupa o TTY1. O provisionador executa a instalacao normal e, se ela falhar, realiza uma unica reconciliacao offline (`dpkg --configure -a` / APT `--no-download`) e repete o installer em `--repair`. Uma segunda falha bloqueia a appliance em tela MoonShield e libera apenas manutencao protegida por F12.
+
+O sistema instalado tambem recebe identidade de boot MoonShield (`GRUB_DISTRIBUTOR=MOONSHIELD`, menu normal oculto, `/etc/issue` e tema GRUB), sem alterar `ID=debian`, preservando compatibilidade com o preflight e com o gerenciamento Debian 13.
+
+## Identidade visual da Alpha 2
+
+A ISO usa tema próprio em ISOLINUX/GRUB, tema `dark` oficialmente suportado no
+frontend newt do Debian Installer e uma console curses MoonShield no primeiro
+boot. A implementação evita depender de aceleração gráfica ou imagens externas
+obrigatórias. Para hardware/VM com framebuffer problemático, escolha **Modo
+compativel de video** no menu inicial.
+
+Detalhes: `deploy/iso/VISUAL-UX-ALPHA2.md`.

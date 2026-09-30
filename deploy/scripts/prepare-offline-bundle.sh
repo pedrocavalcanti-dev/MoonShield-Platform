@@ -37,13 +37,22 @@ ensure_certificate_trust
 WORK="$(mktemp -d /tmp/moonshield-offline-build.XXXXXX)"
 TEMP_DIRS+=("$WORK")
 mkdir -p "$WORK/apt/partial" "$OUTPUT/debs" "$OUTPUT/wheelhouse" "$OUTPUT/artifacts" "$OUTPUT/certificates"
+: >"$WORK/empty-status"
 
 mapfile -t PACKAGES < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$MANIFEST_DIR/debian-packages.txt")
-apt_args=(-o "Dir::Cache::archives=$WORK/apt/")
+apt_args=(
+  -o "Dir::Cache::archives=$WORK/apt/"
+  -o "Dir::State::status=$WORK/empty-status"
+  -o "APT::Install-Recommends=false"
+  -o "APT::Install-Suggests=false"
+)
 info "Atualizando índices APT do builder (nenhuma instalação de pacotes no builder)."
 run_with_tls_retry "apt-get update" apt-get update
-info "Resolvendo dependências e baixando somente arquivos .deb para o bundle."
-run_with_tls_retry "download-only de pacotes Debian" apt-get "${apt_args[@]}" --download-only --reinstall --no-install-recommends --yes install "${PACKAGES[@]}"
+info "Resolvendo fechamento COMPLETO de dependências em estado dpkg vazio."
+# O status isolado evita o bug em que dependências já instaladas no builder não
+# eram copiadas para o bundle e faltavam na VM limpa. O bundle cresce, mas passa
+# a ser autocontido para Debian 13 amd64.
+run_with_tls_retry "download-only do closure Debian" apt-get "${apt_args[@]}" --download-only --no-install-recommends --yes install "${PACKAGES[@]}"
 shopt -s nullglob
 deb_files=("$WORK/apt"/*.deb)
 ((${#deb_files[@]} > 0)) || die "APT não baixou nenhum pacote .deb."
@@ -60,7 +69,7 @@ download_verified "$ADGUARD_URL" "$ADGUARD_SHA256" "$OUTPUT/artifacts/AdGuardHom
 for ca in "$DEPLOY_DIR/certificates/optional/corporate-ca.crt" "$DEPLOY_DIR/certificates/optional/senac-ca.crt"; do
   [[ ! -f "$ca" ]] || install -m 0644 "$ca" "$OUTPUT/certificates/corporate-ca.crt"
 done
-printf 'Debian=%s\nArchitecture=amd64\nBuilder=%s\n' "${VERSION_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUTPUT/BUILD-INFO"
+printf 'Debian=%s\nArchitecture=amd64\nBundleFormat=2\nDependencyClosure=full\nBuilder=%s\n' "${VERSION_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUTPUT/BUILD-INFO"
 (cd "$OUTPUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS)
 chmod -R go-w "$OUTPUT"
 ok "Bundle offline preparado em $OUTPUT; checksum do bundle gerado para detectar corrupção."

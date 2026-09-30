@@ -25,6 +25,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 . "$SCRIPT_DIR/lib/console.sh"
 
 FINAL_ISO_MODE=0
+INSTALL_STAGE_FILE=/var/lib/moonshield/install-stage
+
+run_stage() {
+  local label="$1"; shift
+  mkdir -p /var/lib/moonshield
+  printf "%s\n" "$label" >"$INSTALL_STAGE_FILE"
+  chmod 0600 "$INSTALL_STAGE_FILE"
+  info "ETAPA: $label"
+  "$@"
+}
+
 
 usage() {
   cat <<'USAGE'
@@ -90,32 +101,38 @@ fi
 
 if [[ "$INSTALL_MODE" == offline ]]; then
   [[ -f "$OFFLINE_BUNDLE/SHA256SUMS" ]] || die "Bundle offline sem SHA256SUMS."
-  (cd "$OFFLINE_BUNDLE" && sha256sum --check --status SHA256SUMS) || die "Checksum do bundle offline falhou."
+  (cd "$OFFLINE_BUNDLE" && sha256sum --check SHA256SUMS >/dev/null) || die "Checksum do bundle offline falhou."
   grep -qx 'Debian=13' "$OFFLINE_BUNDLE/BUILD-INFO" || die "Bundle offline não foi produzido em Debian 13."
   grep -qx 'Architecture=amd64' "$OFFLINE_BUNDLE/BUILD-INFO" || die "Bundle offline não é amd64."
+  grep -qx 'BundleFormat=2' "$OFFLINE_BUNDLE/BUILD-INFO" || die "Bundle offline antigo/incompleto; regenere com prepare-offline-bundle.sh desta release."
+  grep -qx 'DependencyClosure=full' "$OFFLINE_BUNDLE/BUILD-INFO" || die "Bundle offline sem fechamento completo de dependências Debian."
   [[ -f "$OFFLINE_BUNDLE/artifacts/AdGuardHome_linux_amd64.tar.gz" ]] || die "Bundle offline sem AdGuard v0.107.79."
 else
   ensure_certificate_trust
 fi
 
 info "Iniciando instalação MoonShield (modo=$INSTALL_MODE, repair=$REPAIR_MODE)."
-install_packages
-if [[ "$INSTALL_MODE" == offline ]]; then ensure_certificate_trust; fi
-ensure_os_identity
-ensure_filesystem
-write_appliance_config
-install_source_release
-externalize_application_runtime
-install_python_runtime
-install_postgresql
-install_django_application
-install_adguard_binary
-install_systemd_services
-install_nginx_site
-provision_moonshield_local_services
-install_console
+run_stage "01-pacotes" install_packages
+if [[ "$INSTALL_MODE" == offline ]]; then run_stage "02-trust-local" ensure_certificate_trust; fi
+run_stage "03-identidade-sistema" ensure_os_identity
+run_stage "04-filesystem" ensure_filesystem
+run_stage "05-config-appliance" write_appliance_config
+run_stage "06-release" install_source_release
+run_stage "07-runtime-externo" externalize_application_runtime
+run_stage "08-python" install_python_runtime
+run_stage "09-postgresql" install_postgresql
+run_stage "10-django" install_django_application
+run_stage "11-adguard" install_adguard_binary
+run_stage "12-systemd" install_systemd_services
+run_stage "13-nginx" install_nginx_site
+run_stage "14-servicos-locais" provision_moonshield_local_services
+run_stage "15-console" install_console
 
 check_script=/usr/local/sbin/moonshield-install-check
 [[ -x "$check_script" ]] || die "Healthcheck não foi incluído na release."
+printf '%s\n' "16-healthcheck" >"$INSTALL_STAGE_FILE"
+chmod 0600 "$INSTALL_STAGE_FILE"
 "$check_script" || die "Healthcheck final sinalizou falhas; log e estado existentes foram preservados para diagnóstico."
+printf '%s\n' "complete" >"$INSTALL_STAGE_FILE"
+chmod 0600 "$INSTALL_STAGE_FILE"
 ok "MoonShield Appliance instalada. Crie a primeira conta exclusivamente pela interface de onboarding/login."

@@ -1,5 +1,5 @@
 [Unit]
-Description=MoonShield ISO provisioning console gate
+Description=MoonShield provisioning console gate
 After=local-fs.target systemd-vconsole-setup.service
 Before=moonshield-iso-firstboot.service getty@tty1.service multi-user.target
 Conflicts=getty@tty1.service moonshield-console.service
@@ -8,9 +8,11 @@ Conflicts=getty@tty1.service moonshield-console.service
 Type=simple
 User=root
 Group=root
+ExecStartPre=/usr/bin/test -x /usr/bin/python3
 ExecStart=/usr/bin/python3 /usr/local/lib/moonshield-iso/moonshield-console-gate.py
 Environment=TERM=linux
-Environment=LANG=pt_BR.UTF-8
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
 StandardInput=tty
 StandardOutput=tty
 StandardError=journal

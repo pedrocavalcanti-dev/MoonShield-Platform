@@ -29,6 +29,8 @@ require_command pip3
 require_command curl
 require_command sha256sum
 require_command dpkg-deb
+require_command dpkg-scanpackages
+require_command gzip
 
 init_logging
 INSTALL_MODE=online
@@ -58,8 +60,35 @@ deb_files=("$WORK/apt"/*.deb)
 ((${#deb_files[@]} > 0)) || die "APT não baixou nenhum pacote .deb."
 cp -- "${deb_files[@]}" "$OUTPUT/debs/"
 for deb in "$OUTPUT"/debs/*.deb; do
-  printf '%s\t%s\t%s\n' "$(dpkg-deb -f "$deb" Package)" "$(dpkg-deb -f "$deb" Version)" "$(dpkg-deb -f "$deb" Architecture)"
+  dpkg-deb --info "$deb" >/dev/null || die "Pacote .deb invalido no bundle: $(basename -- "$deb")."
+  deb_arch="$(dpkg-deb -f "$deb" Architecture)"
+  [[ "$deb_arch" == amd64 || "$deb_arch" == all ]] \
+    || die "Pacote com arquitetura incompatível no bundle: $(basename -- "$deb") ($deb_arch)."
+  printf '%s\t%s\t%s\n' "$(dpkg-deb -f "$deb" Package)" "$(dpkg-deb -f "$deb" Version)" "$deb_arch"
 done | sort >"$OUTPUT/DEBIAN-PACKAGES.tsv"
+
+info "Gerando repositorio APT local e validando o fechamento sem usar o estado do builder."
+(cd "$OUTPUT" && dpkg-scanpackages --multiversion debs /dev/null >Packages)
+gzip -9 -n -c "$OUTPUT/Packages" >"$OUTPUT/Packages.gz"
+
+mkdir -p "$WORK/verify-lists/partial" "$WORK/verify-archives/partial" "$WORK/verify-sourceparts"
+: >"$WORK/verify-status"
+printf 'deb [trusted=yes] file:%s ./\n' "$OUTPUT" >"$WORK/offline.sources.list"
+verify_apt_args=(
+  -o "Dir::State::status=$WORK/verify-status"
+  -o "Dir::State::lists=$WORK/verify-lists"
+  -o "Dir::Cache::archives=$WORK/verify-archives"
+  -o "Dir::Etc::sourcelist=$WORK/offline.sources.list"
+  -o "Dir::Etc::sourceparts=$WORK/verify-sourceparts"
+  -o "APT::Sandbox::User=root"
+  -o "Acquire::Languages=none"
+  -o "APT::Get::List-Cleanup=false"
+)
+run_checked "indice APT local" apt-get "${verify_apt_args[@]}" update \
+  || die "Repositorio APT local do bundle invalido."
+run_checked "fechamento APT offline" apt-get "${verify_apt_args[@]}" \
+  --simulate --no-download --no-install-recommends --yes install "${PACKAGES[@]}" \
+  || die "Bundle Debian incompleto; a simulacao em estado dpkg vazio encontrou dependencias ausentes."
 
 info "Baixando wheels versionadas para Python/Linux amd64."
 run_with_tls_retry "pip download de dependências" pip3 download --disable-pip-version-check \
@@ -69,8 +98,9 @@ download_verified "$ADGUARD_URL" "$ADGUARD_SHA256" "$OUTPUT/artifacts/AdGuardHom
 for ca in "$DEPLOY_DIR/certificates/optional/corporate-ca.crt" "$DEPLOY_DIR/certificates/optional/senac-ca.crt"; do
   [[ ! -f "$ca" ]] || install -m 0644 "$ca" "$OUTPUT/certificates/corporate-ca.crt"
 done
-printf 'Debian=%s\nArchitecture=amd64\nBundleFormat=2\nDependencyClosure=full\nBuilder=%s\n' "${VERSION_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUTPUT/BUILD-INFO"
+printf 'Debian=%s\nArchitecture=amd64\nBundleFormat=2\nDependencyClosure=full\nPackageIndex=local-apt\nDependencyValidation=empty-dpkg-status\nBuilder=%s\n' \
+  "${VERSION_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUTPUT/BUILD-INFO"
 (cd "$OUTPUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS)
 chmod -R go-w "$OUTPUT"
-ok "Bundle offline preparado em $OUTPUT; checksum do bundle gerado para detectar corrupção."
-warn "Para fechamento da ISO, validar dependências em VM Debian 13 limpa; checksums internos não substituem assinatura da mídia."
+ok "Bundle offline preparado e validado em estado dpkg vazio: $OUTPUT."
+warn "A validacao APT offline nao substitui o teste final de boot em VM Debian 13 limpa."

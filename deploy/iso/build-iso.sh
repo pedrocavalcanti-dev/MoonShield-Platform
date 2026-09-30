@@ -46,7 +46,7 @@ USAGE
 (($# >= 1)) && [[ "${1:-}" == -h || "${1:-}" == --help ]] && { usage; exit 0; }
 (($# >= 3 && $# <= 4)) || { usage >&2; exit 2; }
 
-for tool in xorriso sha256sum openssl python3 dpkg realpath cpio gzip; do need "$tool"; done
+for tool in xorriso sha256sum openssl python3 dpkg dpkg-deb apt-get realpath cpio gzip; do need "$tool"; done
 [[ -r /etc/os-release ]] || die 'Builder deve ser Debian 13 amd64.'
 # shellcheck disable=SC1091
 . /etc/os-release
@@ -111,16 +111,58 @@ validate_base_iso() {
 }
 
 validate_bundle() {
+  local deb arch apt_root source_list
+  local -a deb_files packages apt_args
   [[ -f "$BUNDLE/BUILD-INFO" && -f "$BUNDLE/SHA256SUMS" \
      && -d "$BUNDLE/debs" && -d "$BUNDLE/wheelhouse" \
+     && -f "$BUNDLE/Packages" && -f "$BUNDLE/Packages.gz" \
+     && -f "$BUNDLE/DEBIAN-PACKAGES.tsv" \
      && -f "$BUNDLE/artifacts/AdGuardHome_linux_amd64.tar.gz" ]] \
     || die 'Offline bundle incompleto.'
   grep -qx 'Debian=13' "$BUNDLE/BUILD-INFO" || die 'Offline bundle não foi preparado em Debian 13.'
   grep -qx 'Architecture=amd64' "$BUNDLE/BUILD-INFO" || die 'Offline bundle não é amd64.'
   grep -qx 'BundleFormat=2' "$BUNDLE/BUILD-INFO" || die 'Offline bundle antigo: regenere com prepare-offline-bundle.sh desta release.'
   grep -qx 'DependencyClosure=full' "$BUNDLE/BUILD-INFO" || die 'Offline bundle sem fechamento completo de dependências.'
+  grep -qx 'PackageIndex=local-apt' "$BUNDLE/BUILD-INFO" || die 'Offline bundle sem repositorio APT local.'
+  grep -qx 'DependencyValidation=empty-dpkg-status' "$BUNDLE/BUILD-INFO" \
+    || die 'Offline bundle sem validacao independente do estado do builder.'
   (cd -- "$BUNDLE" && sha256sum --check --status SHA256SUMS) || die 'Checksum do offline bundle falhou.'
-  ok 'Offline bundle validado.'
+
+  shopt -s nullglob
+  deb_files=("$BUNDLE"/debs/*.deb)
+  ((${#deb_files[@]} > 0)) || die 'Offline bundle sem pacotes .deb.'
+  for deb in "${deb_files[@]}"; do
+    dpkg-deb --info "$deb" >/dev/null || die "Pacote .deb invalido no bundle: $(basename -- "$deb")."
+    arch="$(dpkg-deb -f "$deb" Architecture)"
+    [[ "$arch" == amd64 || "$arch" == all ]] \
+      || die "Pacote .deb de arquitetura incompatível: $(basename -- "$deb") ($arch)."
+  done
+  gzip -t "$BUNDLE/Packages.gz" || die 'Indice Packages.gz do bundle esta corrompido.'
+
+  mapfile -t packages < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' \
+    "$RELEASE/deploy/manifests/debian-packages.txt")
+  ((${#packages[@]} > 0)) || die 'Manifest Debian da release esta vazio.'
+  apt_root="$WORK/bundle-apt"
+  mkdir -p "$apt_root/lists/partial" "$apt_root/archives/partial" "$apt_root/sourceparts"
+  : >"$apt_root/empty-status"
+  source_list="$apt_root/sources.list"
+  printf 'deb [trusted=yes] file:%s ./\n' "$BUNDLE" >"$source_list"
+  apt_args=(
+    -o "Dir::State::status=$apt_root/empty-status"
+    -o "Dir::State::lists=$apt_root/lists"
+    -o "Dir::Cache::archives=$apt_root/archives"
+    -o "Dir::Etc::sourcelist=$source_list"
+    -o "Dir::Etc::sourceparts=$apt_root/sourceparts"
+    -o "APT::Sandbox::User=root"
+    -o "Acquire::Languages=none"
+    -o "APT::Get::List-Cleanup=false"
+  )
+  apt-get "${apt_args[@]}" update >/dev/null \
+    || die 'Indice APT local do offline bundle nao pode ser carregado.'
+  apt-get "${apt_args[@]}" --simulate --no-download --no-install-recommends --yes \
+    install "${packages[@]}" >/dev/null \
+    || die 'Offline bundle tem dependencias ausentes; ISO nao sera criada.'
+  ok "Offline bundle validado: ${#deb_files[@]} pacotes .deb e fechamento APT independente do builder."
 }
 
 detect_compression() {
@@ -435,6 +477,8 @@ validate_sources() {
   fi
 }
 
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/moonshield-iso.XXXXXX")"
+
 validate_sources
 validate_release
 validate_bundle
@@ -445,8 +489,6 @@ OUTPUT_DIR="$(cd -- "$OUTPUT_DIR" && pwd -P)"
   || die "Saída já existe e foi preservada: $OUTPUT_DIR/$ISO_NAME"
 TEMP_ISO="$OUTPUT_DIR/.${ISO_NAME}.tmp.$$"
 [[ ! -e "$TEMP_ISO" && ! -L "$TEMP_ISO" ]] || die 'Arquivo temporário ISO já existe; preservado.'
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/moonshield-iso.XXXXXX")"
-
 validate_base_iso
 embed_preseed
 build_iso

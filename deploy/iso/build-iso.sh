@@ -63,7 +63,8 @@ EXPECTED_FILENAME="$(manifest_value DEBIAN_ISO_FILENAME)"
 
 validate_release() {
   [[ -f "$RELEASE/MoonShield/gerenciar.py" && -d "$RELEASE/MoonShield-Agent" \
-     && -f "$RELEASE/deploy/install.sh" && -f "$RELEASE/requirements-prod.txt" ]] \
+     && -f "$RELEASE/deploy/install.sh" && -f "$RELEASE/deploy/scripts/moonshield-diag" \
+     && -f "$RELEASE/requirements-prod.txt" ]] \
     || die 'Release tree incompleta; gere-a com deploy/scripts/build-release-tree.sh.'
   [[ ! -d "$RELEASE/deploy/support" ]] || die 'Release tree contém deploy/support proibido.'
   [[ -f "$RELEASE/deploy/console/maintenance_public.pem" ]] \
@@ -314,10 +315,12 @@ validate_final_iso() {
     -extract /moonshield/firstboot/moonshield-console-gate.py "$verify/console-gate.py" \
     -extract /moonshield/release/deploy/install.sh "$verify/install.sh" \
     -extract /moonshield/release/deploy/console/maintenance_public.pem "$verify/maintenance_public.pem" \
+    -extract /moonshield/release/deploy/scripts/moonshield-diag "$verify/moonshield-diag" \
     -extract /moonshield/offline-bundle/SHA256SUMS "$verify/bundle-sha256" \
     -extract /moonshield/BUILD-INFO "$verify/BUILD-INFO" \
     >/dev/null 2>&1 || die 'ISO final está sem payload obrigatório.'
 
+  [[ -s "$verify/moonshield-diag" ]] || die 'ISO final sem moonshield-diag no release payload.'
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'

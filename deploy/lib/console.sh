@@ -91,10 +91,12 @@ install_console() {
   local unit_target=/etc/systemd/system/moonshield-console.service
   local console_source="$DEPLOY_DIR/console/moonshield_console.py"
   local check_source="$DEPLOY_DIR/scripts/moonshield-install-check"
+  local diag_source="$DEPLOY_DIR/scripts/moonshield-diag"
   local public_key="$DEPLOY_DIR/console/maintenance_public.pem"
   install -d -o root -g root -m 0755 /opt/moonshield/console /usr/local/sbin
   _install_managed_file "$console_source" /opt/moonshield/console/moonshield_console.py 0644 root root
   _install_managed_file "$check_source" /usr/local/sbin/moonshield-install-check 0755 root root
+  _install_managed_file "$diag_source" /usr/local/sbin/moonshield-diag 0755 root root
   install -d -o root -g root -m 0755 /etc/moonshield/support
   _install_managed_file "$unit_source" "$unit_target" 0644 root root
   if [[ -f "$public_key" ]]; then

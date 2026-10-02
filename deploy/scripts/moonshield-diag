@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Resumo local somente leitura para suporte da MoonShield Appliance."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+
+
+def redact(text: str) -> str:
+    text = re.sub(r"(?i)(postgres(?:ql)?://[^:/@\s]+:)[^@/\s]+(@)", r"\1***\2", text)
+    text = re.sub(
+        r"(?i)(\b(?:secret(?:_key)?|database_password|password|passwd|token|api[_-]?key|authorization|cookie|database_url)\b\s*[=:]\s*)[^\s,;]+",
+        r"\1***",
+        text,
+    )
+    text = re.sub(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]+", r"\1***", text)
+    text = re.sub(r"(?im)^.*\b(?:authorization|proxy-authorization|set-cookie|cookie|maintenance[_ -]?response)\b.*$", "[sensitive header/response redacted]", text)
+    text = re.sub(r"(?im)(^\s*(?:authorization|proxy-authorization)\s*[:=]\s*).*$", r"\1***", text)
+    text = re.sub(r"(?im)(^\s*(?:set-cookie|cookie)\s*[:=]\s*).*$", r"\1***", text)
+    return text
+
+
+def command(args: list[str], timeout: int = 15, env: dict[str, str] | None = None) -> str:
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, errors="replace",
+                                timeout=timeout, check=False, env=env)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"[indisponível: {type(exc).__name__}]"
+    output = (result.stdout + result.stderr).strip()
+    return redact(output) if output else f"[sem saída; exit={result.returncode}]"
+
+
+def file_value(path: str, key: str) -> str:
+    try:
+        for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+            name, sep, value = line.partition("=")
+            if sep and name.strip() == key:
+                return value.strip()
+    except OSError:
+        pass
+    return "indisponível"
+
+
+def tail(path: str, count: int = 20) -> str:
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()[-count:]
+    except OSError:
+        return "[arquivo indisponível]"
+    return redact("\n".join(lines)) or "[vazio]"
+
+
+def appliance_id() -> str:
+    try:
+        machine_id = Path("/etc/machine-id").read_bytes().strip()
+    except OSError:
+        return "indisponível"
+    return hashlib.sha256(machine_id).hexdigest()[:16]
+
+
+def print_section(title: str, content: str) -> None:
+    print(f"\n{title}\n{content}")
+
+
+def main() -> int:
+    print("MOONSHIELD DIAGNOSTIC")
+    version = file_value("/etc/moonshield/release", "MOONSHIELD_VERSION")
+    if version == "indisponível":
+        version = file_value("/etc/moonshield/appliance.conf", "MOONSHIELD_VERSION")
+    print(f"Version: {version}")
+    build = file_value("/etc/moonshield/build-info", "GitCommit")
+    if build == "indisponível":
+        build = file_value("/etc/moonshield/build-info", "BuildTimeUTC")
+    print("Build: " + build)
+    print(f"Appliance ID: {appliance_id()}")
+    stage_file = Path("/var/lib/moonshield/install-stage")
+    stage = stage_file.read_text(encoding="utf-8", errors="replace").strip() if stage_file.is_file() else "indisponível"
+    print(f"Install stage: {stage}")
+    if Path("/var/lib/moonshield/.installation-complete").exists():
+        firstboot = "complete"
+    elif Path("/var/lib/moonshield/.installation-failed").exists():
+        firstboot = "failed"
+    else:
+        firstboot = "pending"
+    print(f"Firstboot status: {firstboot}")
+
+    services = [
+        "postgresql.service", "nginx.service", "moonshield-web.service",
+        "suricata.service", "AdGuardHome.service", "moonshield-agent.service",
+        "moonshield-suricata-worker.service", "moonshield-suricata-monitor.service",
+        "moonshield-firewall-worker.service", "moonshield-devices-monitor.timer",
+    ]
+    print_section("SERVICES", "\n".join(
+        f"{unit}: {command(['systemctl', 'is-active', unit], timeout=5)}" for unit in services
+    ))
+    network = "\n".join([
+        "Hostname: " + command(["hostname"]),
+        "Interfaces/IPs:\n" + command(["ip", "-brief", "address"]),
+        "Default route:\n" + command(["ip", "route", "show", "default"]),
+    ])
+    print_section("NETWORK", network)
+
+    django = Path("/opt/moonshield/source/MoonShield/gerenciar.py")
+    django_python = Path("/opt/moonshield/venv/bin/python")
+    if django.is_file() and django_python.is_file():
+        with tempfile.TemporaryDirectory(prefix="moonshield-diag-") as log_dir:
+            env = os.environ.copy()
+            env["MOONSHIELD_LOG_DIR"] = log_dir
+            check = command([str(django_python), "gerenciar.py", "check", "--verbosity", "0"],
+                            timeout=90, env=env)
+    else:
+        check = "[source ou virtualenv Django ausente]"
+    print_section("DJANGO manage.py check (sem migrations)", check)
+
+    suricata_bin = command(["suricata", "-V"], timeout=10)
+    suricata_cfg = Path("/etc/suricata/suricata.yaml")
+    suricata_test = command(["suricata", "-T", "-c", str(suricata_cfg)], timeout=180) if suricata_cfg.is_file() else "[config ausente]"
+    print_section("SURICATA", f"Binary/version: {suricata_bin}\nConfig test: {suricata_test}")
+    print_section("SYSTEMD failed units", command(["systemctl", "--failed", "--no-pager", "--plain"]))
+
+    logs = [
+        ("install.log", "tail", "/var/log/moonshield/install.log"),
+        ("firstboot", "tail", "/var/log/moonshield/firstboot-install.log"),
+        ("MoonShield web journal", "journal", "moonshield-web.service"),
+        ("MoonShield Agent journal", "journal", "moonshield-agent.service"),
+        ("Suricata journal", "journal", "suricata.service"),
+        ("Nginx journal", "journal", "nginx.service"),
+    ]
+    for label, kind, target in logs:
+        output = tail(target) if kind == "tail" else command(
+            ["journalctl", "-u", target, "-n", "20", "--no-pager", "-o", "short-iso"], timeout=15
+        )
+        print_section(f"LOGS {label}", output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

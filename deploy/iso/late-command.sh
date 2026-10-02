@@ -117,6 +117,10 @@ MOONSHIELD_VERSION=0.1.0-alpha.2
 BASE_OS=Debian 13
 EDITION=Alpha 2
 EOF
+    if [ -f "$MEDIA/BUILD-INFO" ]; then
+        cp "$MEDIA/BUILD-INFO" "$TARGET/etc/moonshield/build-info" || return 1
+        chmod 0644 "$TARGET/etc/moonshield/build-info" || return 1
+    fi
     chmod 0644 "$TARGET/etc/issue" "$TARGET/etc/issue.net" "$TARGET/etc/motd" "$TARGET/etc/machine-info" "$TARGET/etc/moonshield/release" 2>/dev/null || true
 
     # Gera o GRUB definitivo com GRUB_DISTRIBUTOR=MOONSHIELD. Branding nao deve
@@ -196,6 +200,10 @@ apply_installed_branding || console_log 'AVISO: identidade visual do sistema ins
 [ -f "$RELEASE/deploy/install.sh" ] || fail 'Release tree ausente na midia.'
 [ -f "$BUNDLE/SHA256SUMS" ] || fail 'Offline bundle ausente ou sem SHA256SUMS.'
 [ -f "$BUNDLE/BUILD-INFO" ] || fail 'Offline bundle ausente ou sem BUILD-INFO.'
+[ -f "$RELEASE/deploy/scripts/moonshield-diag" ] || fail 'Comando moonshield-diag ausente na release.'
+mkdir -p "$TARGET/usr/local/sbin"
+install -o root -g root -m 0755 "$RELEASE/deploy/scripts/moonshield-diag" "$TARGET/usr/local/sbin/moonshield-diag" \
+    || fail 'Falha ao instalar moonshield-diag para uso no Modo Seguro.'
 
 cat >"$STAGE/state/status.json" <<'JSON'
 {

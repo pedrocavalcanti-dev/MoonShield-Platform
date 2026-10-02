@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import ipaddress
+import shlex
 from pathlib import Path
 
 # ── Raiz do projeto ───────────────────────────────────────────────────────────
@@ -80,6 +81,7 @@ except (ModuleNotFoundError, ImportError):
 try:
     from nucleo.utilitarios import run_cmd, cmd_existe
 except (ModuleNotFoundError, ImportError):
+    import shlex
     import shutil
     import subprocess
 
@@ -87,14 +89,18 @@ except (ModuleNotFoundError, ImportError):
         return shutil.which(nome) is not None
 
     def run_cmd(comando: str):
+        args = shlex.split(comando, posix=True)
+        juntar_stderr = args[-1:] == ["2>&1"]
+        if juntar_stderr:
+            args.pop()
         proc = subprocess.run(
-            comando,
-            shell=True,
-            capture_output=True,
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if juntar_stderr else subprocess.PIPE,
             text=True,
             check=False,
         )
-        return proc.returncode, proc.stdout or "", proc.stderr or ""
+        return proc.returncode, proc.stdout or "", "" if juntar_stderr else proc.stderr or ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -221,7 +227,7 @@ def _check_suricata_t(yaml_path: Path | None) -> dict:
     if yaml_path is None:
         return _item("suricata_t", False, "suricata -T (config válida)", "yaml ausente — pulado")
 
-    code, out, err = run_cmd(f"suricata -T -c {yaml_path} 2>&1")
+    code, out, err = run_cmd(f"suricata -T -c {shlex.quote(str(yaml_path))} 2>&1")
     saida = (out + err).strip()
 
     if code == 0:

@@ -164,8 +164,23 @@ provision_moonshield_local_services() {
   else
     warn "NetworkManager inativo; não será iniciado/habilitado automaticamente para evitar perda de conectividade."
   fi
+  local suricata_config=/etc/suricata/suricata.yaml suricata_output line
+  command -v suricata >/dev/null 2>&1 || die "Binário Suricata ausente antes da validação."
+  [[ -s "$suricata_config" ]] || die "Configuração Suricata ausente ou vazia: $suricata_config."
+  info "Validando Suricata antes de habilitar/iniciar: suricata -T -c $suricata_config"
+  if suricata_output="$(suricata -T -c "$suricata_config" 2>&1)"; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && info "Suricata -T: $line"
+    done <<<"$suricata_output"
+  else
+    local suricata_status=$?
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && log ERROR "Suricata -T ($suricata_config): $line"
+    done <<<"$suricata_output"
+    die "suricata -T falhou (exit=$suricata_status, config=$suricata_config); serviço não será habilitado nem iniciado."
+  fi
   systemctl enable suricata.service >/dev/null || die "Não foi possível habilitar Suricata."
-  systemctl start suricata.service || die "Suricata não iniciou com a configuração instalada."
+  systemctl start suricata.service || die "Suricata não iniciou após validar $suricata_config."
   for unit in moonshield-agent.service moonshield-suricata-worker.service moonshield-firewall-worker.service moonshield-suricata-monitor.service; do
     if [[ -e "/etc/systemd/system/$unit" ]]; then
       cp -a -- "/etc/systemd/system/$unit" "/etc/systemd/system/$unit.backup.$(date -u +%Y%m%dT%H%M%SZ).$$"

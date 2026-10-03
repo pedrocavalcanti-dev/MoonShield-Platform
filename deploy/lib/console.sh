@@ -42,6 +42,19 @@ _install_final_access_policy() {
     systemctl mask --now "getty@tty${tty}.service" >/dev/null
   done
 
+  if [[ -f /etc/moonshield/alpha-debug ]]; then
+    ssh_dir=/etc/ssh/sshd_config.d
+    ssh_policy="$ssh_dir/00-moonshield-alpha-debug.conf"
+    [[ -d "$ssh_dir" && -s /root/.ssh/authorized_keys ]] \
+      || die "Alpha Debug SSH marcado, mas chave/configuracao SSH ausente."
+    sshd -t || die "PolÃ­tica Alpha Debug SSH invÃ¡lida."
+    systemctl enable ssh.service >/dev/null \
+      || die "NÃ£o foi possÃ­vel manter ssh.service habilitado no Alpha Debug."
+    systemctl daemon-reload
+    ok "Alpha Debug SSH ativo somente por chave pÃºblica; sem autenticaÃ§Ã£o por senha."
+    return 0
+  fi
+
   ssh_dir=/etc/ssh/sshd_config.d
   ssh_policy="$ssh_dir/00-moonshield-appliance.conf"
   if [[ -d /etc/ssh ]]; then

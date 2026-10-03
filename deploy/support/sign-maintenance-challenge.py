@@ -28,12 +28,12 @@ def main() -> int:
             parser.error("private key path is not a regular file")
         if not re.fullmatch(r"MOONSHIELD-MAINT-V1\|[0-9a-f]{16}\|[0-9a-f]{64}", args.challenge):
             parser.error("challenge format is invalid or unsupported")
-        details = subprocess.run(
-            ["openssl", "pkey", "-in", str(key_path), "-pubout", "-text", "-noout"],
+        modulus = subprocess.run(
+            ["openssl", "rsa", "-in", str(key_path), "-noout", "-modulus"],
             check=True, capture_output=True, text=True, timeout=10,
-        ).stdout
-        match = re.search(r"Private-Key: \((\d+) bit", details)
-        if not match or int(match.group(1)) < 3072:
+        ).stdout.strip()
+        match = re.fullmatch(r"Modulus=([0-9A-Fa-f]+)", modulus)
+        if not match or int(match.group(1), 16).bit_length() < 3072:
             parser.error("maintenance signer requires RSA private key of at least 3072 bits")
         signed = subprocess.run(
             ["openssl", "dgst", "-sha256", "-sign", str(key_path)],

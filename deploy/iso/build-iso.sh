@@ -67,6 +67,12 @@ validate_release() {
      && -f "$RELEASE/requirements-prod.txt" ]] \
     || die 'Release tree incompleta; gere-a com deploy/scripts/build-release-tree.sh.'
   [[ ! -d "$RELEASE/deploy/support" ]] || die 'Release tree contém deploy/support proibido.'
+  [[ -f "$RELEASE/deploy/ALPHA-DEBUG-SSH" ]] \
+    && grep -qx 'ALPHA_DEBUG_SSH=enabled' "$RELEASE/deploy/ALPHA-DEBUG-SSH" \
+    || die 'Alpha 2 DEV ISO exige o marcador deploy/ALPHA-DEBUG-SSH.'
+  grep -qx 'openssh-server' "$RELEASE/deploy/manifests/debian-packages.txt" \
+    || die 'Alpha Debug SSH exige openssh-server no bundle offline.'
+  warn 'ALPHA DEBUG SSH ENABLED: a ISO Alpha 2 aceitara root somente pela chave publica de manutencao.'
   [[ -f "$RELEASE/deploy/console/maintenance_public.pem" ]] \
     || die 'MAINTENANCE_PUBLIC_KEY=REQUIRED_BEFORE_ISO'
 
@@ -315,12 +321,22 @@ validate_final_iso() {
     -extract /moonshield/firstboot/moonshield-console-gate.py "$verify/console-gate.py" \
     -extract /moonshield/release/deploy/install.sh "$verify/install.sh" \
     -extract /moonshield/release/deploy/console/maintenance_public.pem "$verify/maintenance_public.pem" \
+    -extract /moonshield/release/deploy/ALPHA-DEBUG-SSH "$verify/alpha-debug-marker" \
+    -extract /moonshield/release/deploy/manifests/debian-packages.txt "$verify/debian-packages.txt" \
     -extract /moonshield/release/deploy/scripts/moonshield-diag "$verify/moonshield-diag" \
     -extract /moonshield/offline-bundle/SHA256SUMS "$verify/bundle-sha256" \
     -extract /moonshield/BUILD-INFO "$verify/BUILD-INFO" \
     >/dev/null 2>&1 || die 'ISO final está sem payload obrigatório.'
 
   [[ -s "$verify/moonshield-diag" ]] || die 'ISO final sem moonshield-diag no release payload.'
+  grep -qx 'ALPHA_DEBUG_SSH=enabled' "$verify/alpha-debug-marker" \
+    || die 'ISO final sem marcador Alpha Debug SSH esperado.'
+  grep -qx 'openssh-server' "$verify/debian-packages.txt" \
+    || die 'ISO final sem openssh-server no manifesto do bundle.'
+  grep -Fq 'install_alpha_debug_ssh' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao prepara SSH antes do firstboot.'
+  grep -Fq 'ssh-keygen -i -m PKCS8' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao converte a chave publica para authorized_keys.'
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'

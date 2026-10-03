@@ -10,6 +10,7 @@ network-manager
 nginx
 nftables
 openssl
+openssh-server
 postgresql
 postgresql-client
 python3

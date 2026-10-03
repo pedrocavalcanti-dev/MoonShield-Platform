@@ -16,12 +16,65 @@ LOG="$LOG_DIR/late-command.log"
 PRODUCT_DIR="$TARGET/var/lib/moonshield"
 SUPPORT_DIR="$TARGET/etc/moonshield/support"
 BOOTSTRAP_READY=0
+ALPHA_DEBUG_MARKER="$TARGET/etc/moonshield/alpha-debug"
 
 console_log() {
     printf '[MOONSHIELD ISO] %s\n' "$*"
     if command -v logger >/dev/null 2>&1; then
         logger -t moonshield-late-command -- "$*" >/dev/null 2>&1 || true
     fi
+}
+
+install_alpha_debug_ssh() {
+    local apt_root="$TARGET/var/lib/moonshield-alpha-apt" source_list="$TARGET/etc/apt/moonshield-alpha-debug.list"
+    local key_source="$SUPPORT_DIR/maintenance_public.pem" authorized_tmp="$TARGET/root/.ssh/authorized_keys.moonshield-tmp" key_bits
+
+    [ -f "$RELEASE/deploy/ALPHA-DEBUG-SSH" ] || fail 'Marcador Alpha Debug SSH ausente na release.'
+    grep -qx 'ALPHA_DEBUG_SSH=enabled' "$RELEASE/deploy/ALPHA-DEBUG-SSH" || fail 'Marcador Alpha Debug SSH invalido.'
+    console_log 'WARNING: ALPHA DEBUG SSH ENABLED (chave publica, temporario para Alpha 2 DEV).'
+
+    mkdir -p "$apt_root/lists/partial" "$apt_root/archives/partial" "$apt_root/sourceparts"
+    printf 'deb [trusted=yes] file:/var/lib/moonshield-iso-bootstrap/offline-bundle ./\n' >"$source_list"
+    chmod 0600 "$source_list"
+    chroot "$TARGET" /usr/bin/apt-get \
+        -o Dir::State::lists=/var/lib/moonshield-alpha-apt/lists \
+        -o Dir::Cache::archives=/var/lib/moonshield-alpha-apt/archives \
+        -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
+        -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
+        -o APT::Sandbox::User=root -o Acquire::Languages=none \
+        -o APT::Get::List-Cleanup=false update || fail 'Indice APT local nao preparou openssh-server.'
+    chroot "$TARGET" /usr/bin/apt-get \
+        -o Dir::State::lists=/var/lib/moonshield-alpha-apt/lists \
+        -o Dir::Cache::archives=/var/lib/moonshield-alpha-apt/archives \
+        -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
+        -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
+        -o APT::Sandbox::User=root --no-download --no-install-recommends --yes \
+        install openssh-server || fail 'Instalacao offline de openssh-server falhou.'
+
+    [ -s "$key_source" ] || fail 'Chave publica de manutencao ausente no sistema alvo.'
+    install -d -o root -g root -m 0700 "$TARGET/root/.ssh"
+    chroot "$TARGET" /usr/bin/ssh-keygen -i -m PKCS8 -f /etc/moonshield/support/maintenance_public.pem >"$authorized_tmp" \
+        || fail 'Conversao da chave publica para OpenSSH falhou.'
+    [ -s "$authorized_tmp" ] && grep -q '^ssh-rsa ' "$authorized_tmp" \
+        || fail 'Chave autorizada convertida nao e uma chave RSA OpenSSH valida.'
+    key_bits="$(chroot "$TARGET" /usr/bin/ssh-keygen -lf /root/.ssh/authorized_keys.moonshield-tmp 2>/dev/null | awk 'NR == 1 {print $1}')"
+    case "$key_bits" in ''|*[!0-9]*) fail 'Nao foi possivel validar o tamanho da chave SSH convertida.' ;; esac
+    [ "$key_bits" -ge 3072 ] || fail 'Chave SSH de manutencao deve ter no minimo 3072 bits.'
+    install -o root -g root -m 0600 "$authorized_tmp" "$TARGET/root/.ssh/authorized_keys"
+    rm -f "$authorized_tmp"
+    cat >"$TARGET/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf" <<'EOF'
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+EOF
+    chmod 0644 "$TARGET/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf"
+    chroot "$TARGET" /usr/sbin/sshd -t || fail 'Configuracao de SSH Alpha Debug rejeitada por sshd -t.'
+    chroot "$TARGET" /bin/systemctl enable ssh.service || fail 'Nao foi possivel habilitar ssh.service no alvo.'
+    install -o root -g root -m 0644 "$RELEASE/deploy/ALPHA-DEBUG-SSH" "$ALPHA_DEBUG_MARKER" || fail 'Falha ao instalar marcador Alpha Debug.'
+    rm -f "$source_list"
+    rm -rf "$apt_root"
+    console_log 'Alpha Debug SSH preparado antes do firstboot; autenticacao somente por chave.'
 }
 
 
@@ -228,6 +281,8 @@ cp -a "$RELEASE/." "$STAGE/release/" || fail 'Falha ao copiar a release MoonShie
 console_log 'Copiando bundle offline para o sistema alvo.'
 cp -a "$BUNDLE/." "$STAGE/offline-bundle/" || fail 'Falha ao copiar o bundle offline.'
 [ -f "$STAGE/offline-bundle/SHA256SUMS" ] || fail 'Bundle copiado ficou incompleto.'
+
+install_alpha_debug_ssh
 
 if [ -f "$MEDIA/BUILD-INFO" ]; then
     cp "$MEDIA/BUILD-INFO" "$STAGE/BUILD-INFO" || fail 'Falha ao copiar BUILD-INFO.'

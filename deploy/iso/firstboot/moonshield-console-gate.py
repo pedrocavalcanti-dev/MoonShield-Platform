@@ -119,6 +119,23 @@ def current_stage() -> str:
         return ""
 
 
+def alpha_debug_ipv4() -> str:
+    if not Path("/etc/moonshield/alpha-debug").is_file():
+        return ""
+    try:
+        result = subprocess.run(
+            ["/usr/sbin/ip", "-4", "-o", "addr", "show", "scope", "global"],
+            check=False, capture_output=True, text=True, timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) > 3 and fields[2] == "inet":
+            return fields[3].split("/", 1)[0]
+    return ""
+
+
 def add(screen, row: int, col: int, text: str, attr: int = 0) -> None:
     height, width = screen.getmaxyx()
     if 0 <= row < height and 0 <= col < width:
@@ -297,7 +314,7 @@ def draw_progress(screen, spin: str) -> None:
 
     if FAILURE_MARKER.exists() or phase == "failed":
         start = header(screen, "MODO SEGURO", "FAILED")
-        box(screen, start, 3, 13, width - 6, "FALHA NO PROVISIONAMENTO", cp(C_ERROR))
+        box(screen, start, 3, 15, width - 6, "FALHA NO PROVISIONAMENTO", cp(C_ERROR))
         add(screen, start + 2, 6, "A appliance foi bloqueada antes de liberar operacao normal.", cp(C_ERROR) | curses.A_BOLD)
         stage = current_stage()
         if stage:
@@ -309,7 +326,14 @@ def draw_progress(screen, spin: str) -> None:
         row = start + 9
         add(screen, row, 6, f"Log: {LOG_FILE}", cp(C_MUTED))
         add(screen, row + 1, 6, f"Log: {INSTALL_LOG}", cp(C_MUTED))
-        add(screen, row + 3, 6, "F12  manutencao protegida por challenge/response", cp(C_ACCENT) | curses.A_BOLD)
+        if Path("/etc/moonshield/alpha-debug").is_file():
+            address = alpha_debug_ipv4()
+            add(screen, row + 2, 6, "ALPHA DEBUG SSH: ATIVO  //  Auth: chave de manutencao", cp(C_WARN) | curses.A_BOLD)
+            add(screen, row + 3, 6, f"SSH: ssh root@{address}" if address else "SSH: aguardando rede", cp(C_TEXT))
+            f12_row = row + 4
+        else:
+            f12_row = row + 3
+        add(screen, f12_row, 6, "F12  manutencao protegida por challenge/response", cp(C_ACCENT) | curses.A_BOLD)
         add(screen, height - 2, 3, "Nenhum login Debian foi liberado.", cp(C_MUTED) | curses.A_DIM)
         return
 
@@ -329,7 +353,8 @@ def draw_progress(screen, spin: str) -> None:
         add(screen, row, 7, marker, attr)
         add(screen, row, 16, LABELS[key], cp(C_TEXT) if steps.get(key) != "pending" else cp(C_MUTED))
         row += 1
-    add(screen, height - 2, 3, "MoonShield Secure Bootstrap  //  console local protegida", cp(C_MUTED) | curses.A_DIM)
+    debug = "  //  DEBUG SSH: ACTIVE" if Path("/etc/moonshield/alpha-debug").is_file() else ""
+    add(screen, height - 2, 3, f"MoonShield Secure Bootstrap{debug}  //  console local protegida", cp(C_MUTED) | curses.A_DIM)
 
 
 def main(screen) -> None:

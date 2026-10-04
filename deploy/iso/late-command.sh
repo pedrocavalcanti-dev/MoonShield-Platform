@@ -25,142 +25,6 @@ console_log() {
     fi
 }
 
-install_alpha_debug_ssh() {
-    local apt_root="$TARGET/var/lib/moonshield-alpha-apt" source_list="$TARGET/etc/apt/moonshield-alpha-debug.list"
-    local key_source="$SUPPORT_DIR/maintenance_public.pem" authorized_tmp="$TARGET/root/.ssh/authorized_keys.moonshield-tmp" key_bits
-
-    [ -f "$RELEASE/deploy/ALPHA-DEBUG-SSH" ] || fail 'Marcador Alpha Debug SSH ausente na release.'
-    grep -qx 'ALPHA_DEBUG_SSH=enabled' "$RELEASE/deploy/ALPHA-DEBUG-SSH" || fail 'Marcador Alpha Debug SSH invalido.'
-    console_log 'WARNING: ALPHA DEBUG SSH ENABLED (chave publica, temporario para Alpha 2 DEV).'
-
-    mkdir -p "$apt_root/lists/partial" "$apt_root/archives/partial" "$apt_root/sourceparts"
-    printf 'deb [trusted=yes] file:/var/lib/moonshield-iso-bootstrap/offline-bundle ./\n' >"$source_list"
-    chmod 0600 "$source_list"
-    console_log 'Alpha Debug: preparando indice APT local.'
-    if ! chroot "$TARGET" /usr/bin/apt-get \
-        -o Dir::State::lists=/var/lib/moonshield-alpha-apt/lists \
-        -o Dir::Cache::archives=/var/lib/moonshield-alpha-apt/archives \
-        -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
-        -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
-        -o APT::Sandbox::User=root -o Acquire::Languages=none \
-        -o APT::Get::List-Cleanup=false update; then
-        console_log 'ERRO: indice APT Alpha Debug falhou.'
-        fail 'Alpha Debug APT local falhou durante apt-get update.'
-    fi
-    console_log 'Alpha Debug: instalando openssh-server e nftables do bundle local.'
-    if ! chroot "$TARGET" /usr/bin/apt-get \
-        -o Dir::State::lists=/var/lib/moonshield-alpha-apt/lists \
-        -o Dir::Cache::archives=/var/lib/moonshield-alpha-apt/archives \
-        -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
-        -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
-        -o APT::Sandbox::User=root --no-install-recommends --yes \
-        install openssh-server nftables; then
-        console_log 'ERRO: instalacao offline do SSH Debug falhou.'
-        fail 'Alpha Debug APT local nao instalou openssh-server/nftables.'
-    fi
-    for package in openssh-server nftables; do
-        chroot "$TARGET" /usr/bin/dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -qx 'install ok installed' \
-            || fail "Alpha Debug: pacote critico ausente apos APT: $package"
-    done
-    for binary in /usr/sbin/sshd /usr/bin/ssh-keygen /usr/sbin/nft; do
-        [ -x "$TARGET$binary" ] || fail "Alpha Debug: binario critico ausente apos APT: $binary"
-    done
-
-    [ -s "$key_source" ] || fail 'Chave publica de manutencao ausente no sistema alvo.'
-    install -d -o root -g root -m 0700 "$TARGET/root/.ssh"
-    chroot "$TARGET" /usr/bin/ssh-keygen -i -m PKCS8 -f /etc/moonshield/support/maintenance_public.pem >"$authorized_tmp" \
-        || fail 'Conversao da chave publica para OpenSSH falhou.'
-    [ -s "$authorized_tmp" ] && grep -q '^ssh-rsa ' "$authorized_tmp" \
-        || fail 'Chave autorizada convertida nao e uma chave RSA OpenSSH valida.'
-    key_bits="$(chroot "$TARGET" /usr/bin/ssh-keygen -lf /root/.ssh/authorized_keys.moonshield-tmp 2>/dev/null | awk 'NR == 1 {print $1}')"
-    case "$key_bits" in ''|*[!0-9]*) fail 'Nao foi possivel validar o tamanho da chave SSH convertida.' ;; esac
-    [ "$key_bits" -ge 3072 ] || fail 'Chave SSH de manutencao deve ter no minimo 3072 bits.'
-    install -o root -g root -m 0600 "$authorized_tmp" "$TARGET/root/.ssh/authorized_keys"
-    rm -f "$authorized_tmp"
-    cat >"$TARGET/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf" <<'EOF'
-PermitRootLogin prohibit-password
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-PubkeyAuthentication yes
-AuthenticationMethods publickey
-EOF
-    chmod 0644 "$TARGET/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf"
-    mkdir -p "$TARGET/usr/local/lib/moonshield-iso" "$TARGET/run/sshd"
-    cat >"$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh" <<'EOF'
-#!/bin/sh
-set -eu
-
-NFT=/usr/sbin/nft
-TABLE='inet moonshield_alpha_debug'
-
-case "${1:-start}" in
-    start)
-        "$NFT" delete table $TABLE 2>/dev/null || true
-        "$NFT" -f - <<'RULESET'
-table inet moonshield_alpha_debug {
-    chain input {
-        type filter hook input priority -200; policy accept;
-        iifname "enp0s3" tcp dport 22 accept comment "MoonShield Alpha Debug SSH: enp0s3 only"
-        tcp dport 22 drop comment "MoonShield Alpha Debug SSH: deny non-enp0s3"
-    }
-}
-RULESET
-        ;;
-    stop)
-        "$NFT" delete table $TABLE 2>/dev/null || true
-        ;;
-    *)
-        printf '%s\n' "uso: $0 [start|stop]" >&2
-        exit 2
-        ;;
-esac
-EOF
-    cat >"$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service" <<'EOF'
-[Unit]
-Description=MoonShield Alpha Debug SSH interface restriction
-Wants=nftables.service
-After=local-fs.target nftables.service
-Before=ssh.service
-ConditionPathExists=/etc/moonshield/alpha-debug
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh start
-ExecStop=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh stop
-RemainAfterExit=yes
-
-[Install]
-RequiredBy=ssh.service
-EOF
-    chmod 0755 "$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh"
-    chmod 0644 "$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service"
-    console_log 'Alpha Debug: garantindo host keys SSH da appliance.'
-    if ! chroot "$TARGET" /usr/bin/ssh-keygen -A; then
-        console_log 'ERRO: geracao de host keys SSH Alpha Debug falhou.'
-        fail 'Alpha Debug nao conseguiu gerar host keys SSH.'
-    fi
-    find "$TARGET/etc/ssh" -maxdepth 1 -type f -name 'ssh_host_*_key' -size +0c -print -quit | grep -q . \
-        || fail 'Alpha Debug nao encontrou host keys SSH apos ssh-keygen -A.'
-    if ! chroot "$TARGET" /usr/sbin/sshd -t; then
-        console_log 'ERRO: sshd -t rejeitou a configuracao Alpha Debug.'
-        fail 'Configuracao de SSH Alpha Debug rejeitada por sshd -t.'
-    fi
-    console_log 'Alpha Debug: habilitando servicos para o primeiro boot.'
-    if ! chroot "$TARGET" /bin/systemctl enable moonshield-alpha-debug-ssh-firewall.service; then
-        console_log 'ERRO: habilitacao da restricao de interface SSH falhou.'
-        fail 'Nao foi possivel habilitar a restricao de interface do SSH Alpha Debug.'
-    fi
-    if ! chroot "$TARGET" /bin/systemctl enable ssh.service; then
-        console_log 'ERRO: habilitacao de ssh.service falhou.'
-        fail 'Nao foi possivel habilitar ssh.service no alvo.'
-    fi
-    install -o root -g root -m 0644 "$RELEASE/deploy/ALPHA-DEBUG-SSH" "$ALPHA_DEBUG_MARKER" || fail 'Falha ao instalar marcador Alpha Debug.'
-    rm -f "$source_list"
-    rm -rf "$apt_root"
-    console_log 'Alpha Debug SSH preparado antes do firstboot; chave somente e TCP/22 restrito a enp0s3.'
-}
-
-
 preserve_installer_logs() {
     dest="$TARGET/var/log/moonshield/installer"
     mkdir -p "$dest" 2>/dev/null || return 0
@@ -209,7 +73,9 @@ enable_boot_gate() {
         tty=$((tty + 1))
     done
 
-    rm -f "$WANTS/moonshield-iso-console-gate.service" "$WANTS/moonshield-iso-firstboot.service" 2>/dev/null || true
+    rm -f "$WANTS/moonshield-alpha-debug-ssh-bootstrap.service" \
+        "$WANTS/moonshield-iso-console-gate.service" "$WANTS/moonshield-iso-firstboot.service" 2>/dev/null || true
+    ln -s ../moonshield-alpha-debug-ssh-bootstrap.service "$WANTS/moonshield-alpha-debug-ssh-bootstrap.service" || return 1
     ln -s ../moonshield-iso-console-gate.service "$WANTS/moonshield-iso-console-gate.service" || return 1
     ln -s ../moonshield-iso-firstboot.service "$WANTS/moonshield-iso-firstboot.service" || return 1
     return 0
@@ -311,6 +177,11 @@ console_log 'Iniciando late-command Alpha 2.'
 [ -f "$FIRSTBOOT/moonshield-console-gate.py" ] || fail 'Console gate MoonShield ausente da midia.'
 [ -f "$FIRSTBOOT/moonshield-iso-firstboot.service" ] || fail 'Unit firstboot ausente da midia.'
 [ -f "$FIRSTBOOT/moonshield-iso-console-gate.service" ] || fail 'Unit console gate ausente da midia.'
+[ -f "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.sh" ] || fail 'Script Alpha Debug SSH ausente da midia.'
+[ -f "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.service" ] || fail 'Unit bootstrap Alpha Debug SSH ausente da midia.'
+[ -f "$FIRSTBOOT/moonshield-alpha-debug-ssh-firewall.service" ] || fail 'Unit firewall Alpha Debug SSH ausente da midia.'
+[ -f "$RELEASE/deploy/ALPHA-DEBUG-SSH" ] || fail 'Marcador Alpha Debug SSH ausente na release.'
+grep -qx 'ALPHA_DEBUG_SSH=enabled' "$RELEASE/deploy/ALPHA-DEBUG-SSH" || fail 'Marcador Alpha Debug SSH invalido.'
 
 [ ! -e "$STAGE" ] && [ ! -L "$STAGE" ] || fail "Staging ja existe no sistema alvo: $STAGE"
 mkdir -p "$STAGE/release" "$STAGE/offline-bundle" "$STAGE/state" \
@@ -322,9 +193,15 @@ cp "$FIRSTBOOT/moonshield-firstboot.py" "$RUNTIME/moonshield-firstboot.py" || fa
 cp "$FIRSTBOOT/moonshield-console-gate.py" "$RUNTIME/moonshield-console-gate.py" || fail 'Falha ao copiar moonshield-console-gate.py.'
 cp "$FIRSTBOOT/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-firstboot.service" || fail 'Falha ao copiar unit firstboot.'
 cp "$FIRSTBOOT/moonshield-iso-console-gate.service" "$SYSTEMD/moonshield-iso-console-gate.service" || fail 'Falha ao copiar unit console gate.'
+cp "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.sh" "$RUNTIME/moonshield-alpha-debug-ssh-bootstrap.sh" || fail 'Falha ao copiar script Alpha Debug SSH.'
+cp "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.service" "$SYSTEMD/moonshield-alpha-debug-ssh-bootstrap.service" || fail 'Falha ao copiar unit bootstrap Alpha Debug SSH.'
+cp "$FIRSTBOOT/moonshield-alpha-debug-ssh-firewall.service" "$SYSTEMD/moonshield-alpha-debug-ssh-firewall.service" || fail 'Falha ao copiar unit firewall Alpha Debug SSH.'
 cp "$RELEASE/deploy/console/maintenance_public.pem" "$SUPPORT_DIR/maintenance_public.pem" || fail 'Falha ao instalar chave publica de manutencao.'
-chmod 0755 "$RUNTIME/moonshield-firstboot.py" "$RUNTIME/moonshield-console-gate.py"
-chmod 0644 "$SYSTEMD/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-console-gate.service" "$SUPPORT_DIR/maintenance_public.pem"
+install -o root -g root -m 0644 "$RELEASE/deploy/ALPHA-DEBUG-SSH" "$ALPHA_DEBUG_MARKER" || fail 'Falha ao instalar marcador Alpha Debug.'
+chmod 0755 "$RUNTIME/moonshield-firstboot.py" "$RUNTIME/moonshield-console-gate.py" "$RUNTIME/moonshield-alpha-debug-ssh-bootstrap.sh"
+chmod 0644 "$SYSTEMD/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-console-gate.service" \
+    "$SYSTEMD/moonshield-alpha-debug-ssh-bootstrap.service" "$SYSTEMD/moonshield-alpha-debug-ssh-firewall.service" \
+    "$SUPPORT_DIR/maintenance_public.pem" "$ALPHA_DEBUG_MARKER"
 BOOTSTRAP_READY=1
 enable_boot_gate || fail 'Falha ao habilitar gate/firstboot ou mascarar consoles Debian.'
 
@@ -369,8 +246,7 @@ console_log 'Copiando bundle offline para o sistema alvo.'
 cp -a "$BUNDLE/." "$STAGE/offline-bundle/" || fail 'Falha ao copiar o bundle offline.'
 [ -f "$STAGE/offline-bundle/SHA256SUMS" ] || fail 'Bundle copiado ficou incompleto.'
 
-install_alpha_debug_ssh
-
+console_log 'Alpha Debug SSH staged para bootstrap no primeiro boot; nenhum APT/SSH/NFT foi executado no Installer.'
 console_log 'Bootstrap preparado; integridade completa sera validada no primeiro boot.'
 sync 2>/dev/null || true
 preserve_installer_logs

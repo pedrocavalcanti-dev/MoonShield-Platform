@@ -328,6 +328,10 @@ validate_final_iso() {
     -extract /moonshield/late-command.sh "$verify/late-command.sh" \
     -extract /moonshield/firstboot/moonshield-firstboot.py "$verify/firstboot.py" \
     -extract /moonshield/firstboot/moonshield-console-gate.py "$verify/console-gate.py" \
+    -extract /moonshield/firstboot/moonshield-iso-firstboot.service "$verify/firstboot.service" \
+    -extract /moonshield/firstboot/moonshield-alpha-debug-ssh-bootstrap.sh "$verify/alpha-debug-bootstrap.sh" \
+    -extract /moonshield/firstboot/moonshield-alpha-debug-ssh-bootstrap.service "$verify/alpha-debug-bootstrap.service" \
+    -extract /moonshield/firstboot/moonshield-alpha-debug-ssh-firewall.service "$verify/alpha-debug-firewall.service" \
     -extract /moonshield/release/deploy/install.sh "$verify/install.sh" \
     -extract /moonshield/release/deploy/console/maintenance_public.pem "$verify/maintenance_public.pem" \
     -extract /moonshield/release/deploy/ALPHA-DEBUG-SSH "$verify/alpha-debug-marker" \
@@ -342,30 +346,29 @@ validate_final_iso() {
     || die 'ISO final sem marcador Alpha Debug SSH esperado.'
   grep -qx 'openssh-server' "$verify/debian-packages.txt" \
     || die 'ISO final sem openssh-server no manifesto do bundle.'
-  grep -Fq 'install_alpha_debug_ssh' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao prepara SSH antes do firstboot.'
-  grep -Fq 'ssh-keygen -i -m PKCS8' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao converte a chave publica para authorized_keys.'
-  grep -Fq 'PermitRootLogin prohibit-password' "$verify/late-command.sh" \
-    && grep -Fq 'PasswordAuthentication no' "$verify/late-command.sh" \
-    && grep -Fq 'KbdInteractiveAuthentication no' "$verify/late-command.sh" \
-    && grep -Fq 'PubkeyAuthentication yes' "$verify/late-command.sh" \
-    && grep -Fq 'AuthenticationMethods publickey' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao aplica autenticacao SSH Alpha Debug somente por chave.'
-  grep -Fq 'moonshield-alpha-debug-ssh-firewall.service' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao instala a restricao de interface do SSH Alpha Debug.'
-  grep -Fq 'iifname "enp0s3" tcp dport 22 accept' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao restringe SSH Alpha Debug a enp0s3.'
-  grep -Fq 'ssh-keygen -A' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao garante host keys SSH Alpha Debug.'
-  grep -Fq 'dpkg-query -W' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao valida pacotes SSH Alpha Debug apos APT.'
-  if grep -Fq -- '--no-download' "$verify/late-command.sh"; then
-    die 'Late-command da ISO final nao pode bloquear leitura do repositorio APT file:// com --no-download.'
+  [[ -s "$verify/alpha-debug-bootstrap.sh" && -s "$verify/alpha-debug-bootstrap.service" \
+     && -s "$verify/alpha-debug-firewall.service" ]] \
+    || die 'ISO final sem bootstrap Alpha Debug SSH.'
+  grep -Fq 'moonshield-alpha-debug-ssh-bootstrap.service' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao prepara o bootstrap SSH para o proximo boot.'
+  if grep -Eq '(^|[^[:alnum:]_])(apt-get|sshd|ssh-keygen|nft)([[:space:]]|$)' "$verify/late-command.sh"; then
+    die 'Late-command da ISO final executa operacao SSH/NFT que deve ocorrer apenas apos reboot.'
   fi
-  if grep -Fq 'moonshield-alpha-debug-wait-network.sh' "$verify/late-command.sh" \
-    || grep -Fq 'TimeoutStartSec=infinity' "$verify/late-command.sh"; then
-    die 'Late-command da ISO final nao pode bloquear o boot esperando DHCP para SSH Alpha Debug.'
+  grep -Fq 'Before=moonshield-iso-firstboot.service' "$verify/alpha-debug-bootstrap.service" \
+    || die 'Bootstrap Alpha Debug SSH nao precede o firstboot.'
+  grep -Eq '^Wants=.*moonshield-alpha-debug-ssh-bootstrap\.service' "$verify/firstboot.service" \
+    && grep -Eq '^After=.*moonshield-alpha-debug-ssh-bootstrap\.service' "$verify/firstboot.service" \
+    || die 'Firstboot nao aguarda o bootstrap Alpha Debug SSH como dependencia fraca.'
+  grep -Fq 'PermitRootLogin prohibit-password' "$verify/alpha-debug-bootstrap.sh" \
+    && grep -Fq 'PasswordAuthentication no' "$verify/alpha-debug-bootstrap.sh" \
+    && grep -Fq 'KbdInteractiveAuthentication no' "$verify/alpha-debug-bootstrap.sh" \
+    && grep -Fq 'PubkeyAuthentication yes' "$verify/alpha-debug-bootstrap.sh" \
+    && grep -Fq 'AuthenticationMethods publickey' "$verify/alpha-debug-bootstrap.sh" \
+    || die 'Bootstrap Alpha Debug SSH nao aplica autenticacao somente por chave.'
+  grep -Fq 'iifname "enp0s3" tcp dport 22 accept' "$verify/alpha-debug-bootstrap.sh" \
+    || die 'Bootstrap Alpha Debug SSH nao restringe SSH a enp0s3.'
+  if grep -Fq -- '--no-download' "$verify/alpha-debug-bootstrap.sh"; then
+    die 'Bootstrap Alpha Debug SSH nao pode bloquear leitura do repositorio APT file:// com --no-download.'
   fi
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
@@ -424,6 +427,9 @@ validate_sources() {
     "$SCRIPT_DIR/firstboot/moonshield-console-gate.py" \
     "$SCRIPT_DIR/firstboot/moonshield-iso-firstboot.service" \
     "$SCRIPT_DIR/firstboot/moonshield-iso-console-gate.service" \
+    "$SCRIPT_DIR/firstboot/moonshield-alpha-debug-ssh-bootstrap.sh" \
+    "$SCRIPT_DIR/firstboot/moonshield-alpha-debug-ssh-bootstrap.service" \
+    "$SCRIPT_DIR/firstboot/moonshield-alpha-debug-ssh-firewall.service" \
     "$SCRIPT_DIR/templates/grub.cfg" \
     "$SCRIPT_DIR/templates/isolinux-menu.cfg" \
     "$SCRIPT_DIR/templates/moonshield-theme.txt" \

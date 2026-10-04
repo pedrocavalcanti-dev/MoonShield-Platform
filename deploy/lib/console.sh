@@ -45,10 +45,19 @@ _install_final_access_policy() {
   if [[ -f /etc/moonshield/alpha-debug ]]; then
     ssh_dir=/etc/ssh/sshd_config.d
     ssh_policy="$ssh_dir/00-moonshield-alpha-debug.conf"
+    bootstrap_unit=/etc/systemd/system/moonshield-alpha-debug-ssh-bootstrap.service
+    bootstrap_script=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-bootstrap.sh
     firewall_unit=/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service
-    firewall_script=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh
+    if [[ -f /var/lib/moonshield/.alpha-debug-ssh-failed ]]; then
+      warn "Alpha Debug SSH falhou; consulte /var/log/moonshield/alpha-debug-ssh.log."
+      return 0
+    fi
+    if [[ ! -f /var/lib/moonshield/.alpha-debug-ssh-ready ]]; then
+      warn "Alpha Debug SSH ainda esta preparando; politica final de SSH sera preservada."
+      return 0
+    fi
     [[ -d "$ssh_dir" && -s /root/.ssh/authorized_keys && -f "$ssh_policy" \
-      && -f "$firewall_unit" && -x "$firewall_script" ]] \
+      && -f "$bootstrap_unit" && -x "$bootstrap_script" && -f "$firewall_unit" ]] \
       || die "Alpha Debug SSH marcado, mas chave/configuracao/restricao de rede esta ausente."
     grep -Fxq 'PermitRootLogin prohibit-password' "$ssh_policy" \
       && grep -Fxq 'PasswordAuthentication no' "$ssh_policy" \
@@ -57,11 +66,11 @@ _install_final_access_policy() {
       && grep -Fxq 'AuthenticationMethods publickey' "$ssh_policy" \
       || die "Politica de autenticacao Alpha Debug SSH invalida."
     sshd -t || die "PolÃ­tica Alpha Debug SSH invÃ¡lida."
-    systemctl enable moonshield-alpha-debug-ssh-firewall.service >/dev/null \
+    systemctl daemon-reload
+    systemctl enable moonshield-alpha-debug-ssh-bootstrap.service moonshield-alpha-debug-ssh-firewall.service >/dev/null \
       || die "NÃ£o foi possÃ­vel manter a restricao de interface do SSH Alpha Debug."
     systemctl enable ssh.service >/dev/null \
       || die "NÃ£o foi possÃ­vel manter ssh.service habilitado no Alpha Debug."
-    systemctl daemon-reload
     ok "Alpha Debug SSH ativo somente por chave pÃºblica; TCP/22 restrito a enp0s3."
     return 0
   fi

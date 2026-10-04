@@ -46,6 +46,7 @@ check_service moonshield-web.service yes
 check_service moonshield-agent.service yes
 check_service moonshield-suricata-monitor.service yes
 check_service moonshield-suricata-worker.service yes
+check_service moonshield-firewall-worker.service yes
 check_service NetworkManager.service no
 check_service nftables.service no
 check_service suricata.service yes
@@ -76,6 +77,11 @@ else
 fi
 
 ss -H -ltn '( sport = :80 or sport = :443 )' 2>/dev/null | grep -q . && pass 'Nginx listener em 80/443' || fail 'Nginx sem listener HTTP/HTTPS'
+if find /etc/nginx/sites-enabled -mindepth 1 -maxdepth 1 -name '*.backup.*' -print -quit | grep -q .; then
+  fail 'backup de vhost encontrado em /etc/nginx/sites-enabled'
+else
+  pass 'nenhum backup de vhost dentro de /etc/nginx/sites-enabled'
+fi
 if systemctl is-active --quiet AdGuardHome.service; then
   ss -H -lun '( sport = :53 )' 2>/dev/null | grep -q . && pass 'DNS UDP/53 ativo' || fail 'DNS UDP/53 indisponível'
   ss -H -ltn '( sport = :53 )' 2>/dev/null | grep -q . && pass 'DNS TCP/53 ativo' || fail 'DNS TCP/53 indisponível'

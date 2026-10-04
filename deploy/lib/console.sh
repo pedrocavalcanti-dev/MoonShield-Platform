@@ -1,4 +1,4 @@
-_backup_managed_file() {
+_console_backup_managed_file() {
   local path="$1" recovery=/var/lib/moonshield/recovery
   [[ -e "$path" || -L "$path" ]] || return 0
   install -d -o root -g root -m 0700 "$recovery"
@@ -17,7 +17,7 @@ _backup_managed_file() {
   info "Cópia de recuperação criada em $destination"
 }
 
-_install_managed_file() {
+_console_install_managed_file() {
   local source="$1" destination="$2" mode="$3" owner="$4" group="$5"
   [[ -f "$source" ]] || die "Arquivo da release ausente: $source"
   if [[ ! -L "$destination" && -f "$destination" ]] && cmp -s -- "$source" "$destination"; then
@@ -25,7 +25,7 @@ _install_managed_file() {
     chmod "$mode" "$destination"
     return 0
   fi
-  _backup_managed_file "$destination"
+  _console_backup_managed_file "$destination"
   [[ ! -L "$destination" ]] || rm -f -- "$destination"
   install -o "$owner" -g "$group" -m "$mode" "$source" "$destination"
 }
@@ -37,7 +37,7 @@ _install_final_access_policy() {
     if [[ -L "$unit_file" && "$(readlink "$unit_file")" == /dev/null ]]; then
       continue
     fi
-    _backup_managed_file "$unit_file"
+    _console_backup_managed_file "$unit_file"
     [[ ! -e "$unit_file" && ! -L "$unit_file" ]] || rm -f -- "$unit_file"
     systemctl mask --now "getty@tty${tty}.service" >/dev/null
   done
@@ -90,7 +90,7 @@ KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 EOF
     if [[ -L "$ssh_policy" ]] || [[ ! -f "$ssh_policy" ]] || ! cmp -s -- "$temp_policy" "$ssh_policy"; then
-      _backup_managed_file "$ssh_policy"
+      _console_backup_managed_file "$ssh_policy"
       [[ ! -L "$ssh_policy" ]] || rm -f -- "$ssh_policy"
       install -o root -g root -m 0644 "$temp_policy" "$ssh_policy"
     fi
@@ -127,14 +127,14 @@ install_console() {
   local diag_source="$DEPLOY_DIR/scripts/moonshield-diag"
   local public_key="$DEPLOY_DIR/console/maintenance_public.pem"
   install -d -o root -g root -m 0755 /opt/moonshield/console /usr/local/sbin
-  _install_managed_file "$console_source" /opt/moonshield/console/moonshield_console.py 0644 root root
-  _install_managed_file "$check_source" /usr/local/sbin/moonshield-install-check 0755 root root
-  _install_managed_file "$diag_source" /usr/local/sbin/moonshield-diag 0755 root root
+  _console_install_managed_file "$console_source" /opt/moonshield/console/moonshield_console.py 0644 root root
+  _console_install_managed_file "$check_source" /usr/local/sbin/moonshield-install-check 0755 root root
+  _console_install_managed_file "$diag_source" /usr/local/sbin/moonshield-diag 0755 root root
   install -d -o root -g root -m 0755 /etc/moonshield/support
-  _install_managed_file "$unit_source" "$unit_target" 0644 root root
+  _console_install_managed_file "$unit_source" "$unit_target" 0644 root root
   if [[ -f "$public_key" ]]; then
     validate_maintenance_public_key
-    _install_managed_file "$public_key" /etc/moonshield/support/maintenance_public.pem 0644 root root
+    _console_install_managed_file "$public_key" /etc/moonshield/support/maintenance_public.pem 0644 root root
   elif (( FINAL_ISO_MODE )); then
     validate_maintenance_public_key
   else

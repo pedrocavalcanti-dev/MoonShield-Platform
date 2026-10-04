@@ -166,17 +166,28 @@ class TestProvisionamentoAdGuard(unittest.TestCase):
     @patch("dns.services.adguard_bootstrap._proteger_configuracao_privilegiada")
     @patch("dns.services.adguard_bootstrap.garantir_secret", return_value={"username": "moonshield", "password": "segredo-unico"})
     @patch("dns.services.adguard_bootstrap.descobrir_adguard")
-    def test_sem_interfaces_com_ipv4_retorna_aguardando_topologia(self, descobrir, _secret, _permissoes, _estado):
-        descobrir.return_value = self._paths()
-        topologia = {
-            papel: {"interfaces": [{"nome": f"{papel}0", "desejado": {"habilitada": True}, "real": {}}]}
-            for papel in ("wan", "lan", "mgmt", "dmz", "custom", "unassigned")
-        }
-        resultado = provisionar_adguard(
-            topologia=topologia,
-            controlar_servico=MagicMock(),
-            servico_ativo=lambda _nome: False,
-        )
+    def test_sem_interfaces_com_ipv4_retorna_aguardando_topologia(self, descobrir, _secret, permissoes, _estado):
+        with tempfile.TemporaryDirectory() as diretorio:
+            raiz = Path(diretorio)
+            paths = CaminhosAdGuard(
+                raiz / "AdGuardHome",
+                raiz,
+                raiz / "AdGuardHome.yaml",
+                raiz / "data",
+            )
+            descobrir.return_value = paths
+            topologia = {
+                papel: {"interfaces": [{"nome": f"{papel}0", "desejado": {"habilitada": True}, "real": {}}]}
+                for papel in ("wan", "lan", "mgmt", "dmz", "custom", "unassigned")
+            }
+            resultado = provisionar_adguard(
+                topologia=topologia,
+                controlar_servico=MagicMock(),
+                servico_ativo=lambda _nome: False,
+            )
+
+        self.assertFalse(paths.configuracao.exists())
+        permissoes.assert_not_called()
         self.assertEqual(resultado["estado"], "aguardando_topologia")
         self.assertFalse(resultado["setup_realizado"])
 

@@ -46,7 +46,37 @@ _run_offline_apt() {
   return 1
 }
 
-install_packages() {
+_run_with_package_service_starts_suppressed() {
+  local policy=/usr/sbin/policy-rc.d temporary status
+  if [[ -e "$policy" || -L "$policy" ]]; then
+    warn "policy-rc.d ja existe; a politica existente sera preservada durante a instalacao de pacotes."
+    "$@"
+    return
+  fi
+
+  temporary="$(mktemp /usr/sbin/.moonshield-policy-rc.d.XXXXXX)"
+  TEMP_FILES+=("$temporary")
+  printf '%s\n' '#!/bin/sh' 'exit 101' >"$temporary"
+  chown root:root "$temporary"
+  chmod 0755 "$temporary"
+  mv -- "$temporary" "$policy"
+  TEMP_FILES+=("$policy")
+  info "Inicios automaticos de servicos foram suprimidos somente durante a etapa de pacotes."
+
+  if "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  rm -f -- "$policy"
+  if (( status != 0 )); then
+    return "$status"
+  fi
+  ok "Politica temporaria policy-rc.d removida; os servicos serao iniciados apenas pelas etapas MoonShield seguintes."
+}
+
+_install_packages() {
   local package apt_root source_list deb arch
   local -a packages deb_files apt_args
   mapfile -t packages < <(_package_list)
@@ -112,4 +142,8 @@ install_packages() {
   [[ "$networkmanager_version" == *"1.52.1"* ]] || die "NetworkManager incompatível; baseline exigido 1.52.1."
   [[ "$nft_version" == *"1.1.3"* ]] || die "nftables incompatível; baseline exigido 1.1.3."
   ok "Pacotes críticos instalados/verificados."
+}
+
+install_packages() {
+  _run_with_package_service_starts_suppressed _install_packages
 }

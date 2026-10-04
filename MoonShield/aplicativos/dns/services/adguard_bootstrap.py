@@ -289,6 +289,19 @@ def _proteger_configuracao_privilegiada(paths: CaminhosAdGuard) -> None:
         ) from exc
 
 
+def _proteger_configuracao_se_existir(paths: CaminhosAdGuard) -> bool:
+    """Protege somente o YAML materializado pelo binÃ¡rio local do AdGuard."""
+    configuracao = paths.configuracao
+    if not configuracao.exists():
+        return False
+    if configuracao.is_symlink() or not configuracao.is_file():
+        raise AdGuardBootstrapError(
+            "ConfiguraÃ§Ã£o local do AdGuard deve ser um arquivo regular."
+        )
+    _proteger_configuracao_privilegiada(paths)
+    return True
+
+
 def _enderecos_ipv4(interface: dict) -> list[str]:
     real = interface.get("real") if isinstance(interface.get("real"), dict) else {}
     candidatos = list(real.get("enderecos_ipv4") or [])
@@ -709,7 +722,7 @@ def provisionar_adguard(
     """Provisiona setup nativo sem HTML e preserva instâncias já válidas."""
     paths = descobrir_adguard()
     secret = garantir_secret(secret_path)
-    _proteger_configuracao_privilegiada(paths)
+    _proteger_configuracao_se_existir(paths)
     persistir_estado_adguard(paths)
     inventario = inventariar_interfaces_dns(topologia)
     if not inventario["interfaces_dns_ativas"]:
@@ -745,7 +758,7 @@ def provisionar_adguard(
             if problemas:
                 raise AdGuardBootstrapError("Configuração inicial do AdGuard recusada: " + "; ".join(problemas))
             client.configurar_instalacao(payload)
-            _proteger_configuracao_privilegiada(paths)
+            _proteger_configuracao_se_existir(paths)
             setup_realizado = True
         elif exc.status_code != 401:
             raise AdGuardBootstrapError("API local do AdGuard não respondeu ao contrato esperado.") from exc
@@ -777,7 +790,7 @@ def provisionar_adguard(
         controlar_servico=controlar_servico,
         validar_apos_inicio=validar_api_reconciliada,
     )
-    _proteger_configuracao_privilegiada(paths)
+    _proteger_configuracao_se_existir(paths)
     client = AdGuardClient(URL_ADMIN_LOCAL_PADRAO, secret["username"], secret["password"])
     try:
         for tentativa in range(20):

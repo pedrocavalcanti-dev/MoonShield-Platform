@@ -8,7 +8,7 @@ _secure_venv_for_moonshield() {
   find "$venv" -type d -exec chmod 0750 {} +
   find "$venv" -type f -exec chmod 0640 {} +
   find "$venv/bin" -type f -exec chmod 0750 {} +
-  [[ ! -n "$(find "$venv" -perm -0020 -print -quit)" ]] \
+  [[ ! -n "$(find "$venv" ! -type l -perm -0020 -print -quit)" ]] \
     || die "Virtualenv ficou gravável pelo grupo moonshield; instalação recusada."
   runuser -u moonshield -- "$venv/bin/python" --version >/dev/null \
     || die "Usuário moonshield não consegue executar o Python do virtualenv."

@@ -47,9 +47,8 @@ _install_final_access_policy() {
     ssh_policy="$ssh_dir/00-moonshield-alpha-debug.conf"
     firewall_unit=/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service
     firewall_script=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh
-    network_wait=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh
     [[ -d "$ssh_dir" && -s /root/.ssh/authorized_keys && -f "$ssh_policy" \
-      && -f "$firewall_unit" && -x "$firewall_script" && -x "$network_wait" ]] \
+      && -f "$firewall_unit" && -x "$firewall_script" ]] \
       || die "Alpha Debug SSH marcado, mas chave/configuracao/restricao de rede esta ausente."
     grep -Fxq 'PermitRootLogin prohibit-password' "$ssh_policy" \
       && grep -Fxq 'PasswordAuthentication no' "$ssh_policy" \

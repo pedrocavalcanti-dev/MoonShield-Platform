@@ -356,8 +356,17 @@ validate_final_iso() {
     || die 'Late-command da ISO final nao instala a restricao de interface do SSH Alpha Debug.'
   grep -Fq 'iifname "enp0s3" tcp dport 22 accept' "$verify/late-command.sh" \
     || die 'Late-command da ISO final nao restringe SSH Alpha Debug a enp0s3.'
-  grep -Fq 'TimeoutStartSec=infinity' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao espera DHCP em enp0s3 antes do SSH Alpha Debug.'
+  grep -Fq 'ssh-keygen -A' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao garante host keys SSH Alpha Debug.'
+  grep -Fq 'dpkg-query -W' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao valida pacotes SSH Alpha Debug apos APT.'
+  if grep -Fq -- '--no-download' "$verify/late-command.sh"; then
+    die 'Late-command da ISO final nao pode bloquear leitura do repositorio APT file:// com --no-download.'
+  fi
+  if grep -Fq 'moonshield-alpha-debug-wait-network.sh' "$verify/late-command.sh" \
+    || grep -Fq 'TimeoutStartSec=infinity' "$verify/late-command.sh"; then
+    die 'Late-command da ISO final nao pode bloquear o boot esperando DHCP para SSH Alpha Debug.'
+  fi
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'

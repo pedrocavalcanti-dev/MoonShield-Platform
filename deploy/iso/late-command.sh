@@ -36,20 +36,35 @@ install_alpha_debug_ssh() {
     mkdir -p "$apt_root/lists/partial" "$apt_root/archives/partial" "$apt_root/sourceparts"
     printf 'deb [trusted=yes] file:/var/lib/moonshield-iso-bootstrap/offline-bundle ./\n' >"$source_list"
     chmod 0600 "$source_list"
-    chroot "$TARGET" /usr/bin/apt-get \
+    console_log 'Alpha Debug: preparando indice APT local.'
+    if ! chroot "$TARGET" /usr/bin/apt-get \
         -o Dir::State::lists=/var/lib/moonshield-alpha-apt/lists \
         -o Dir::Cache::archives=/var/lib/moonshield-alpha-apt/archives \
         -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
         -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
         -o APT::Sandbox::User=root -o Acquire::Languages=none \
-        -o APT::Get::List-Cleanup=false update || fail 'Indice APT local nao preparou openssh-server.'
-    chroot "$TARGET" /usr/bin/apt-get \
+        -o APT::Get::List-Cleanup=false update; then
+        console_log 'ERRO: indice APT Alpha Debug falhou.'
+        fail 'Alpha Debug APT local falhou durante apt-get update.'
+    fi
+    console_log 'Alpha Debug: instalando openssh-server e nftables do bundle local.'
+    if ! chroot "$TARGET" /usr/bin/apt-get \
         -o Dir::State::lists=/var/lib/moonshield-alpha-apt/lists \
         -o Dir::Cache::archives=/var/lib/moonshield-alpha-apt/archives \
         -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
         -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
-        -o APT::Sandbox::User=root --no-download --no-install-recommends --yes \
-        install openssh-server nftables || fail 'Instalacao offline de openssh-server/nftables falhou.'
+        -o APT::Sandbox::User=root --no-install-recommends --yes \
+        install openssh-server nftables; then
+        console_log 'ERRO: instalacao offline do SSH Debug falhou.'
+        fail 'Alpha Debug APT local nao instalou openssh-server/nftables.'
+    fi
+    for package in openssh-server nftables; do
+        chroot "$TARGET" /usr/bin/dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -qx 'install ok installed' \
+            || fail "Alpha Debug: pacote critico ausente apos APT: $package"
+    done
+    for binary in /usr/sbin/sshd /usr/bin/ssh-keygen /usr/sbin/nft; do
+        [ -x "$TARGET$binary" ] || fail "Alpha Debug: binario critico ausente apos APT: $binary"
+    done
 
     [ -s "$key_source" ] || fail 'Chave publica de manutencao ausente no sistema alvo.'
     install -d -o root -g root -m 0700 "$TARGET/root/.ssh"
@@ -70,7 +85,7 @@ PubkeyAuthentication yes
 AuthenticationMethods publickey
 EOF
     chmod 0644 "$TARGET/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf"
-    mkdir -p "$TARGET/etc/systemd/system/ssh.service.d" "$TARGET/usr/local/lib/moonshield-iso" "$TARGET/run/sshd"
+    mkdir -p "$TARGET/usr/local/lib/moonshield-iso" "$TARGET/run/sshd"
     cat >"$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh" <<'EOF'
 #!/bin/sh
 set -eu
@@ -100,14 +115,6 @@ RULESET
         ;;
 esac
 EOF
-    cat >"$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh" <<'EOF'
-#!/bin/sh
-set -eu
-
-while ! /usr/sbin/ip -4 -o addr show dev enp0s3 scope global 2>/dev/null | grep -q ' inet '; do
-    sleep 1
-done
-EOF
     cat >"$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service" <<'EOF'
 [Unit]
 Description=MoonShield Alpha Debug SSH interface restriction
@@ -125,24 +132,28 @@ RemainAfterExit=yes
 [Install]
 RequiredBy=ssh.service
 EOF
-    cat >"$TARGET/etc/systemd/system/ssh.service.d/10-moonshield-alpha-debug.conf" <<'EOF'
-[Unit]
-Wants=network-online.target
-After=network-online.target moonshield-alpha-debug-ssh-firewall.service
-Requires=moonshield-alpha-debug-ssh-firewall.service
-
-[Service]
-ExecStartPre=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh
-TimeoutStartSec=infinity
-EOF
-    chmod 0755 "$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh" \
-        "$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh"
-    chmod 0644 "$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service" \
-        "$TARGET/etc/systemd/system/ssh.service.d/10-moonshield-alpha-debug.conf"
-    chroot "$TARGET" /usr/sbin/sshd -t || fail 'Configuracao de SSH Alpha Debug rejeitada por sshd -t.'
-    chroot "$TARGET" /bin/systemctl enable moonshield-alpha-debug-ssh-firewall.service \
-        || fail 'Nao foi possivel habilitar a restricao de interface do SSH Alpha Debug.'
-    chroot "$TARGET" /bin/systemctl enable ssh.service || fail 'Nao foi possivel habilitar ssh.service no alvo.'
+    chmod 0755 "$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh"
+    chmod 0644 "$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service"
+    console_log 'Alpha Debug: garantindo host keys SSH da appliance.'
+    if ! chroot "$TARGET" /usr/bin/ssh-keygen -A; then
+        console_log 'ERRO: geracao de host keys SSH Alpha Debug falhou.'
+        fail 'Alpha Debug nao conseguiu gerar host keys SSH.'
+    fi
+    find "$TARGET/etc/ssh" -maxdepth 1 -type f -name 'ssh_host_*_key' -size +0c -print -quit | grep -q . \
+        || fail 'Alpha Debug nao encontrou host keys SSH apos ssh-keygen -A.'
+    if ! chroot "$TARGET" /usr/sbin/sshd -t; then
+        console_log 'ERRO: sshd -t rejeitou a configuracao Alpha Debug.'
+        fail 'Configuracao de SSH Alpha Debug rejeitada por sshd -t.'
+    fi
+    console_log 'Alpha Debug: habilitando servicos para o primeiro boot.'
+    if ! chroot "$TARGET" /bin/systemctl enable moonshield-alpha-debug-ssh-firewall.service; then
+        console_log 'ERRO: habilitacao da restricao de interface SSH falhou.'
+        fail 'Nao foi possivel habilitar a restricao de interface do SSH Alpha Debug.'
+    fi
+    if ! chroot "$TARGET" /bin/systemctl enable ssh.service; then
+        console_log 'ERRO: habilitacao de ssh.service falhou.'
+        fail 'Nao foi possivel habilitar ssh.service no alvo.'
+    fi
     install -o root -g root -m 0644 "$RELEASE/deploy/ALPHA-DEBUG-SSH" "$ALPHA_DEBUG_MARKER" || fail 'Falha ao instalar marcador Alpha Debug.'
     rm -f "$source_list"
     rm -rf "$apt_root"
@@ -329,6 +340,10 @@ apply_installed_branding || console_log 'AVISO: identidade visual do sistema ins
 mkdir -p "$TARGET/usr/local/sbin"
 install -o root -g root -m 0755 "$RELEASE/deploy/scripts/moonshield-diag" "$TARGET/usr/local/sbin/moonshield-diag" \
     || fail 'Falha ao instalar moonshield-diag para uso no Modo Seguro.'
+if [ -f "$MEDIA/BUILD-INFO" ]; then
+    cp "$MEDIA/BUILD-INFO" "$STAGE/BUILD-INFO" || fail 'Falha ao copiar BUILD-INFO.'
+    chmod 0600 "$STAGE/BUILD-INFO"
+fi
 
 cat >"$STAGE/state/status.json" <<'JSON'
 {
@@ -355,11 +370,6 @@ cp -a "$BUNDLE/." "$STAGE/offline-bundle/" || fail 'Falha ao copiar o bundle off
 [ -f "$STAGE/offline-bundle/SHA256SUMS" ] || fail 'Bundle copiado ficou incompleto.'
 
 install_alpha_debug_ssh
-
-if [ -f "$MEDIA/BUILD-INFO" ]; then
-    cp "$MEDIA/BUILD-INFO" "$STAGE/BUILD-INFO" || fail 'Falha ao copiar BUILD-INFO.'
-    chmod 0600 "$STAGE/BUILD-INFO"
-fi
 
 console_log 'Bootstrap preparado; integridade completa sera validada no primeiro boot.'
 sync 2>/dev/null || true

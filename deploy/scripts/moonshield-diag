@@ -107,12 +107,24 @@ def main() -> int:
 
     django = Path("/opt/moonshield/source/MoonShield/gerenciar.py")
     django_python = Path("/opt/moonshield/venv/bin/python")
+    venv_mode = command(["stat", "-c", "%a:%U:%G", "/opt/moonshield/venv"])
+    python_as_service_user = command(
+        ["runuser", "-u", "moonshield", "--", str(django_python), "--version"], timeout=15
+    ) if django_python.is_file() else "[virtualenv ausente]"
+    print_section(
+        "DJANGO RUNTIME",
+        f"Venv permissions: {venv_mode}\nPython as moonshield: {python_as_service_user}",
+    )
     if django.is_file() and django_python.is_file():
         with tempfile.TemporaryDirectory(prefix="moonshield-diag-") as log_dir:
             env = os.environ.copy()
             env["MOONSHIELD_LOG_DIR"] = log_dir
-            check = command([str(django_python), "gerenciar.py", "check", "--verbosity", "0"],
-                            timeout=90, env=env, cwd=str(django.parent))
+            check = command(
+                ["runuser", "-u", "moonshield", "--", str(django_python), "gerenciar.py", "check", "--verbosity", "0"],
+                timeout=90,
+                env=env,
+                cwd=str(django.parent),
+            )
     else:
         check = "[source ou virtualenv Django ausente]"
     print_section("DJANGO manage.py check (sem migrations)", check)
@@ -120,7 +132,18 @@ def main() -> int:
     suricata_bin = command(["suricata", "-V"], timeout=10)
     suricata_cfg = Path("/etc/suricata/suricata.yaml")
     suricata_test = command(["suricata", "-T", "-c", str(suricata_cfg)], timeout=180) if suricata_cfg.is_file() else "[config ausente]"
-    print_section("SURICATA", f"Binary/version: {suricata_bin}\nConfig test: {suricata_test}")
+    rules_dir = Path("/var/lib/suricata/rules")
+    rules_count = sum(1 for path in rules_dir.rglob("*.rules") if path.is_file()) if rules_dir.is_dir() else 0
+    print_section(
+        "SURICATA",
+        f"Binary/version: {suricata_bin}\nConfig test: {suricata_test}\nRules path: {rules_dir}\nRules files: {rules_count}",
+    )
+    print_section(
+        "HEALTHCHECK",
+        command(["/usr/local/sbin/moonshield-install-check"], timeout=120)
+        if Path("/usr/local/sbin/moonshield-install-check").is_file()
+        else "[moonshield-install-check ausente]",
+    )
     print_section("SYSTEMD failed units", command(["systemctl", "--failed", "--no-pager", "--plain"]))
 
     logs = [

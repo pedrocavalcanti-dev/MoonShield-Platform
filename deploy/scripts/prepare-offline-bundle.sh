@@ -9,6 +9,8 @@ REPO_ROOT="$(cd -- "$DEPLOY_DIR/.." && pwd -P)"
 . "$DEPLOY_DIR/lib/common.sh"
 # shellcheck source=../lib/certificates.sh
 . "$DEPLOY_DIR/lib/certificates.sh"
+# shellcheck source=../lib/adguard-archive.sh
+. "$DEPLOY_DIR/lib/adguard-archive.sh"
 
 OUTPUT="${1:-$DEPLOY_DIR/offline-bundle}"
 OUTPUT="$(mkdir -p -- "$(dirname -- "$OUTPUT")" && cd -- "$(dirname -- "$OUTPUT")" && pwd -P)/$(basename -- "$OUTPUT")"
@@ -123,11 +125,15 @@ for wheel in sorted(wheelhouse.glob("*.whl")):
         continue
 raise SystemExit("Pillow não encontrado nos metadados dos wheels.")
 PY
-run_checked "validação do fechamento pip offline" pip3 install --dry-run --ignore-installed --disable-pip-version-check \
+pip_verify_venv="$WORK/pip-verify"
+python3 -m venv "$pip_verify_venv" || die "Não foi possível criar venv temporária para validar o wheelhouse."
+run_checked "validação do fechamento pip offline" "$pip_verify_venv/bin/python" -m pip install --dry-run --ignore-installed --disable-pip-version-check \
   --no-index --only-binary=:all: --find-links "$OUTPUT/wheelhouse" \
   --requirement "$REPO_ROOT/requirements-prod.txt" \
   || die "Wheelhouse Python incompatível ou incompleto para o requirements-prod.txt."
 download_verified "$ADGUARD_URL" "$ADGUARD_SHA256" "$OUTPUT/artifacts/AdGuardHome_linux_amd64.tar.gz"
+validate_adguard_archive "$OUTPUT/artifacts/AdGuardHome_linux_amd64.tar.gz" \
+  || die "Artifact AdGuard não atende ao contrato seguro de extração."
 
 for ca in "$DEPLOY_DIR/certificates/optional/corporate-ca.crt" "$DEPLOY_DIR/certificates/optional/senac-ca.crt"; do
   [[ ! -f "$ca" ]] || install -m 0644 "$ca" "$OUTPUT/certificates/corporate-ca.crt"

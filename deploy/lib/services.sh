@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=adguard-archive.sh
+. "$DEPLOY_DIR/lib/adguard-archive.sh"
+
 MANAGED_BACKUP_PATH=""
 MANAGED_FILE_EXISTED=0
 
@@ -25,7 +28,7 @@ _backup_managed_file() {
 
 install_adguard_binary() {
   local artifact expected_url cache_dir
-  local expected actual extraction archive_names adguard_version
+  local expected actual extraction install_source adguard_version
   if [[ -x /opt/AdGuardHome/AdGuardHome ]]; then
     adguard_version="$(/opt/AdGuardHome/AdGuardHome --version 2>&1 || true)"
     [[ "$adguard_version" == *"v0.107.79"* ]] || die "AdGuard existente não corresponde à versão v0.107.79; estado preservado e instalação interrompida."
@@ -50,18 +53,19 @@ install_adguard_binary() {
   fi
   actual="$(sha256sum "$artifact" | awk '{print $1}')"
   [[ "${actual,,}" == "${expected,,}" ]] || die "Checksum do AdGuard diverge do manifest; instalação recusada."
-  archive_names="$(tar -tzf "$artifact")" || die "Arquivo AdGuard inválido ou ilegível."
-  printf '%s\n' "$archive_names" | awk 'index($0, "../") || $0 ~ /^\// || $0 !~ /^AdGuardHome\// { bad=1 } END { exit bad }' || die "Arquivo AdGuard contém caminhos inesperados."
-  extraction="$(mktemp -d /opt/moonshield/adguard.extract.XXXXXX)"
+  validate_adguard_archive "$artifact" || die "Arquivo AdGuard não atende ao contrato seguro de extração."
+  extraction="$(mktemp -d /opt/.moonshield-adguard.extract.XXXXXX)"
   TEMP_DIRS+=("$extraction")
-  tar --no-same-owner -xzf "$artifact" -C "$extraction"
+  tar --no-same-owner --no-same-permissions -xzf "$artifact" -C "$extraction" || die "Extração segura do artifact AdGuard falhou."
   [[ -x "$extraction/AdGuardHome/AdGuardHome" ]] || die "Binário esperado ausente no artifact AdGuard."
-  install -d -o root -g root -m 0755 /opt/AdGuardHome
-  cp -a -- "$extraction/AdGuardHome/." /opt/AdGuardHome/
-  chown -R root:root /opt/AdGuardHome
-  chmod 0755 /opt/AdGuardHome/AdGuardHome
-  adguard_version="$(/opt/AdGuardHome/AdGuardHome --version 2>&1 || true)"
+  chown -R root:root "$extraction/AdGuardHome"
+  find "$extraction/AdGuardHome" -type d -exec chmod 0755 {} +
+  find "$extraction/AdGuardHome" -type f -exec chmod 0644 {} +
+  chmod 0755 "$extraction/AdGuardHome/AdGuardHome"
+  adguard_version="$("$extraction/AdGuardHome/AdGuardHome" --version 2>&1 || true)"
   [[ "$adguard_version" == *"v0.107.79"* ]] || die "Binário AdGuard instalado não reporta v0.107.79; verificação falhou."
+  install_source="$extraction/AdGuardHome"
+  mv -- "$install_source" /opt/AdGuardHome || die "Publicação atômica do AdGuard falhou."
   ok "Binário AdGuard v0.107.79 instalado; serviço/configuração serão provisionados pelo bootstrap existente."
 }
 
@@ -155,6 +159,82 @@ install_systemd_services() {
   ok "Units web e AdGuard instaladas; AdGuard inicia ao receber topologia DNS válida."
 }
 
+provision_suricata_ruleset() {
+  local config="$1" rules_dir=/var/lib/suricata/rules
+  local moonshield_source=/opt/moonshield/source/MoonShield-Agent/suricata/regras_ms.rules
+  local bundled_rules moonshield_dir temp_rules temp_ms
+  [[ -f "$moonshield_source" && -s "$moonshield_source" ]] \
+    || die "Ruleset MoonShield versionado ausente ou vazio."
+  [[ -f "$config" && ! -L "$config" ]] || die "suricata.yaml ausente ou é symlink; estado preservado."
+  shopt -s nullglob
+  bundled_rules=(/etc/suricata/rules/*.rules)
+  shopt -u nullglob
+  ((${#bundled_rules[@]} > 0)) \
+    || die "Pacote Suricata não forneceu ruleset local em /etc/suricata/rules."
+  install -d -o root -g root -m 0755 "$rules_dir"
+  moonshield_dir="$rules_dir/moonshield"
+  install -d -o root -g root -m 0755 "$moonshield_dir"
+  if [[ ! -s "$rules_dir/suricata.rules" ]]; then
+    temp_rules="$(mktemp "$rules_dir/.suricata.rules.XXXXXX")"
+    TEMP_FILES+=("$temp_rules")
+    cat "${bundled_rules[@]}" >"$temp_rules"
+    [[ -s "$temp_rules" ]] || die "Ruleset local do pacote Suricata ficou vazio."
+    install -o root -g root -m 0644 "$temp_rules" "$rules_dir/suricata.rules"
+  else
+    info "Ruleset Suricata existente preservado durante repair."
+  fi
+  if [[ ! -s "$moonshield_dir/ms.rules" ]]; then
+    temp_ms="$(mktemp "$moonshield_dir/.ms.rules.XXXXXX")"
+    TEMP_FILES+=("$temp_ms")
+    install -o root -g root -m 0644 "$moonshield_source" "$temp_ms"
+    mv -f -- "$temp_ms" "$moonshield_dir/ms.rules"
+  else
+    info "Regras MoonShield existentes preservadas durante repair."
+  fi
+  python3 - "$config" <<'PY' || die "Não foi possível incluir moonshield/ms.rules no suricata.yaml."
+from pathlib import Path
+import os
+import stat
+import tempfile
+import sys
+
+path = Path(sys.argv[1])
+entry = "moonshield/ms.rules"
+lines = path.read_text(encoding="utf-8", errors="strict").splitlines()
+if not any(line.strip().lstrip("-").strip() == entry for line in lines):
+    start = next(
+        (index for index, line in enumerate(lines) if line.strip() == "rule-files:" and not line.startswith((" ", "\t"))),
+        None,
+    )
+    if start is None:
+        raise SystemExit("seção rule-files ausente")
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if line.strip() and not line.startswith((" ", "\t", "#")):
+            end = index
+            break
+    lines.insert(end, f"  - {entry}")
+    mode = stat.S_IMODE(path.stat().st_mode)
+    fd, temporary = tempfile.mkstemp(prefix=".suricata.yaml.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as output:
+            output.write("\n".join(lines) + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+PY
+  [[ -s "$rules_dir/suricata.rules" && -s "$moonshield_dir/ms.rules" ]] \
+    || die "Ruleset Suricata não foi publicado corretamente."
+  grep -Fqx '  - moonshield/ms.rules' "$config" \
+    || die "suricata.yaml não referencia as regras MoonShield."
+  info "Ruleset Suricata offline publicado com regras Debian e MoonShield; ET Open será atualizado somente após o onboarding."
+}
+
 provision_moonshield_local_services() {
   local django_dir=/opt/moonshield/source/MoonShield python_bin=/opt/moonshield/venv/bin/python
   [[ -x /opt/AdGuardHome/AdGuardHome ]] || die "Binário AdGuard não instalado."
@@ -167,6 +247,7 @@ provision_moonshield_local_services() {
   local suricata_config=/etc/suricata/suricata.yaml suricata_output line
   command -v suricata >/dev/null 2>&1 || die "Binário Suricata ausente antes da validação."
   [[ -s "$suricata_config" ]] || die "Configuração Suricata ausente ou vazia: $suricata_config."
+  provision_suricata_ruleset "$suricata_config"
   info "Validando Suricata antes de habilitar/iniciar: suricata -T -c $suricata_config"
   if suricata_output="$(suricata -T -c "$suricata_config" 2>&1)"; then
     while IFS= read -r line; do

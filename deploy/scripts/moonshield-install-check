@@ -52,6 +52,21 @@ check_service suricata.service yes
 check_service AdGuardHome.service no
 check_service postgresql.service yes
 
+if command -v suricata >/dev/null 2>&1 && [[ -s /etc/suricata/suricata.yaml ]]; then
+  if suricata -T -c /etc/suricata/suricata.yaml >/dev/null 2>&1; then
+    pass 'Suricata config test aprovado'
+  else
+    fail 'Suricata config test falhou'
+  fi
+else
+  fail 'binário ou configuração Suricata ausente'
+fi
+if [[ -s /var/lib/suricata/rules/suricata.rules && -s /var/lib/suricata/rules/moonshield/ms.rules ]]; then
+  pass 'rulesets Suricata Debian e MoonShield presentes'
+else
+  fail 'rulesets Suricata offline ausentes'
+fi
+
 check_loopback_listener 8000 Gunicorn
 check_loopback_listener 5432 PostgreSQL
 if systemctl is-active --quiet AdGuardHome.service; then

@@ -45,13 +45,25 @@ _install_final_access_policy() {
   if [[ -f /etc/moonshield/alpha-debug ]]; then
     ssh_dir=/etc/ssh/sshd_config.d
     ssh_policy="$ssh_dir/00-moonshield-alpha-debug.conf"
-    [[ -d "$ssh_dir" && -s /root/.ssh/authorized_keys ]] \
-      || die "Alpha Debug SSH marcado, mas chave/configuracao SSH ausente."
+    firewall_unit=/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service
+    firewall_script=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh
+    network_wait=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh
+    [[ -d "$ssh_dir" && -s /root/.ssh/authorized_keys && -f "$ssh_policy" \
+      && -f "$firewall_unit" && -x "$firewall_script" && -x "$network_wait" ]] \
+      || die "Alpha Debug SSH marcado, mas chave/configuracao/restricao de rede esta ausente."
+    grep -Fxq 'PermitRootLogin prohibit-password' "$ssh_policy" \
+      && grep -Fxq 'PasswordAuthentication no' "$ssh_policy" \
+      && grep -Fxq 'KbdInteractiveAuthentication no' "$ssh_policy" \
+      && grep -Fxq 'PubkeyAuthentication yes' "$ssh_policy" \
+      && grep -Fxq 'AuthenticationMethods publickey' "$ssh_policy" \
+      || die "Politica de autenticacao Alpha Debug SSH invalida."
     sshd -t || die "PolÃ­tica Alpha Debug SSH invÃ¡lida."
+    systemctl enable moonshield-alpha-debug-ssh-firewall.service >/dev/null \
+      || die "NÃ£o foi possÃ­vel manter a restricao de interface do SSH Alpha Debug."
     systemctl enable ssh.service >/dev/null \
       || die "NÃ£o foi possÃ­vel manter ssh.service habilitado no Alpha Debug."
     systemctl daemon-reload
-    ok "Alpha Debug SSH ativo somente por chave pÃºblica; sem autenticaÃ§Ã£o por senha."
+    ok "Alpha Debug SSH ativo somente por chave pÃºblica; TCP/22 restrito a enp0s3."
     return 0
   fi
 

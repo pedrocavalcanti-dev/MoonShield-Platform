@@ -124,7 +124,7 @@ def alpha_debug_ipv4() -> str:
         return ""
     try:
         result = subprocess.run(
-            ["/usr/sbin/ip", "-4", "-o", "addr", "show", "scope", "global"],
+            ["/usr/sbin/ip", "-4", "-o", "addr", "show", "dev", "enp0s3", "scope", "global"],
             check=False, capture_output=True, text=True, timeout=3,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -329,8 +329,10 @@ def draw_progress(screen, spin: str) -> None:
         if Path("/etc/moonshield/alpha-debug").is_file():
             address = alpha_debug_ipv4()
             add(screen, row + 2, 6, "ALPHA DEBUG SSH: ATIVO  //  Auth: chave de manutencao", cp(C_WARN) | curses.A_BOLD)
-            add(screen, row + 3, 6, f"SSH: ssh root@{address}" if address else "SSH: aguardando rede", cp(C_TEXT))
-            f12_row = row + 4
+            add(screen, row + 3, 6, "Interface: enp0s3", cp(C_TEXT))
+            add(screen, row + 4, 6, f"IP: {address}" if address else "IP: aguardando DHCP", cp(C_TEXT))
+            add(screen, row + 5, 6, f"SSH: ssh root@{address}" if address else "SSH: aguardando DHCP", cp(C_TEXT))
+            f12_row = row + 6
         else:
             f12_row = row + 3
         add(screen, f12_row, 6, "F12  manutencao protegida por challenge/response", cp(C_ACCENT) | curses.A_BOLD)

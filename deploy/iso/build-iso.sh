@@ -15,6 +15,7 @@ TEMP_ISO=""
 
 die() { printf '[ERRO] %s\n' "$*" >&2; exit 1; }
 info() { printf '[INFO] %s\n' "$*"; }
+warn() { printf '[AVISO] %s\n' "$*" >&2; }
 ok() { printf '[OK] %s\n' "$*"; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Comando obrigatório ausente no builder: $1"; }
 cleanup() {
@@ -134,6 +135,14 @@ validate_bundle() {
   grep -qx 'DependencyValidation=empty-dpkg-status' "$BUNDLE/BUILD-INFO" \
     || die 'Offline bundle sem validacao independente do estado do builder.'
   (cd -- "$BUNDLE" && sha256sum --check --status SHA256SUMS) || die 'Checksum do offline bundle falhou.'
+  awk -F '\t' '$1 == "openssh-server" { found=1 } END { exit !found }' "$BUNDLE/DEBIAN-PACKAGES.tsv" \
+    || die 'Offline bundle Alpha Debug nao contem openssh-server.'
+  if grep -RIlE -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' "$BUNDLE" | grep -q .; then
+    die 'Offline bundle contem material de chave privada.'
+  fi
+  if find "$BUNDLE" -type f \( -iname '*private*.pem' -o -iname '*.p8' -o -iname '*.p12' -o -iname '*.pfx' \) -print -quit | grep -q .; then
+    die 'Offline bundle contem arquivo com nome/formato de chave privada.'
+  fi
 
   shopt -s nullglob
   deb_files=("$BUNDLE"/debs/*.deb)
@@ -337,6 +346,18 @@ validate_final_iso() {
     || die 'Late-command da ISO final nao prepara SSH antes do firstboot.'
   grep -Fq 'ssh-keygen -i -m PKCS8' "$verify/late-command.sh" \
     || die 'Late-command da ISO final nao converte a chave publica para authorized_keys.'
+  grep -Fq 'PermitRootLogin prohibit-password' "$verify/late-command.sh" \
+    && grep -Fq 'PasswordAuthentication no' "$verify/late-command.sh" \
+    && grep -Fq 'KbdInteractiveAuthentication no' "$verify/late-command.sh" \
+    && grep -Fq 'PubkeyAuthentication yes' "$verify/late-command.sh" \
+    && grep -Fq 'AuthenticationMethods publickey' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao aplica autenticacao SSH Alpha Debug somente por chave.'
+  grep -Fq 'moonshield-alpha-debug-ssh-firewall.service' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao instala a restricao de interface do SSH Alpha Debug.'
+  grep -Fq 'iifname "enp0s3" tcp dport 22 accept' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao restringe SSH Alpha Debug a enp0s3.'
+  grep -Fq 'TimeoutStartSec=infinity' "$verify/late-command.sh" \
+    || die 'Late-command da ISO final nao espera DHCP em enp0s3 antes do SSH Alpha Debug.'
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'

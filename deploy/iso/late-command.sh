@@ -49,7 +49,7 @@ install_alpha_debug_ssh() {
         -o Dir::Etc::sourcelist=/etc/apt/moonshield-alpha-debug.list \
         -o Dir::Etc::sourceparts=/var/lib/moonshield-alpha-apt/sourceparts \
         -o APT::Sandbox::User=root --no-download --no-install-recommends --yes \
-        install openssh-server || fail 'Instalacao offline de openssh-server falhou.'
+        install openssh-server nftables || fail 'Instalacao offline de openssh-server/nftables falhou.'
 
     [ -s "$key_source" ] || fail 'Chave publica de manutencao ausente no sistema alvo.'
     install -d -o root -g root -m 0700 "$TARGET/root/.ssh"
@@ -67,14 +67,86 @@ PermitRootLogin prohibit-password
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PubkeyAuthentication yes
+AuthenticationMethods publickey
 EOF
     chmod 0644 "$TARGET/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf"
+    mkdir -p "$TARGET/etc/systemd/system/ssh.service.d" "$TARGET/usr/local/lib/moonshield-iso" "$TARGET/run/sshd"
+    cat >"$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh" <<'EOF'
+#!/bin/sh
+set -eu
+
+NFT=/usr/sbin/nft
+TABLE='inet moonshield_alpha_debug'
+
+case "${1:-start}" in
+    start)
+        "$NFT" delete table $TABLE 2>/dev/null || true
+        "$NFT" -f - <<'RULESET'
+table inet moonshield_alpha_debug {
+    chain input {
+        type filter hook input priority -200; policy accept;
+        iifname "enp0s3" tcp dport 22 accept comment "MoonShield Alpha Debug SSH: enp0s3 only"
+        tcp dport 22 drop comment "MoonShield Alpha Debug SSH: deny non-enp0s3"
+    }
+}
+RULESET
+        ;;
+    stop)
+        "$NFT" delete table $TABLE 2>/dev/null || true
+        ;;
+    *)
+        printf '%s\n' "uso: $0 [start|stop]" >&2
+        exit 2
+        ;;
+esac
+EOF
+    cat >"$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh" <<'EOF'
+#!/bin/sh
+set -eu
+
+while ! /usr/sbin/ip -4 -o addr show dev enp0s3 scope global 2>/dev/null | grep -q ' inet '; do
+    sleep 1
+done
+EOF
+    cat >"$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service" <<'EOF'
+[Unit]
+Description=MoonShield Alpha Debug SSH interface restriction
+Wants=nftables.service
+After=local-fs.target nftables.service
+Before=ssh.service
+ConditionPathExists=/etc/moonshield/alpha-debug
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh start
+ExecStop=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh stop
+RemainAfterExit=yes
+
+[Install]
+RequiredBy=ssh.service
+EOF
+    cat >"$TARGET/etc/systemd/system/ssh.service.d/10-moonshield-alpha-debug.conf" <<'EOF'
+[Unit]
+Wants=network-online.target
+After=network-online.target moonshield-alpha-debug-ssh-firewall.service
+Requires=moonshield-alpha-debug-ssh-firewall.service
+
+[Service]
+ExecStartPre=/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh
+TimeoutStartSec=infinity
+EOF
+    chmod 0755 "$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-ssh-firewall.sh" \
+        "$TARGET/usr/local/lib/moonshield-iso/moonshield-alpha-debug-wait-network.sh"
+    chmod 0644 "$TARGET/etc/systemd/system/moonshield-alpha-debug-ssh-firewall.service" \
+        "$TARGET/etc/systemd/system/ssh.service.d/10-moonshield-alpha-debug.conf"
     chroot "$TARGET" /usr/sbin/sshd -t || fail 'Configuracao de SSH Alpha Debug rejeitada por sshd -t.'
+    chroot "$TARGET" /bin/systemctl enable moonshield-alpha-debug-ssh-firewall.service \
+        || fail 'Nao foi possivel habilitar a restricao de interface do SSH Alpha Debug.'
     chroot "$TARGET" /bin/systemctl enable ssh.service || fail 'Nao foi possivel habilitar ssh.service no alvo.'
     install -o root -g root -m 0644 "$RELEASE/deploy/ALPHA-DEBUG-SSH" "$ALPHA_DEBUG_MARKER" || fail 'Falha ao instalar marcador Alpha Debug.'
     rm -f "$source_list"
     rm -rf "$apt_root"
-    console_log 'Alpha Debug SSH preparado antes do firstboot; autenticacao somente por chave.'
+    console_log 'Alpha Debug SSH preparado antes do firstboot; chave somente e TCP/22 restrito a enp0s3.'
 }
 
 

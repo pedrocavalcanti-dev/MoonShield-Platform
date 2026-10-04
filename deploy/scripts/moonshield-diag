@@ -25,10 +25,11 @@ def redact(text: str) -> str:
     return text
 
 
-def command(args: list[str], timeout: int = 15, env: dict[str, str] | None = None) -> str:
+def command(args: list[str], timeout: int = 15, env: dict[str, str] | None = None,
+            cwd: str | None = None) -> str:
     try:
         result = subprocess.run(args, capture_output=True, text=True, errors="replace",
-                                timeout=timeout, check=False, env=env)
+                                timeout=timeout, check=False, env=env, cwd=cwd)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return f"[indisponível: {type(exc).__name__}]"
     output = (result.stdout + result.stderr).strip()
@@ -111,7 +112,7 @@ def main() -> int:
             env = os.environ.copy()
             env["MOONSHIELD_LOG_DIR"] = log_dir
             check = command([str(django_python), "gerenciar.py", "check", "--verbosity", "0"],
-                            timeout=90, env=env)
+                            timeout=90, env=env, cwd=str(django.parent))
     else:
         check = "[source ou virtualenv Django ausente]"
     print_section("DJANGO manage.py check (sem migrations)", check)

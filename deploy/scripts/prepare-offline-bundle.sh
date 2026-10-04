@@ -26,6 +26,7 @@ ADGUARD_SHA256="$(manifest_value "$MANIFEST_DIR/external-artifacts.env" ADGUARD_
 [[ -r "$REPO_ROOT/requirements-prod.txt" ]] || die "requirements-prod.txt ausente."
 require_command apt-get
 require_command pip3
+require_command python3
 require_command curl
 require_command sha256sum
 require_command dpkg-deb
@@ -93,6 +94,39 @@ run_checked "fechamento APT offline" apt-get "${verify_apt_args[@]}" \
 info "Baixando wheels versionadas para Python/Linux amd64."
 run_with_tls_retry "pip download de dependências" pip3 download --disable-pip-version-check \
   --only-binary=:all: --requirement "$REPO_ROOT/requirements-prod.txt" --dest "$OUTPUT/wheelhouse"
+python3 - "$OUTPUT/wheelhouse" <<'PY' || die "Wheelhouse offline sem distribuição Pillow válida."
+from pathlib import Path
+import sys
+from zipfile import BadZipFile, ZipFile
+
+wheelhouse = Path(sys.argv[1])
+for wheel in sorted(wheelhouse.glob("*.whl")):
+    try:
+        with ZipFile(wheel) as archive:
+            metadata = next(
+                (name for name in archive.namelist() if name.endswith(".dist-info/METADATA")),
+                None,
+            )
+            if metadata is None:
+                continue
+            name = next(
+                (
+                    line.partition(":")[2].strip()
+                    for line in archive.read(metadata).decode("utf-8", errors="replace").splitlines()
+                    if line.lower().startswith("name:")
+                ),
+                "",
+            )
+            if name.casefold() == "pillow":
+                raise SystemExit(0)
+    except BadZipFile:
+        continue
+raise SystemExit("Pillow não encontrado nos metadados dos wheels.")
+PY
+run_checked "validação do fechamento pip offline" pip3 install --dry-run --ignore-installed --disable-pip-version-check \
+  --no-index --only-binary=:all: --find-links "$OUTPUT/wheelhouse" \
+  --requirement "$REPO_ROOT/requirements-prod.txt" \
+  || die "Wheelhouse Python incompatível ou incompleto para o requirements-prod.txt."
 download_verified "$ADGUARD_URL" "$ADGUARD_SHA256" "$OUTPUT/artifacts/AdGuardHome_linux_amd64.tar.gz"
 
 for ca in "$DEPLOY_DIR/certificates/optional/corporate-ca.crt" "$DEPLOY_DIR/certificates/optional/senac-ca.crt"; do

@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Impede DHCP automatico em interfaces secundarias antes do onboarding.
+
+Contexto: o NetworkManager cria perfis automaticos "Wired connection N" (DHCP,
+em memoria) para toda ethernet gerenciada sem perfil. Numa appliance recem
+instalada a(s) interface(s) secundaria(s) ainda nao tem topologia nem DHCP; o
+perfil automatico fica em "connecting" e NetworkManager-wait-online expira.
+
+Este helper roda no instalador, depois dos pacotes e ANTES de qualquer unit
+puxar network-online.target. Somente no estado pre-onboarding ele:
+
+1. preserva integralmente a(s) interface(s) da rota default (bootstrap/admin);
+2. seleciona ethernets fisicas secundarias sem endereco global, fora do
+   ifupdown e sem perfil NetworkManager persistente/customizado;
+3. grava um drop-in declarativo ``no-auto-default`` apenas para elas;
+4. se o NetworkManager ja estiver ativo (repair), remove somente o perfil
+   automatico em memoria dessas interfaces.
+
+Perfis explicitos (inclusive ``moonshield-<iface>`` criados pelo Agent no
+onboarding) nao sao afetados por ``no-auto-default``. Com topologia MoonShield
+aplicada nada e alterado. Nenhum IP, rota, DHCP ou papel WAN/LAN e definido.
+"""
+
+from __future__ import annotations
+
+import configparser
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterable
+
+DROPIN_RELATIVE = Path("etc/NetworkManager/conf.d/90-moonshield-preonboarding.conf")
+CONFIRMED_TOPOLOGY = Path("var/lib/moonshield/rede/confirmed_plano.json")
+NM_PERSISTENT_DIR = Path("etc/NetworkManager/system-connections")
+NM_RUNTIME_PREFIX = "/run/NetworkManager/system-connections/"
+IFUPDOWN_MAIN = Path("etc/network/interfaces")
+IFUPDOWN_DIR = Path("etc/network/interfaces.d")
+AGENT_PROFILE_PREFIX = "moonshield-"
+GENERATED_NAME = re.compile(r"^Wired connection [0-9]+$")
+INTERFACE_NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,15}$")
+ETHERNET_TYPES = {"ethernet", "802-3-ethernet"}
+
+Runner = Callable[[list[str]], subprocess.CompletedProcess]
+
+
+@dataclass(frozen=True)
+class Interface:
+    name: str
+    mac: str
+    ethernet: bool
+    physical: bool
+
+
+@dataclass(frozen=True)
+class Profile:
+    name: str
+    uuid: str
+    type: str
+    device: str
+    filename: str
+
+
+def _run(command: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(command, check=False, capture_output=True, text=True)
+
+
+# ---------------------------------------------------------------------------
+# Coleta de estado (root configuravel para testes)
+# ---------------------------------------------------------------------------
+
+def default_route_interfaces(route_output: str) -> set[str]:
+    interfaces = set()
+    for line in route_output.splitlines():
+        match = re.search(r"(?:^|\s)dev\s+(\S+)", line)
+        if match and match.group(1) != "lo":
+            interfaces.add(match.group(1))
+    return interfaces
+
+
+def interfaces_with_global_address(addr_output: str) -> set[str]:
+    interfaces = set()
+    for line in addr_output.splitlines():
+        match = re.match(r"^\d+:\s+([^\s@:]+)", line)
+        if match:
+            interfaces.add(match.group(1))
+    return interfaces
+
+
+def list_interfaces(root: Path) -> list[Interface]:
+    result = []
+    base = root / "sys/class/net"
+    if not base.is_dir():
+        return result
+    for entry in sorted(base.iterdir()):
+        name = entry.name
+        if name == "lo" or not INTERFACE_NAME.match(name):
+            continue
+        try:
+            link_type = (entry / "type").read_text(encoding="ascii").strip()
+        except OSError:
+            continue
+        try:
+            mac = (entry / "address").read_text(encoding="ascii").strip().lower()
+        except OSError:
+            mac = ""
+        ethernet = link_type == "1" and not (entry / "wireless").exists()
+        physical = (entry / "device").exists()
+        result.append(Interface(name=name, mac=mac, ethernet=ethernet, physical=physical))
+    return result
+
+
+def ifupdown_interfaces(root: Path) -> set[str]:
+    files = [root / IFUPDOWN_MAIN]
+    directory = root / IFUPDOWN_DIR
+    if directory.is_dir():
+        files.extend(sorted(path for path in directory.iterdir() if path.is_file()))
+    interfaces = set()
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            tokens = line.split("#", 1)[0].split()
+            if not tokens:
+                continue
+            keyword = tokens[0]
+            if keyword == "iface" and len(tokens) >= 2:
+                names = tokens[1:2]
+            elif keyword == "auto" or keyword.startswith("allow-"):
+                names = tokens[1:]
+            else:
+                continue
+            interfaces.update(name.split(":", 1)[0] for name in names if name != "lo")
+    return interfaces
+
+
+def persistent_profiles(root: Path) -> list[dict[str, str]]:
+    directory = root / NM_PERSISTENT_DIR
+    profiles = []
+    if not directory.is_dir():
+        return profiles
+    for path in sorted(directory.iterdir()):
+        if not path.is_file():
+            continue
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        try:
+            parser.read(path, encoding="utf-8")
+        except (OSError, configparser.Error):
+            # Perfil ilegivel: tratado como customizado, nunca alterado.
+            profiles.append({"id": path.stem, "interface": "*", "mac": ""})
+            continue
+        profiles.append({
+            "id": parser.get("connection", "id", fallback=path.stem),
+            "interface": parser.get("connection", "interface-name", fallback=""),
+            "mac": parser.get("ethernet", "mac-address", fallback="").lower(),
+        })
+    return profiles
+
+
+def topology_applied(root: Path, profiles: Iterable[dict[str, str]]) -> bool:
+    if (root / CONFIRMED_TOPOLOGY).exists():
+        return True
+    return any(profile["id"].startswith(AGENT_PROFILE_PREFIX) for profile in profiles)
+
+
+# ---------------------------------------------------------------------------
+# Decisao (pura)
+# ---------------------------------------------------------------------------
+
+def plan_candidates(
+    interfaces: Iterable[Interface],
+    default_ifaces: set[str],
+    addressed: set[str],
+    ifupdown: set[str],
+    profiles: list[dict[str, str]],
+    topology: bool,
+) -> tuple[list[str], str]:
+    if topology:
+        return [], "topologia MoonShield ja aplicada; nenhum perfil NetworkManager alterado"
+    if not default_ifaces:
+        return [], "rota default ausente; interface administrativa nao identificavel, nada alterado"
+    if any(profile["interface"] == "*" for profile in profiles):
+        return [], "perfil NetworkManager persistente ilegivel; nada alterado"
+    profiled_names = {profile["interface"] for profile in profiles if profile["interface"]}
+    profiled_macs = {profile["mac"] for profile in profiles if profile["mac"]}
+    candidates = [
+        iface.name
+        for iface in interfaces
+        if iface.ethernet
+        and iface.physical
+        and iface.name not in default_ifaces
+        and iface.name not in addressed
+        and iface.name not in ifupdown
+        and iface.name not in profiled_names
+        and (not iface.mac or iface.mac not in profiled_macs)
+    ]
+    if not candidates:
+        return [], "nenhuma interface secundaria sem configuracao encontrada"
+    return sorted(candidates), "pre-onboarding"
+
+
+def render_dropin(candidates: list[str]) -> str:
+    return (
+        "# Gerenciado pelo instalador MoonShield (estado pre-onboarding).\n"
+        "# Impede perfis automaticos \"Wired connection N\" (DHCP) em interfaces\n"
+        "# secundarias ainda sem topologia. Perfis explicitos, inclusive os criados\n"
+        "# pelo MoonShield-Agent no onboarding, nao sao afetados.\n"
+        "[main]\n"
+        "no-auto-default=" + ",".join(f"interface-name:{name}" for name in candidates) + "\n"
+    )
+
+
+def parse_nmcli_terse(output: str) -> list[list[str]]:
+    rows = []
+    for line in output.splitlines():
+        fields, current, escaped = [], [], False
+        for char in line:
+            if escaped:
+                current.append(char)
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == ":":
+                fields.append("".join(current))
+                current = []
+            else:
+                current.append(char)
+        fields.append("".join(current))
+        rows.append(fields)
+    return rows
+
+
+def generated_profiles_for(profiles: Iterable[Profile], candidates: set[str]) -> list[Profile]:
+    return [
+        profile
+        for profile in profiles
+        if profile.type in ETHERNET_TYPES
+        and profile.device in candidates
+        and GENERATED_NAME.match(profile.name)
+        and (not profile.filename or profile.filename.startswith(NM_RUNTIME_PREFIX))
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Execucao
+# ---------------------------------------------------------------------------
+
+def _active_profiles(run: Runner) -> list[Profile]:
+    result = run(["nmcli", "-t", "-f", "NAME,UUID,TYPE,DEVICE,FILENAME", "connection", "show"])
+    if result.returncode != 0:
+        return []
+    profiles = []
+    for fields in parse_nmcli_terse(result.stdout):
+        if len(fields) == 5:
+            profiles.append(Profile(*fields))
+    return profiles
+
+
+def main(argv: list[str], run: Runner = _run, root: Path = Path("/")) -> int:
+    if argv:
+        print("uso: moonshield-nm-preonboarding", file=sys.stderr)
+        return 2
+
+    routes = run(["ip", "-o", "route", "show", "default"]).stdout or ""
+    routes += run(["ip", "-o", "-6", "route", "show", "default"]).stdout or ""
+    addresses = run(["ip", "-o", "addr", "show", "scope", "global"]).stdout or ""
+
+    profiles = persistent_profiles(root)
+    default_ifaces = default_route_interfaces(routes)
+    candidates, reason = plan_candidates(
+        list_interfaces(root),
+        default_ifaces,
+        interfaces_with_global_address(addresses),
+        ifupdown_interfaces(root),
+        profiles,
+        topology_applied(root, profiles),
+    )
+    if default_ifaces:
+        print("interfaces_bootstrap_preservadas=" + ",".join(sorted(default_ifaces)))
+    if not candidates:
+        print(f"nm_pre_onboarding=sem_alteracao ({reason})")
+        return 0
+
+    dropin = root / DROPIN_RELATIVE
+    content = render_dropin(candidates)
+    if not dropin.is_file() or dropin.read_text(encoding="utf-8") != content:
+        dropin.parent.mkdir(parents=True, exist_ok=True)
+        temporary = dropin.with_name(dropin.name + ".tmp")
+        temporary.write_text(content, encoding="utf-8", newline="\n")
+        temporary.chmod(0o644)
+        temporary.replace(dropin)
+        print(f"nm_dropin_atualizado={dropin.relative_to(root).as_posix()}")
+
+    if run(["systemctl", "is-active", "--quiet", "NetworkManager.service"]).returncode == 0:
+        for profile in generated_profiles_for(_active_profiles(run), set(candidates)):
+            deleted = run(["nmcli", "connection", "delete", "uuid", profile.uuid])
+            if deleted.returncode != 0:
+                print(f"aviso: falha ao remover perfil automatico em {profile.device}: {deleted.stderr.strip()}")
+                continue
+            print(f"perfil_automatico_removido={profile.device}")
+
+    for name in candidates:
+        print(
+            f"Perfil NetworkManager automatico da interface secundaria {name} mantido inativo "
+            "ate definicao da topologia no onboarding."
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+

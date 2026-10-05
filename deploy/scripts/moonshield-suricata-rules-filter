@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Filtra o ruleset local do pacote Suricata conforme o suricata.yaml.
+
+Uso:
+    moonshield-suricata-rules-filter CONFIG DESTINO REGRAS...
+
+Somente protocolos declarados em ``app-layer.protocols.<nome>.enabled`` com
+valor desabilitado (``no``/``false``) sao considerados. ``enabled`` ausente,
+nulo ou ``detection-only`` nao desabilita o protocolo. Assinaturas cujo
+protocolo (segundo token da regra) pertence a esse conjunto sao removidas;
+todas as demais linhas sao copiadas sem alteracao.
+
+Executado pelo instalador (deploy/lib/services.sh) com o python3 do sistema;
+depende apenas de PyYAML (python3-yaml, dependencia de suricata-update).
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+from typing import Any, Iterable
+
+SIGNATURE = re.compile(
+    r"^[ \t]*(?:alert|drop|pass|reject|sdrop)[ \t]+([A-Za-z0-9_-]+)\b",
+    re.IGNORECASE,
+)
+DISABLED_VALUES = {"no", "false"}
+
+
+def load_config(path: Path) -> Any:
+    try:
+        import yaml
+    except ImportError as exc:  # pragma: no cover - depende do sistema alvo
+        raise SystemExit("PyYAML (python3-yaml) ausente; filtro nao pode interpretar suricata.yaml") from exc
+    with path.open("r", encoding="utf-8", errors="strict") as handle:
+        return yaml.safe_load(handle)
+
+
+def _is_disabled(value: Any) -> bool:
+    if value is False:
+        return True
+    return isinstance(value, str) and value.strip().lower() in DISABLED_VALUES
+
+
+def disabled_protocols(data: Any) -> set[str]:
+    """Retorna apenas os protocolos app-layer explicitamente desabilitados."""
+    if not isinstance(data, dict):
+        raise SystemExit("suricata.yaml nao contem um mapeamento YAML na raiz")
+    app_layer = data.get("app-layer")
+    protocols = app_layer.get("protocols") if isinstance(app_layer, dict) else None
+    if not isinstance(protocols, dict):
+        return set()
+    return {
+        str(name).lower()
+        for name, config in protocols.items()
+        if isinstance(config, dict) and _is_disabled(config.get("enabled"))
+    }
+
+
+def filter_rules(rule_files: Iterable[Path], destination: Path, disabled: set[str]) -> dict[str, int]:
+    """Copia as regras para destination omitindo protocolos desabilitados."""
+    removed: dict[str, int] = {}
+    with destination.open("w", encoding="utf-8", newline="\n") as output:
+        for rule_file in rule_files:
+            text = rule_file.read_text(encoding="utf-8", errors="strict")
+            for line in text.splitlines(keepends=True):
+                match = SIGNATURE.match(line)
+                protocol = match.group(1).lower() if match else None
+                if protocol in disabled:
+                    removed[protocol] = removed.get(protocol, 0) + 1
+                    continue
+                output.write(line if line.endswith(("\n", "\r")) else line + "\n")
+    return removed
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 3:
+        print("uso: moonshield-suricata-rules-filter CONFIG DESTINO REGRAS...", file=sys.stderr)
+        return 2
+    config = Path(argv[0])
+    destination = Path(argv[1])
+    rule_files = [Path(item) for item in argv[2:]]
+    disabled = disabled_protocols(load_config(config))
+    removed = filter_rules(rule_files, destination, disabled)
+    if not destination.stat().st_size:
+        raise SystemExit("ruleset filtrado ficou vazio")
+    print("protocolos_desabilitados=" + ",".join(sorted(disabled)))
+    print("assinaturas_removidas=" + str(sum(removed.values())))
+    print("assinaturas_removidas_por_protocolo=" + ",".join(f"{name}:{removed[name]}" for name in sorted(removed)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+

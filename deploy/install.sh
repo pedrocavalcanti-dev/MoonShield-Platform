@@ -113,6 +113,7 @@ fi
 
 info "Iniciando instalação MoonShield (modo=$INSTALL_MODE, repair=$REPAIR_MODE)."
 run_stage "01-pacotes" install_packages
+  run_stage "01b-networkmanager-pre-onboarding" prepare_networkmanager_preonboarding
 if [[ "$INSTALL_MODE" == offline ]]; then run_stage "02-trust-local" ensure_certificate_trust; fi
 run_stage "03-identidade-sistema" ensure_os_identity
 run_stage "04-filesystem" ensure_filesystem

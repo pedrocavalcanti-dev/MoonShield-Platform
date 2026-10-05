@@ -187,49 +187,7 @@ provision_suricata_ruleset() {
   install -d -o root -g root -m 0755 "$moonshield_dir"
   temp_rules="$(mktemp "$rules_dir/.suricata.rules.XXXXXX")"
   TEMP_FILES+=("$temp_rules")
-  python3 - "$config" "$temp_rules" "${bundled_rules[@]}" <<'PY' || die "Não foi possível filtrar o ruleset Debian conforme suricata.yaml."
-from pathlib import Path
-import re
-import sys
-
-config = Path(sys.argv[1])
-destination = Path(sys.argv[2])
-rules = [Path(item) for item in sys.argv[3:]]
-lines = config.read_text(encoding="utf-8", errors="strict").splitlines()
-disabled: set[str] = set()
-
-for index, line in enumerate(lines):
-    match = re.match(r"^(?P<indent>[ \\t]*)(?P<name>[A-Za-z0-9_-]+):[ \\t]*(?:#.*)?$", line)
-    if not match:
-        continue
-    name = match.group("name").lower()
-    indent = len(match.group("indent").expandtabs(8))
-    for child in lines[index + 1:]:
-        if not child.strip() or child.lstrip().startswith("#"):
-            continue
-        child_indent = len(child) - len(child.lstrip(" \\t"))
-        if child_indent <= indent:
-            break
-        if re.match(r"^[ \\t]*enabled:[ \\t]*(?:no|false)(?:[ \\t]*(?:#.*)?)$", child, re.I):
-            disabled.add(name)
-            break
-
-signature = re.compile(r"^[ \\t]*(?:alert|drop|pass|reject|sdrop)[ \\t]+([A-Za-z0-9_-]+)\\b", re.I)
-removed = 0
-with destination.open("w", encoding="utf-8", newline="\\n") as output:
-    for rule_file in rules:
-        for line in rule_file.read_text(encoding="utf-8", errors="strict").splitlines(keepends=True):
-            match = signature.match(line)
-            if match and match.group(1).lower() in disabled:
-                removed += 1
-                continue
-            output.write(line if line.endswith(("\\n", "\\r")) else line + "\\n")
-
-if not destination.stat().st_size:
-    raise SystemExit("ruleset filtrado ficou vazio")
-print("protocolos_desabilitados=" + ",".join(sorted(disabled)))
-print(f"assinaturas_removidas={removed}")
-PY
+  "$DEPLOY_DIR/scripts/moonshield-suricata-rules-filter" "$config" "$temp_rules" "${bundled_rules[@]}" || die "Não foi possível filtrar o ruleset Debian conforme suricata.yaml."
   [[ -s "$temp_rules" ]] || die "Ruleset local do pacote Suricata ficou vazio."
   if [[ ! -s "$rules_dir/suricata.rules" ]] || ! cmp -s -- "$temp_rules" "$rules_dir/suricata.rules"; then
     install -o root -g root -m 0644 "$temp_rules" "$rules_dir/suricata.rules"
@@ -451,4 +409,11 @@ provision_moonshield_local_services() {
   systemctl start moonshield-web.service || die "MoonShield web não iniciou."
   systemctl is-active --quiet moonshield-web.service || die "MoonShield web não ficou ativo."
   ok "Agent, AdGuard, Suricata e web iniciados sem substituir configuração padrão de nftables ou rede."
+}
+
+prepare_networkmanager_preonboarding() {
+  local helper="$DEPLOY_DIR/scripts/moonshield-nm-preonboarding"
+  [[ -x "$helper" ]] || chmod 0755 "$helper"
+  "$helper" || die "Falha ao aplicar configuração pre-onboarding do NetworkManager."
+  ok "NetworkManager pre-onboarding concluído."
 }

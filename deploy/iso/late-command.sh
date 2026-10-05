@@ -73,6 +73,12 @@ enable_boot_gate() {
         tty=$((tty + 1))
     done
 
+    # Previne que getty-static force a inicializacao das VTs mascaradas
+    # antes do DBus estar pronto (bug em boot de appliances no Debian 13)
+    unit_static="$SYSTEMD/getty-static.service"
+    rm -f "$unit_static" 2>/dev/null || true
+    ln -s /dev/null "$unit_static" || return 1
+
     rm -f "$WANTS/moonshield-alpha-debug-ssh-bootstrap.service" \
         "$WANTS/moonshield-iso-console-gate.service" "$WANTS/moonshield-iso-firstboot.service" 2>/dev/null || true
     ln -s ../moonshield-alpha-debug-ssh-bootstrap.service "$WANTS/moonshield-alpha-debug-ssh-bootstrap.service" || return 1

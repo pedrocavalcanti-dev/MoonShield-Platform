@@ -31,7 +31,7 @@ _console_install_managed_file() {
 }
 
 _install_final_access_policy() {
-  local tty unit_file ssh_dir ssh_policy
+  local tty unit_file ssh_dir ssh_policy unit_static
   for tty in 2 3 4 5 6; do
     unit_file="/etc/systemd/system/getty@tty${tty}.service"
     if [[ -L "$unit_file" && "$(readlink "$unit_file")" == /dev/null ]]; then
@@ -41,6 +41,13 @@ _install_final_access_policy() {
     [[ ! -e "$unit_file" && ! -L "$unit_file" ]] || rm -f -- "$unit_file"
     systemctl mask --now "getty@tty${tty}.service" >/dev/null
   done
+
+  unit_static="/etc/systemd/system/getty-static.service"
+  if [[ ! -L "$unit_static" || "$(readlink "$unit_static")" != /dev/null ]]; then
+    _console_backup_managed_file "$unit_static"
+    [[ ! -e "$unit_static" && ! -L "$unit_static" ]] || rm -f -- "$unit_static"
+    systemctl mask --now getty-static.service >/dev/null
+  fi
 
   if [[ -f /etc/moonshield/alpha-debug ]]; then
     ssh_dir=/etc/ssh/sshd_config.d

@@ -30,8 +30,30 @@ _console_install_managed_file() {
   install -o "$owner" -g "$group" -m "$mode" "$source" "$destination"
 }
 
+_remove_alpha_debug_access() {
+  local alpha_policy=/etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf unit
+  for unit in moonshield-alpha-debug-ssh-bootstrap.service moonshield-alpha-debug-ssh-firewall.service; do
+    if systemctl list-unit-files --no-legend "$unit" 2>/dev/null | grep -q "^$unit"; then
+      systemctl disable --now "$unit" >/dev/null 2>&1 \
+        || die "Não foi possível desabilitar $unit após o provisionamento."
+    fi
+  done
+  if command -v nft >/dev/null 2>&1 && nft list table inet moonshield_alpha_debug >/dev/null 2>&1; then
+    nft delete table inet moonshield_alpha_debug \
+      || die "Não foi possível remover a regra temporária do Alpha Debug SSH."
+  fi
+  _console_backup_managed_file "$alpha_policy"
+  rm -f -- "$alpha_policy" /etc/moonshield/alpha-debug \
+    /var/lib/moonshield/.alpha-debug-ssh-ready \
+    /var/lib/moonshield/.alpha-debug-ssh-failed \
+    /etc/apt/moonshield-alpha-debug.list
+}
+
 _install_final_access_policy() {
   local tty unit_file ssh_dir ssh_policy unit_static
+  if [[ -f /etc/moonshield/final-iso && -f /etc/moonshield/alpha-debug ]]; then
+    _remove_alpha_debug_access
+  fi
   for tty in 2 3 4 5 6; do
     unit_file="/etc/systemd/system/getty@tty${tty}.service"
     if [[ -L "$unit_file" && "$(readlink "$unit_file")" == /dev/null ]]; then
@@ -117,6 +139,17 @@ EOF
   ok "Hardening final aplicado: getty TTY2-6 mascarados e SSH desabilitado."
 }
 
+finalize_final_access_policy() {
+  (( FINAL_ISO_MODE )) || return 0
+  [[ -e /etc/moonshield/final-iso ]] || install -o root -g root -m 0644 /dev/null /etc/moonshield/final-iso
+  _install_final_access_policy
+  systemctl daemon-reload
+  systemctl enable moonshield-console.service >/dev/null \
+    || die "Não foi possível habilitar a console MoonShield após o hardening final."
+  systemctl is-enabled --quiet moonshield-console.service \
+    || die "A console MoonShield não ficou habilitada após o hardening final."
+}
+
 validate_maintenance_public_key() {
   local public_key="$DEPLOY_DIR/console/maintenance_public.pem" key_details key_bits
   [[ -f "$public_key" ]] || die "Chave pública ausente; forneça deploy/console/maintenance_public.pem antes de --final-iso."
@@ -149,9 +182,11 @@ install_console() {
   fi
   if (( FINAL_ISO_MODE )); then
     [[ -e /etc/moonshield/final-iso ]] || install -o root -g root -m 0644 /dev/null /etc/moonshield/final-iso
-    _install_final_access_policy
   fi
   systemctl daemon-reload
-  systemctl enable moonshield-console.service >/dev/null
+  systemctl enable moonshield-console.service >/dev/null \
+    || die "Não foi possível habilitar a console MoonShield."
+  systemctl is-enabled --quiet moonshield-console.service \
+    || die "A console MoonShield não ficou habilitada."
   ok "Console instalada e habilitada para TTY1; será iniciada no próximo boot."
 }

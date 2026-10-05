@@ -4,6 +4,13 @@ set -Eeuo pipefail
 PASS=0
 WARN=0
 FAIL=0
+PRE_FINAL_ACCESS=0
+
+case "${1:-}" in
+  '') ;;
+  --pre-final-access) PRE_FINAL_ACCESS=1 ;;
+  *) printf 'uso: %s [--pre-final-access]\n' "$0" >&2; exit 2 ;;
+esac
 
 pass() { printf '[PASS] %s\n' "$1"; PASS=$((PASS + 1)); }
 warn() { printf '[WARN] %s\n' "$1"; WARN=$((WARN + 1)); }
@@ -128,7 +135,7 @@ elif [[ -f /etc/moonshield/final-iso ]]; then
 else
   warn 'MAINTENANCE_PUBLIC_KEY=REQUIRED_BEFORE_ISO'
 fi
-if [[ -f /etc/moonshield/final-iso ]]; then
+if [[ -f /etc/moonshield/final-iso && "$PRE_FINAL_ACCESS" == 0 ]]; then
   for tty in 2 3 4 5 6; do
     [[ -L "/etc/systemd/system/getty@tty${tty}.service" && "$(readlink "/etc/systemd/system/getty@tty${tty}.service")" == /dev/null ]] \
       && pass "getty TTY$tty mascarado" || fail "getty TTY$tty não está mascarado no modo final ISO"
@@ -138,6 +145,16 @@ if [[ -f /etc/moonshield/final-iso ]]; then
     fail 'SSH habilitado no modo final ISO'
   else
     pass 'SSH desabilitado no modo final ISO'
+  fi
+  if [[ -f /etc/moonshield/alpha-debug ]]; then
+    fail 'marcador Alpha Debug SSH presente no modo final ISO'
+  elif systemctl is-enabled --quiet moonshield-alpha-debug-ssh-bootstrap.service 2>/dev/null \
+    || systemctl is-enabled --quiet moonshield-alpha-debug-ssh-firewall.service 2>/dev/null \
+    || systemctl is-active --quiet moonshield-alpha-debug-ssh-bootstrap.service 2>/dev/null \
+    || systemctl is-active --quiet moonshield-alpha-debug-ssh-firewall.service 2>/dev/null; then
+    fail 'Alpha Debug SSH continua habilitado no modo final ISO'
+  else
+    pass 'Alpha Debug SSH removido no modo final ISO'
   fi
 fi
 

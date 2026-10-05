@@ -131,9 +131,16 @@ run_stage "15-console" install_console
 
 check_script=/usr/local/sbin/moonshield-install-check
 [[ -x "$check_script" ]] || die "Healthcheck não foi incluído na release."
-printf '%s\n' "16-healthcheck" >"$INSTALL_STAGE_FILE"
-chmod 0600 "$INSTALL_STAGE_FILE"
-"$check_script" || die "Healthcheck final sinalizou falhas; log e estado existentes foram preservados para diagnóstico."
+if (( FINAL_ISO_MODE )); then
+  run_stage "16-pre-final-healthcheck" "$check_script" --pre-final-access \
+    || die "Healthcheck pré-final sinalizou falhas; Alpha Debug SSH e estado existentes foram preservados para diagnóstico."
+  run_stage "17-final-access" finalize_final_access_policy
+  run_stage "18-final-healthcheck" "$check_script" \
+    || die "Healthcheck final sinalizou falhas; log e estado existentes foram preservados para diagnóstico."
+else
+  run_stage "16-healthcheck" "$check_script" \
+    || die "Healthcheck final sinalizou falhas; log e estado existentes foram preservados para diagnóstico."
+fi
 printf '%s\n' "complete" >"$INSTALL_STAGE_FILE"
 chmod 0600 "$INSTALL_STAGE_FILE"
 ok "MoonShield Appliance instalada. Crie a primeira conta exclusivamente pela interface de onboarding/login."

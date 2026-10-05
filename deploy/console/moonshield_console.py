@@ -20,6 +20,7 @@ import time
 
 TITLE = "MOONSHIELD"
 CONFIG = Path("/etc/moonshield/appliance.conf")
+BUILD_INFO = Path("/etc/moonshield/build-info")
 PUBLIC_KEY = Path("/etc/moonshield/support/maintenance_public.pem")
 MAINTENANCE_DIR = Path("/run/moonshield")
 SERVICES = {
@@ -103,16 +104,20 @@ def service_active(unit: str) -> bool:
         return False
 
 
-def config_values() -> dict[str, str]:
+def file_values(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
-        for line in CONFIG.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             key, sep, value = line.partition("=")
             if sep and key and key not in values:
                 values[key] = value.strip()
     except OSError:
         pass
     return values
+
+
+def config_values() -> dict[str, str]:
+    return file_values(CONFIG)
 
 
 def uptime_text() -> str:
@@ -127,8 +132,15 @@ def uptime_text() -> str:
 
 
 def version() -> str:
-    values = config_values()
-    return values.get("MOONSHIELD_VERSION", "indisponivel")
+    return build_values().get("MoonShieldVersion", config_values().get("MOONSHIELD_VERSION", "indisponivel"))
+
+
+def build_values() -> dict[str, str]:
+    return file_values(BUILD_INFO)
+
+
+def build() -> str:
+    return build_values().get("GitCommit", "indisponivel")[:12]
 
 
 def interfaces() -> list[tuple[str, str, str]]:
@@ -188,12 +200,93 @@ def lan_ip() -> str:
         return "não identificado"
 
 
+def fallback_network() -> tuple[str, str, str]:
+    route = command(["ip", "-4", "route", "show", "default"])
+    interface_match = re.search(r"\bdev\s+(\S+)", route)
+    gateway_match = re.search(r"\bvia\s+(\S+)", route)
+    interface = interface_match.group(1) if interface_match else "indisponivel"
+    gateway = gateway_match.group(1) if gateway_match else "indisponivel"
+    address = "indisponivel"
+    if interface != "indisponivel":
+        output = command(["ip", "-o", "-4", "addr", "show", "dev", interface, "scope", "global"])
+        match = re.search(r"\binet\s+(\d+\.\d+\.\d+\.\d+)/", output)
+        if match:
+            address = match.group(1)
+    return interface, address, gateway
+
+
+def management_ip() -> str:
+    values = config_values()
+    configured = values.get("MOONSHIELD_MGMT_IP", values.get("MOONSHIELD_MANAGEMENT_IP", ""))
+    try:
+        return str(ipaddress.ip_address(configured)) if configured else fallback_network()[1]
+    except ValueError:
+        return fallback_network()[1]
+
+
+def administrative_interface() -> str:
+    values = config_values()
+    configured = values.get("MOONSHIELD_MGMT_INTERFACE", values.get("MOONSHIELD_MANAGEMENT_INTERFACE", ""))
+    return configured if configured else fallback_network()[0]
+
+
+def administrative_gateway() -> str:
+    return fallback_network()[2]
+
+
+def topology_state() -> str:
+    values = config_values()
+    return "MGMT oficial" if values.get("MOONSHIELD_MGMT_IP", values.get("MOONSHIELD_MANAGEMENT_IP", "")) else "aguardando onboarding"
+
+
 def appliance_url() -> str:
     host = management_ip()
     if host == "não identificado":
         return "configuração de rede pendente"
     secure = config_values().get("SECURE_SSL_REDIRECT", "False").lower() == "true"
     return f"{'https' if secure else 'http'}://{host}/"
+
+
+def ssh_channel() -> str:
+    channel = build_values().get("ReleaseChannel", "").lower()
+    if channel in {"alpha", "beta", "stable"}:
+        return channel
+    return "alpha" if Path("/etc/moonshield/alpha-debug").is_file() else "stable"
+
+
+def ssh_lines() -> list[str]:
+    return [
+        f"Status: {'ATIVO' if service_active('ssh.service') else 'INATIVO'}",
+        f"Interface: {administrative_interface()}",
+        f"IP: {management_ip()}",
+        "Porta: 22",
+        "Autenticacao: chave publica somente",
+        f"Canal: {ssh_channel()}",
+    ]
+
+
+def ssh_menu(screen) -> None:
+    if ssh_channel() not in {"alpha", "beta"}:
+        lines_screen(screen, "SSH / Manutencao", ssh_lines() + ["SSH permanece desabilitado no canal stable."])
+        return
+    while True:
+        start = draw_header(screen, "SSH / MANUTENCAO")
+        height, width = screen.getmaxyx()
+        for index, line in enumerate(ssh_lines()):
+            screen.addnstr(start + index, 2, line, max(0, width - 4))
+        row = start + len(ssh_lines()) + 1
+        screen.addnstr(row, 2, "[A] Ativar  [D] Desativar  [R] Reiniciar SSH", max(0, width - 4))
+        screen.addnstr(height - 1, 2, "Esc: voltar", max(0, width - 4))
+        screen.refresh()
+        key = screen.getch()
+        if key == 27:
+            return
+        if key in (ord("a"), ord("A")):
+            controlled_action(screen, "ativar SSH", ["systemctl", "enable", "--now", "ssh.service"])
+        elif key in (ord("d"), ord("D")):
+            controlled_action(screen, "desativar SSH", ["systemctl", "disable", "--now", "ssh.service"])
+        elif key in (ord("r"), ord("R")):
+            controlled_action(screen, "reiniciar SSH", ["systemctl", "restart", "ssh.service"])
 
 
 def internet_status() -> bool:
@@ -221,9 +314,10 @@ def draw_header(screen, subtitle: str = "Appliance de Seguranca de Rede") -> int
     badge = " SECURE CONSOLE "
     if width > len(badge) + len(title) + 8:
         screen.addnstr(0, width - len(badge) - 2, badge, len(badge), selected_attr())
-    screen.addnstr(1, 2, "SYSTEM   FIREWALL   IDS   DNS   NETWORK", max(0, width - 4), cp(C_MUTED) | curses.A_DIM)
-    screen.addnstr(2, 1, "-" * max(0, width - 2), max(0, width - 2), cp(C_ACCENT) | curses.A_DIM)
-    return 4
+    screen.addnstr(1, 2, f"v{version()} // build {build()}", max(0, width - 4), cp(C_MUTED) | curses.A_DIM)
+    screen.addnstr(2, 2, "SYSTEM ONLINE | FIREWALL | IDS | DNS", max(0, width - 4), cp(C_MUTED) | curses.A_DIM)
+    screen.addnstr(3, 1, "-" * max(0, width - 2), max(0, width - 2), cp(C_ACCENT) | curses.A_DIM)
+    return 5
 
 
 def lines_screen(screen, title: str, lines: list[str]) -> None:
@@ -437,6 +531,7 @@ def main(screen) -> None:
         ("3", "Diagnóstico"),
         ("4", "Serviços"),
         ("5", "Informações do sistema"),
+        ("6", "SSH / Manutenção"),
         ("8", "Reiniciar"),
         ("9", "Desligar"),
     ]
@@ -450,8 +545,18 @@ def main(screen) -> None:
                 screen.addnstr(start + index, 3, text, max(0, width - 6), selected_attr())
             else:
                 screen.addnstr(start + index, 3, text, max(0, width - 6))
-        screen.addnstr(height - 2, 2, f"{socket.gethostname()}  |  {management_ip()}  |  {uptime_text()}", max(0, width - 4))
-        screen.addnstr(height - 1, 2, "Setas/Enter: selecionar   Esc: permanecer", max(0, width - 4))
+        details = [
+            f"Hostname : {socket.gethostname()}",
+            f"IP       : {management_ip()}",
+            f"Interface: {administrative_interface()}",
+            f"Gateway  : {administrative_gateway()}",
+            f"Web      : {appliance_url()}",
+            f"Topologia: {topology_state()}",
+        ]
+        panel_x = max(40, width // 2)
+        for index, detail in enumerate(details):
+            screen.addnstr(start + index, panel_x, detail, max(0, width - panel_x - 2))
+        screen.addnstr(height - 1, 2, "Setas/Enter | Esc voltar | F12 manutenção", max(0, width - 4))
         screen.refresh()
         key = screen.getch()
         if key == curses.KEY_F12:
@@ -470,6 +575,8 @@ def main(screen) -> None:
             lines_screen(screen, "Informações de rede", network_lines())
         elif key == ord("3"):
             lines_screen(screen, "Diagnóstico somente leitura", diagnostic_lines())
+        elif key == ord("6"):
+            ssh_menu(screen)
         elif key == ord("4"):
             draw_header(screen, "Serviços")
             for idx, line in enumerate(service_lines()):

@@ -12,6 +12,7 @@ LOG_FILE="$LOG_DIR/alpha-debug-ssh.log"
 READY_MARKER="$PRODUCT_DIR/.alpha-debug-ssh-ready"
 FAILED_MARKER="$PRODUCT_DIR/.alpha-debug-ssh-failed"
 FIREWALL_SERVICE=moonshield-alpha-debug-ssh-firewall.service
+ADMIN_INTERFACE_FILE=/run/moonshield/alpha-debug-ssh-interface
 
 log() {
     printf '[MOONSHIELD ALPHA DEBUG SSH] %s\n' "$*"
@@ -32,19 +33,37 @@ require_installed() {
         || fail "Pacote critico ausente apos APT: $package"
 }
 
+interface_exists() {
+    [ -n "$1" ] && [ "$1" != lo ] && [ -d "/sys/class/net/$1" ]
+}
+
+administrative_interface() {
+    configured="$(sed -nE 's/^MOONSHIELD_(MGMT|MANAGEMENT)_INTERFACE=([A-Za-z0-9_.:-]+)$/\2/p' /etc/moonshield/appliance.conf 2>/dev/null | head -n 1)"
+    if interface_exists "$configured"; then
+        printf '%s\n' "$configured"
+        return 0
+    fi
+    ip -o -4 route show default 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
+}
+
 apply_firewall() {
     [ -f "$MARKER" ] || exit 0
     command -v nft >/dev/null 2>&1 || exit 1
+    interface="$(administrative_interface)"
+    interface_exists "$interface" || exit 1
     nft delete table inet moonshield_alpha_debug 2>/dev/null || true
-    nft -f - <<'RULESET'
+    nft -f - <<RULESET
 table inet moonshield_alpha_debug {
     chain input {
         type filter hook input priority -200; policy accept;
-        iifname "enp0s3" tcp dport 22 accept comment "MoonShield Alpha Debug SSH: enp0s3 only"
-        tcp dport 22 drop comment "MoonShield Alpha Debug SSH: deny non-enp0s3"
+        iifname "$interface" tcp dport 22 accept comment "MoonShield Alpha Debug SSH administrative interface only"
+        tcp dport 22 drop comment "MoonShield Alpha Debug SSH deny other interfaces"
     }
 }
 RULESET
+    install -d -o root -g root -m 0755 /run/moonshield || exit 1
+    printf '%s\n' "$interface" >"$ADMIN_INTERFACE_FILE"
+    chmod 0644 "$ADMIN_INTERFACE_FILE"
 }
 
 bootstrap() {
@@ -127,7 +146,8 @@ EOF
     printf 'status=ready\n' >"$READY_MARKER" || fail 'Nao foi possivel gravar marcador SSH pronto.'
     chmod 0600 "$READY_MARKER" || fail 'Permissoes do marcador SSH pronto invalidas.'
     rm -f "$SOURCE_LIST" || log 'AVISO: source APT temporario sera preservado para diagnostico.'
-    log 'Alpha Debug SSH pronto: chave publica somente, TCP/22 restrito a enp0s3.'
+    interface="$(cat "$ADMIN_INTERFACE_FILE" 2>/dev/null || true)"
+    log "Alpha Debug SSH pronto: chave publica somente, TCP/22 restrito a ${interface:-interface administrativa}."
 }
 
 case "${1:-bootstrap}" in

@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 MANIFEST="$SCRIPT_DIR/manifests/debian-base.env"
 ISO_VERSION="0.1.0-alpha.2"
+ISO_CHANNEL=alpha
 ISO_NAME="MoonShield-${ISO_VERSION}-amd64.iso"
 VOLUME_ID="MOONSHIELD_ALPHA2"
 OUTPUT_DIR="${4:-$REPO_ROOT/build/iso}"
@@ -270,6 +271,7 @@ prepare_metadata() {
   fi
   cat >"$WORK/BUILD-INFO" <<META
 MoonShieldVersion=$ISO_VERSION
+ReleaseChannel=$ISO_CHANNEL
 DebianBase=$(manifest_value DEBIAN_ISO_VERSION)
 Architecture=amd64
 GitCommit=$commit
@@ -365,8 +367,9 @@ validate_final_iso() {
     && grep -Fq 'PubkeyAuthentication yes' "$verify/alpha-debug-bootstrap.sh" \
     && grep -Fq 'AuthenticationMethods publickey' "$verify/alpha-debug-bootstrap.sh" \
     || die 'Bootstrap Alpha Debug SSH nao aplica autenticacao somente por chave.'
-  grep -Fq 'iifname "enp0s3" tcp dport 22 accept' "$verify/alpha-debug-bootstrap.sh" \
-    || die 'Bootstrap Alpha Debug SSH nao restringe SSH a enp0s3.'
+  grep -Fq 'administrative_interface()' "$verify/alpha-debug-bootstrap.sh" \
+    && grep -Fq 'ip -o -4 route show default' "$verify/alpha-debug-bootstrap.sh" \
+    || die 'Bootstrap Alpha Debug SSH nao detecta a interface administrativa dinamicamente.'
   if grep -Fq -- '--no-download' "$verify/alpha-debug-bootstrap.sh"; then
     die 'Bootstrap Alpha Debug SSH nao pode bloquear leitura do repositorio APT file:// com --no-download.'
   fi

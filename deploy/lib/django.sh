@@ -11,8 +11,11 @@ install_django_application() {
   _run_django_step migrate "$python_bin" gerenciar.py migrate --noinput || die "Django migrate falhou; detalhes sanitizados registrados acima."
   _run_django_step collectstatic "$python_bin" gerenciar.py collectstatic --noinput || die "Django collectstatic falhou; detalhes sanitizados registrados acima."
   [[ -d /var/lib/moonshield/static ]] || die "STATIC_ROOT esperado não foi criado."
-  chown -R moonshield:www-data /var/lib/moonshield/static /var/lib/moonshield/media
-  chmod 0750 /var/lib/moonshield/static /var/lib/moonshield/media
+  chown -R moonshield:www-data /var/lib/moonshield/static
+  find /var/lib/moonshield/static -type d -exec chmod 0750 {} +
+  find /var/lib/moonshield/static -type f -exec chmod 0640 {} +
+  chown -R moonshield:www-data /var/lib/moonshield/media
+  chmod 0750 /var/lib/moonshield/media
   [[ ! -L /var/log/moonshield && ! -L /var/log/moonshield/app ]] || die "Diretório de logs Django é symlink; destino preservado sem alteração."
   install -d -o moonshield -g moonshield -m 0750 /var/log/moonshield/app
   chown -R moonshield:moonshield /var/log/moonshield/app

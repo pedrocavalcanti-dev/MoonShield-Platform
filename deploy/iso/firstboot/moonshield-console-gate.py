@@ -23,10 +23,6 @@ STATE_FILE = Path("/var/lib/moonshield-iso-bootstrap/state/status.json")
 BUILD_INFO = Path("/var/lib/moonshield-iso-bootstrap/BUILD-INFO")
 SUCCESS_MARKER = Path("/var/lib/moonshield/.installation-complete")
 FAILURE_MARKER = Path("/var/lib/moonshield/.installation-failed")
-ALPHA_DEBUG_MARKER = Path("/etc/moonshield/alpha-debug")
-ALPHA_DEBUG_READY = Path("/var/lib/moonshield/.alpha-debug-ssh-ready")
-ALPHA_DEBUG_FAILED = Path("/var/lib/moonshield/.alpha-debug-ssh-failed")
-ALPHA_DEBUG_LOG = "/var/log/moonshield/alpha-debug-ssh.log"
 INSTALL_STAGE = Path("/var/lib/moonshield/install-stage")
 LOG_FILE = "/var/log/moonshield/firstboot-install.log"
 INSTALL_LOG = "/var/log/moonshield/install.log"
@@ -121,33 +117,6 @@ def current_stage() -> str:
         return INSTALL_STAGE.read_text(encoding="utf-8", errors="replace").strip()[:80]
     except OSError:
         return ""
-
-
-def alpha_debug_ipv4() -> str:
-    if not ALPHA_DEBUG_MARKER.is_file():
-        return ""
-    try:
-        result = subprocess.run(
-            ["/usr/sbin/ip", "-4", "-o", "addr", "show", "dev", "enp0s3", "scope", "global"],
-            check=False, capture_output=True, text=True, timeout=3,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) > 3 and fields[2] == "inet":
-            return fields[3].split("/", 1)[0]
-    return ""
-
-
-def alpha_debug_state() -> str:
-    if not ALPHA_DEBUG_MARKER.is_file():
-        return "disabled"
-    if ALPHA_DEBUG_FAILED.is_file():
-        return "failed"
-    if ALPHA_DEBUG_READY.is_file():
-        return "ready"
-    return "preparing"
 
 
 def add(screen, row: int, col: int, text: str, attr: int = 0) -> None:
@@ -340,24 +309,7 @@ def draw_progress(screen, spin: str) -> None:
         row = start + 9
         add(screen, row, 6, f"Log: {LOG_FILE}", cp(C_MUTED))
         add(screen, row + 1, 6, f"Log: {INSTALL_LOG}", cp(C_MUTED))
-        debug_state = alpha_debug_state()
-        if debug_state == "ready":
-            address = alpha_debug_ipv4()
-            add(screen, row + 2, 6, "ALPHA DEBUG SSH: ATIVO  //  Auth: chave de manutencao", cp(C_WARN) | curses.A_BOLD)
-            add(screen, row + 3, 6, "Interface: enp0s3", cp(C_TEXT))
-            add(screen, row + 4, 6, f"IP: {address}" if address else "IP: aguardando DHCP", cp(C_TEXT))
-            add(screen, row + 5, 6, f"SSH: ssh root@{address}" if address else "SSH: aguardando DHCP", cp(C_TEXT))
-            f12_row = row + 6
-        elif debug_state == "failed":
-            add(screen, row + 2, 6, "ALPHA DEBUG SSH: FALHOU", cp(C_ERROR) | curses.A_BOLD)
-            add(screen, row + 3, 6, f"Log: {ALPHA_DEBUG_LOG}", cp(C_MUTED))
-            f12_row = row + 4
-        elif debug_state == "preparing":
-            add(screen, row + 2, 6, "ALPHA DEBUG SSH: PREPARANDO", cp(C_WARN) | curses.A_BOLD)
-            add(screen, row + 3, 6, f"Log: {ALPHA_DEBUG_LOG}", cp(C_MUTED))
-            f12_row = row + 4
-        else:
-            f12_row = row + 3
+        f12_row = row + 3
         add(screen, f12_row, 6, "F12  manutencao protegida por challenge/response", cp(C_ACCENT) | curses.A_BOLD)
         add(screen, height - 2, 3, "Nenhum login Debian foi liberado.", cp(C_MUTED) | curses.A_DIM)
         return
@@ -378,9 +330,7 @@ def draw_progress(screen, spin: str) -> None:
         add(screen, row, 7, marker, attr)
         add(screen, row, 16, LABELS[key], cp(C_TEXT) if steps.get(key) != "pending" else cp(C_MUTED))
         row += 1
-    debug_state = alpha_debug_state()
-    debug = "" if debug_state == "disabled" else f"  //  DEBUG SSH: {debug_state.upper()}"
-    add(screen, height - 2, 3, f"MoonShield Secure Bootstrap{debug}  //  console local protegida", cp(C_MUTED) | curses.A_DIM)
+    add(screen, height - 2, 3, "MoonShield Secure Bootstrap  //  console local protegida", cp(C_MUTED) | curses.A_DIM)
 
 
 def main(screen) -> None:

@@ -14,6 +14,12 @@ install_django_application() {
   chown -R moonshield:www-data /var/lib/moonshield/static
   find /var/lib/moonshield/static -type d -exec chmod 0750 {} +
   find /var/lib/moonshield/static -type f -exec chmod 0640 {} +
+  for static_file in \
+    /var/lib/moonshield/static/css/autenticacao/login.css \
+    /var/lib/moonshield/static/js/autenticacao/login.js; do
+    [[ -s "$static_file" ]] || die "Staticfile obrigatório ausente/vazio: $static_file."
+    runuser -u www-data -- test -r "$static_file" || die "www-data não consegue ler staticfile obrigatório: $static_file."
+  done
   chown -R moonshield:www-data /var/lib/moonshield/media
   chmod 0750 /var/lib/moonshield/media
   [[ ! -L /var/log/moonshield && ! -L /var/log/moonshield/app ]] || die "Diretório de logs Django é symlink; destino preservado sem alteração."

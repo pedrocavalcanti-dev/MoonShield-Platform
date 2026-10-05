@@ -1,7 +1,7 @@
 [Unit]
 Description=Provisionamento inicial da MoonShield Appliance
-Wants=moonshield-iso-console-gate.service moonshield-alpha-debug-ssh-bootstrap.service
-After=local-fs.target systemd-remount-fs.service systemd-tmpfiles-setup.service moonshield-iso-console-gate.service moonshield-alpha-debug-ssh-bootstrap.service
+Wants=moonshield-iso-console-gate.service
+After=local-fs.target systemd-remount-fs.service systemd-tmpfiles-setup.service moonshield-iso-console-gate.service
 Before=multi-user.target
 RequiresMountsFor=/var /opt /usr
 ConditionPathExists=!/var/lib/moonshield/.installation-complete

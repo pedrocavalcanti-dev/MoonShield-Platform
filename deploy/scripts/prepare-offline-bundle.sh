@@ -26,6 +26,7 @@ ADGUARD_URL="$(manifest_value "$MANIFEST_DIR/external-artifacts.env" ADGUARD_URL
 ADGUARD_SHA256="$(manifest_value "$MANIFEST_DIR/external-artifacts.env" ADGUARD_SHA256)"
 [[ "$ADGUARD_URL" != REQUIRED_BEFORE_ISO && "$ADGUARD_SHA256" != REQUIRED_BEFORE_ISO ]] || die "Preencha URL versionada e SHA-256 oficial do AdGuard antes de preparar o bundle."
 [[ -r "$REPO_ROOT/requirements-prod.txt" ]] || die "requirements-prod.txt ausente."
+REQUIREMENTS_PROD_SHA256="$(sha256sum "$REPO_ROOT/requirements-prod.txt" | awk '{print $1}')"
 require_command apt-get
 require_command pip3
 require_command python3
@@ -119,7 +120,15 @@ for wheel in sorted(wheelhouse.glob("*.whl")):
                 ),
                 "",
             )
-            if name.casefold() == "pillow":
+            version = next(
+                (
+                    line.partition(":")[2].strip()
+                    for line in archive.read(metadata).decode("utf-8", errors="replace").splitlines()
+                    if line.lower().startswith("version:")
+                ),
+                "",
+            )
+            if name.casefold() == "pillow" and version == "12.1.1":
                 raise SystemExit(0)
     except BadZipFile:
         continue
@@ -138,8 +147,8 @@ validate_adguard_archive "$OUTPUT/artifacts/AdGuardHome_linux_amd64.tar.gz" \
 for ca in "$DEPLOY_DIR/certificates/optional/corporate-ca.crt" "$DEPLOY_DIR/certificates/optional/senac-ca.crt"; do
   [[ ! -f "$ca" ]] || install -m 0644 "$ca" "$OUTPUT/certificates/corporate-ca.crt"
 done
-printf 'Debian=%s\nArchitecture=amd64\nBundleFormat=2\nDependencyClosure=full\nPackageIndex=local-apt\nDependencyValidation=empty-dpkg-status\nBuilder=%s\n' \
-  "${VERSION_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUTPUT/BUILD-INFO"
+printf 'Debian=%s\nArchitecture=amd64\nBundleFormat=2\nDependencyClosure=full\nPackageIndex=local-apt\nDependencyValidation=empty-dpkg-status\nRequirementsProdSHA256=%s\nBuilder=%s\n' \
+  "${VERSION_ID}" "$REQUIREMENTS_PROD_SHA256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$OUTPUT/BUILD-INFO"
 (cd "$OUTPUT" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS)
 chmod -R go-w "$OUTPUT"
 ok "Bundle offline preparado e validado em estado dpkg vazio: $OUTPUT."

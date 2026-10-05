@@ -247,48 +247,6 @@ def appliance_url() -> str:
     return f"{'https' if secure else 'http'}://{host}/"
 
 
-def ssh_channel() -> str:
-    channel = build_values().get("ReleaseChannel", "").lower()
-    if channel in {"alpha", "beta", "stable"}:
-        return channel
-    return "alpha" if Path("/etc/moonshield/alpha-debug").is_file() else "stable"
-
-
-def ssh_lines() -> list[str]:
-    return [
-        f"Status: {'ATIVO' if service_active('ssh.service') else 'INATIVO'}",
-        f"Interface: {administrative_interface()}",
-        f"IP: {management_ip()}",
-        "Porta: 22",
-        "Autenticacao: chave publica somente",
-        f"Canal: {ssh_channel()}",
-    ]
-
-
-def ssh_menu(screen) -> None:
-    if ssh_channel() not in {"alpha", "beta"}:
-        lines_screen(screen, "SSH / Manutencao", ssh_lines() + ["SSH permanece desabilitado no canal stable."])
-        return
-    while True:
-        start = draw_header(screen, "SSH / MANUTENCAO")
-        height, width = screen.getmaxyx()
-        for index, line in enumerate(ssh_lines()):
-            screen.addnstr(start + index, 2, line, max(0, width - 4))
-        row = start + len(ssh_lines()) + 1
-        screen.addnstr(row, 2, "[A] Ativar  [D] Desativar  [R] Reiniciar SSH", max(0, width - 4))
-        screen.addnstr(height - 1, 2, "Esc: voltar", max(0, width - 4))
-        screen.refresh()
-        key = screen.getch()
-        if key == 27:
-            return
-        if key in (ord("a"), ord("A")):
-            controlled_action(screen, "ativar SSH", ["systemctl", "enable", "--now", "ssh.service"])
-        elif key in (ord("d"), ord("D")):
-            controlled_action(screen, "desativar SSH", ["systemctl", "disable", "--now", "ssh.service"])
-        elif key in (ord("r"), ord("R")):
-            controlled_action(screen, "reiniciar SSH", ["systemctl", "restart", "ssh.service"])
-
-
 def internet_status() -> bool:
     # Connectivity is informational and never required for appliance operation.
     try:
@@ -531,7 +489,6 @@ def main(screen) -> None:
         ("3", "Diagnóstico"),
         ("4", "Serviços"),
         ("5", "Informações do sistema"),
-        ("6", "SSH / Manutenção"),
         ("8", "Reiniciar"),
         ("9", "Desligar"),
     ]
@@ -575,8 +532,6 @@ def main(screen) -> None:
             lines_screen(screen, "Informações de rede", network_lines())
         elif key == ord("3"):
             lines_screen(screen, "Diagnóstico somente leitura", diagnostic_lines())
-        elif key == ord("6"):
-            ssh_menu(screen)
         elif key == ord("4"):
             draw_header(screen, "Serviços")
             for idx, line in enumerate(service_lines()):

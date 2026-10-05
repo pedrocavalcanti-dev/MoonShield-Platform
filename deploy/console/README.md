@@ -20,8 +20,6 @@ If an `/etc/systemd/system/getty@ttyN.service` override existed before hardening
 restore its matching timestamped copy from `/var/lib/moonshield/recovery/` after
 unmasking; then run `systemctl daemon-reload`. Previous files are retained there
 with mode 0600 (symlinks are copied as symlinks). Restore the saved
-`00-moonshield-appliance.conf` to `/etc/ssh/sshd_config.d/` before enabling
-`ssh.service`; if there was no previous file, remove the MoonShield drop-in.
 To restore the normal TTY1 login, disable `moonshield-console.service` and enable
 `getty@tty1.service`. These steps require trusted local or hypervisor recovery
 access.
@@ -45,11 +43,10 @@ generates a new nonce; obtain and sign the new challenge after a failed attempt.
 
 The final ISO must provision `deploy/console/maintenance_public.pem` before
 using `--final-iso`; that public key is not supplied by this repository.
-Development mode can omit it and reports a warning. SSH is disabled by default
-only by the final-ISO installer policy; development/repair mode does not change
-existing SSH access.
+Development mode can omit it and reports a warning. SSH is not part of the
+MoonShield appliance image.
 
-No systemd, TTY, SSH, or real appliance behavior is validated by Windows static
+No systemd, TTY, or real appliance behavior is validated by Windows static
 checks. Validate on a disposable Debian 13 VM, including TTY1 startup, TTY2-6
-recovery, SSH policy, F12 signing/verification, invalid-signature rate limiting,
+recovery, F12 signing/verification, invalid-signature rate limiting,
 service restart allowlist, and reboot/poweroff confirmations.

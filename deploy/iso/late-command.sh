@@ -16,7 +16,6 @@ LOG="$LOG_DIR/late-command.log"
 PRODUCT_DIR="$TARGET/var/lib/moonshield"
 SUPPORT_DIR="$TARGET/etc/moonshield/support"
 BOOTSTRAP_READY=0
-ALPHA_DEBUG_MARKER="$TARGET/etc/moonshield/alpha-debug"
 
 console_log() {
     printf '[MOONSHIELD ISO] %s\n' "$*"
@@ -79,9 +78,7 @@ enable_boot_gate() {
     rm -f "$unit_static" 2>/dev/null || true
     ln -s /dev/null "$unit_static" || return 1
 
-    rm -f "$WANTS/moonshield-alpha-debug-ssh-bootstrap.service" \
-        "$WANTS/moonshield-iso-console-gate.service" "$WANTS/moonshield-iso-firstboot.service" 2>/dev/null || true
-    ln -s ../moonshield-alpha-debug-ssh-bootstrap.service "$WANTS/moonshield-alpha-debug-ssh-bootstrap.service" || return 1
+    rm -f "$WANTS/moonshield-iso-console-gate.service" "$WANTS/moonshield-iso-firstboot.service" 2>/dev/null || true
     ln -s ../moonshield-iso-console-gate.service "$WANTS/moonshield-iso-console-gate.service" || return 1
     ln -s ../moonshield-iso-firstboot.service "$WANTS/moonshield-iso-firstboot.service" || return 1
     return 0
@@ -183,11 +180,6 @@ console_log 'Iniciando late-command Alpha 2.'
 [ -f "$FIRSTBOOT/moonshield-console-gate.py" ] || fail 'Console gate MoonShield ausente da midia.'
 [ -f "$FIRSTBOOT/moonshield-iso-firstboot.service" ] || fail 'Unit firstboot ausente da midia.'
 [ -f "$FIRSTBOOT/moonshield-iso-console-gate.service" ] || fail 'Unit console gate ausente da midia.'
-[ -f "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.sh" ] || fail 'Script Alpha Debug SSH ausente da midia.'
-[ -f "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.service" ] || fail 'Unit bootstrap Alpha Debug SSH ausente da midia.'
-[ -f "$FIRSTBOOT/moonshield-alpha-debug-ssh-firewall.service" ] || fail 'Unit firewall Alpha Debug SSH ausente da midia.'
-[ -f "$RELEASE/deploy/ALPHA-DEBUG-SSH" ] || fail 'Marcador Alpha Debug SSH ausente na release.'
-grep -qx 'ALPHA_DEBUG_SSH=enabled' "$RELEASE/deploy/ALPHA-DEBUG-SSH" || fail 'Marcador Alpha Debug SSH invalido.'
 
 [ ! -e "$STAGE" ] && [ ! -L "$STAGE" ] || fail "Staging ja existe no sistema alvo: $STAGE"
 mkdir -p "$STAGE/release" "$STAGE/offline-bundle" "$STAGE/state" \
@@ -199,15 +191,10 @@ cp "$FIRSTBOOT/moonshield-firstboot.py" "$RUNTIME/moonshield-firstboot.py" || fa
 cp "$FIRSTBOOT/moonshield-console-gate.py" "$RUNTIME/moonshield-console-gate.py" || fail 'Falha ao copiar moonshield-console-gate.py.'
 cp "$FIRSTBOOT/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-firstboot.service" || fail 'Falha ao copiar unit firstboot.'
 cp "$FIRSTBOOT/moonshield-iso-console-gate.service" "$SYSTEMD/moonshield-iso-console-gate.service" || fail 'Falha ao copiar unit console gate.'
-cp "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.sh" "$RUNTIME/moonshield-alpha-debug-ssh-bootstrap.sh" || fail 'Falha ao copiar script Alpha Debug SSH.'
-cp "$FIRSTBOOT/moonshield-alpha-debug-ssh-bootstrap.service" "$SYSTEMD/moonshield-alpha-debug-ssh-bootstrap.service" || fail 'Falha ao copiar unit bootstrap Alpha Debug SSH.'
-cp "$FIRSTBOOT/moonshield-alpha-debug-ssh-firewall.service" "$SYSTEMD/moonshield-alpha-debug-ssh-firewall.service" || fail 'Falha ao copiar unit firewall Alpha Debug SSH.'
 cp "$RELEASE/deploy/console/maintenance_public.pem" "$SUPPORT_DIR/maintenance_public.pem" || fail 'Falha ao instalar chave publica de manutencao.'
-install -o root -g root -m 0644 "$RELEASE/deploy/ALPHA-DEBUG-SSH" "$ALPHA_DEBUG_MARKER" || fail 'Falha ao instalar marcador Alpha Debug.'
-chmod 0755 "$RUNTIME/moonshield-firstboot.py" "$RUNTIME/moonshield-console-gate.py" "$RUNTIME/moonshield-alpha-debug-ssh-bootstrap.sh"
+chmod 0755 "$RUNTIME/moonshield-firstboot.py" "$RUNTIME/moonshield-console-gate.py"
 chmod 0644 "$SYSTEMD/moonshield-iso-firstboot.service" "$SYSTEMD/moonshield-iso-console-gate.service" \
-    "$SYSTEMD/moonshield-alpha-debug-ssh-bootstrap.service" "$SYSTEMD/moonshield-alpha-debug-ssh-firewall.service" \
-    "$SUPPORT_DIR/maintenance_public.pem" "$ALPHA_DEBUG_MARKER"
+    "$SUPPORT_DIR/maintenance_public.pem"
 BOOTSTRAP_READY=1
 enable_boot_gate || fail 'Falha ao habilitar gate/firstboot ou mascarar consoles Debian.'
 
@@ -252,7 +239,6 @@ console_log 'Copiando bundle offline para o sistema alvo.'
 cp -a "$BUNDLE/." "$STAGE/offline-bundle/" || fail 'Falha ao copiar o bundle offline.'
 [ -f "$STAGE/offline-bundle/SHA256SUMS" ] || fail 'Bundle copiado ficou incompleto.'
 
-console_log 'Alpha Debug SSH staged para bootstrap no primeiro boot; nenhum APT/SSH/NFT foi executado no Installer.'
 console_log 'Bootstrap preparado; integridade completa sera validada no primeiro boot.'
 sync 2>/dev/null || true
 preserve_installer_logs

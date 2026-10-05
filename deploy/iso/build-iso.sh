@@ -69,12 +69,9 @@ validate_release() {
      && -f "$RELEASE/requirements-prod.txt" ]] \
     || die 'Release tree incompleta; gere-a com deploy/scripts/build-release-tree.sh.'
   [[ ! -d "$RELEASE/deploy/support" ]] || die 'Release tree contém deploy/support proibido.'
-  [[ -f "$RELEASE/deploy/ALPHA-DEBUG-SSH" ]] \
-    && grep -qx 'ALPHA_DEBUG_SSH=enabled' "$RELEASE/deploy/ALPHA-DEBUG-SSH" \
-    || die 'Alpha 2 DEV ISO exige o marcador deploy/ALPHA-DEBUG-SSH.'
-  grep -qx 'openssh-server' "$RELEASE/deploy/manifests/debian-packages.txt" \
-    || die 'Alpha Debug SSH exige openssh-server no bundle offline.'
-  warn 'ALPHA DEBUG SSH ENABLED: a ISO Alpha 2 aceitara root somente pela chave publica de manutencao.'
+  if grep -qx 'openssh-server' "$RELEASE/deploy/manifests/debian-packages.txt"; then
+    die 'openssh-server não pertence à appliance Alpha 2 sem SSH de debug.'
+  fi
   [[ -f "$RELEASE/deploy/console/maintenance_public.pem" ]] \
     || die 'MAINTENANCE_PUBLIC_KEY=REQUIRED_BEFORE_ISO'
 
@@ -119,8 +116,17 @@ validate_base_iso() {
   ok 'ISO Debian base autenticada e estrutura BIOS/UEFI validada.'
 }
 
+validate_offline_pip() {
+  local requirements="$1" wheelhouse="$2" venv="$3"
+  [[ -r "$requirements" && -d "$wheelhouse" ]] || die 'Requirements ou wheelhouse ausente para validação pip offline.'
+  python3 -m venv "$venv" || die 'Não foi possível criar venv descartável para validar o payload Python.'
+  "$venv/bin/python" -m pip install --dry-run --ignore-installed --disable-pip-version-check \
+    --no-index --only-binary=:all: --find-links "$wheelhouse" --requirement "$requirements" \
+    || die 'Wheelhouse offline não satisfaz o requirements-prod.txt exato da release.'
+}
+
 validate_bundle() {
-  local deb arch apt_root source_list
+  local deb arch apt_root source_list requirements_sha bundle_requirements_sha
   local -a deb_files packages apt_args
   [[ -f "$BUNDLE/BUILD-INFO" && -f "$BUNDLE/SHA256SUMS" \
      && -d "$BUNDLE/debs" && -d "$BUNDLE/wheelhouse" \
@@ -135,9 +141,14 @@ validate_bundle() {
   grep -qx 'PackageIndex=local-apt' "$BUNDLE/BUILD-INFO" || die 'Offline bundle sem repositorio APT local.'
   grep -qx 'DependencyValidation=empty-dpkg-status' "$BUNDLE/BUILD-INFO" \
     || die 'Offline bundle sem validacao independente do estado do builder.'
+  bundle_requirements_sha="$(awk -F= '$1 == "RequirementsProdSHA256" {print $2; exit}' "$BUNDLE/BUILD-INFO")"
+  requirements_sha="$(sha256sum "$RELEASE/requirements-prod.txt" | awk '{print $1}')"
+  [[ "$bundle_requirements_sha" =~ ^[[:xdigit:]]{64}$ && "$bundle_requirements_sha" == "$requirements_sha" ]] \
+    || die 'RequirementsProdSHA256 do bundle diverge do requirements-prod.txt da release.'
   (cd -- "$BUNDLE" && sha256sum --check --status SHA256SUMS) || die 'Checksum do offline bundle falhou.'
-  awk -F '\t' '$1 == "openssh-server" { found=1 } END { exit !found }' "$BUNDLE/DEBIAN-PACKAGES.tsv" \
-    || die 'Offline bundle Alpha Debug nao contem openssh-server.'
+  if awk -F '\t' '$1 == "openssh-server" { found=1 } END { exit found }' "$BUNDLE/DEBIAN-PACKAGES.tsv"; then
+    die 'Offline bundle contém openssh-server sem uma funcionalidade legítima que o exija.'
+  fi
   if grep -RIlE -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' "$BUNDLE" | grep -q .; then
     die 'Offline bundle contem material de chave privada.'
   fi
@@ -155,6 +166,25 @@ validate_bundle() {
       || die "Pacote .deb de arquitetura incompatível: $(basename -- "$deb") ($arch)."
   done
   gzip -t "$BUNDLE/Packages.gz" || die 'Indice Packages.gz do bundle esta corrompido.'
+  python3 - "$BUNDLE/wheelhouse" <<'PY' || die 'Wheelhouse sem Pillow 12.1.1 válido.'
+from pathlib import Path
+import sys
+from zipfile import ZipFile
+
+for wheel in Path(sys.argv[1]).glob("*.whl"):
+    with ZipFile(wheel) as archive:
+        metadata = next((name for name in archive.namelist() if name.endswith(".dist-info/METADATA")), "")
+        if not metadata:
+            continue
+        values = dict(
+            line.split(":", 1) for line in archive.read(metadata).decode("utf-8", errors="replace").splitlines()
+            if ":" in line
+        )
+        if values.get("Name", "").casefold() == "pillow" and values.get("Version") == "12.1.1":
+            raise SystemExit(0)
+raise SystemExit("Pillow 12.1.1 ausente")
+PY
+  validate_offline_pip "$RELEASE/requirements-prod.txt" "$BUNDLE/wheelhouse" "$WORK/bundle-pip-verify"
 
   mapfile -t packages < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' \
     "$RELEASE/deploy/manifests/debian-packages.txt")
@@ -331,48 +361,24 @@ validate_final_iso() {
     -extract /moonshield/firstboot/moonshield-firstboot.py "$verify/firstboot.py" \
     -extract /moonshield/firstboot/moonshield-console-gate.py "$verify/console-gate.py" \
     -extract /moonshield/firstboot/moonshield-iso-firstboot.service "$verify/firstboot.service" \
-    -extract /moonshield/firstboot/moonshield-alpha-debug-ssh-bootstrap.sh "$verify/alpha-debug-bootstrap.sh" \
-    -extract /moonshield/firstboot/moonshield-alpha-debug-ssh-bootstrap.service "$verify/alpha-debug-bootstrap.service" \
-    -extract /moonshield/firstboot/moonshield-alpha-debug-ssh-firewall.service "$verify/alpha-debug-firewall.service" \
     -extract /moonshield/release/deploy/install.sh "$verify/install.sh" \
     -extract /moonshield/release/deploy/console/maintenance_public.pem "$verify/maintenance_public.pem" \
-    -extract /moonshield/release/deploy/ALPHA-DEBUG-SSH "$verify/alpha-debug-marker" \
     -extract /moonshield/release/deploy/manifests/debian-packages.txt "$verify/debian-packages.txt" \
+    -extract /moonshield/release/requirements-prod.txt "$verify/requirements-prod.txt" \
     -extract /moonshield/release/deploy/scripts/moonshield-diag "$verify/moonshield-diag" \
     -extract /moonshield/offline-bundle/SHA256SUMS "$verify/bundle-sha256" \
+    -extract /moonshield/offline-bundle "$verify/offline-bundle" \
     -extract /moonshield/BUILD-INFO "$verify/BUILD-INFO" \
     >/dev/null 2>&1 || die 'ISO final está sem payload obrigatório.'
 
   [[ -s "$verify/moonshield-diag" ]] || die 'ISO final sem moonshield-diag no release payload.'
-  grep -qx 'ALPHA_DEBUG_SSH=enabled' "$verify/alpha-debug-marker" \
-    || die 'ISO final sem marcador Alpha Debug SSH esperado.'
-  grep -qx 'openssh-server' "$verify/debian-packages.txt" \
-    || die 'ISO final sem openssh-server no manifesto do bundle.'
-  [[ -s "$verify/alpha-debug-bootstrap.sh" && -s "$verify/alpha-debug-bootstrap.service" \
-     && -s "$verify/alpha-debug-firewall.service" ]] \
-    || die 'ISO final sem bootstrap Alpha Debug SSH.'
-  grep -Fq 'moonshield-alpha-debug-ssh-bootstrap.service' "$verify/late-command.sh" \
-    || die 'Late-command da ISO final nao prepara o bootstrap SSH para o proximo boot.'
-  if grep -Eq '(^|[^[:alnum:]_])(apt-get|sshd|ssh-keygen|nft)([[:space:]]|$)' "$verify/late-command.sh"; then
-    die 'Late-command da ISO final executa operacao SSH/NFT que deve ocorrer apenas apos reboot.'
+  if grep -qx 'openssh-server' "$verify/debian-packages.txt"; then
+    die 'ISO final ainda contém openssh-server no manifesto.'
   fi
-  grep -Fq 'Before=moonshield-iso-firstboot.service' "$verify/alpha-debug-bootstrap.service" \
-    || die 'Bootstrap Alpha Debug SSH nao precede o firstboot.'
-  grep -Eq '^Wants=.*moonshield-alpha-debug-ssh-bootstrap\.service' "$verify/firstboot.service" \
-    && grep -Eq '^After=.*moonshield-alpha-debug-ssh-bootstrap\.service' "$verify/firstboot.service" \
-    || die 'Firstboot nao aguarda o bootstrap Alpha Debug SSH como dependencia fraca.'
-  grep -Fq 'PermitRootLogin prohibit-password' "$verify/alpha-debug-bootstrap.sh" \
-    && grep -Fq 'PasswordAuthentication no' "$verify/alpha-debug-bootstrap.sh" \
-    && grep -Fq 'KbdInteractiveAuthentication no' "$verify/alpha-debug-bootstrap.sh" \
-    && grep -Fq 'PubkeyAuthentication yes' "$verify/alpha-debug-bootstrap.sh" \
-    && grep -Fq 'AuthenticationMethods publickey' "$verify/alpha-debug-bootstrap.sh" \
-    || die 'Bootstrap Alpha Debug SSH nao aplica autenticacao somente por chave.'
-  grep -Fq 'administrative_interface()' "$verify/alpha-debug-bootstrap.sh" \
-    && grep -Fq 'ip -o -4 route show default' "$verify/alpha-debug-bootstrap.sh" \
-    || die 'Bootstrap Alpha Debug SSH nao detecta a interface administrativa dinamicamente.'
-  if grep -Fq -- '--no-download' "$verify/alpha-debug-bootstrap.sh"; then
-    die 'Bootstrap Alpha Debug SSH nao pode bloquear leitura do repositorio APT file:// com --no-download.'
+  if xorriso -indev "$TEMP_ISO" -find /moonshield -type f -print 2>/dev/null | grep -Eqi 'alpha-debug|ssh-bootstrap|ssh-firewall'; then
+    die 'ISO final ainda contém artefatos Alpha Debug SSH.'
   fi
+  validate_offline_pip "$verify/requirements-prod.txt" "$verify/offline-bundle/wheelhouse" "$WORK/final-iso-pip-verify"
   [[ -s "$verify/efi.img" ]] || die 'ISO final perdeu imagem UEFI.'
   grep -Fq 'Instalar MoonShield' "$verify/grub.cfg" || die 'Menu UEFI final não contém Instalar MoonShield.'
   grep -Fq 'Instalar MoonShield' "$verify/menu.cfg" || die 'Menu BIOS final não contém Instalar MoonShield.'
@@ -430,9 +436,6 @@ validate_sources() {
     "$SCRIPT_DIR/firstboot/moonshield-console-gate.py" \
     "$SCRIPT_DIR/firstboot/moonshield-iso-firstboot.service" \
     "$SCRIPT_DIR/firstboot/moonshield-iso-console-gate.service" \
-    "$SCRIPT_DIR/firstboot/moonshield-alpha-debug-ssh-bootstrap.sh" \
-    "$SCRIPT_DIR/firstboot/moonshield-alpha-debug-ssh-bootstrap.service" \
-    "$SCRIPT_DIR/firstboot/moonshield-alpha-debug-ssh-firewall.service" \
     "$SCRIPT_DIR/templates/grub.cfg" \
     "$SCRIPT_DIR/templates/isolinux-menu.cfg" \
     "$SCRIPT_DIR/templates/moonshield-theme.txt" \
@@ -481,6 +484,12 @@ validate_sources() {
     || die 'Late-command deve aplicar branding MoonShield ao sistema instalado.'
   grep -Fq 'preserve_installer_logs' "$SCRIPT_DIR/late-command.sh" \
     || die 'Late-command deve preservar logs essenciais do Debian Installer.'
+  grep -Fq 'location /static/' "$RELEASE/deploy/nginx/moonshield.conf" \
+    && grep -Fq 'alias /var/lib/moonshield/static/;' "$RELEASE/deploy/nginx/moonshield.conf" \
+    || die 'Configuração Nginx static incompatível com STATIC_ROOT.'
+  if grep -A3 'location /static/' "$RELEASE/deploy/nginx/moonshield.conf" | grep -Fq 'root '; then
+    die 'Location /static/ não pode usar root junto ao alias da appliance.'
+  fi
   grep -Fq 'GRUB_DISTRIBUTOR="MOONSHIELD"' "$SCRIPT_DIR/templates/grub-installed.cfg" \
     || die 'Config do GRUB instalado não define MOONSHIELD como distribuidor.'
   grep -Fq 'GRUB_TIMEOUT_STYLE=menu' "$SCRIPT_DIR/templates/grub-installed.cfg" \

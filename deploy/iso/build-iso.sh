@@ -146,7 +146,7 @@ validate_bundle() {
   [[ "$bundle_requirements_sha" =~ ^[[:xdigit:]]{64}$ && "$bundle_requirements_sha" == "$requirements_sha" ]] \
     || die 'RequirementsProdSHA256 do bundle diverge do requirements-prod.txt da release.'
   (cd -- "$BUNDLE" && sha256sum --check --status SHA256SUMS) || die 'Checksum do offline bundle falhou.'
-  if awk -F '\t' '$1 == "openssh-server" { found=1 } END { exit found }' "$BUNDLE/DEBIAN-PACKAGES.tsv"; then
+  if awk -F '\t' '$1 == "openssh-server" { found=1 } END { exit !found }' "$BUNDLE/DEBIAN-PACKAGES.tsv"; then
     die 'Offline bundle contém openssh-server sem uma funcionalidade legítima que o exija.'
   fi
   if grep -RIlE -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' "$BUNDLE" | grep -q .; then

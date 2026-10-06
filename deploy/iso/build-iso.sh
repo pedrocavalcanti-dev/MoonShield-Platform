@@ -176,11 +176,13 @@ for wheel in Path(sys.argv[1]).glob("*.whl"):
         metadata = next((name for name in archive.namelist() if name.endswith(".dist-info/METADATA")), "")
         if not metadata:
             continue
-        values = dict(
-            line.split(":", 1) for line in archive.read(metadata).decode("utf-8", errors="replace").splitlines()
-            if ":" in line
-        )
-        if values.get("Name", "").casefold() == "pillow" and values.get("Version") == "12.1.1":
+        values = {}
+        for line in archive.read(metadata).decode("utf-8", errors="replace").splitlines():
+            key, separator, value = line.partition(":")
+            if not separator:
+                continue
+            values[key.strip().casefold()] = value.strip()
+        if values.get("name", "").casefold() == "pillow" and values.get("version") == "12.1.1":
             raise SystemExit(0)
 raise SystemExit("Pillow 12.1.1 ausente")
 PY

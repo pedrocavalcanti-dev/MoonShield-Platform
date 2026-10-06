@@ -30,6 +30,15 @@ check_loopback_listener() {
   fi
 }
 
+check_static_asset() {
+  local relative_path="$1" asset="$2" path status
+  path="/var/lib/moonshield/static/$relative_path"
+  [[ -s "$path" ]] && pass "$asset presente" || { fail "$asset ausente/vazio"; return; }
+  runuser -u www-data -- test -r "$path" && pass "$asset legível por www-data" || { fail "$asset ilegível por www-data"; return; }
+  status="$(curl --silent --show-error --max-time 5 --output /dev/null --write-out '%{http_code}' "http://127.0.0.1/static/$relative_path" 2>/dev/null || true)"
+  [[ "$status" == 200 ]] && pass "$asset servido pelo Nginx (HTTP 200)" || fail "$asset retornou HTTP ${status:-sem-resposta} via Nginx"
+}
+
 if [[ -x /opt/moonshield/venv/bin/python && -f /opt/moonshield/source/MoonShield/gerenciar.py ]]; then
   if command -v runuser >/dev/null 2>&1; then
     if (cd /opt/moonshield/source/MoonShield && runuser -u moonshield -- /opt/moonshield/venv/bin/python gerenciar.py check >/dev/null 2>&1); then pass "Django check como moonshield"; else fail "Django check como moonshield"; fi
@@ -91,6 +100,27 @@ else
 fi
 
 if curl --silent --show-error --max-time 5 --output /dev/null http://127.0.0.1/ 2>/dev/null; then pass 'HTTP local via Nginx'; else fail 'HTTP local via Nginx'; fi
+static_root="$(cd /opt/moonshield/source/MoonShield && runuser -u moonshield -- env DJANGO_SETTINGS_MODULE=config.settings /opt/moonshield/venv/bin/python -c 'from django.conf import settings; print(settings.STATIC_ROOT)' 2>/dev/null || true)"
+[[ "$static_root" == /var/lib/moonshield/static ]] && pass 'STATIC_ROOT da appliance correto' || fail "STATIC_ROOT inesperado: ${static_root:-indisponível}"
+nginx -T 2>/dev/null | grep -Fq 'alias /var/lib/moonshield/static/;' \
+  && pass 'Nginx aponta para STATIC_ROOT' || fail 'Nginx não aponta para STATIC_ROOT'
+for path in /var /var/lib /var/lib/moonshield /var/lib/moonshield/static; do
+  runuser -u www-data -- test -x "$path" && pass "www-data atravessa $path" || fail "www-data não atravessa $path"
+done
+mode="$(stat -c '%a:%U:%G' /var/lib/moonshield/static 2>/dev/null || true)"
+[[ "$mode" == 750:moonshield:www-data ]] && pass 'permissões da raiz static' || fail 'static deve ser moonshield:www-data 0750'
+if find /var/lib/moonshield/static -type d -perm -0002 -print -quit | grep -q .; then
+  fail 'diretório static gravável por outros'
+else
+  pass 'diretórios static não são graváveis por outros'
+fi
+if find /var/lib/moonshield/static -type f -perm -0002 -print -quit | grep -q .; then
+  fail 'arquivo static gravável por outros'
+else
+  pass 'arquivos static não são graváveis por outros'
+fi
+check_static_asset css/autenticacao/login.css 'CSS de login'
+check_static_asset js/autenticacao/login.js 'JavaScript de login'
 for path in /etc/moonshield /etc/moonshield/secrets /var/lib/moonshield /var/lib/moonshield/firewall /var/lib/moonshield/rede /var/lib/moonshield/suricata /var/log/moonshield /var/log/moonshield/app /run/moonshield; do
   [[ -d "$path" ]] && pass "diretório $path" || fail "diretório $path ausente"
 done

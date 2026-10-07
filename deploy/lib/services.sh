@@ -26,6 +26,58 @@ _services_install_managed_file() {
   mv -f -- "$temp" "$destination"
 }
 
+_services_adguard_has_runtime_config() {
+  [[ -s /opt/AdGuardHome/AdGuardHome.yaml || -s /etc/AdGuardHome.yaml ]]
+}
+
+_services_configure_networkmanager() {
+  local source temp device managed
+  command -v nmcli >/dev/null 2>&1 || die "nmcli ausente; NetworkManager e obrigatorio na appliance."
+  source="$(mktemp /tmp/moonshield-networkmanager.XXXXXX)"
+  TEMP_FILES+=("$source")
+  cat >"$source" <<'EOF'
+[ifupdown]
+managed=true
+EOF
+  _services_install_managed_file "$source" /etc/NetworkManager/conf.d/90-moonshield-managed.conf 0644
+
+  systemctl enable NetworkManager.service >/dev/null \
+    || die "Nao foi possivel habilitar NetworkManager.service."
+  # A appliance nao depende de todas as NICs obterem lease antes de subir.
+  # LAN/MGMT podem permanecer sem endereco ate o onboarding.
+  systemctl disable NetworkManager-wait-online.service >/dev/null 2>&1 || true
+
+  if systemctl is-active --quiet NetworkManager.service; then
+    nmcli general reload >/dev/null 2>&1 || true
+  else
+    systemctl start NetworkManager.service \
+      || die "NetworkManager.service nao iniciou."
+  fi
+
+  while IFS=: read -r device type; do
+    [[ "$type" == ethernet && -n "$device" ]] || continue
+    nmcli device set "$device" managed yes >/dev/null 2>&1 \
+      || die "NetworkManager recusou gerenciar a interface $device."
+    managed="$(nmcli -g GENERAL.MANAGED device show "$device" 2>/dev/null || true)"
+    [[ "$managed" == yes ]] \
+      || die "Interface $device permaneceu unmanaged apos aplicar a politica MoonShield."
+  done < <(nmcli -t -f DEVICE,TYPE device status 2>/dev/null || true)
+
+  ok "NetworkManager preparado para administrar as interfaces da appliance sem aguardar lease de LAN/MGMT."
+}
+
+_services_enable_now_required() {
+  local unit="$1"
+  systemctl list-unit-files --no-legend "$unit" 2>/dev/null | grep -Fq "$unit" \
+    || die "Unit obrigatoria ausente: $unit"
+  systemctl enable "$unit" >/dev/null \
+    || die "Nao foi possivel habilitar $unit."
+  systemctl start "$unit" \
+    || die "Nao foi possivel iniciar $unit."
+  systemctl is-active --quiet "$unit" \
+    || die "$unit nao ficou ativo."
+}
+
 install_adguard_binary() {
   local artifact expected_url cache_dir
   local expected actual extraction install_source adguard_version
@@ -164,9 +216,18 @@ install_systemd_services() {
   _services_install_managed_file "$source" "$destination" 0644
   _services_install_managed_file "$adguard_source" /etc/systemd/system/AdGuardHome.service 0644
   systemctl daemon-reload
-  systemctl enable moonshield-web.service >/dev/null
-  systemctl enable AdGuardHome.service >/dev/null
-  ok "Units web e AdGuard instaladas; AdGuard inicia ao receber topologia DNS válida."
+  systemctl enable moonshield-web.service >/dev/null \
+    || die "Nao foi possivel habilitar moonshield-web.service."
+
+  if _services_adguard_has_runtime_config; then
+    systemctl enable AdGuardHome.service >/dev/null \
+      || die "Nao foi possivel preservar o enablement do AdGuard configurado."
+    info "AdGuard ja possui configuracao persistente; enablement preservado."
+  else
+    systemctl disable --now AdGuardHome.service >/dev/null 2>&1 || true
+    info "AdGuard pre-onboarding mantido desabilitado/inativo; nenhum first-launch sera exposto em :3000."
+  fi
+  ok "Units web e AdGuard instaladas com estado pre-onboarding seguro."
 }
 
 provision_suricata_ruleset() {
@@ -195,40 +256,237 @@ import sys
 config = Path(sys.argv[1])
 destination = Path(sys.argv[2])
 rules = [Path(item) for item in sys.argv[3:]]
-lines = config.read_text(encoding="utf-8", errors="strict").splitlines()
-disabled: set[str] = set()
+
+lines = config.read_text(
+    encoding="utf-8",
+    errors="strict",
+).splitlines()
+
+
+def indentation(line: str) -> int:
+    prefix = line[:len(line) - len(line.lstrip(" \t"))]
+    return len(prefix.expandtabs(8))
+
+
+key_re = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<name>[A-Za-z0-9_-]+):[ \t]*(?:#.*)?$"
+)
+
+disabled_re = re.compile(
+    r"^[ \t]*enabled:[ \t]*(?:no|false)[ \t]*(?:#.*)?$",
+    re.I,
+)
+
+app_index = None
+app_indent = None
 
 for index, line in enumerate(lines):
-    match = re.match(r"^(?P<indent>[ \\t]*)(?P<name>[A-Za-z0-9_-]+):[ \\t]*(?:#.*)?$", line)
+    match = key_re.match(line)
+
+    if match and match.group("name").lower() == "app-layer":
+        app_index = index
+        app_indent = indentation(line)
+        break
+
+if app_index is None:
+    raise SystemExit("secao app-layer ausente no suricata.yaml")
+
+protocols_index = None
+protocols_indent = None
+
+for index in range(app_index + 1, len(lines)):
+    line = lines[index]
+
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+
+    indent = indentation(line)
+
+    if indent <= app_indent:
+        break
+
+    match = key_re.match(line)
+
+    if (
+        match
+        and match.group("name").lower() == "protocols"
+    ):
+        protocols_index = index
+        protocols_indent = indent
+        break
+
+if protocols_index is None:
+    raise SystemExit(
+        "secao app-layer.protocols ausente no suricata.yaml"
+    )
+
+protocols_end = len(lines)
+
+for index in range(protocols_index + 1, len(lines)):
+    line = lines[index]
+
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+
+    if indentation(line) <= protocols_indent:
+        protocols_end = index
+        break
+
+candidate_entries = []
+
+for index in range(protocols_index + 1, protocols_end):
+    line = lines[index]
+
+    if not line.strip() or line.lstrip().startswith("#"):
+        continue
+
+    match = key_re.match(line)
+
     if not match:
         continue
-    name = match.group("name").lower()
-    indent = len(match.group("indent").expandtabs(8))
-    for child in lines[index + 1:]:
-        if not child.strip() or child.lstrip().startswith("#"):
-            continue
-        child_indent = len(child) - len(child.lstrip(" \\t"))
-        if child_indent <= indent:
-            break
-        if re.match(r"^[ \\t]*enabled:[ \\t]*(?:no|false)(?:[ \\t]*(?:#.*)?)$", child, re.I):
+
+    indent = indentation(line)
+
+    if indent > protocols_indent:
+        candidate_entries.append(
+            (
+                index,
+                indent,
+                match.group("name").lower(),
+            )
+        )
+
+if not candidate_entries:
+    raise SystemExit(
+        "nenhum protocolo encontrado em app-layer.protocols"
+    )
+
+entry_indent = min(
+    item[1]
+    for item in candidate_entries
+)
+
+entries = [
+    item
+    for item in candidate_entries
+    if item[1] == entry_indent
+]
+
+disabled = set()
+
+for position, (start, _, name) in enumerate(entries):
+    if position + 1 < len(entries):
+        end = entries[position + 1][0]
+    else:
+        end = protocols_end
+
+    for child in lines[start + 1:end]:
+        if disabled_re.match(child):
             disabled.add(name)
             break
 
-signature = re.compile(r"^[ \\t]*(?:alert|drop|pass|reject|sdrop)[ \\t]+([A-Za-z0-9_-]+)\\b", re.I)
+
+signature = re.compile(
+    r"^[ \t]*(?:alert|drop|pass|reject|sdrop)"
+    r"[ \t]+([A-Za-z0-9_-]+)\b",
+    re.I,
+)
+
+
+def paren_delta(text: str) -> int:
+    delta = 0
+    quoted = False
+    escaped = False
+
+    for char in text:
+        if escaped:
+            escaped = False
+            continue
+
+        if char == "\\":
+            escaped = True
+            continue
+
+        if char == '"':
+            quoted = not quoted
+            continue
+
+        if quoted:
+            continue
+
+        if char == "(":
+            delta += 1
+        elif char == ")":
+            delta -= 1
+
+    return delta
+
+
 removed = 0
-with destination.open("w", encoding="utf-8", newline="\\n") as output:
+
+with destination.open(
+    "w",
+    encoding="utf-8",
+    newline="\n",
+) as output:
+
     for rule_file in rules:
-        for line in rule_file.read_text(encoding="utf-8", errors="strict").splitlines(keepends=True):
+        source_lines = rule_file.read_text(
+            encoding="utf-8",
+            errors="strict",
+        ).splitlines(keepends=True)
+
+        index = 0
+
+        while index < len(source_lines):
+            line = source_lines[index]
             match = signature.match(line)
-            if match and match.group(1).lower() in disabled:
-                removed += 1
+
+            if not match:
+                output.write(
+                    line
+                    if line.endswith(("\n", "\r"))
+                    else line + "\n"
+                )
+                index += 1
                 continue
-            output.write(line if line.endswith(("\\n", "\\r")) else line + "\\n")
+
+            protocol = match.group(1).lower()
+
+            if protocol not in disabled:
+                output.write(
+                    line
+                    if line.endswith(("\n", "\r"))
+                    else line + "\n"
+                )
+                index += 1
+                continue
+
+            removed += 1
+
+            balance = paren_delta(line)
+            index += 1
+
+            while balance > 0 and index < len(source_lines):
+                balance += paren_delta(
+                    source_lines[index]
+                )
+                index += 1
+
 
 if not destination.stat().st_size:
-    raise SystemExit("ruleset filtrado ficou vazio")
-print("protocolos_desabilitados=" + ",".join(sorted(disabled)))
-print(f"assinaturas_removidas={removed}")
+    raise SystemExit(
+        "ruleset filtrado ficou vazio"
+    )
+
+print(
+    "protocolos_desabilitados="
+    + ",".join(sorted(disabled))
+)
+
+print(
+    f"assinaturas_removidas={removed}"
+)
 PY
   [[ -s "$temp_rules" ]] || die "Ruleset local do pacote Suricata ficou vazio."
   if [[ ! -s "$rules_dir/suricata.rules" ]] || ! cmp -s -- "$temp_rules" "$rules_dir/suricata.rules"; then
@@ -417,12 +675,7 @@ _services_start_suricata_checked() {
 provision_moonshield_local_services() {
   local django_dir=/opt/moonshield/source/MoonShield python_bin=/opt/moonshield/venv/bin/python
   [[ -x /opt/AdGuardHome/AdGuardHome ]] || die "Binário AdGuard não instalado."
-  if systemctl is-active --quiet NetworkManager.service; then
-    systemctl enable NetworkManager.service >/dev/null || die "Não foi possível habilitar NetworkManager."
-    info "NetworkManager já estava ativo; estado de interfaces/perfis foi preservado."
-  else
-    warn "NetworkManager inativo; não será iniciado/habilitado automaticamente para evitar perda de conectividade."
-  fi
+  _services_configure_networkmanager
   local suricata_config=/etc/suricata/suricata.yaml suricata_output line
   command -v suricata >/dev/null 2>&1 || die "Binário Suricata ausente antes da validação."
   [[ -s "$suricata_config" ]] || die "Configuração Suricata ausente ou vazia: $suricata_config."
@@ -448,7 +701,33 @@ provision_moonshield_local_services() {
     fi
   done
   (cd "$django_dir" && "$python_bin" gerenciar.py instalar_moonshield) || die "Bootstrap existente do Agent/AdGuard falhou."
-  systemctl start moonshield-web.service || die "MoonShield web não iniciou."
-  systemctl is-active --quiet moonshield-web.service || die "MoonShield web não ficou ativo."
-  ok "Agent, AdGuard, Suricata e web iniciados sem substituir configuração padrão de nftables ou rede."
+
+  # O bootstrap Django cria/reconcilia Agent e workers. Revalidamos aqui o
+  # enablement para garantir persistencia real depois do reboot.
+  for unit in \
+    moonshield-agent.service \
+    moonshield-suricata-worker.service \
+    moonshield-firewall-worker.service \
+    moonshield-suricata-monitor.service \
+    moonshield-web.service \
+    suricata.service \
+    nginx.service \
+    postgresql.service \
+    NetworkManager.service \
+    nftables.service
+  do
+    _services_enable_now_required "$unit"
+  done
+
+  if _services_adguard_has_runtime_config; then
+    systemctl enable AdGuardHome.service >/dev/null \
+      || die "Nao foi possivel habilitar AdGuardHome.service configurado."
+    systemctl start AdGuardHome.service \
+      || die "AdGuard configurado nao iniciou."
+  else
+    systemctl disable --now AdGuardHome.service >/dev/null 2>&1 || true
+    info "AdGuard permanece aguardando topologia DNS do onboarding."
+  fi
+
+  ok "Servicos locais habilitados para reboot; AdGuard respeita o estado pre-onboarding."
 }

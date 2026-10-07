@@ -11,9 +11,23 @@ fail() { printf '[FAIL] %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 check_service() {
   local service="$1" required="$2"
-  if systemctl is-active --quiet "$service"; then pass "$service ativo"; elif [[ "$required" == yes ]]; then fail "$service inativo"; else warn "$service inativo"; fi
-  if ! systemctl list-unit-files --no-legend "$service" 2>/dev/null | grep -q "$service"; then
+  if ! systemctl list-unit-files --no-legend "$service" 2>/dev/null | grep -Fq "$service"; then
     [[ "$required" == yes ]] && fail "unit $service não instalado" || warn "unit $service não instalado"
+    return
+  fi
+  if systemctl is-active --quiet "$service"; then
+    pass "$service ativo"
+  elif [[ "$required" == yes ]]; then
+    fail "$service inativo"
+  else
+    warn "$service inativo"
+  fi
+  if [[ "$required" == yes ]]; then
+    if systemctl is-enabled --quiet "$service" 2>/dev/null; then
+      pass "$service habilitado para boot"
+    else
+      fail "$service não está habilitado para boot"
+    fi
   fi
 }
 
@@ -39,6 +53,24 @@ check_static_asset() {
   [[ "$status" == 200 ]] && pass "$asset servido pelo Nginx (HTTP 200)" || fail "$asset retornou HTTP ${status:-sem-resposta} via Nginx"
 }
 
+adguard_configured() {
+  [[ -s /opt/AdGuardHome/AdGuardHome.yaml || -s /etc/AdGuardHome.yaml ]]
+}
+
+check_networkmanager_devices() {
+  local device type managed found=0
+  command -v nmcli >/dev/null 2>&1 || { fail 'nmcli ausente'; return; }
+  while IFS=: read -r device type; do
+    [[ "$type" == ethernet && -n "$device" ]] || continue
+    found=1
+    managed="$(nmcli -g GENERAL.MANAGED device show "$device" 2>/dev/null || true)"
+    [[ "$managed" == yes ]] \
+      && pass "NetworkManager gerencia $device" \
+      || fail "NetworkManager considera $device unmanaged"
+  done < <(nmcli -t -f DEVICE,TYPE device status 2>/dev/null || true)
+  (( found )) || warn 'nenhuma interface Ethernet detectada pelo NetworkManager'
+}
+
 if [[ -x /opt/moonshield/venv/bin/python && -f /opt/moonshield/source/MoonShield/gerenciar.py ]]; then
   if command -v runuser >/dev/null 2>&1; then
     if (cd /opt/moonshield/source/MoonShield && runuser -u moonshield -- /opt/moonshield/venv/bin/python gerenciar.py check >/dev/null 2>&1); then pass "Django check como moonshield"; else fail "Django check como moonshield"; fi
@@ -56,11 +88,30 @@ check_service moonshield-agent.service yes
 check_service moonshield-suricata-monitor.service yes
 check_service moonshield-suricata-worker.service yes
 check_service moonshield-firewall-worker.service yes
-check_service NetworkManager.service no
-check_service nftables.service no
+check_service NetworkManager.service yes
+check_service nftables.service yes
 check_service suricata.service yes
-check_service AdGuardHome.service no
+if adguard_configured; then
+  check_service AdGuardHome.service yes
+else
+  if systemctl is-active --quiet AdGuardHome.service; then
+    fail 'AdGuard pre-onboarding não pode estar ativo sem configuração final'
+  else
+    pass 'AdGuard pre-onboarding inativo aguardando topologia'
+  fi
+  if systemctl is-enabled --quiet AdGuardHome.service 2>/dev/null; then
+    fail 'AdGuard pre-onboarding não pode estar habilitado para boot'
+  else
+    pass 'AdGuard pre-onboarding desabilitado para boot'
+  fi
+fi
 check_service postgresql.service yes
+check_networkmanager_devices
+if systemctl is-enabled --quiet NetworkManager-wait-online.service 2>/dev/null; then
+  warn 'NetworkManager-wait-online ainda habilitado; LAN sem lease pode atrasar o boot'
+else
+  pass 'NetworkManager-wait-online não bloqueia o boot da appliance'
+fi
 
 if command -v suricata >/dev/null 2>&1 && [[ -s /etc/suricata/suricata.yaml ]]; then
   if suricata -T -c /etc/suricata/suricata.yaml >/dev/null 2>&1; then
@@ -79,7 +130,7 @@ fi
 
 check_loopback_listener 8000 Gunicorn
 check_loopback_listener 5432 PostgreSQL
-if systemctl is-active --quiet AdGuardHome.service; then
+if adguard_configured && systemctl is-active --quiet AdGuardHome.service; then
   check_loopback_listener 3000 'AdGuard Admin'
 else
   warn 'AdGuard aguardando topologia DNS ser configurada no onboarding'
@@ -104,6 +155,22 @@ static_root="$(cd /opt/moonshield/source/MoonShield && runuser -u moonshield -- 
 [[ "$static_root" == /var/lib/moonshield/static ]] && pass 'STATIC_ROOT da appliance correto' || fail "STATIC_ROOT inesperado: ${static_root:-indisponível}"
 nginx -T 2>/dev/null | grep -Fq 'alias /var/lib/moonshield/static/;' \
   && pass 'Nginx aponta para STATIC_ROOT' || fail 'Nginx não aponta para STATIC_ROOT'
+mode="$(stat -c '%a:%U:%G' /var/lib/moonshield 2>/dev/null || true)"
+[[ "$mode" == 750:root:moonshield ]] \
+  && pass 'permissões da raiz runtime MoonShield' \
+  || fail '/var/lib/moonshield deve ser root:moonshield 0750'
+if command -v getfacl >/dev/null 2>&1 \
+  && getfacl -cp /var/lib/moonshield 2>/dev/null | grep -Fxq 'user:www-data:--x'; then
+  pass 'ACL mínima de traversal do www-data em /var/lib/moonshield'
+else
+  fail 'ACL www-data:--x ausente em /var/lib/moonshield'
+fi
+runuser -u moonshield -- test -x /var/lib/moonshield \
+  && pass 'moonshield atravessa /var/lib/moonshield' \
+  || fail 'moonshield não atravessa /var/lib/moonshield'
+runuser -u moonshield -- test -w /var/lib/moonshield/django/var/cursors \
+  && pass 'moonshield pode gravar o cursor Suricata' \
+  || fail 'moonshield não pode gravar /var/lib/moonshield/django/var/cursors'
 for path in /var /var/lib /var/lib/moonshield /var/lib/moonshield/static; do
   runuser -u www-data -- test -x "$path" && pass "www-data atravessa $path" || fail "www-data não atravessa $path"
 done
@@ -163,11 +230,20 @@ if [[ -f /etc/moonshield/final-iso ]]; then
     [[ -L "/etc/systemd/system/getty@tty${tty}.service" && "$(readlink "/etc/systemd/system/getty@tty${tty}.service")" == /dev/null ]] \
       && pass "getty TTY$tty mascarado" || fail "getty TTY$tty não está mascarado no modo final ISO"
   done
-  if systemctl is-enabled --quiet ssh.service 2>/dev/null || systemctl is-enabled --quiet ssh.socket 2>/dev/null \
+  if [[ -f /etc/moonshield/alpha-debug ]] \
+    && grep -qx 'ALPHA_DEBUG_SSH=enabled' /etc/moonshield/alpha-debug 2>/dev/null; then
+    if systemctl is-enabled --quiet ssh.service 2>/dev/null \
+      && systemctl is-active --quiet ssh.service 2>/dev/null \
+      && systemctl is-active --quiet moonshield-alpha-debug-ssh-firewall.service 2>/dev/null; then
+      pass 'Alpha Debug SSH preservado: chave pública e firewall de interface ativos'
+    else
+      fail 'Alpha Debug SSH marcado, mas ssh/firewall não estão habilitados e ativos'
+    fi
+  elif systemctl is-enabled --quiet ssh.service 2>/dev/null || systemctl is-enabled --quiet ssh.socket 2>/dev/null \
     || systemctl is-active --quiet ssh.service 2>/dev/null || systemctl is-active --quiet ssh.socket 2>/dev/null; then
-    fail 'SSH habilitado no modo final ISO'
+    fail 'SSH habilitado sem marcador Alpha Debug'
   else
-    pass 'SSH desabilitado no modo final ISO'
+    pass 'SSH desabilitado fora do modo Alpha Debug'
   fi
 fi
 

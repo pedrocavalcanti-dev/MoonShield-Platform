@@ -126,9 +126,27 @@ def uptime_text() -> str:
     return f"{days}d {hours:02}h {minutes:02}m"
 
 
+def _key_value_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key and key not in values:
+                values[key] = value.strip()
+    except OSError:
+        pass
+    return values
+
+
 def version() -> str:
-    values = config_values()
-    return values.get("MOONSHIELD_VERSION", "indisponivel")
+    configured = config_values().get("MOONSHIELD_VERSION", "").strip()
+    if configured:
+        return configured
+    release = _key_value_file(Path("/etc/moonshield/release")).get("MOONSHIELD_VERSION", "").strip()
+    if release:
+        return release
+    build = _key_value_file(Path("/etc/moonshield/build-info")).get("MoonShieldVersion", "").strip()
+    return build or "indisponivel"
 
 
 def interfaces() -> list[tuple[str, str, str]]:
@@ -171,13 +189,54 @@ def dns_servers() -> str:
         return "não identificado"
 
 
+def _usable_ipv4(value: str) -> str:
+    try:
+        address = ipaddress.ip_interface(value).ip if "/" in value else ipaddress.ip_address(value)
+    except ValueError:
+        return ""
+    if address.version != 4 or address.is_loopback or address.is_unspecified or address.is_link_local or address.is_multicast:
+        return ""
+    return str(address)
+
+
+def _first_global_ipv4(device: str = "") -> str:
+    args = ["ip", "-o", "-4", "addr", "show"]
+    if device:
+        args.extend(["dev", device])
+    args.extend(["scope", "global"])
+    result = command(args)
+    for line in result.splitlines():
+        fields = line.split()
+        if "inet" not in fields:
+            continue
+        index = fields.index("inet")
+        if index + 1 < len(fields):
+            address = _usable_ipv4(fields[index + 1])
+            if address:
+                return address
+    return ""
+
+
 def management_ip() -> str:
     values = config_values()
     configured = values.get("MOONSHIELD_MGMT_IP", values.get("MOONSHIELD_MANAGEMENT_IP", ""))
-    try:
-        return str(ipaddress.ip_address(configured)) if configured else "não identificado"
-    except ValueError:
-        return "não identificado"
+    address = _usable_ipv4(configured) if configured else ""
+    if address:
+        return address
+
+    route = command(["ip", "-4", "route", "show", "default"])
+    for line in route.splitlines():
+        fields = line.split()
+        if "dev" not in fields:
+            continue
+        index = fields.index("dev")
+        if index + 1 >= len(fields):
+            continue
+        address = _first_global_ipv4(fields[index + 1])
+        if address:
+            return address
+
+    return _first_global_ipv4() or "não identificado"
 
 
 def lan_ip() -> str:

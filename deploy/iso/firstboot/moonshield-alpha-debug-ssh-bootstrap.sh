@@ -57,6 +57,27 @@ bootstrap() {
     chmod 0600 "$LOG_FILE" || fail 'Permissoes do log Alpha Debug SSH invalidas.'
     exec >>"$LOG_FILE" 2>&1
 
+    # Depois que o firstboot conclui, o payload offline e removido. Em boots
+    # seguintes o SSH Alpha Debug deve reaproveitar a instalacao validada sem
+    # depender novamente do bundle temporario.
+    if [ -s "$READY_MARKER" ] \
+        && grep -qx 'status=ready' "$READY_MARKER" \
+        && [ -x /usr/sbin/sshd ] \
+        && [ -x /usr/sbin/nft ] \
+        && [ -s /root/.ssh/authorized_keys ] \
+        && [ -s /etc/ssh/sshd_config.d/00-moonshield-alpha-debug.conf ]; then
+        sshd -t || fail 'Configuracao SSH Alpha Debug persistida ficou invalida.'
+        systemctl daemon-reload || fail 'systemd daemon-reload falhou no boot persistente.'
+        systemctl enable --now nftables.service || fail 'nftables nao iniciou no boot persistente.'
+        systemctl enable --now "$FIREWALL_SERVICE" || fail 'Firewall SSH Alpha Debug nao iniciou no boot persistente.'
+        systemctl enable --now ssh.service || fail 'ssh.service nao iniciou no boot persistente.'
+        systemctl is-active --quiet "$FIREWALL_SERVICE" || fail 'Restricao de interface SSH nao ficou ativa no boot persistente.'
+        systemctl is-active --quiet ssh.service || fail 'ssh.service nao ficou ativo no boot persistente.'
+        rm -f "$FAILED_MARKER"
+        log 'Alpha Debug SSH persistente validado sem reutilizar o bundle removido.'
+        return 0
+    fi
+
     [ -f "$BUNDLE/Packages" ] && [ -f "$BUNDLE/Packages.gz" ] || fail 'Bundle offline APT ausente ou incompleto.'
     [ -s /etc/moonshield/support/maintenance_public.pem ] || fail 'Chave publica de manutencao ausente.'
     printf 'deb [trusted=yes] file:%s ./\n' "$BUNDLE" >"$SOURCE_LIST" || fail 'Nao foi possivel criar source APT local.'

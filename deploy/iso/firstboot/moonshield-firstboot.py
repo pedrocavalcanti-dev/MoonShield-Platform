@@ -349,6 +349,13 @@ def main() -> int:
         rc = run_logged(log, [str(healthcheck)], "healthcheck final MoonShield")
         if rc != 0:
             return fail(log, "O healthcheck final encontrou falha critica.", steps, install_error_excerpt())
+        if current_install_stage().strip() != "complete":
+            return fail(
+                log,
+                "Installer retornou sucesso sem finalizar install-stage.",
+                steps,
+                f"install-stage atual: {current_install_stage() or 'ausente'}",
+            )
 
         steps["health"] = "ok"
         steps["console"] = "active"
@@ -375,8 +382,8 @@ def main() -> int:
         IN_PROGRESS_MARKER.unlink(missing_ok=True)
         atomic_write(
             SUCCESS_MARKER,
-            f"status=complete\ntime={now()}\nversion=0.1.0-alpha.2\n",
-            0o644,
+            f"status=complete\ntime={now()}\ninstall_stage=complete\nhealthcheck=pass\nversion=0.1.0-alpha.2\n",
+            0o600,
         )
         # disable sem --now: a gate atual permanece viva tempo suficiente para
         # renderizar a tela de sucesso e executar o console final no mesmo TTY.

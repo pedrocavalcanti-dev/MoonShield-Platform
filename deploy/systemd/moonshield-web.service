@@ -1,7 +1,7 @@
 [Unit]
 Description=MoonShield Django web application
-Wants=network-online.target
-After=network-online.target postgresql.service NetworkManager.service moonshield-agent.service AdGuardHome.service
+Wants=network.target
+After=network.target postgresql.service NetworkManager.service moonshield-agent.service
 
 [Service]
 Type=exec

@@ -38,11 +38,17 @@ ensure_filesystem() {
   _ensure_dir /etc/moonshield/rede root moonshield 0750
   _ensure_dir /etc/moonshield/firewall root moonshield 0750
   _ensure_dir /etc/moonshield/tls root root 0700
-  _ensure_dir /var/lib/moonshield root moonshield 0751
+  _ensure_dir /var/lib/moonshield root moonshield 0750
+  command -v setfacl >/dev/null 2>&1 || die "setfacl ausente; pacote acl e obrigatorio para proteger o runtime MoonShield."
+  setfacl -m u:www-data:--x /var/lib/moonshield \
+    || die "Nao foi possivel conceder apenas traversal de /var/lib/moonshield ao www-data."
   _ensure_dir /var/lib/moonshield/firewall root moonshield 0770
   _ensure_dir /var/lib/moonshield/rede root moonshield 0770
   _ensure_dir /var/lib/moonshield/dns root moonshield 0770
   _ensure_dir /var/lib/moonshield/suricata moonshield moonshield 0750
+  _ensure_dir /var/lib/moonshield/django moonshield moonshield 0750
+  _ensure_dir /var/lib/moonshield/django/var moonshield moonshield 0750
+  _ensure_dir /var/lib/moonshield/django/var/cursors moonshield moonshield 0750
   _ensure_dir /var/lib/moonshield/static moonshield www-data 0750
   _ensure_dir /var/lib/moonshield/media moonshield www-data 0750
   [[ ! -L /var/log/moonshield && ! -L /var/log/moonshield/app ]] || die "Diretório de logs Django é symlink; destino preservado sem alteração."
@@ -86,6 +92,8 @@ externalize_application_runtime() {
   local django_dir=/opt/moonshield/source/MoonShield
   local runtime_dir=/var/lib/moonshield/django
   [[ -d "$django_dir" ]] || die "Source Django ausente ao externalizar runtime."
+  install -d -o moonshield -g moonshield -m 0750 "$runtime_dir"
+  install -d -o moonshield -g moonshield -m 0750 "$runtime_dir/var"
   install -d -o moonshield -g moonshield -m 0750 "$runtime_dir/var/cursors"
   if [[ ! -e "$django_dir/var" && ! -L "$django_dir/var" ]]; then
     ln -s "$runtime_dir/var" "$django_dir/var"

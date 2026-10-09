@@ -1,4 +1,4 @@
-{% load static %}
+﻿{% load static %}
 
 <aside class="sidebar" id="sidebar">
 
@@ -18,8 +18,8 @@
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
     </svg>
-    <input type="text" placeholder="Busca rápida..." class="sidebar__search-input" id="sidebarSearch" />
-    <kbd class="sidebar__search-kbd">⌘K</kbd>
+    <input type="text" placeholder="Busca rÃ¡pida..." class="sidebar__search-input" id="sidebarSearch" />
+    <kbd class="sidebar__search-kbd">âŒ˜K</kbd>
   </div>
 
   <nav class="sidebar__nav">
@@ -39,11 +39,11 @@
     </a>
 
     <div class="sidebar__group">
-      <p class="sidebar__group-label">Inteligência</p>
+      <p class="sidebar__group-label">InteligÃªncia</p>
 
       <a href="{% url 'mapa_ameacas:mapa' %}"
          class="sidebar__item {% if 'mapa_ameacas:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
-         data-tooltip="Mapa de Ameaças" data-label="Mapa de Ameaças">
+         data-tooltip="Mapa de AmeaÃ§as" data-label="Mapa de AmeaÃ§as">
         <span class="sidebar__item-icon">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
@@ -51,7 +51,7 @@
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
           </svg>
         </span>
-        <span class="sidebar__item-label">Mapa de Ameaças</span>
+        <span class="sidebar__item-label">Mapa de AmeaÃ§as</span>
         <span class="sidebar__item-badge sidebar__item-badge--danger" id="badgeMapa"></span>
       </a>
 
@@ -114,14 +114,28 @@
         </span>
         <span class="sidebar__item-label">Dispositivos</span>
       </a>
+
+      <a href="{% url 'wifi:panel' %}"
+         class="sidebar__item {% if 'wifi:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
+         data-tooltip="Wi-Fi" data-label="Wi-Fi">
+        <span class="sidebar__item-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
+        </span>
+        <span class="sidebar__item-label">Wi-Fi</span>
+      </a>
     </div>
 
     <div class="sidebar__group">
-      <p class="sidebar__group-label">Análise & Testes</p>
+      <p class="sidebar__group-label">AnÃ¡lise & Testes</p>
 
       <a href="{% url 'relatorios:index' %}"
          class="sidebar__item {% if request.resolver_match.view_name == 'relatorios:index' %}sidebar__item--active{% endif %}"
-         data-tooltip="Relatórios" data-label="Relatórios">
+         data-tooltip="RelatÃ³rios" data-label="RelatÃ³rios">
         <span class="sidebar__item-icon">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="20" x2="18" y2="10"/>
@@ -129,23 +143,23 @@
             <line x1="6" y1="20" x2="6" y2="14"/>
           </svg>
         </span>
-        <span class="sidebar__item-label">Relatórios Gerais</span>
+        <span class="sidebar__item-label">RelatÃ³rios Gerais</span>
       </a>
 
       <a href="{% url 'relatorios:diagnostico' %}"
          class="sidebar__item {% if request.resolver_match.view_name == 'relatorios:diagnostico' %}sidebar__item--active{% endif %}"
-         data-tooltip="Diagnóstico & Testes" data-label="Diagnóstico">
+         data-tooltip="DiagnÃ³stico & Testes" data-label="DiagnÃ³stico">
         <span class="sidebar__item-icon">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
           </svg>
         </span>
-        <span class="sidebar__item-label">Diagnóstico de Rede</span>
+        <span class="sidebar__item-label">DiagnÃ³stico de Rede</span>
       </a>
     </div>
 
     <div class="sidebar__group">
-      <p class="sidebar__group-label">Inteligência Artificial</p>
+      <p class="sidebar__group-label">InteligÃªncia Artificial</p>
 
       <a href="{% url 'MoonShield:painel' %}"
          class="sidebar__item {% if 'MoonShield:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
@@ -169,14 +183,14 @@
 
     <a href="{% url 'configuracoes:index' %}"
        class="sidebar__item {% if 'configuracoes:' in request.resolver_match.view_name %}sidebar__item--active{% endif %}"
-       data-tooltip="Configurações" data-label="Configurações">
+       data-tooltip="ConfiguraÃ§Ãµes" data-label="ConfiguraÃ§Ãµes">
       <span class="sidebar__item-icon">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </svg>
       </span>
-      <span class="sidebar__item-label">Configurações</span>
+      <span class="sidebar__item-label">ConfiguraÃ§Ãµes</span>
     </a>
 
     <div class="sidebar__user" id="sidebarUser">
@@ -191,7 +205,7 @@
         <p class="sidebar__user-name">{{ user_profile.display_name|default:request.user.get_full_name|default:request.user.username }}</p>
         <p class="sidebar__user-role">{{ user_profile.cargo|default:"Operador" }}</p>
       </div>
-      <button class="sidebar__user-menu-btn" id="userMenuBtn" aria-label="Menu do usuário">
+      <button class="sidebar__user-menu-btn" id="userMenuBtn" aria-label="Menu do usuÃ¡rio">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="5" r="1"/>
           <circle cx="12" cy="12" r="1"/>
@@ -227,7 +241,7 @@
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          Configurações
+          ConfiguraÃ§Ãµes
         </a>
       </div>
       <div class="sidebar__user-popup-divider"></div>

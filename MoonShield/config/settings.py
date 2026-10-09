@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 from pathlib import Path
 
@@ -16,7 +16,7 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Raiz do repositório:
+# Raiz do repositÃ³rio:
 #
 # /home/moonshield/MoonShield-Platform
 #
@@ -35,7 +35,7 @@ APPLIANCE_MODE = APPLIANCE_CONF_FILE.is_file()
 
 
 # =============================================================================
-# VARIÁVEIS DE AMBIENTE
+# VARIÃVEIS DE AMBIENTE
 # =============================================================================
 
 env = environ.Env(
@@ -44,7 +44,7 @@ env = environ.Env(
 
 if APPLIANCE_MODE:
     if not APPLIANCE_DATABASE_FILE.is_file():
-        raise RuntimeError("Modo appliance ativo, mas /etc/moonshield/database.env está ausente.")
+        raise RuntimeError("Modo appliance ativo, mas /etc/moonshield/database.env estÃ¡ ausente.")
     environ.Env.read_env(APPLIANCE_CONF_FILE, overwrite=True)
     environ.Env.read_env(APPLIANCE_DATABASE_FILE, overwrite=True)
     _secret_key_file = Path(
@@ -56,9 +56,9 @@ if APPLIANCE_MODE:
     try:
         _appliance_secret_key = _secret_key_file.read_text(encoding="utf-8").strip()
     except OSError as exc:
-        raise RuntimeError("SECRET_KEY da appliance não pode ser lida do arquivo externo configurado.") from exc
+        raise RuntimeError("SECRET_KEY da appliance nÃ£o pode ser lida do arquivo externo configurado.") from exc
     if not _appliance_secret_key:
-        raise RuntimeError("SECRET_KEY da appliance está vazia.")
+        raise RuntimeError("SECRET_KEY da appliance estÃ¡ vazia.")
     os.environ["SECRET_KEY"] = _appliance_secret_key
 elif ENV_FILE.exists():
     environ.Env.read_env(
@@ -76,7 +76,7 @@ SYSTEM_VERSION = "1.0.0"
 
 
 # =============================================================================
-# DJANGO / SEGURANÇA
+# DJANGO / SEGURANÃ‡A
 # =============================================================================
 
 DEBUG = env.bool("DEBUG", default=False)
@@ -84,7 +84,7 @@ DEBUG = env.bool("DEBUG", default=False)
 SECRET_KEY = env("SECRET_KEY", default="")
 if not SECRET_KEY:
     if not DEBUG:
-        raise RuntimeError("SECRET_KEY não configurada. Configure a variável no arquivo .env em produção!")
+        raise RuntimeError("SECRET_KEY nÃ£o configurada. Configure a variÃ¡vel no arquivo .env em produÃ§Ã£o!")
     else:
         SECRET_KEY = "django-insecure-moonshield-development-only"
 # =============================================================================
@@ -122,7 +122,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 # =============================================================================
-# PYTHON PATH — APLICATIVOS
+# PYTHON PATH â€” APLICATIVOS
 # =============================================================================
 
 APPS_DIR = BASE_DIR / "aplicativos"
@@ -135,7 +135,7 @@ if str(APPS_DIR) not in sys.path:
 
 
 # =============================================================================
-# APLICAÇÕES
+# APLICAÃ‡Ã•ES
 # =============================================================================
 
 INSTALLED_APPS = [
@@ -165,13 +165,14 @@ INSTALLED_APPS = [
     "firewall",
     "dispositivos",
 
-    # Segurança / SOC
+    # SeguranÃ§a / SOC
     "ids",
     "incidentes",
 
     # Plataforma
     "relatorios",
     "configuracoes",
+    "wifi_access.apps.WifiAccessConfig",
 
     # MoonShield AI
     "MoonShield",
@@ -256,8 +257,8 @@ DATABASE_URL = env(
 
 if not DATABASE_URL:
     raise RuntimeError(
-        "DATABASE_URL não configurada. "
-        f"Configure a variável no arquivo: {ENV_FILE}"
+        "DATABASE_URL nÃ£o configurada. "
+        f"Configure a variÃ¡vel no arquivo: {ENV_FILE}"
     )
 
 DATABASES = {
@@ -282,7 +283,7 @@ IS_SQLITE = (
 
 
 # =============================================================================
-# CONFIGURAÇÃO DE CONEXÃO
+# CONFIGURAÃ‡ÃƒO DE CONEXÃƒO
 # =============================================================================
 
 if IS_POSTGRESQL:
@@ -314,7 +315,7 @@ elif IS_SQLITE:
     DATABASES["default"]["CONN_MAX_AGE"] = 0
 
 # =============================================================================
-# VALIDAÇÃO DE SENHAS
+# VALIDAÃ‡ÃƒO DE SENHAS
 # =============================================================================
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -353,7 +354,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # =============================================================================
-# LOCALIZAÇÃO
+# LOCALIZAÃ‡ÃƒO
 # =============================================================================
 
 LANGUAGE_CODE = "pt-br"
@@ -405,11 +406,11 @@ DEFAULT_AUTO_FIELD = (
 # =============================================================================
 # MAPBOX
 # =============================================================================
-# Removido: O token agora é armazenado via UI em ConfigSistema.mapbox_access_token
+# Removido: O token agora Ã© armazenado via UI em ConfigSistema.mapbox_access_token
 
 
 # =============================================================================
-# SESSÃO / COOKIES
+# SESSÃƒO / COOKIES
 # =============================================================================
 
 SESSION_COOKIE_HTTPONLY = True
@@ -564,3 +565,20 @@ LOGGING = {
 
 DJANGO_ADMIN_ENABLED = env.bool("DJANGO_ADMIN_ENABLED", default=False)
 DJANGO_ADMIN_PATH = env("DJANGO_ADMIN_PATH", default="admin-moonshield-hidden/")
+
+
+# =============================================================================
+# WI-FI ACCESS (AUTH01 -> MoonShield)
+# =============================================================================
+
+# Sem token configurado, a API externa recusa todas as chamadas.
+WIFI_API_TOKEN = env("WIFI_API_TOKEN", default="")
+WIFI_API_ALLOWED_IPS = tuple(
+    item.strip()
+    for item in env("WIFI_API_ALLOWED_IPS", default="").split(",")
+    if item.strip()
+)
+WIFI_ENFORCEMENT_ENABLED = env.bool("WIFI_ENFORCEMENT_ENABLED", default=False)
+WIFI_CLIENT_RANGE_START = env("WIFI_CLIENT_RANGE_START", default="")
+WIFI_CLIENT_RANGE_END = env("WIFI_CLIENT_RANGE_END", default="")
+WIFI_EGRESS_INTERFACES = env("WIFI_EGRESS_INTERFACES", default="")

@@ -1,5 +1,5 @@
-"""
-MoonShield Platform — Firewall / Agent Client
+﻿"""
+MoonShield Platform â€” Firewall / Agent Client
 =============================================
 
 Cliente IPC local usado pelo Django para conversar com o MoonShield-Agent.
@@ -7,27 +7,27 @@ Cliente IPC local usado pelo Django para conversar com o MoonShield-Agent.
 Arquitetura:
 
     Django
-      ↓
+      â†“
     aplicativos.firewall.services.agent_client
-      ↓
+      â†“
     Unix Domain Socket
-      ↓
+      â†“
     /run/moonshield/agent.sock
-      ↓
+      â†“
     MoonShield-Agent
-      ↓
+      â†“
     nftables / Linux
 
 IMPORTANTE:
-- NÃO usa HTTP.
-- NÃO usa requests.
-- NÃO usa IP de sensor.
-- NÃO usa porta 8765.
-- NÃO usa X-MS-TOKEN.
-- NÃO executa `nft` diretamente no processo Django.
-- Toda operação privilegiada pertence ao MoonShield-Agent.
+- NÃƒO usa HTTP.
+- NÃƒO usa requests.
+- NÃƒO usa IP de sensor.
+- NÃƒO usa porta 8765.
+- NÃƒO usa X-MS-TOKEN.
+- NÃƒO executa `nft` diretamente no processo Django.
+- Toda operaÃ§Ã£o privilegiada pertence ao MoonShield-Agent.
 
-O protocolo deve permanecer compatível com:
+O protocolo deve permanecer compatÃ­vel com:
     MoonShield-Agent/firewall/ipc/protocolo.py
 """
 
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# CONFIGURAÇÃO
+# CONFIGURAÃ‡ÃƒO
 # =============================================================================
 
 VERSAO_PROTOCOLO = 1
@@ -64,15 +64,15 @@ ENCODING = "utf-8"
 
 
 # =============================================================================
-# EXCEÇÕES
+# EXCEÃ‡Ã•ES
 # =============================================================================
 
 class ErroAgent(RuntimeError):
-    """Erro base da integração Django ↔ MoonShield-Agent."""
+    """Erro base da integraÃ§Ã£o Django â†” MoonShield-Agent."""
 
 
 class AgentIndisponivel(ErroAgent):
-    """Socket local não existe, não conecta ou Agent não está ativo."""
+    """Socket local nÃ£o existe, nÃ£o conecta ou Agent nÃ£o estÃ¡ ativo."""
 
 
 class AgentTimeout(ErroAgent):
@@ -80,11 +80,11 @@ class AgentTimeout(ErroAgent):
 
 
 class ErroProtocoloAgent(ErroAgent):
-    """Resposta IPC inválida ou incompatível."""
+    """Resposta IPC invÃ¡lida ou incompatÃ­vel."""
 
 
 class OperacaoAgentFalhou(ErroAgent):
-    """Agent respondeu corretamente, porém recusou/falhou na operação."""
+    """Agent respondeu corretamente, porÃ©m recusou/falhou na operaÃ§Ã£o."""
 
     def __init__(
         self,
@@ -126,7 +126,7 @@ class ResultadoAgent:
         return str(
             self.erro.get("mensagem")
             or self.erro.get("erro")
-            or "Operação falhou."
+            or "OperaÃ§Ã£o falhou."
         )
 
 
@@ -139,7 +139,7 @@ def obter_socket_path() -> str:
     Ordem de prioridade:
 
     1. settings.MOONSHIELD_AGENT_SOCKET
-    2. variável MOONSHIELD_AGENT_SOCKET
+    2. variÃ¡vel MOONSHIELD_AGENT_SOCKET
     3. /run/moonshield/agent.sock
     """
     valor_settings = getattr(
@@ -179,17 +179,17 @@ def chamar(
     levantar_erro_operacao: bool = False,
 ) -> ResultadoAgent:
     """
-    Executa uma chamada IPC síncrona.
+    Executa uma chamada IPC sÃ­ncrona.
 
-    Por padrão, erros de transporte/protocolo lançam exceção.
-    Uma resposta válida com ok=False é retornada como ResultadoAgent.
+    Por padrÃ£o, erros de transporte/protocolo lanÃ§am exceÃ§Ã£o.
+    Uma resposta vÃ¡lida com ok=False Ã© retornada como ResultadoAgent.
 
-    Se levantar_erro_operacao=True, ok=False também lança OperacaoAgentFalhou.
+    Se levantar_erro_operacao=True, ok=False tambÃ©m lanÃ§a OperacaoAgentFalhou.
     """
     acao = str(acao or "").strip()
 
     if not acao:
-        raise ValueError("Ação IPC é obrigatória.")
+        raise ValueError("AÃ§Ã£o IPC Ã© obrigatÃ³ria.")
 
     if dados is None:
         dados = {}
@@ -282,12 +282,12 @@ def _trocar_mensagem(
 
     if os.name != "posix":
         raise AgentIndisponivel(
-            "MoonShield-Agent IPC local só está disponível no host Linux."
+            "MoonShield-Agent IPC local sÃ³ estÃ¡ disponÃ­vel no host Linux."
         )
 
     if not os.path.exists(caminho):
         raise AgentIndisponivel(
-            f"Socket do MoonShield-Agent não encontrado: {caminho}"
+            f"Socket do MoonShield-Agent nÃ£o encontrado: {caminho}"
         )
 
     cliente = socket.socket(
@@ -313,17 +313,17 @@ def _trocar_mensagem(
 
     except FileNotFoundError as exc:
         raise AgentIndisponivel(
-            f"Socket do MoonShield-Agent não encontrado: {caminho}"
+            f"Socket do MoonShield-Agent nÃ£o encontrado: {caminho}"
         ) from exc
 
     except ConnectionRefusedError as exc:
         raise AgentIndisponivel(
-            "MoonShield-Agent recusou a conexão local."
+            "MoonShield-Agent recusou a conexÃ£o local."
         ) from exc
 
     except PermissionError as exc:
         raise AgentIndisponivel(
-            "Django não possui permissão para acessar o socket "
+            "Django nÃ£o possui permissÃ£o para acessar o socket "
             f"do MoonShield-Agent: {caminho}"
         ) from exc
 
@@ -342,7 +342,7 @@ def _trocar_mensagem(
         texto = raw.decode(ENCODING)
     except UnicodeDecodeError as exc:
         raise ErroProtocoloAgent(
-            "MoonShield-Agent retornou dados que não são UTF-8 válido."
+            "MoonShield-Agent retornou dados que nÃ£o sÃ£o UTF-8 vÃ¡lido."
         ) from exc
 
     try:
@@ -351,7 +351,7 @@ def _trocar_mensagem(
         )
     except json.JSONDecodeError as exc:
         raise ErroProtocoloAgent(
-            f"MoonShield-Agent retornou JSON inválido: {exc.msg}"
+            f"MoonShield-Agent retornou JSON invÃ¡lido: {exc.msg}"
         ) from exc
 
     if not isinstance(resposta, dict):
@@ -396,14 +396,14 @@ def _receber_linha(
 
     if not buffer:
         raise ErroProtocoloAgent(
-            "MoonShield-Agent encerrou a conexão sem resposta."
+            "MoonShield-Agent encerrou a conexÃ£o sem resposta."
         )
 
     return bytes(buffer)
 
 
 # =============================================================================
-# VALIDAÇÃO DE RESPOSTA
+# VALIDAÃ‡ÃƒO DE RESPOSTA
 # =============================================================================
 
 def _validar_resposta(
@@ -418,12 +418,12 @@ def _validar_resposta(
         versao = int(versao)
     except (TypeError, ValueError):
         raise ErroProtocoloAgent(
-            "Resposta sem versão de protocolo válida."
+            "Resposta sem versÃ£o de protocolo vÃ¡lida."
         ) from None
 
     if versao != VERSAO_PROTOCOLO:
         raise ErroProtocoloAgent(
-            f"Versão IPC incompatível: Agent={versao}, "
+            f"VersÃ£o IPC incompatÃ­vel: Agent={versao}, "
             f"Django={VERSAO_PROTOCOLO}."
         )
 
@@ -434,7 +434,7 @@ def _validar_resposta(
 
     if resposta_id != request_id_esperado:
         raise ErroProtocoloAgent(
-            "ID da resposta não corresponde à requisição."
+            "ID da resposta nÃ£o corresponde Ã  requisiÃ§Ã£o."
         )
 
     resposta_acao = str(
@@ -444,7 +444,7 @@ def _validar_resposta(
 
     if resposta_acao != acao_esperada:
         raise ErroProtocoloAgent(
-            f"Ação da resposta diverge da requisição: "
+            f"AÃ§Ã£o da resposta diverge da requisiÃ§Ã£o: "
             f"{resposta_acao!r} != {acao_esperada!r}."
         )
 
@@ -483,7 +483,7 @@ def _validar_resposta(
 
 
 # =============================================================================
-# AÇÕES DO SISTEMA
+# AÃ‡Ã•ES DO SISTEMA
 # =============================================================================
 
 def ping() -> dict[str, Any]:
@@ -509,7 +509,7 @@ def agente_disponivel() -> bool:
 
 
 # =============================================================================
-# FIREWALL — LEITURA
+# FIREWALL â€” LEITURA
 # =============================================================================
 
 def status(
@@ -577,7 +577,7 @@ def diagnostico(
 
 
 # =============================================================================
-# FIREWALL — INSTALAÇÃO
+# FIREWALL â€” INSTALAÃ‡ÃƒO
 # =============================================================================
 
 def instalar(
@@ -627,7 +627,7 @@ def desinstalar(
 
 
 # =============================================================================
-# FIREWALL — REGRAS
+# FIREWALL â€” REGRAS
 # =============================================================================
 
 def aplicar_regras(
@@ -684,7 +684,7 @@ def rollback(
 
 
 # =============================================================================
-# FIREWALL — SAFE APPLY (A9)
+# FIREWALL â€” SAFE APPLY (A9)
 # =============================================================================
 
 def aplicar_alteracao(
@@ -695,6 +695,7 @@ def aplicar_alteracao(
     config: dict[str, Any] | None = None,
     allowlist: list[str] | None = None,
     blocklist: list[dict[str, Any]] | None = None,
+    wifi_access: dict[str, Any] | None = None,
     timeout_segundos: int = 60,
 ) -> dict[str, Any]:
     if not isinstance(regras, list):
@@ -717,6 +718,10 @@ def aplicar_alteracao(
         if not isinstance(blocklist, list):
             raise TypeError("blocklist deve ser uma lista.")
         payload["blocklist"] = blocklist
+    if wifi_access is not None:
+        if not isinstance(wifi_access, dict):
+            raise TypeError("wifi_access deve ser um dict.")
+        payload["wifi_access"] = wifi_access
 
     return chamar_dados(
         "firewall.change.apply",
@@ -728,7 +733,7 @@ def aplicar_alteracao(
 def confirmar_alteracao(alteracao_id: str) -> dict[str, Any]:
     alteracao_id = str(alteracao_id or "").strip()
     if not alteracao_id:
-        raise ValueError("alteracao_id é obrigatório.")
+        raise ValueError("alteracao_id Ã© obrigatÃ³rio.")
     return chamar_dados(
         "firewall.change.confirm",
         {"alteracao_id": alteracao_id},
@@ -743,7 +748,7 @@ def reverter_alteracao(
 ) -> dict[str, Any]:
     alteracao_id = str(alteracao_id or "").strip()
     if not alteracao_id:
-        raise ValueError("alteracao_id é obrigatório.")
+        raise ValueError("alteracao_id Ã© obrigatÃ³rio.")
     return chamar_dados(
         "firewall.change.rollback",
         {
@@ -757,7 +762,7 @@ def reverter_alteracao(
 def status_alteracao(alteracao_id: str) -> dict[str, Any]:
     alteracao_id = str(alteracao_id or "").strip()
     if not alteracao_id:
-        raise ValueError("alteracao_id é obrigatório.")
+        raise ValueError("alteracao_id Ã© obrigatÃ³rio.")
     return chamar_dados(
         "firewall.change.status",
         {"alteracao_id": alteracao_id},
@@ -768,7 +773,7 @@ def status_alteracao(alteracao_id: str) -> dict[str, Any]:
 def cancelar_alteracao(alteracao_id: str) -> dict[str, Any]:
     alteracao_id = str(alteracao_id or "").strip()
     if not alteracao_id:
-        raise ValueError("alteracao_id é obrigatório.")
+        raise ValueError("alteracao_id Ã© obrigatÃ³rio.")
     return chamar_dados(
         "firewall.change.cancel",
         {"alteracao_id": alteracao_id},
@@ -786,7 +791,7 @@ def sincronizar_port_forwards(port_forwards: list[dict[str, Any]]) -> dict[str, 
     )
 
 # =============================================================================
-# FIREWALL — EMERGÊNCIA
+# FIREWALL â€” EMERGÃŠNCIA
 # =============================================================================
 
 def bloquear_ip(
@@ -801,7 +806,7 @@ def bloquear_ip(
     ip = str(ip or "").strip()
 
     if not ip:
-        raise ValueError("IP é obrigatório.")
+        raise ValueError("IP Ã© obrigatÃ³rio.")
 
     payload = {
         "ip": ip,
@@ -829,7 +834,7 @@ def liberar_ip(
     ip = str(ip or "").strip()
 
     if not ip:
-        raise ValueError("IP é obrigatório.")
+        raise ValueError("IP Ã© obrigatÃ³rio.")
 
     return chamar_dados(
         "firewall.unblock",
@@ -849,10 +854,10 @@ def status_seguro(
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Nunca lança exceção.
+    Nunca lanÃ§a exceÃ§Ã£o.
 
-    Útil para páginas/status onde Agent offline deve virar estado de UI,
-    e não HTTP 500.
+    Ãštil para pÃ¡ginas/status onde Agent offline deve virar estado de UI,
+    e nÃ£o HTTP 500.
     """
     try:
         dados_ping = ping()

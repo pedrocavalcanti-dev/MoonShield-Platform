@@ -1,0 +1,204 @@
+﻿{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Wi-Fi{% endblock %}
+
+{% block breadcrumb %}
+<span class="topbar__breadcrumb-item topbar__breadcrumb-item--root">Wi-Fi</span>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/wifi/wifi.css' %}">
+{% endblock %}
+
+{% block conteudo %}
+<section id="wifiApp" class="wifi-page"
+  data-state-url="{% url 'wifi:panel_state' %}"
+  data-trusted-url="{% url 'wifi:trusted_devices' %}"
+  data-bulk-trusted-url="{% url 'wifi:bulk_trusted_devices' %}"
+  data-bulk-action-url="{% url 'wifi:bulk_trusted_action' %}"
+  data-sync-url="{% url 'wifi:sync_now' %}"
+  data-diag-url="{% url 'wifi:diagnostics_data' %}">
+
+  <header class="wifi-header">
+    <div class="wifi-header__text">
+      <p class="wifi-eyebrow">CONTROLE DE ACESSO</p>
+      <h1>Wi-Fi</h1>
+      <p class="wifi-subtitle">Controle de dispositivos autorizados e acessos emitidos pelo portal.</p>
+    </div>
+    <div class="wifi-header__actions">
+      <button type="button" class="wifi-button wifi-button--primary" id="wifiAddTrusted">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Adicionar dispositivo
+      </button>
+    </div>
+  </header>
+
+  <div class="wifi-cards">
+    <article class="wifi-card">
+      <div class="wifi-card__icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+      </div>
+      <div class="wifi-card__content">
+        <span>Permanentes</span>
+        <strong id="wifiTrustedCount">â€”</strong>
+      </div>
+    </article>
+    <article class="wifi-card">
+      <div class="wifi-card__icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+      </div>
+      <div class="wifi-card__content">
+        <span>Login ativo</span>
+        <strong id="wifiAuthorizedCount">â€”</strong>
+      </div>
+    </article>
+    <article class="wifi-card">
+      <div class="wifi-card__icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+      </div>
+      <div class="wifi-card__content">
+        <span>Total liberado</span>
+        <strong id="wifiTotalCount">â€”</strong>
+      </div>
+    </article>
+    <article class="wifi-card" id="wifiRevokedCard" style="display: none;">
+      <div class="wifi-card__icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+      </div>
+      <div class="wifi-card__content">
+        <span>Revogados / Expirados</span>
+        <strong id="wifiRevokedCount">â€”</strong>
+      </div>
+    </article>
+  </div>
+
+  <section class="wifi-panel" style="margin-bottom: 16px;">
+    <div class="wifi-panel__header" style="padding: 12px 20px;">
+      <h2 style="margin: 0; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+        Estado do Controle
+      </h2>
+      <button type="button" class="wifi-button wifi-button--quiet" id="wifiSyncNow">Sincronizar agora</button>
+    </div>
+    <div style="padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; font-size: 13px;">
+      <div>
+        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">Agent</span>
+        <strong id="diagAgent">â€”</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">SincronizaÃ§Ã£o</span>
+        <strong id="diagSync">â€”</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">Modo</span>
+        <strong id="diagMode">â€”</strong>
+      </div>
+      <div>
+        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">InconsistÃªncias (IP/MAC)</span>
+        <strong id="diagInconsistencies">â€”</strong>
+      </div>
+    </div>
+  </section>
+
+  <section class="wifi-panel">
+    <div class="wifi-toolbar">
+      <div class="wifi-toolbar__search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="wifiSearchInput" placeholder="Buscar por nome, usuÃ¡rio, IP ou MAC...">
+      </div>
+      <div class="wifi-toolbar__filters" id="wifiFilters">
+        <button type="button" class="wifi-filter-btn active" data-filter="all">Todos</button>
+        <button type="button" class="wifi-filter-btn" data-filter="trusted">Permanentes</button>
+        <button type="button" class="wifi-filter-btn" data-filter="login">Login</button>
+        <button type="button" class="wifi-filter-btn" data-filter="active">Ativos</button>
+        <button type="button" class="wifi-filter-btn" data-filter="revoked">Revogados</button>
+      </div>
+      <button type="button" class="wifi-button wifi-button--quiet" id="wifiRefresh" aria-label="Atualizar dados">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+      </button>
+    </div>
+
+    <div class="wifi-mass-actions" id="wifiMassActions" style="display: none;">
+      <span class="wifi-mass-actions__count"><strong id="wifiSelectedCount">0</strong> selecionados</span>
+      <button type="button" class="wifi-button wifi-button--quiet" id="wifiMassActivate">Ativar selecionados</button>
+      <button type="button" class="wifi-button wifi-button--quiet wifi-button--danger" id="wifiMassDeactivate">Desativar selecionados</button>
+    </div>
+
+    <div class="wifi-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="wifi-td-checkbox"><input type="checkbox" id="wifiSelectAll" aria-label="Selecionar todos"></th>
+            <th>Nome / UsuÃ¡rio</th>
+            <th>IP</th>
+            <th>MAC</th>
+            <th>Tipo</th>
+            <th>Estado</th>
+            <th>Autorizado em</th>
+            <th>Expira</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="wifiRows">
+          <tr><td colspan="9" class="wifi-empty">Carregandoâ€¦</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <dialog class="wifi-dialog" id="wifiTrustedDialog">
+    <div class="wifi-dialog__content">
+      <header>
+        <h2 id="wifiDialogTitle">Adicionar dispositivo</h2>
+        <button aria-label="Fechar" type="button" class="wifi-close" id="wifiDialogClose">&times;</button>
+      </header>
+
+      <div class="wifi-tabs" id="wifiDialogTabs">
+        <button type="button" class="wifi-tab active" data-tab="individual">INDIVIDUAL</button>
+        <button type="button" class="wifi-tab" data-tab="bulk">EM LOTE</button>
+      </div>
+
+      <div class="wifi-tab-content active" id="wifiTabIndividual">
+        <form id="wifiTrustedForm">
+          <input type="hidden" id="wifiTrustedId">
+          <label>Nome<input id="wifiTrustedName" maxlength="120" required></label>
+          <label>MAC<input id="wifiTrustedMac" placeholder="AA:BB:CC:DD:EE:FF" required></label>
+          <label>IP atual <small>(opcional)</small><input id="wifiTrustedIp" inputmode="decimal" placeholder="10.10.0.20"></label>
+          <label>DescriÃ§Ã£o<textarea id="wifiTrustedDescription" rows="3"></textarea></label>
+          <footer>
+            <button type="button" class="wifi-button wifi-button--quiet wifi-dialog-cancel">Cancelar</button>
+            <button type="submit" class="wifi-button wifi-button--primary">Salvar</button>
+          </footer>
+        </form>
+      </div>
+
+      <div class="wifi-tab-content" id="wifiTabBulk">
+        <form id="wifiBulkForm">
+          <div class="wifi-bulk-instructions">
+            <p>Cole uma lista de dispositivos, um por linha. Formato suportado:</p>
+            <code>MAC;Nome;IP (opcional);DescriÃ§Ã£o (opcional)</code>
+          </div>
+          <label>
+            Dispositivos em lote
+            <textarea id="wifiBulkTextarea" rows="8" placeholder="AA:BB:CC:DD:EE:FF;Dispositivo 1;10.10.0.50;Meu tablet&#10;11:22:33:44:55:66;Dispositivo 2;;Sem IP definido" required></textarea>
+          </label>
+          <div id="wifiBulkPreview" class="wifi-bulk-preview" style="display: none;">
+            <p><strong>PrÃ©-visualizaÃ§Ã£o:</strong> <span id="wifiBulkValidCount">0</span> vÃ¡lidos.</p>
+            <ul id="wifiBulkErrorList" class="wifi-bulk-errors"></ul>
+          </div>
+          <footer>
+            <button type="button" class="wifi-button wifi-button--quiet wifi-dialog-cancel">Cancelar</button>
+            <button type="submit" class="wifi-button wifi-button--primary" id="wifiBulkSubmit">Salvar Lote</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+  </dialog>
+  <p id="wifiNotice" class="wifi-notice" role="status"></p>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/wifi/wifi.js' %}"></script>
+{% endblock %}

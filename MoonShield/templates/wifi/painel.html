@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% load static %}
 
 {% block title %}Wi-Fi{% endblock %}
@@ -41,7 +41,7 @@
       </div>
       <div class="wifi-card__content">
         <span>Permanentes</span>
-        <strong id="wifiTrustedCount">â€”</strong>
+        <strong id="wifiTrustedCount">—</strong>
       </div>
     </article>
     <article class="wifi-card">
@@ -50,7 +50,7 @@
       </div>
       <div class="wifi-card__content">
         <span>Login ativo</span>
-        <strong id="wifiAuthorizedCount">â€”</strong>
+        <strong id="wifiAuthorizedCount">—</strong>
       </div>
     </article>
     <article class="wifi-card">
@@ -59,7 +59,7 @@
       </div>
       <div class="wifi-card__content">
         <span>Total liberado</span>
-        <strong id="wifiTotalCount">â€”</strong>
+        <strong id="wifiTotalCount">—</strong>
       </div>
     </article>
     <article class="wifi-card" id="wifiRevokedCard" style="display: none;">
@@ -68,7 +68,7 @@
       </div>
       <div class="wifi-card__content">
         <span>Revogados / Expirados</span>
-        <strong id="wifiRevokedCount">â€”</strong>
+        <strong id="wifiRevokedCount">—</strong>
       </div>
     </article>
   </div>
@@ -84,19 +84,19 @@
     <div style="padding: 16px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; font-size: 13px;">
       <div>
         <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">Agent</span>
-        <strong id="diagAgent">â€”</strong>
+        <strong id="diagAgent">—</strong>
       </div>
       <div>
-        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">SincronizaÃ§Ã£o</span>
-        <strong id="diagSync">â€”</strong>
+        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">Sincronização</span>
+        <strong id="diagSync">—</strong>
       </div>
       <div>
         <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">Modo</span>
-        <strong id="diagMode">â€”</strong>
+        <strong id="diagMode">—</strong>
       </div>
       <div>
-        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">InconsistÃªncias (IP/MAC)</span>
-        <strong id="diagInconsistencies">â€”</strong>
+        <span style="color: var(--text-dim); display: block; margin-bottom: 4px;">Inconsistências (IP/MAC)</span>
+        <strong id="diagInconsistencies">—</strong>
       </div>
     </div>
   </section>
@@ -105,7 +105,7 @@
     <div class="wifi-toolbar">
       <div class="wifi-toolbar__search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <input type="text" id="wifiSearchInput" placeholder="Buscar por nome, usuÃ¡rio, IP ou MAC...">
+        <input type="text" id="wifiSearchInput" placeholder="Buscar por nome, usuário, IP ou MAC...">
       </div>
       <div class="wifi-toolbar__filters" id="wifiFilters">
         <button type="button" class="wifi-filter-btn active" data-filter="all">Todos</button>
@@ -130,7 +130,7 @@
         <thead>
           <tr>
             <th class="wifi-td-checkbox"><input type="checkbox" id="wifiSelectAll" aria-label="Selecionar todos"></th>
-            <th>Nome / UsuÃ¡rio</th>
+            <th>Nome / Usuário</th>
             <th>IP</th>
             <th>MAC</th>
             <th>Tipo</th>
@@ -141,7 +141,7 @@
           </tr>
         </thead>
         <tbody id="wifiRows">
-          <tr><td colspan="9" class="wifi-empty">Carregandoâ€¦</td></tr>
+          <tr><td colspan="9" class="wifi-empty">Carregando…</td></tr>
         </tbody>
       </table>
     </div>
@@ -165,7 +165,7 @@
           <label>Nome<input id="wifiTrustedName" maxlength="120" required></label>
           <label>MAC<input id="wifiTrustedMac" placeholder="AA:BB:CC:DD:EE:FF" required></label>
           <label>IP atual <small>(opcional)</small><input id="wifiTrustedIp" inputmode="decimal" placeholder="10.10.0.20"></label>
-          <label>DescriÃ§Ã£o<textarea id="wifiTrustedDescription" rows="3"></textarea></label>
+          <label>Descrição<textarea id="wifiTrustedDescription" rows="3"></textarea></label>
           <footer>
             <button type="button" class="wifi-button wifi-button--quiet wifi-dialog-cancel">Cancelar</button>
             <button type="submit" class="wifi-button wifi-button--primary">Salvar</button>
@@ -177,14 +177,14 @@
         <form id="wifiBulkForm">
           <div class="wifi-bulk-instructions">
             <p>Cole uma lista de dispositivos, um por linha. Formato suportado:</p>
-            <code>MAC;Nome;IP (opcional);DescriÃ§Ã£o (opcional)</code>
+            <code>MAC;Nome;IP (opcional);Descrição (opcional)</code>
           </div>
           <label>
             Dispositivos em lote
             <textarea id="wifiBulkTextarea" rows="8" placeholder="AA:BB:CC:DD:EE:FF;Dispositivo 1;10.10.0.50;Meu tablet&#10;11:22:33:44:55:66;Dispositivo 2;;Sem IP definido" required></textarea>
           </label>
           <div id="wifiBulkPreview" class="wifi-bulk-preview" style="display: none;">
-            <p><strong>PrÃ©-visualizaÃ§Ã£o:</strong> <span id="wifiBulkValidCount">0</span> vÃ¡lidos.</p>
+            <p><strong>Pré-visualização:</strong> <span id="wifiBulkValidCount">0</span> válidos.</p>
             <ul id="wifiBulkErrorList" class="wifi-bulk-errors"></ul>
           </div>
           <footer>

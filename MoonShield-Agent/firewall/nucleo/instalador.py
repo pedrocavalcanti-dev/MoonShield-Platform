@@ -1,45 +1,45 @@
-﻿"""
-MoonShield Agent â€” Firewall / Instalador
+"""
+MoonShield Agent — Firewall / Instalador
 ========================================
 
 Instalador PRIVILEGIADO do Firewall MoonShield no Linux.
 
 IMPORTANTE SOBRE A ARQUITETURA
 ------------------------------
-A tela de instalaÃ§Ã£o, onboarding, progresso e tarefas pertencem ao Django.
+A tela de instalação, onboarding, progresso e tarefas pertencem ao Django.
 
 Este arquivo fica no MoonShield-Agent porque somente o Agent deve executar:
 
 - apt-get/install do nftables;
-- criaÃ§Ã£o de diretÃ³rios em /etc e /var/lib;
-- criaÃ§Ã£o da tabela `inet moonshield`;
-- validaÃ§Ã£o via `nft -c`;
-- aplicaÃ§Ã£o de regras base;
+- criação de diretórios em /etc e /var/lib;
+- criação da tabela `inet moonshield`;
+- validação via `nft -c`;
+- aplicação de regras base;
 - reparo local;
-- remoÃ§Ã£o controlada.
+- remoção controlada.
 
 Portanto:
 
-    Django = interface + orquestraÃ§Ã£o + tarefa + logs
-    Agent  = execuÃ§Ã£o privilegiada Linux
+    Django = interface + orquestração + tarefa + logs
+    Agent  = execução privilegiada Linux
 
 O Django deve chamar este instalador via IPC local.
 
-SEGURANÃ‡A
+SEGURANÇA
 ---------
 - somente nftables;
-- NÃƒO migra iptables automaticamente;
-- NÃƒO executa `iptables`;
-- NÃƒO executa `flush ruleset`;
-- NÃƒO altera tabelas nftables de terceiros;
-- NÃƒO habilita/desabilita regras de terceiros;
-- polÃ­ticas iniciais sÃ£o ACCEPT;
+- NÃO migra iptables automaticamente;
+- NÃO executa `iptables`;
+- NÃO executa `flush ruleset`;
+- NÃO altera tabelas nftables de terceiros;
+- NÃO habilita/desabilita regras de terceiros;
+- políticas iniciais são ACCEPT;
 - cria somente `table inet moonshield`;
-- protege MGMT atravÃ©s de `ms_system`;
-- snapshot antes de alteraÃ§Ã£o;
+- protege MGMT através de `ms_system`;
+- snapshot antes de alteração;
 - `nft -c` antes de aplicar.
 
-Este mÃ³dulo usa somente biblioteca padrÃ£o.
+Este módulo usa somente biblioteca padrão.
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ ARQUIVO_NAT = (
 
 
 # =============================================================================
-# API PÃšBLICA
+# API PÚBLICA
 # =============================================================================
 
 def instalar(
@@ -148,7 +148,7 @@ def instalar(
             "instalar_pacote": true
         }
 
-    A instalaÃ§Ã£o inicial mantÃ©m policy ACCEPT.
+    A instalação inicial mantém policy ACCEPT.
     """
     inicio = time.monotonic()
 
@@ -181,7 +181,7 @@ def instalar(
     if not _root():
         return _erro(
             "root_necessario",
-            "A instalaÃ§Ã£o deve ser executada pelo MoonShield-Agent como root.",
+            "A instalação deve ser executada pelo MoonShield-Agent como root.",
             inicio,
         )
 
@@ -199,7 +199,7 @@ def instalar(
         if not instalar_pacote:
             return _erro(
                 "nftables_ausente",
-                "nftables nÃ£o estÃ¡ instalado.",
+                "nftables não está instalado.",
                 inicio,
             )
 
@@ -234,7 +234,7 @@ def instalar(
     if not nft:
         return _erro(
             "nftables_indisponivel",
-            "nft continua indisponÃ­vel apÃ³s instalaÃ§Ã£o.",
+            "nft continua indisponível após instalação.",
             inicio,
             etapas=etapas,
         )
@@ -243,7 +243,7 @@ def instalar(
         {
             "etapa": "nftables",
             "ok": True,
-            "mensagem": "nftables disponÃ­vel.",
+            "mensagem": "nftables disponível.",
             "versao": _versao_nft(
                 nft
             ),
@@ -251,7 +251,7 @@ def instalar(
     )
 
     # ------------------------------------------------------------------
-    # 2. DiretÃ³rios
+    # 2. Diretórios
     # ------------------------------------------------------------------
 
     try:
@@ -261,7 +261,7 @@ def instalar(
             {
                 "etapa": "diretorios",
                 "ok": True,
-                "mensagem": "DiretÃ³rios MoonShield preparados.",
+                "mensagem": "Diretórios MoonShield preparados.",
             }
         )
 
@@ -301,14 +301,14 @@ def instalar(
     if not topologia.ok:
         return _erro(
             "topologia_invalida",
-            "WAN/LAN nÃ£o estÃ£o prontas para instalaÃ§Ã£o.",
+            "WAN/LAN não estão prontas para instalação.",
             inicio,
             etapas=etapas,
             detalhes=topologia.para_dict(),
         )
 
     # ------------------------------------------------------------------
-    # 4. iptables â€” SOMENTE DETECÃ‡ÃƒO
+    # 4. iptables — SOMENTE DETECÇÃO
     # ------------------------------------------------------------------
 
     legado = _detectar_iptables()
@@ -318,18 +318,18 @@ def instalar(
             "etapa": "iptables",
             "ok": True,
             "mensagem": (
-                "iptables detectado; nenhuma regra serÃ¡ alterada."
+                "iptables detectado; nenhuma regra será alterada."
                 if legado[
                     "detectado"
                 ]
-                else "iptables nÃ£o detectado."
+                else "iptables não detectado."
             ),
             "detalhes": legado,
         }
     )
 
     # ------------------------------------------------------------------
-    # 5. PersistÃªncia da config
+    # 5. Persistência da config
     # ------------------------------------------------------------------
 
     config_final = {
@@ -394,7 +394,7 @@ def instalar(
     if not validacao_textual.ok:
         return _erro(
             "base_insegura",
-            "ConfiguraÃ§Ã£o base rejeitada pela seguranÃ§a.",
+            "Configuração base rejeitada pela segurança.",
             inicio,
             etapas=etapas,
             detalhes=validacao_textual.para_dict(),
@@ -405,16 +405,16 @@ def instalar(
         encoding="utf-8",
     )
 
-    # MantÃ©m arquivos separados preparados para as prÃ³ximas fases.
+    # Mantém arquivos separados preparados para as próximas fases.
     if not ARQUIVO_RULES.exists():
         ARQUIVO_RULES.write_text(
-            "# MoonShield Firewall â€” regras administrativas\n",
+            "# MoonShield Firewall — regras administrativas\n",
             encoding="utf-8",
         )
 
     if not ARQUIVO_NAT.exists():
         ARQUIVO_NAT.write_text(
-            "# MoonShield Firewall â€” NAT (nÃ£o configurado)\n",
+            "# MoonShield Firewall — NAT (não configurado)\n",
             encoding="utf-8",
         )
 
@@ -489,7 +489,7 @@ def instalar(
             "validacao_nft_falhou",
             check.get(
                 "erro",
-                "nft -c rejeitou a configuraÃ§Ã£o.",
+                "nft -c rejeitou a configuração.",
             ),
             inicio,
             etapas=etapas,
@@ -561,7 +561,7 @@ def instalar(
 
         return _erro(
             "healthcheck_falhou",
-            "A tabela foi aplicada, mas o healthcheck nÃ£o confirmou a instalaÃ§Ã£o.",
+            "A tabela foi aplicada, mas o healthcheck não confirmou a instalação.",
             inicio,
             etapas=etapas,
             snapshot_id=snapshot_id,
@@ -577,7 +577,7 @@ def instalar(
     return {
         "ok": True,
         "status": "sucesso",
-        "mensagem": "MoonShield Firewall instalado com seguranÃ§a.",
+        "mensagem": "MoonShield Firewall instalado com segurança.",
 
         "snapshot_id": snapshot_id,
 
@@ -612,10 +612,10 @@ def reparar(
     dados: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Reaplica a base MoonShield usando a configuraÃ§Ã£o persistida.
+    Reaplica a base MoonShield usando a configuração persistida.
 
-    NÃ£o altera iptables.
-    NÃ£o altera tabelas externas.
+    Não altera iptables.
+    Não altera tabelas externas.
     """
     dados = dados or {}
 
@@ -641,7 +641,7 @@ def reparar(
         "config"
     ] = cfg
 
-    # NÃ£o precisa instalar pacote se jÃ¡ existe.
+    # Não precisa instalar pacote se já existe.
     payload[
         "instalar_pacote"
     ] = True
@@ -660,7 +660,7 @@ def reparar_firewall(
 
 
 # =============================================================================
-# DESINSTALAÃ‡ÃƒO
+# DESINSTALAÇÃO
 # =============================================================================
 
 def desinstalar(
@@ -669,9 +669,9 @@ def desinstalar(
     """
     Remove SOMENTE `table inet moonshield`.
 
-    O pacote nftables nÃ£o Ã© removido.
-    iptables nÃ£o Ã© alterado.
-    Config e snapshots sÃ£o preservados por padrÃ£o.
+    O pacote nftables não é removido.
+    iptables não é alterado.
+    Config e snapshots são preservados por padrão.
 
     Para apagar config local:
         {"remover_config": true}
@@ -687,7 +687,7 @@ def desinstalar(
     ):
         return _erro(
             "confirmacao_necessaria",
-            "DesinstalaÃ§Ã£o exige confirmar=true.",
+            "Desinstalação exige confirmar=true.",
             inicio,
         )
 
@@ -705,7 +705,7 @@ def desinstalar(
     if not nft:
         return _erro(
             "nft_indisponivel",
-            "nft nÃ£o encontrado.",
+            "nft não encontrado.",
             inicio,
         )
 
@@ -847,8 +847,8 @@ def _gerar_base(
     """
     Cria firewall base em policy ACCEPT.
 
-    O enforcement administrativo virÃ¡ por ms_rules.
-    A primeira instalaÃ§Ã£o nÃ£o fecha trÃ¡fego por padrÃ£o.
+    O enforcement administrativo virá por ms_rules.
+    A primeira instalação não fecha tráfego por padrão.
     """
     allowlist = carregar_allowlist_cache()
     linhas: list[str] = []
@@ -935,7 +935,7 @@ def _gerar_base(
         ]
     )
 
-    # Regras essenciais do sistema entram depois da criaÃ§Ã£o da tabela.
+    # Regras essenciais do sistema entram depois da criação da tabela.
     for regra in gerar_regras_sistema(
         contexto
     ):
@@ -1009,21 +1009,21 @@ def _set_elements(enderecos: list[str], *, indent: str) -> str:
 
 
 # =============================================================================
-# INSTALAÃ‡ÃƒO DE PACOTE
+# INSTALAÇÃO DE PACOTE
 # =============================================================================
 
 def _instalar_nftables() -> dict[str, Any]:
     """
     Instala somente o pacote nftables.
 
-    NÃƒO executa:
+    NÃO executa:
         systemctl enable nftables
         systemctl disable iptables
         iptables-save
         iptables-restore
         flush ruleset
 
-    A persistÃªncia do MoonShield pertence ao Agent.
+    A persistência do MoonShield pertence ao Agent.
     """
     apt = shutil.which(
         "apt-get"
@@ -1033,7 +1033,7 @@ def _instalar_nftables() -> dict[str, Any]:
         return {
             "ok": False,
             "erro": (
-                "Gerenciador apt-get nÃ£o encontrado. "
+                "Gerenciador apt-get não encontrado. "
                 "Instale nftables manualmente."
             ),
         }
@@ -1099,7 +1099,7 @@ def _instalar_nftables() -> dict[str, Any]:
     except subprocess.TimeoutExpired:
         return {
             "ok": False,
-            "erro": "InstalaÃ§Ã£o nftables excedeu o tempo limite.",
+            "erro": "Instalação nftables excedeu o tempo limite.",
         }
 
     except Exception as exc:
@@ -1333,12 +1333,12 @@ def _arquivo_temporario(
 
 
 # =============================================================================
-# IPTABLES â€” DETECÃ‡ÃƒO APENAS
+# IPTABLES — DETECÇÃO APENAS
 # =============================================================================
 
 def _detectar_iptables() -> dict[str, Any]:
     """
-    O MoonShield NÃƒO migra nem altera iptables automaticamente.
+    O MoonShield NÃO migra nem altera iptables automaticamente.
     """
     iptables = shutil.which(
         "iptables"
@@ -1379,7 +1379,7 @@ def _detectar_iptables() -> dict[str, Any]:
         "versao": versao,
         "alterado": False,
         "mensagem": (
-            "iptables foi detectado e serÃ¡ preservado."
+            "iptables foi detectado e será preservado."
         ),
     }
 

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ipaddress
 import logging
@@ -12,9 +12,9 @@ from wifi_access.models import normalize_mac
 
 logger = logging.getLogger(__name__)
 
-# Estados do inventÃ¡rio que nÃ£o garantem que o IP ainda pertence ao MAC.
+# Estados do inventário que não garantem que o IP ainda pertence ao MAC.
 _UNRELIABLE_STATUS = {Dispositivo.Status.OFFLINE, Dispositivo.Status.STALE}
-# Estados de neighbour que nÃ£o representam associaÃ§Ã£o IP -> MAC utilizÃ¡vel.
+# Estados de neighbour que não representam associação IP -> MAC utilizável.
 _INVALID_NEIGH_STATES = {"FAILED", "INCOMPLETE", "NOARP"}
 
 
@@ -28,7 +28,7 @@ def _ip(value: object) -> str:
     try:
         return str(ipaddress.IPv4Address(str(value or "").strip()))
     except ipaddress.AddressValueError as exc:
-        raise MacResolutionError("EndereÃ§o IPv4 invÃ¡lido.", code="ip_invalido") from exc
+        raise MacResolutionError("Endereço IPv4 inválido.", code="ip_invalido") from exc
 
 
 def _safe_mac(value: object) -> str | None:
@@ -39,7 +39,7 @@ def _safe_mac(value: object) -> str | None:
 
 
 def _inventory_mac(ip: str) -> str | None:
-    """Fonte 1: inventÃ¡rio Dispositivo, somente se inequÃ­voco e nÃ£o obsoleto."""
+    """Fonte 1: inventário Dispositivo, somente se inequívoco e não obsoleto."""
     rows = Dispositivo.objects.filter(current_ip=ip).exclude(mac__isnull=True).exclude(mac="")
     candidates = {
         mac for raw_mac, status in rows.values_list("mac", "status")
@@ -49,7 +49,7 @@ def _inventory_mac(ip: str) -> str | None:
 
 
 def agent_neighbors() -> list[dict]:
-    """Fonte 2: tabela neighbour lida pelo Agent (aÃ§Ã£o read-only existente).
+    """Fonte 2: tabela neighbour lida pelo Agent (ação read-only existente).
 
     Django nunca executa ``ip neigh``; reutiliza ``diagnostic.execute`` com
     ``arp_table``. Sem Agent (ex.: Windows) retorna lista vazia, sem traceback.
@@ -61,7 +61,7 @@ def agent_neighbors() -> list[dict]:
             return []
         result = requisitar_agent("diagnostic.execute", dados={"tool": "arp_table", "target": "", "options": {}}, timeout=10)
     except Exception as exc:  # Agent offline, socket inexistente, plataforma sem AF_UNIX etc.
-        logger.info("Tabela neighbour indisponÃ­vel via Agent: %s", exc)
+        logger.info("Tabela neighbour indisponível via Agent: %s", exc)
         return []
     data = result.get("dados", result) if isinstance(result, dict) else {}
     if not isinstance(data, dict) or data.get("status") != "ok":
@@ -83,13 +83,13 @@ def _neighbor_mac(ip: str) -> str | None:
 
 
 def resolve_mac(ip_address: object) -> str:
-    """Resolve IP -> MAC pela visÃ£o de rede do prÃ³prio MoonShield.
+    """Resolve IP -> MAC pela visão de rede do próprio MoonShield.
 
-    Ordem: inventÃ¡rio confiÃ¡vel -> neighbour do Agent. Ambiguidade ou ausÃªncia
+    Ordem: inventário confiável -> neighbour do Agent. Ambiguidade ou ausência
     resultam em ``MacResolutionError`` controlado; o MAC nunca vem do cliente.
     """
     ip = _ip(ip_address)
     mac = _inventory_mac(ip) or _neighbor_mac(ip)
     if not mac:
-        raise MacResolutionError("NÃ£o foi possÃ­vel associar o IP a um MAC na rede MoonShield.")
+        raise MacResolutionError("Não foi possível associar o IP a um MAC na rede MoonShield.")
     return mac

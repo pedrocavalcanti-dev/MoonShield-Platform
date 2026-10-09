@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ipaddress
 
@@ -20,17 +20,17 @@ class WifiAuthorizationError(ValueError):
 
 def _ip(value: object) -> str:
     if not isinstance(value, str):
-        raise WifiAuthorizationError("ip_invalido", "Informe um endereÃ§o IPv4 vÃ¡lido.")
+        raise WifiAuthorizationError("ip_invalido", "Informe um endereço IPv4 válido.")
     try:
         return str(ipaddress.IPv4Address(value.strip()))
     except ipaddress.AddressValueError as exc:
-        raise WifiAuthorizationError("ip_invalido", "Informe um endereÃ§o IPv4 vÃ¡lido.") from exc
+        raise WifiAuthorizationError("ip_invalido", "Informe um endereço IPv4 válido.") from exc
 
 
 def _username(value: object) -> str:
     username = value.strip() if isinstance(value, str) else ""
     if not username or len(username) > 150 or any(ord(char) < 32 or ord(char) == 127 for char in username):
-        raise WifiAuthorizationError("username_invalido", "Informe um usuÃ¡rio vÃ¡lido.")
+        raise WifiAuthorizationError("username_invalido", "Informe um usuário válido.")
     return username
 
 
@@ -43,10 +43,10 @@ def is_trusted_mac(mac_address: str) -> bool:
 
 
 def authorize(username: object, ip_address: object) -> dict:
-    """Autoriza um cliente jÃ¡ autenticado pelo AUTH01.
+    """Autoriza um cliente já autenticado pelo AUTH01.
 
-    O banco Ã© alterado dentro de uma transaÃ§Ã£o; o Firewall Ã© aplicado com esse
-    estado e, se falhar, a transaÃ§Ã£o Ã© desfeita (nada fica ativo sem firewall).
+    O banco é alterado dentro de uma transação; o Firewall é aplicado com esse
+    estado e, se falhar, a transação é desfeita (nada fica ativo sem firewall).
     """
     username = _username(username)
     ip_address = _ip(ip_address)
@@ -60,7 +60,7 @@ def authorize(username: object, ip_address: object) -> dict:
         with transaction.atomic():
             lock_wifi_changes()
             trusted = WifiTrustedDevice.objects.select_for_update().filter(mac_address=mac_address, active=True).first()
-            # IP reatribuÃ­do pelo DHCP: autorizaÃ§Ãµes de outros MACs neste IP deixam de valer.
+            # IP reatribuído pelo DHCP: autorizações de outros MACs neste IP deixam de valer.
             WifiAuthorization.objects.filter(active=True, ip_address=ip_address).exclude(mac_address=mac_address).update(
                 active=False, revoked_at=now, revoked_reason="ip_reatribuido", updated_at=now,
             )
@@ -75,7 +75,7 @@ def authorize(username: object, ip_address: object) -> dict:
             if authorization is None:
                 authorization = WifiAuthorization(username=username, mac_address=mac_address, authorized_at=now, active=True)
             elif authorization.username != username:
-                # Outro usuÃ¡rio no mesmo dispositivo: encerra a sessÃ£o anterior para auditoria.
+                # Outro usuário no mesmo dispositivo: encerra a sessão anterior para auditoria.
                 authorization.active = False
                 authorization.revoked_at = now
                 authorization.revoked_reason = "substituida_por_novo_login"
@@ -110,7 +110,7 @@ def revoke(*, ip_address: object = None, authorization_id: object = None, reason
             lock_wifi_changes()
             authorization = WifiAuthorization.objects.select_for_update().filter(active=True, **lookup).first()
             if authorization is None:
-                raise WifiAuthorizationError("autorizacao_nao_encontrada", "AutorizaÃ§Ã£o ativa nÃ£o encontrada.", status=404)
+                raise WifiAuthorizationError("autorizacao_nao_encontrada", "Autorização ativa não encontrada.", status=404)
             authorization.active = False
             authorization.revoked_at = timezone.now()
             authorization.revoked_reason = str(reason or "")[:255]

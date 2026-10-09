@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 from typing import Any
@@ -14,10 +14,10 @@ from wifi_access.services.firewall import lock_wifi_changes, apply_or_raise, des
 logger = logging.getLogger(__name__)
 
 def build_mac_to_ip_map() -> dict[str, str]:
-    """ConstrÃ³i mapeamento seguro de MAC para IP atual (fonte: InventÃ¡rio + Neighbour)."""
+    """Constrói mapeamento seguro de MAC para IP atual (fonte: Inventário + Neighbour)."""
     mac_to_ip: dict[str, str] = {}
 
-    # 1. ARP/Neighbour tem precedÃªncia por ser o tempo real da rede local
+    # 1. ARP/Neighbour tem precedência por ser o tempo real da rede local
     try:
         neighbors = agent_neighbors()
         for item in neighbors:
@@ -30,9 +30,9 @@ def build_mac_to_ip_map() -> dict[str, str]:
             if mac and ip:
                 mac_to_ip[mac] = ip
     except Exception as exc:
-        logger.warning("Falha ao obter neighbors durante reconciliaÃ§Ã£o: %s", exc)
+        logger.warning("Falha ao obter neighbors durante reconciliação: %s", exc)
 
-    # 2. InventÃ¡rio preenche lacunas com dados confiÃ¡veis
+    # 2. Inventário preenche lacunas com dados confiáveis
     inventory = Dispositivo.objects.exclude(current_ip__isnull=True).exclude(current_ip="").exclude(mac__isnull=True).exclude(mac="")
     for raw_mac, ip, status in inventory.values_list("mac", "current_ip", "status"):
         if status in _UNRELIABLE_STATUS:
@@ -45,11 +45,11 @@ def build_mac_to_ip_map() -> dict[str, str]:
 
 
 def reconcile_wifi_access(*, dry_run: bool = False) -> dict[str, Any]:
-    """Reconcilia ativamente MAC->IP, expiraÃ§Ãµes e aplica o estado no Firewall.
+    """Reconcilia ativamente MAC->IP, expirações e aplica o estado no Firewall.
 
-    - Expira sessÃµes que passaram do tempo.
-    - Atualiza IP de Trusted Devices e AutorizaÃ§Ãµes com base no MAC real.
-    - Revoga autorizaÃ§Ãµes ativas que ficaram Ã³rfÃ£s de IP ou cujo IP foi repassado.
+    - Expira sessões que passaram do tempo.
+    - Atualiza IP de Trusted Devices e Autorizações com base no MAC real.
+    - Revoga autorizações ativas que ficaram órfãs de IP ou cujo IP foi repassado.
     - Idempotente e serializado.
     """
     now = timezone.now()
@@ -64,16 +64,16 @@ def reconcile_wifi_access(*, dry_run: bool = False) -> dict[str, Any]:
         with transaction.atomic():
             lock_wifi_changes()
 
-            # 1. ExpiraÃ§Ã£o explÃ­cita
+            # 1. Expiração explícita
             expired = WifiAuthorization.objects.select_for_update().filter(active=True, expires_at__lte=now)
             for auth in expired:
-                actions_taken.append(f"Expirando autorizaÃ§Ã£o de {auth.username} (MAC {auth.mac_address})")
+                actions_taken.append(f"Expirando autorização de {auth.username} (MAC {auth.mac_address})")
                 auth.active = False
                 auth.revoked_at = now
                 auth.revoked_reason = "expirado"
                 auth.save(update_fields=["active", "revoked_at", "revoked_reason", "updated_at"])
 
-            # 2. ReconciliaÃ§Ã£o MAC -> IP para Trusted Devices
+            # 2. Reconciliação MAC -> IP para Trusted Devices
             trusted = WifiTrustedDevice.objects.select_for_update().filter(active=True)
             for device in trusted:
                 real_ip = mac_to_ip.get(device.mac_address)
@@ -82,7 +82,7 @@ def reconcile_wifi_access(*, dry_run: bool = False) -> dict[str, Any]:
                     device.ip_address = real_ip
                     device.save(update_fields=["ip_address", "updated_at"])
 
-            # 3. ReconciliaÃ§Ã£o MAC -> IP para Authorizations
+            # 3. Reconciliação MAC -> IP para Authorizations
             auths = WifiAuthorization.objects.select_for_update().filter(active=True)
             active_ips = set()
             for auth in auths:
@@ -92,16 +92,16 @@ def reconcile_wifi_access(*, dry_run: bool = False) -> dict[str, Any]:
                     auth.ip_address = real_ip
                     auth.save(update_fields=["ip_address", "updated_at"])
 
-                # Se nÃ£o temos ideia do IP real agora, mantemos o que estÃ¡ salvo para nÃ£o derrubar
-                # a conexÃ£o temporÃ¡ria do usuÃ¡rio, a menos que esse IP esteja em uso por outro MAC.
+                # Se não temos ideia do IP real agora, mantemos o que está salvo para não derrubar
+                # a conexão temporária do usuário, a menos que esse IP esteja em uso por outro MAC.
                 current_ip = auth.ip_address
                 if current_ip:
                     active_ips.add(current_ip)
 
-            # 4. Tratamento de Reuso de IP (InconsistÃªncia)
-            # Se dois MACs diferentes tÃªm o mesmo IP ativo, o que tiver a autorizaÃ§Ã£o mais antiga deve ser revogado.
-            # O `authorize` original jÃ¡ limpa IPs anteriores ao logar. Mas a reconciliaÃ§Ã£o pega
-            # mudanÃ§as assÃ­ncronas do DHCP (via `agent_neighbors` ou inventÃ¡rio).
+            # 4. Tratamento de Reuso de IP (Inconsistência)
+            # Se dois MACs diferentes têm o mesmo IP ativo, o que tiver a autorização mais antiga deve ser revogado.
+            # O `authorize` original já limpa IPs anteriores ao logar. Mas a reconciliação pega
+            # mudanças assíncronas do DHCP (via `agent_neighbors` ou inventário).
             ip_to_active_mac = {}
             # Ordena do mais recente para o mais antigo, para manter o login mais recente e derrubar os velhos.
             ordered_auths = WifiAuthorization.objects.select_for_update().filter(active=True).order_by("-authorized_at")
@@ -116,11 +116,11 @@ def reconcile_wifi_access(*, dry_run: bool = False) -> dict[str, Any]:
                     else:
                         ip_to_active_mac[auth.ip_address] = auth.mac_address
 
-            # 5. SincronizaÃ§Ã£o Final com o Agent
+            # 5. Sincronização Final com o Agent
             result = apply_or_raise()
 
     except Exception as exc:
-        logger.error("Falha na reconciliaÃ§Ã£o Wi-Fi: %s", exc)
+        logger.error("Falha na reconciliação Wi-Fi: %s", exc)
         return {
             "ok": False,
             "error": str(exc),
@@ -140,7 +140,7 @@ def _dry_run_logic(now, mac_to_ip: dict[str, str]) -> dict[str, Any]:
 
     expired = WifiAuthorization.objects.filter(active=True, expires_at__lte=now)
     for auth in expired:
-        actions.append(f"[EXPIRE] AutorizaÃ§Ã£o de {auth.username} (MAC {auth.mac_address}) seria expirada.")
+        actions.append(f"[EXPIRE] Autorização de {auth.username} (MAC {auth.mac_address}) seria expirada.")
 
     trusted = WifiTrustedDevice.objects.filter(active=True)
     for device in trusted:

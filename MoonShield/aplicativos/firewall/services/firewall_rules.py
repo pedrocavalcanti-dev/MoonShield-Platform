@@ -1,18 +1,18 @@
-﻿"""
-MoonShield Platform â€” Firewall / Rules Service
+"""
+MoonShield Platform — Firewall / Rules Service
 =============================================
 
-Camada de negÃ³cio entre os models Django e o MoonShield-Agent.
+Camada de negócio entre os models Django e o MoonShield-Agent.
 
 Responsabilidades:
 - serializar RegraFirewall;
 - aplicar regras ativas localmente via IPC;
 - atualizar pendente/sincronizada;
 - tratar soft-delete;
-- executar bloqueio/liberaÃ§Ã£o emergencial;
+- executar bloqueio/liberação emergencial;
 - expor regras efetivamente carregadas no Linux.
 
-Este mÃ³dulo NÃƒO:
+Este módulo NÃO:
 - usa Sensor;
 - usa HTTP;
 - usa token;
@@ -45,7 +45,7 @@ VERSAO_RULES_SERVICE = "1.1"
 
 
 # =============================================================================
-# SERIALIZAÃ‡ÃƒO
+# SERIALIZAÇÃO
 # =============================================================================
 
 def regra_para_payload(
@@ -100,18 +100,18 @@ def listar_allowlist_para_agent(
 def listar_blocklist_para_agent() -> list[dict[str, Any]]:
     """Retorna lista de IPs ativos da blocklist para restore no Agent.
 
-    SemÃ¢ntica explÃ­cita de ``BlocklistEntry.expires``:
+    Semântica explícita de ``BlocklistEntry.expires``:
 
     Permanentes (enviar sempre):
         "âˆž"
 
-    TemporÃ¡rios (enviar somente se criado_em + duraÃ§Ã£o > agora):
+    Temporários (enviar somente se criado_em + duração > agora):
         "1h", "24h", "7d", "30d"
 
     Aliases legados comprovados:
-        "1 hora" â†’ equivale a 1h
+        "1 hora" → equivale a 1h
 
-    Qualquer outro valor Ã© ignorado com warning (fail-safe).
+    Qualquer outro valor é ignorado com warning (fail-safe).
     """
     from datetime import timedelta
     from django.utils import timezone
@@ -144,7 +144,7 @@ def listar_blocklist_para_agent() -> list[dict[str, Any]]:
                 ativas.append({"ip": entry.ip})
             continue
 
-        # Valor desconhecido/corrompido â€” NÃƒO transformar em permanente.
+        # Valor desconhecido/corrompido — NÃO transformar em permanente.
         logger.warning(
             "BlocklistEntry id=%s ip=%s possui expires=%r desconhecido; "
             "ignorado no restore do Agent.",
@@ -155,7 +155,7 @@ def listar_blocklist_para_agent() -> list[dict[str, Any]]:
 
 
 # =============================================================================
-# APLICAÃ‡ÃƒO
+# APLICAÇÃO
 # =============================================================================
 
 def aplicar_regras_pendentes(
@@ -195,7 +195,7 @@ def aplicar_regras_pendentes(
         return {
             "ok": False,
             "codigo": "agent_indisponivel",
-            "erro": "MoonShield-Agent indisponÃ­vel.",
+            "erro": "MoonShield-Agent indisponível.",
             "estado": estado,
         }
 
@@ -203,7 +203,7 @@ def aplicar_regras_pendentes(
         return {
             "ok": False,
             "codigo": "firewall_nao_instalado",
-            "erro": "Firewall ainda nÃ£o estÃ¡ instalado.",
+            "erro": "Firewall ainda não está instalado.",
             "estado": estado,
         }
 
@@ -219,8 +219,8 @@ def aplicar_regras_pendentes(
         else list(blocklist)
     )
 
-    # A aplicaÃ§Ã£o nunca deriva topologia do status observado do Agent.
-    # WAN/LAN/MGMT/HOME_NET sÃ£o congelados a partir do Network Control.
+    # A aplicação nunca deriva topologia do status observado do Agent.
+    # WAN/LAN/MGMT/HOME_NET são congelados a partir do Network Control.
     config = dict(
         topologia_rede.get("config_agent")
         or {}
@@ -247,15 +247,15 @@ def aplicar_regras_pendentes(
         alteracao_id = resultado.get("alteracao_id")
         if alteracao_id:
             try:
-                # Se a aplicaÃ§Ã£o retornou sucesso (sem raise), confirmamos imediatamente
+                # Se a aplicação retornou sucesso (sem raise), confirmamos imediatamente
                 agent_client.confirmar_alteracao(alteracao_id)
             except Exception as e:
-                logger.error("Falha ao confirmar alteraÃ§Ã£o %s: %s", alteracao_id, str(e))
+                logger.error("Falha ao confirmar alteração %s: %s", alteracao_id, str(e))
 
 
     except agent_client.OperacaoAgentFalhou as exc:
         logger.warning(
-            "Agent recusou aplicaÃ§Ã£o das regras: %s",
+            "Agent recusou aplicação das regras: %s",
             exc,
         )
 
@@ -279,7 +279,7 @@ def aplicar_regras_pendentes(
             "erro": str(exc),
         }
 
-    # SÃ³ alteramos banco apÃ³s confirmaÃ§Ã£o real do Agent.
+    # Só alteramos banco após confirmação real do Agent.
     with transaction.atomic():
         RegraFirewall.objects.filter(
             enabled=True,
@@ -297,7 +297,7 @@ def aplicar_regras_pendentes(
             sincronizada=False,
         )
 
-        # Soft-deletes sÃ³ somem do banco depois de o Agent confirmar
+        # Soft-deletes só somem do banco depois de o Agent confirmar
         # que o conjunto sem elas foi aplicado.
         RegraFirewall.objects.filter(
             deletado=True
@@ -329,7 +329,7 @@ def aplicar_todas() -> dict[str, Any]:
 
 
 # =============================================================================
-# STATUS DE SINCRONIZAÃ‡ÃƒO
+# STATUS DE SINCRONIZAÇÃO
 # =============================================================================
 
 def obter_sync_status() -> dict[str, Any]:
@@ -363,7 +363,7 @@ def obter_sync_status() -> dict[str, Any]:
 
 
 # =============================================================================
-# ALTERAÃ‡Ã•ES DE ESTADO
+# ALTERAÇÕES DE ESTADO
 # =============================================================================
 
 def marcar_regra_pendente(
@@ -454,7 +454,7 @@ def bloquear_ip(
         return {
             "ok": False,
             "codigo": "ip_obrigatorio",
-            "erro": "IP obrigatÃ³rio.",
+            "erro": "IP obrigatório.",
         }
 
     try:
@@ -525,7 +525,7 @@ def liberar_ip(
         return {
             "ok": False,
             "codigo": "ip_obrigatorio",
-            "erro": "IP obrigatÃ³rio.",
+            "erro": "IP obrigatório.",
         }
 
     try:

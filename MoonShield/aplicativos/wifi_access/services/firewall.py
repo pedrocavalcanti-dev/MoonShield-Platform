@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ipaddress
 import logging
@@ -11,7 +11,7 @@ from wifi_access.models import WifiAuthorization, WifiTrustedDevice
 
 logger = logging.getLogger(__name__)
 
-# Chave fixa do advisory lock PostgreSQL que serializa mudanÃ§as Wi-Fi.
+# Chave fixa do advisory lock PostgreSQL que serializa mudanças Wi-Fi.
 _WIFI_LOCK_KEY = 0x57494649  # "WIFI"
 
 
@@ -19,7 +19,7 @@ class WifiFirewallError(RuntimeError):
     def __init__(self, result: dict):
         self.result = dict(result or {})
         self.code = str(self.result.get("codigo") or "firewall_indisponivel")
-        super().__init__(str(self.result.get("erro") or "NÃ£o foi possÃ­vel aplicar a autorizaÃ§Ã£o no firewall."))
+        super().__init__(str(self.result.get("erro") or "Não foi possível aplicar a autorização no firewall."))
 
 
 def _ipv4(value: object) -> str | None:
@@ -30,11 +30,11 @@ def _ipv4(value: object) -> str | None:
 
 
 def lock_wifi_changes() -> None:
-    """Serializa alteraÃ§Ãµes Wi-Fi + firewall dentro da transaÃ§Ã£o atual.
+    """Serializa alterações Wi-Fi + firewall dentro da transação atual.
 
-    Evita que dois logins simultÃ¢neos enviem allowlists concorrentes ao Agent
-    (o Ãºltimo sobrescreveria o primeiro). Em SQLite (dev) a prÃ³pria escrita
-    serializa a transaÃ§Ã£o.
+    Evita que dois logins simultâneos enviem allowlists concorrentes ao Agent
+    (o último sobrescreveria o primeiro). Em SQLite (dev) a própria escrita
+    serializa a transação.
     """
     if connection.vendor == "postgresql":
         with connection.cursor() as cursor:
@@ -50,7 +50,7 @@ def desired_wifi_ips() -> set[str]:
     trusted = WifiTrustedDevice.objects.filter(active=True).exclude(ip_address__isnull=True)
     for mac, ip in trusted.values_list("mac_address", "ip_address"):
         if current := _ipv4(ip):
-            by_mac[mac] = current  # Permanente tem precedÃªncia sobre login.
+            by_mac[mac] = current  # Permanente tem precedência sobre login.
     return set(by_mac.values())
 
 
@@ -70,7 +70,7 @@ def get_wifi_firewall_payload(topologia_rede: dict) -> dict:
             # Same network check can be skipped or done via string split for now
         except Exception:
             enforcement = False
-            logger.warning("enforcement solicitado, mas faixa DHCP invÃ¡lida")
+            logger.warning("enforcement solicitado, mas faixa DHCP inválida")
 
     if not egress_interfaces:
         # Fallback to topology WAN
@@ -89,27 +89,27 @@ def get_wifi_firewall_payload(topologia_rede: dict) -> dict:
 
 
 def sync_authorizations() -> dict:
-    """Reaplica o Firewall pelo fluxo oficial, jÃ¡ com o estado Wi-Fi do banco.
+    """Reaplica o Firewall pelo fluxo oficial, já com o estado Wi-Fi do banco.
 
-    Usa ``aplicar_regras_pendentes`` (Agent + Safe Apply/confirmaÃ§Ã£o existente).
-    A allowlist nativa Ã© montada por ``listar_allowlist_para_agent``, que
+    Usa ``aplicar_regras_pendentes`` (Agent + Safe Apply/confirmação existente).
+    A allowlist nativa é montada por ``listar_allowlist_para_agent``, que
     agrega os IPs Wi-Fi via ``merge_allowlist`` sem tocar nas entradas do
-    usuÃ¡rio. Nunca lanÃ§a exceÃ§Ã£o: falhas retornam ``ok=False`` controlado.
+    usuário. Nunca lança exceção: falhas retornam ``ok=False`` controlado.
     """
     try:
         from firewall.services.firewall_rules import aplicar_regras_pendentes
 
         result = aplicar_regras_pendentes()
     except Exception as exc:  # Ex.: Windows sem socket Unix, erro inesperado no IPC.
-        logger.warning("SincronizaÃ§Ã£o Wi-Fi com o Firewall falhou: %s", exc)
-        return {"ok": False, "codigo": "firewall_indisponivel", "erro": "Firewall/Agent indisponÃ­vel neste ambiente."}
+        logger.warning("Sincronização Wi-Fi com o Firewall falhou: %s", exc)
+        return {"ok": False, "codigo": "firewall_indisponivel", "erro": "Firewall/Agent indisponível neste ambiente."}
     if not isinstance(result, dict):
-        return {"ok": False, "codigo": "firewall_resposta_invalida", "erro": "Resposta invÃ¡lida do Firewall."}
+        return {"ok": False, "codigo": "firewall_resposta_invalida", "erro": "Resposta inválida do Firewall."}
     return result
 
 
 def apply_or_raise() -> dict:
-    """Sincroniza e lanÃ§a ``WifiFirewallError`` para provocar rollback do banco."""
+    """Sincroniza e lança ``WifiFirewallError`` para provocar rollback do banco."""
     result = sync_authorizations()
     if not result.get("ok"):
         raise WifiFirewallError(result)

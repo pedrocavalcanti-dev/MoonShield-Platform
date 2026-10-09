@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 
@@ -17,7 +17,7 @@ def _json_body(request) -> dict:
     try:
         body = json.loads(request.body.decode("utf-8") or "{}")
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Corpo JSON invÃ¡lido.") from exc
+        raise ValueError("Corpo JSON inválido.") from exc
     if not isinstance(body, dict):
         raise ValueError("O corpo deve ser um objeto JSON.")
     return body
@@ -79,7 +79,7 @@ def trusted_devices(request):
     try:
         body = _json_body(request)
         if set(body) - {"name", "mac_address", "ip_address", "description"}:
-            raise ValueError("Campos nÃ£o permitidos.")
+            raise ValueError("Campos não permitidos.")
         device = WifiTrustedDevice(
             nome=str(body.get("name") or "").strip(),
             mac_address=normalize_mac(body.get("mac_address")),
@@ -105,7 +105,7 @@ def trusted_device_detail(request, device_id: int):
     try:
         body = _json_body(request)
         if set(body) - {"name", "mac_address", "ip_address", "description", "active"}:
-            raise ValueError("Campos nÃ£o permitidos.")
+            raise ValueError("Campos não permitidos.")
         for field, key in (("nome", "name"), ("descricao", "description"), ("ip_address", "ip_address")):
             if key in body:
                 setattr(device, field, (str(body[key]).strip() if body[key] is not None else None))
@@ -149,7 +149,7 @@ def revoke_authorization(request, authorization_id: int):
     try:
         body = _json_body(request)
         if set(body) - {"revoked_reason"}:
-            raise ValueError("Campos nÃ£o permitidos.")
+            raise ValueError("Campos não permitidos.")
         authorization = revoke(authorization_id=authorization_id, reason=body.get("revoked_reason", ""))
     except WifiAuthorizationError as exc:
         return JsonResponse({"ok": False, "codigo": exc.code, "error": str(exc)}, status=exc.status)
@@ -169,7 +169,7 @@ def bulk_trusted_devices(request):
         if not isinstance(devices_data, list):
             raise ValueError("O corpo deve conter uma lista 'devices'.")
         if len(devices_data) > 100:
-            raise ValueError("O limite mÃ¡ximo Ã© de 100 dispositivos por lote.")
+            raise ValueError("O limite máximo é de 100 dispositivos por lote.")
 
         valid_devices = []
         macs_in_batch = set()
@@ -178,21 +178,21 @@ def bulk_trusted_devices(request):
             if not isinstance(item, dict):
                 raise ValueError("Cada dispositivo deve ser um objeto JSON.")
             if set(item) - {"name", "mac_address", "ip_address", "description"}:
-                raise ValueError("Campos nÃ£o permitidos encontrados em um ou mais dispositivos.")
+                raise ValueError("Campos não permitidos encontrados em um ou mais dispositivos.")
 
         with transaction.atomic():
             for item in devices_data:
                 try:
                     mac = normalize_mac(item.get("mac_address"))
                 except ValidationError as e:
-                    raise ValueError(f"MAC invÃ¡lido: {item.get('mac_address')} - {e.messages[0]}")
+                    raise ValueError(f"MAC inválido: {item.get('mac_address')} - {e.messages[0]}")
 
                 if mac in macs_in_batch:
                     raise ValueError(f"MAC duplicado no lote: {mac}")
                 macs_in_batch.add(mac)
 
                 if WifiTrustedDevice.objects.filter(mac_address=mac).exists():
-                    raise ValueError(f"MAC jÃ¡ cadastrado no banco: {mac}")
+                    raise ValueError(f"MAC já cadastrado no banco: {mac}")
 
                 device = WifiTrustedDevice(
                     nome=str(item.get("name") or "").strip(),
@@ -235,7 +235,7 @@ def bulk_trusted_action(request):
         device_ids = body.get("device_ids")
         action = body.get("action")
         if not isinstance(device_ids, list) or action not in {"activate", "deactivate"}:
-            raise ValueError("ParÃ¢metros invÃ¡lidos.")
+            raise ValueError("Parâmetros inválidos.")
 
         with transaction.atomic():
             devices = WifiTrustedDevice.objects.filter(pk__in=device_ids)

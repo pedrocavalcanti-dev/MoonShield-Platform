@@ -1,1 +1,1 @@
-﻿"""ServiÃ§os do domÃ­nio de acesso Wi-Fi."""
+"""Serviços do domínio de acesso Wi-Fi."""

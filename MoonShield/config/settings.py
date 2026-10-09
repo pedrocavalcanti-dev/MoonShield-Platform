@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
@@ -16,7 +16,7 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Raiz do repositÃ³rio:
+# Raiz do repositório:
 #
 # /home/moonshield/MoonShield-Platform
 #
@@ -44,7 +44,7 @@ env = environ.Env(
 
 if APPLIANCE_MODE:
     if not APPLIANCE_DATABASE_FILE.is_file():
-        raise RuntimeError("Modo appliance ativo, mas /etc/moonshield/database.env estÃ¡ ausente.")
+        raise RuntimeError("Modo appliance ativo, mas /etc/moonshield/database.env está ausente.")
     environ.Env.read_env(APPLIANCE_CONF_FILE, overwrite=True)
     environ.Env.read_env(APPLIANCE_DATABASE_FILE, overwrite=True)
     _secret_key_file = Path(
@@ -56,9 +56,9 @@ if APPLIANCE_MODE:
     try:
         _appliance_secret_key = _secret_key_file.read_text(encoding="utf-8").strip()
     except OSError as exc:
-        raise RuntimeError("SECRET_KEY da appliance nÃ£o pode ser lida do arquivo externo configurado.") from exc
+        raise RuntimeError("SECRET_KEY da appliance não pode ser lida do arquivo externo configurado.") from exc
     if not _appliance_secret_key:
-        raise RuntimeError("SECRET_KEY da appliance estÃ¡ vazia.")
+        raise RuntimeError("SECRET_KEY da appliance está vazia.")
     os.environ["SECRET_KEY"] = _appliance_secret_key
 elif ENV_FILE.exists():
     environ.Env.read_env(
@@ -76,7 +76,7 @@ SYSTEM_VERSION = "1.0.0"
 
 
 # =============================================================================
-# DJANGO / SEGURANÃ‡A
+# DJANGO / SEGURANÇA
 # =============================================================================
 
 DEBUG = env.bool("DEBUG", default=False)
@@ -84,7 +84,7 @@ DEBUG = env.bool("DEBUG", default=False)
 SECRET_KEY = env("SECRET_KEY", default="")
 if not SECRET_KEY:
     if not DEBUG:
-        raise RuntimeError("SECRET_KEY nÃ£o configurada. Configure a variÃ¡vel no arquivo .env em produÃ§Ã£o!")
+        raise RuntimeError("SECRET_KEY não configurada. Configure a variável no arquivo .env em produção!")
     else:
         SECRET_KEY = "django-insecure-moonshield-development-only"
 # =============================================================================
@@ -122,7 +122,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 
 # =============================================================================
-# PYTHON PATH â€” APLICATIVOS
+# PYTHON PATH — APLICATIVOS
 # =============================================================================
 
 APPS_DIR = BASE_DIR / "aplicativos"
@@ -135,7 +135,7 @@ if str(APPS_DIR) not in sys.path:
 
 
 # =============================================================================
-# APLICAÃ‡Ã•ES
+# APLICAÇÕES
 # =============================================================================
 
 INSTALLED_APPS = [
@@ -165,7 +165,7 @@ INSTALLED_APPS = [
     "firewall",
     "dispositivos",
 
-    # SeguranÃ§a / SOC
+    # Segurança / SOC
     "ids",
     "incidentes",
 
@@ -257,8 +257,8 @@ DATABASE_URL = env(
 
 if not DATABASE_URL:
     raise RuntimeError(
-        "DATABASE_URL nÃ£o configurada. "
-        f"Configure a variÃ¡vel no arquivo: {ENV_FILE}"
+        "DATABASE_URL não configurada. "
+        f"Configure a variável no arquivo: {ENV_FILE}"
     )
 
 DATABASES = {
@@ -283,7 +283,7 @@ IS_SQLITE = (
 
 
 # =============================================================================
-# CONFIGURAÃ‡ÃƒO DE CONEXÃƒO
+# CONFIGURAÇÃO DE CONEXÃO
 # =============================================================================
 
 if IS_POSTGRESQL:
@@ -315,7 +315,7 @@ elif IS_SQLITE:
     DATABASES["default"]["CONN_MAX_AGE"] = 0
 
 # =============================================================================
-# VALIDAÃ‡ÃƒO DE SENHAS
+# VALIDAÇÃO DE SENHAS
 # =============================================================================
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -354,7 +354,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 # =============================================================================
-# LOCALIZAÃ‡ÃƒO
+# LOCALIZAÇÃO
 # =============================================================================
 
 LANGUAGE_CODE = "pt-br"
@@ -406,11 +406,11 @@ DEFAULT_AUTO_FIELD = (
 # =============================================================================
 # MAPBOX
 # =============================================================================
-# Removido: O token agora Ã© armazenado via UI em ConfigSistema.mapbox_access_token
+# Removido: O token agora é armazenado via UI em ConfigSistema.mapbox_access_token
 
 
 # =============================================================================
-# SESSÃƒO / COOKIES
+# SESSÃO / COOKIES
 # =============================================================================
 
 SESSION_COOKIE_HTTPONLY = True

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from unittest.mock import patch, MagicMock
@@ -103,7 +103,7 @@ class WifiReconciliationTests(TestCase):
             result = reconcile_wifi_access(dry_run=True)
 
         self.assertTrue(result["dry_run"])
-        self.assertTrue(WifiAuthorization.objects.get(username="U1").active) # NÃ£o mudou o banco!
+        self.assertTrue(WifiAuthorization.objects.get(username="U1").active) # Não mudou o banco!
 
     def test_sync_now_endpoint_requires_staff(self):
         # Admin is staff in setUp

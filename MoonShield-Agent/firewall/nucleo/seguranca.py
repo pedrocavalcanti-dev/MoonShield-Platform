@@ -1,39 +1,39 @@
-﻿"""
-MoonShield Agent â€” Firewall / SeguranÃ§a
+"""
+MoonShield Agent — Firewall / Segurança
 =======================================
 
-Camada de seguranÃ§a do firewall local do MoonShield.
+Camada de segurança do firewall local do MoonShield.
 
-Este mÃ³dulo NÃƒO aplica regras diretamente.
-Ele existe para impedir que uma operaÃ§Ã£o administrativa:
+Este módulo NÃO aplica regras diretamente.
+Ele existe para impedir que uma operação administrativa:
 
 - derrube o acesso de gerenciamento do MoonShield;
 - bloqueie loopback;
-- remova trÃ¡fego ESTABLISHED/RELATED;
+- remova tráfego ESTABLISHED/RELATED;
 - sobrescreva tabelas nftables de terceiros;
 - aplique regras em interfaces inexistentes;
-- use endereÃ§os/portas/protocolos invÃ¡lidos;
-- execute comandos arbitrÃ¡rios;
-- faÃ§a flush global do ruleset;
+- use endereços/portas/protocolos inválidos;
+- execute comandos arbitrários;
+- faça flush global do ruleset;
 - altere objetos fora de "table inet moonshield".
 
-A ideia Ã© que TODO fluxo de aplicaÃ§Ã£o passe por aqui antes do aplicador.py.
+A ideia é que TODO fluxo de aplicação passe por aqui antes do aplicador.py.
 
 Arquitetura esperada:
 
     Django
-      â†“
+      ↓
     IPC local
-      â†“
+      ↓
     aplicador.py
-      â†“
-    seguranca.py   â† valida e protege
-      â†“
+      ↓
+    seguranca.py   ← valida e protege
+      ↓
     rollback.py
-      â†“
+      ↓
     nftables
 
-O mÃ³dulo foi escrito para Linux e usa somente biblioteca padrÃ£o.
+O módulo foi escrito para Linux e usa somente biblioteca padrão.
 """
 
 from __future__ import annotations
@@ -75,8 +75,8 @@ SET_ALLOW_IPV4 = "ms_allow_ipv4"
 SET_ALLOW_IPV6 = "ms_allow_ipv6"
 
 # `ms_rules` permanece somente como chain legada de compatibilidade.
-# As polÃ­ticas novas sÃ£o separadas por hook para impedir que uma regra INPUT
-# seja alcanÃ§ada por FORWARD/OUTPUT (e vice-versa).
+# As políticas novas são separadas por hook para impedir que uma regra INPUT
+# seja alcançada por FORWARD/OUTPUT (e vice-versa).
 CHAIN_RULES = "ms_rules"
 CHAIN_RULES_INPUT = "ms_rules_input"
 CHAIN_RULES_FORWARD = "ms_rules_forward"
@@ -131,14 +131,14 @@ IFACES_LOGICAS = frozenset({
     "any",
 })
 
-# OperaÃ§Ãµes nft perigosas que jamais devem vir de conteÃºdo dinÃ¢mico.
+# Operações nft perigosas que jamais devem vir de conteúdo dinâmico.
 TOKENS_PROIBIDOS_SCRIPT = (
     "flush ruleset",
     "delete ruleset",
     "destroy table",
 )
 
-# Caminhos do prÃ³prio MoonShield.
+# Caminhos do próprio MoonShield.
 DIRETORIO_CONFIG = Path("/etc/moonshield/firewall")
 DIRETORIO_RUNTIME = Path("/run/moonshield")
 DIRETORIO_STATE = Path("/var/lib/moonshield/firewall")
@@ -146,35 +146,35 @@ DIRETORIO_STATE = Path("/var/lib/moonshield/firewall")
 # Limite defensivo para regras aplicadas em um lote.
 MAX_REGRAS_POR_APLICACAO = 5000
 
-# Limite para uma lista de portas explÃ­cita.
+# Limite para uma lista de portas explícita.
 MAX_PORTAS_LISTA = 256
 
 # Caracteres aceitos em nomes de interface Linux.
 _RE_IFACE = re.compile(r"^[A-Za-z0-9_.:@-]{1,32}$")
 
-# Faixa vÃ¡lida de porta TCP/UDP.
+# Faixa válida de porta TCP/UDP.
 PORTA_MIN = 1
 PORTA_MAX = 65535
 
 
 # =============================================================================
-# EXCEÃ‡Ã•ES
+# EXCEÇÕES
 # =============================================================================
 
 class ErroSegurancaFirewall(ValueError):
-    """Erro base das validaÃ§Ãµes de seguranÃ§a."""
+    """Erro base das validações de segurança."""
 
 
 class OperacaoPerigosa(ErroSegurancaFirewall):
-    """OperaÃ§Ã£o rejeitada por poder comprometer o host."""
+    """Operação rejeitada por poder comprometer o host."""
 
 
 class RegraInvalida(ErroSegurancaFirewall):
-    """Regra administrativa invÃ¡lida."""
+    """Regra administrativa inválida."""
 
 
 class TopologiaInvalida(ErroSegurancaFirewall):
-    """ConfiguraÃ§Ã£o de interfaces/rede inconsistente."""
+    """Configuração de interfaces/rede inconsistente."""
 
 
 # =============================================================================
@@ -193,7 +193,7 @@ class ContextoSeguranca:
     gateway: str = ""
     rede_mgmt: str = ""
 
-    # A decisÃ£o de QUAIS interfaces sÃ£o administrativas vem do Django/rede.
+    # A decisão de QUAIS interfaces são administrativas vem do Django/rede.
     # O Agent apenas observa IP/rede dessas interfaces no Linux.
     interfaces_gerenciamento: list[str] = field(default_factory=list)
     ips_gerenciamento: list[str] = field(default_factory=list)
@@ -213,7 +213,7 @@ class ContextoSeguranca:
         if self.interface_mgmt:
             mapa["MGMT"] = self.interface_mgmt
 
-        # Interfaces fÃ­sicas tambÃ©m podem ser usadas diretamente.
+        # Interfaces físicas também podem ser usadas diretamente.
         for iface in self.interfaces_existentes:
             mapa[iface] = iface
 
@@ -260,11 +260,11 @@ class ResultadoValidacao:
 
 def detectar_contexto(cfg: dict[str, Any] | None = None) -> ContextoSeguranca:
     """
-    ConstrÃ³i o contexto tÃ©cnico do host a partir da topologia DECIDIDA pelo
+    Constrói o contexto técnico do host a partir da topologia DECIDIDA pelo
     Django/Network Control.
 
-    O Agent pode validar/observar interfaces, endereÃ§os e rota default, mas
-    nunca escolhe WAN/LAN/MGMT/HOME_NET por conta prÃ³pria.
+    O Agent pode validar/observar interfaces, endereços e rota default, mas
+    nunca escolhe WAN/LAN/MGMT/HOME_NET por conta própria.
     """
     cfg = cfg or {}
 
@@ -289,14 +289,14 @@ def detectar_contexto(cfg: dict[str, Any] | None = None) -> ContextoSeguranca:
             ):
                 interfaces_gerenciamento.append(nome)
 
-    # Compatibilidade: uma MGMT explicitamente recebida do Control Plane Ã©
-    # administrativa. NÃ£o hÃ¡ fallback para WAN/LAN/default route no Agent.
+    # Compatibilidade: uma MGMT explicitamente recebida do Control Plane é
+    # administrativa. Não há fallback para WAN/LAN/default route no Agent.
     if mgmt and mgmt not in interfaces_gerenciamento:
         interfaces_gerenciamento.append(mgmt)
 
     rota = detectar_rota_padrao()
 
-    # Gateway Ã© apenas estado observado e sÃ³ Ã© associado Ã  WAN quando a rota
+    # Gateway é apenas estado observado e só é associado Ã  WAN quando a rota
     # default real pertence Ã  WAN fornecida pelo Control Plane.
     gateway = ""
     if wan and rota.get("interface") == wan:
@@ -505,7 +505,7 @@ def detectar_rota_padrao() -> dict[str, str]:
 
 
 # =============================================================================
-# VALIDAÃ‡ÃƒO DE TOPOLOGIA
+# VALIDAÇÃO DE TOPOLOGIA
 # =============================================================================
 
 def validar_topologia(
@@ -525,13 +525,13 @@ def validar_topologia(
     avisos: list[str] = []
 
     if exigir_wan and not contexto.interface_wan:
-        erros.append("Interface WAN nÃ£o definida.")
+        erros.append("Interface WAN não definida.")
 
     if exigir_lan and not contexto.interface_lan:
-        erros.append("Interface LAN nÃ£o definida.")
+        erros.append("Interface LAN não definida.")
 
     if exigir_mgmt and not contexto.interface_mgmt:
-        erros.append("Interface de gerenciamento nÃ£o definida.")
+        erros.append("Interface de gerenciamento não definida.")
 
     for rotulo, iface in (
         ("WAN", contexto.interface_wan),
@@ -542,11 +542,11 @@ def validar_topologia(
             continue
 
         if not _RE_IFACE.fullmatch(iface):
-            erros.append(f"Interface {rotulo} possui nome invÃ¡lido: {iface!r}.")
+            erros.append(f"Interface {rotulo} possui nome inválido: {iface!r}.")
             continue
 
         if iface not in contexto.interfaces_existentes:
-            erros.append(f"Interface {rotulo} nÃ£o existe no sistema: {iface}.")
+            erros.append(f"Interface {rotulo} não existe no sistema: {iface}.")
 
     definidas = [
         iface
@@ -560,19 +560,19 @@ def validar_topologia(
 
     if len(definidas) != len(set(definidas)):
         erros.append(
-            "WAN, LAN e MGMT nÃ£o podem apontar para a mesma interface."
+            "WAN, LAN e MGMT não podem apontar para a mesma interface."
         )
 
     for iface in contexto.interfaces_gerenciamento:
         if not _RE_IFACE.fullmatch(iface):
             erros.append(
-                f"Interface administrativa possui nome invÃ¡lido: {iface!r}."
+                f"Interface administrativa possui nome inválido: {iface!r}."
             )
             continue
 
         if iface not in contexto.interfaces_existentes:
             erros.append(
-                f"Interface administrativa nÃ£o existe no sistema: {iface}."
+                f"Interface administrativa não existe no sistema: {iface}."
             )
 
     if not contexto.interfaces_gerenciamento:
@@ -589,16 +589,16 @@ def validar_topologia(
 
             if rede.version != 4:
                 avisos.append(
-                    "HOME_NET IPv6 ainda nÃ£o Ã© suportado pelo core inicial."
+                    "HOME_NET IPv6 ainda não é suportado pelo core inicial."
                 )
         except ValueError:
             erros.append(
-                f"HOME_NET invÃ¡lido: {contexto.home_net!r}."
+                f"HOME_NET inválido: {contexto.home_net!r}."
             )
     elif exigir_lan:
         avisos.append(
-            "HOME_NET nÃ£o definido. O firewall poderÃ¡ operar, "
-            "mas validaÃ§Ãµes de origem interna ficarÃ£o limitadas."
+            "HOME_NET não definido. O firewall poderá operar, "
+            "mas validações de origem interna ficarão limitadas."
         )
 
     if (
@@ -606,7 +606,7 @@ def validar_topologia(
         and not contexto.redes_gerenciamento
     ):
         avisos.append(
-            "NÃ£o foi possÃ­vel observar uma rede IPv4 nas interfaces "
+            "Não foi possível observar uma rede IPv4 nas interfaces "
             "administrativas informadas."
         )
 
@@ -619,7 +619,7 @@ def validar_topologia(
 
 
 # =============================================================================
-# VALIDAÃ‡ÃƒO DE REGRAS
+# VALIDAÇÃO DE REGRAS
 # =============================================================================
 
 def validar_regras(
@@ -644,7 +644,7 @@ def validar_regras(
 
     for indice, regra in enumerate(regras_lista):
         if not isinstance(regra, dict):
-            erros.append(f"Regra #{indice + 1} nÃ£o Ã© um objeto.")
+            erros.append(f"Regra #{indice + 1} não é um objeto.")
             continue
 
         if not _bool(regra.get("enabled", True)):
@@ -697,7 +697,7 @@ def validar_regra(
     contexto: ContextoSeguranca | dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Valida uma Ãºnica regra e retorna a versÃ£o normalizada.
+    Valida uma única regra e retorna a versão normalizada.
     """
     if not isinstance(contexto, ContextoSeguranca):
         contexto = detectar_contexto(contexto)
@@ -722,7 +722,7 @@ def _validar_regra_individual(
 
     if action not in ACOES_SUPORTADAS:
         raise RegraInvalida(
-            f"AÃ§Ã£o nÃ£o suportada: {action!r}."
+            f"Ação não suportada: {action!r}."
         )
 
     proto = _texto(
@@ -732,7 +732,7 @@ def _validar_regra_individual(
 
     if proto not in PROTOCOLOS_SUPORTADOS:
         raise RegraInvalida(
-            f"Protocolo nÃ£o suportado: {proto!r}."
+            f"Protocolo não suportado: {proto!r}."
         )
 
     direction = _texto(
@@ -742,7 +742,7 @@ def _validar_regra_individual(
 
     if direction not in DIRECOES_SUPORTADAS:
         raise RegraInvalida(
-            f"DireÃ§Ã£o nÃ£o suportada: {direction!r}."
+            f"Direção não suportada: {direction!r}."
         )
 
     iface = _texto(
@@ -787,7 +787,7 @@ def _validar_regra_individual(
 
     if len(desc) > 255:
         raise RegraInvalida(
-            "DescriÃ§Ã£o excede 255 caracteres."
+            "Descrição excede 255 caracteres."
         )
 
     normalizada = {
@@ -860,13 +860,13 @@ def validar_anti_lockout(
 
     ifaces_admin = set(contexto.interfaces_gerenciamento)
 
-    # `MGMT` continua reconhecido como alias lÃ³gico quando existe uma MGMT
-    # dedicada, mas interfaces administrativas tambÃ©m podem ser LAN/WAN caso o
+    # `MGMT` continua reconhecido como alias lógico quando existe uma MGMT
+    # dedicada, mas interfaces administrativas também podem ser LAN/WAN caso o
     # Django tenha explicitamente autorizado isso.
     if contexto.interface_mgmt:
         ifaces_admin.add("MGMT")
 
-    # Bloqueio genÃ©rico entrando por qualquer interface administrativa.
+    # Bloqueio genérico entrando por qualquer interface administrativa.
     if (
         ifaces_admin
         and iface in (ifaces_admin | {"any"})
@@ -875,11 +875,11 @@ def validar_anti_lockout(
         and port == "any"
     ):
         raise OperacaoPerigosa(
-            "Regra genÃ©rica de bloqueio pode derrubar o acesso "
+            "Regra genérica de bloqueio pode derrubar o acesso "
             "de gerenciamento do MoonShield."
         )
 
-    # Nunca permitir bloqueio genÃ©rico aos IPs locais administrativos.
+    # Nunca permitir bloqueio genérico aos IPs locais administrativos.
     if port == "any":
         for ip_local in contexto.ips_gerenciamento:
             if _endereco_contem(
@@ -908,10 +908,10 @@ def gerar_regras_sistema(
     contexto: ContextoSeguranca | dict[str, Any],
 ) -> list[str]:
     """
-    Gera regras ESSENCIAIS para a proteÃ§Ã£o do INPUT administrativo.
+    Gera regras ESSENCIAIS para a proteção do INPUT administrativo.
 
-    `ms_system` serÃ¡ chamado somente pelo hook INPUT no aplicador A9.2.
-    A funÃ§Ã£o nÃ£o executa comandos.
+    `ms_system` será chamado somente pelo hook INPUT no aplicador A9.2.
+    A função não executa comandos.
     """
     if not isinstance(contexto, ContextoSeguranca):
         contexto = detectar_contexto(contexto)
@@ -942,7 +942,7 @@ def gerar_regras_sistema(
 
 
 # =============================================================================
-# VALIDAÃ‡ÃƒO DE SCRIPT NFT
+# VALIDAÇÃO DE SCRIPT NFT
 # =============================================================================
 
 def validar_script_nft(
@@ -951,10 +951,10 @@ def validar_script_nft(
     permitir_delete_table_moonshield: bool = False,
 ) -> ResultadoValidacao:
     """
-    ValidaÃ§Ã£o textual defensiva antes de chamar `nft -c -f`.
+    Validação textual defensiva antes de chamar `nft -c -f`.
 
-    NÃ£o substitui o parser do nftables.
-    O objetivo Ã© rejeitar comandos globais ou objetos de terceiros.
+    Não substitui o parser do nftables.
+    O objetivo é rejeitar comandos globais ou objetos de terceiros.
     """
     erros: list[str] = []
     avisos: list[str] = []
@@ -972,7 +972,7 @@ def validar_script_nft(
     for token in TOKENS_PROIBIDOS_SCRIPT:
         if token in lower:
             erros.append(
-                f"OperaÃ§Ã£o proibida encontrada no script: {token!r}."
+                f"Operação proibida encontrada no script: {token!r}."
             )
 
     # Nunca permitir flush global.
@@ -1006,14 +1006,14 @@ def validar_script_nft(
         )
     ):
         erros.append(
-            "RemoÃ§Ã£o da tabela MoonShield nÃ£o Ã© permitida nesta operaÃ§Ã£o."
+            "Remoção da tabela MoonShield não é permitida nesta operação."
         )
 
-    # Shell metacharacters sÃ£o desnecessÃ¡rios em arquivos .nft e podem indicar
-    # conteÃºdo inesperado. ComentÃ¡rios '#' sÃ£o permitidos.
+    # Shell metacharacters são desnecessários em arquivos .nft e podem indicar
+    # conteúdo inesperado. Comentários '#' são permitidos.
     if "\x00" in texto:
         erros.append(
-            "Script contÃ©m byte NUL."
+            "Script contém byte NUL."
         )
 
     return ResultadoValidacao(
@@ -1070,15 +1070,15 @@ def validar_com_nft(
     caminho_arquivo: str | os.PathLike[str],
 ) -> ResultadoValidacao:
     """
-    Executa SOMENTE validaÃ§Ã£o (`nft -c -f`).
-    NÃ£o aplica configuraÃ§Ã£o.
+    Executa SOMENTE validação (`nft -c -f`).
+    Não aplica configuração.
     """
     nft = shutil.which("nft")
 
     if not nft:
         return ResultadoValidacao(
             ok=False,
-            erros=["Comando nft nÃ£o encontrado."],
+            erros=["Comando nft não encontrado."],
         )
 
     path = Path(caminho_arquivo)
@@ -1086,7 +1086,7 @@ def validar_com_nft(
     if not path.exists() or not path.is_file():
         return ResultadoValidacao(
             ok=False,
-            erros=[f"Arquivo nft nÃ£o existe: {path}."],
+            erros=[f"Arquivo nft não existe: {path}."],
         )
 
     try:
@@ -1100,7 +1100,7 @@ def validar_com_nft(
     except subprocess.TimeoutExpired:
         return ResultadoValidacao(
             ok=False,
-            erros=["ValidaÃ§Ã£o nft excedeu 15 segundos."],
+            erros=["Validação nft excedeu 15 segundos."],
         )
     except Exception as exc:
         return ResultadoValidacao(
@@ -1126,7 +1126,7 @@ def validar_com_nft(
             else [
                 stderr
                 or stdout
-                or f"nft retornou cÃ³digo {result.returncode}."
+                or f"nft retornou código {result.returncode}."
             ]
         ),
         dados={
@@ -1162,7 +1162,7 @@ def resolver_interface(
 
     if not _RE_IFACE.fullmatch(fisica):
         raise RegraInvalida(
-            f"Nome de interface invÃ¡lido: {fisica!r}."
+            f"Nome de interface inválido: {fisica!r}."
         )
 
     if (
@@ -1170,7 +1170,7 @@ def resolver_interface(
         and fisica not in contexto.interfaces_existentes
     ):
         raise RegraInvalida(
-            f"Interface nÃ£o existe no host: {fisica}."
+            f"Interface não existe no host: {fisica}."
         )
 
     return fisica
@@ -1191,10 +1191,10 @@ def validar_endereco(
 
     if not texto:
         raise RegraInvalida(
-            "EndereÃ§o IP/rede obrigatÃ³rio."
+            "Endereço IP/rede obrigatório."
         )
 
-    # Suporta lista separada por vÃ­rgula para futura conversÃ£o em nft set.
+    # Suporta lista separada por vírgula para futura conversão em nft set.
     itens = [
         item.strip()
         for item in texto.split(",")
@@ -1203,7 +1203,7 @@ def validar_endereco(
 
     if not itens:
         raise RegraInvalida(
-            "EndereÃ§o IP/rede vazio."
+            "Endereço IP/rede vazio."
         )
 
     normalizados: list[str] = []
@@ -1227,7 +1227,7 @@ def validar_endereco(
                 )
         except ValueError:
             raise RegraInvalida(
-                f"IP/rede invÃ¡lido: {item!r}."
+                f"IP/rede inválido: {item!r}."
             ) from None
 
     return ",".join(
@@ -1260,7 +1260,7 @@ def validar_porta(
             "any",
         }:
             raise RegraInvalida(
-                f"Porta nÃ£o Ã© aplicÃ¡vel ao protocolo {proto}."
+                f"Porta não é aplicável ao protocolo {proto}."
             )
         return "any"
 
@@ -1299,7 +1299,7 @@ def validar_porta(
 
             if len(partes) != 2:
                 raise RegraInvalida(
-                    f"Range de porta invÃ¡lido: {item!r}."
+                    f"Range de porta inválido: {item!r}."
                 )
 
             inicio = _porta_int(
@@ -1396,7 +1396,7 @@ def _redes_sobrepoem(
             # ip_network() aceita tanto host puro quanto CIDR:
             #   10.10.0.10 -> 10.10.0.10/32
             #   2001:db8::1 -> 2001:db8::1/128
-            # Assim nÃ£o precisamos montar /32 ou /128 manualmente e evitamos
+            # Assim não precisamos montar /32 ou /128 manualmente e evitamos
             # o bug de transformar um IPv4 em algo como 10.10.0.10/128.
             rede_a = ipaddress.ip_network(
                 item,
@@ -1415,7 +1415,7 @@ def _redes_sobrepoem(
 
 
 # =============================================================================
-# SANITIZAÃ‡ÃƒO
+# SANITIZAÇÃO
 # =============================================================================
 
 def sanitizar_comentario(
@@ -1426,8 +1426,8 @@ def sanitizar_comentario(
     """
     Sanitiza texto usado em `comment` de nftables.
 
-    NÃ£o deixa aspas, barras de controle ou quebras de linha escaparem
-    para uma expressÃ£o nft.
+    Não deixa aspas, barras de controle ou quebras de linha escaparem
+    para uma expressão nft.
     """
     texto = _texto(
         valor,
@@ -1466,7 +1466,7 @@ def validar_nome_chain(
         nome,
     ):
         raise ErroSegurancaFirewall(
-            "Nome de chain invÃ¡lido."
+            "Nome de chain inválido."
         )
 
     if (
@@ -1474,7 +1474,7 @@ def validar_nome_chain(
         and nome not in CHAINS_GERENCIADAS
     ):
         raise OperacaoPerigosa(
-            f"Chain nÃ£o gerenciada pelo MoonShield: {nome}."
+            f"Chain não gerenciada pelo MoonShield: {nome}."
         )
 
     return nome
@@ -1497,7 +1497,7 @@ def validar_tabela(
         or tabela != TABELA_NOME
     ):
         raise OperacaoPerigosa(
-            "O MoonShield sÃ³ pode manipular "
+            "O MoonShield só pode manipular "
             "'table inet moonshield'."
         )
 
@@ -1615,7 +1615,7 @@ def _porta_int(
         ValueError,
     ):
         raise RegraInvalida(
-            f"Porta invÃ¡lida: {valor!r}."
+            f"Porta inválida: {valor!r}."
         ) from None
 
     if not (
@@ -1624,7 +1624,7 @@ def _porta_int(
         <= PORTA_MAX
     ):
         raise RegraInvalida(
-            f"Porta fora da faixa vÃ¡lida: {porta}."
+            f"Porta fora da faixa válida: {porta}."
         )
 
     return porta
@@ -1651,7 +1651,7 @@ def _normalizar_acao(
         return "reject"
 
     raise RegraInvalida(
-        f"AÃ§Ã£o desconhecida: {valor}."
+        f"Ação desconhecida: {valor}."
     )
 
 

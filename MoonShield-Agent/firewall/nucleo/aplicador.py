@@ -1,8 +1,8 @@
-﻿"""
-MoonShield Agent â€” Firewall / Aplicador
+"""
+MoonShield Agent — Firewall / Aplicador
 ======================================
 
-Motor transacional de aplicaÃ§Ã£o do firewall local.
+Motor transacional de aplicação do firewall local.
 
 Responsabilidades:
 - receber regras normalizadas do Django via IPC;
@@ -13,10 +13,10 @@ Responsabilidades:
 - criar snapshot;
 - aplicar somente table inet moonshield;
 - verificar resultado;
-- executar rollback automÃ¡tico em falha;
+- executar rollback automático em falha;
 - fornecer block/unblock emergencial local.
 
-Este arquivo NÃƒO usa HTTP e NÃƒO conhece Django diretamente.
+Este arquivo NÃO usa HTTP e NÃO conhece Django diretamente.
 """
 
 from __future__ import annotations
@@ -103,25 +103,25 @@ def aplicar(dados: dict[str, Any]) -> dict[str, Any]:
 
 
 def aplicar_regras(dados: dict[str, Any]) -> dict[str, Any]:
-    """Apply legado: transacional imediato, sem janela de confirmaÃ§Ã£o."""
+    """Apply legado: transacional imediato, sem janela de confirmação."""
     if existe_alteracao_pendente():
         return {
             "ok": False,
             "status": "erro",
             "codigo": "alteracao_em_andamento",
-            "erro": "Existe um Safe Apply de Firewall aguardando conclusÃ£o.",
+            "erro": "Existe um Safe Apply de Firewall aguardando conclusão.",
         }
     return _aplicar_regras_impl(dados, safe_apply=False)
 
 
 def aplicar_alteracao(dados: dict[str, Any]) -> dict[str, Any]:
-    """Apply oficial A9 com rollback armado atÃ© confirmaÃ§Ã£o explÃ­cita."""
+    """Apply oficial A9 com rollback armado até confirmação explícita."""
     if existe_alteracao_pendente():
         return {
             "ok": False,
             "status": "erro",
             "codigo": "alteracao_em_andamento",
-            "erro": "JÃ¡ existe uma alteraÃ§Ã£o de Firewall em andamento.",
+            "erro": "Já existe uma alteração de Firewall em andamento.",
         }
 
     alteracao_id = str(dados.get("alteracao_id") or uuid.uuid4().hex).strip()
@@ -173,7 +173,7 @@ def _aplicar_regras_impl(
         if existe_alteracao_pendente():
             return _falha(
                 "alteracao_em_andamento",
-                "Existe um Safe Apply de Firewall aguardando conclusÃ£o.",
+                "Existe um Safe Apply de Firewall aguardando conclusão.",
                 inicio=inicio,
             )
 
@@ -188,8 +188,8 @@ def _aplicar_regras_impl(
 
             contexto = detectar_contexto(cfg)
 
-            # Se o Django enviou iface_map explÃ­cito, aproveita apenas os nomes
-            # conhecidos sem relaxar a validaÃ§Ã£o do host.
+            # Se o Django enviou iface_map explícito, aproveita apenas os nomes
+            # conhecidos sem relaxar a validação do host.
             iface_map = dados.get("iface_map") or {}
             if isinstance(iface_map, dict):
                 cfg = dict(cfg)
@@ -207,7 +207,7 @@ def _aplicar_regras_impl(
             if not topo.ok:
                 return _falha(
                     "topologia_invalida",
-                    "Topologia do firewall invÃ¡lida.",
+                    "Topologia do firewall inválida.",
                     detalhes=topo.para_dict(),
                     inicio=inicio,
                 )
@@ -248,7 +248,7 @@ def _aplicar_regras_impl(
             if not seguranca_script.ok:
                 return _falha(
                     "script_inseguro",
-                    "Script nftables rejeitado pela camada de seguranÃ§a.",
+                    "Script nftables rejeitado pela camada de segurança.",
                     detalhes=seguranca_script.para_dict(),
                     inicio=inicio,
                 )
@@ -257,7 +257,7 @@ def _aplicar_regras_impl(
             if not nft:
                 return _falha(
                     "nft_indisponivel",
-                    "Comando nft nÃ£o encontrado.",
+                    "Comando nft não encontrado.",
                     inicio=inicio,
                 )
 
@@ -318,7 +318,7 @@ def _aplicar_regras_impl(
                     erro_check = (
                         check.stderr.strip()
                         or check.stdout.strip()
-                        or "nft -c rejeitou a configuraÃ§Ã£o."
+                        or "nft -c rejeitou a configuração."
                     )
                     if safe_apply and alteracao_id:
                         marcar_alteracao_falhou(
@@ -330,7 +330,7 @@ def _aplicar_regras_impl(
                         "nft_validacao_falhou",
                         check.stderr.strip()
                         or check.stdout.strip()
-                        or "nft -c rejeitou a configuraÃ§Ã£o.",
+                        or "nft -c rejeitou a configuração.",
                         snapshot_id=snapshot_id,
                         inicio=inicio,
                     )
@@ -355,7 +355,7 @@ def _aplicar_regras_impl(
                             erro=(
                                 apply.stderr.strip()
                                 or apply.stdout.strip()
-                                or "Falha ao aplicar configuraÃ§Ã£o."
+                                or "Falha ao aplicar configuração."
                             ),
                             rollback=rb,
                         )
@@ -364,7 +364,7 @@ def _aplicar_regras_impl(
                         "nft_apply_falhou",
                         apply.stderr.strip()
                         or apply.stdout.strip()
-                        or "Falha ao aplicar configuraÃ§Ã£o.",
+                        or "Falha ao aplicar configuração.",
                         snapshot_id=snapshot_id,
                         rollback=rb,
                         inicio=inicio,
@@ -381,13 +381,13 @@ def _aplicar_regras_impl(
                     if safe_apply and alteracao_id:
                         marcar_alteracao_falhou(
                             alteracao_id=alteracao_id,
-                            erro="ConfiguraÃ§Ã£o aplicada, mas o healthcheck falhou.",
+                            erro="Configuração aplicada, mas o healthcheck falhou.",
                             rollback=rb,
                         )
 
                     return _falha(
                         "healthcheck_pos_apply_falhou",
-                        "ConfiguraÃ§Ã£o aplicada, mas o healthcheck falhou.",
+                        "Configuração aplicada, mas o healthcheck falhou.",
                         snapshot_id=snapshot_id,
                         rollback=rb,
                         detalhes=verificacao,
@@ -432,7 +432,7 @@ def _aplicar_regras_impl(
                         "ok": True,
                         "status": "waiting_confirmation",
                         "mensagem": (
-                            "Regras aplicadas; aguardando confirmaÃ§Ã£o antes do timeout."
+                            "Regras aplicadas; aguardando confirmação antes do timeout."
                         ),
                         "alteracao_id": alteracao_id,
                         "snapshot_id": snapshot_id,
@@ -477,7 +477,7 @@ def _aplicar_regras_impl(
                     )
                 except Exception:
                     # O estado persistente continua em applying/rollback_failed e
-                    # serÃ¡ recuperado conservadoramente no prÃ³ximo boot do Agent.
+                    # será recuperado conservadoramente no próximo boot do Agent.
                     pass
 
             return _falha(
@@ -501,8 +501,8 @@ def _gerar_script(
     Gera a tabela MoonShield completa sem tocar em tabelas externas.
 
     A9.2:
-    - polÃ­ticas administrativas sÃ£o separadas por hook;
-    - `ms_emergency` Ã© preservada entre aplicaÃ§Ãµes normais;
+    - políticas administrativas são separadas por hook;
+    - `ms_emergency` é preservada entre aplicações normais;
     - `ms_system` protege somente INPUT administrativo;
     - `ms_rules` fica vazia apenas para compatibilidade legada.
     """
@@ -586,8 +586,8 @@ def _gerar_script(
     linhas.append("  }")
 
     linhas.extend([
-        # Compatibilidade com leitores antigos. PolÃ­ticas novas NÃƒO usam esta
-        # chain porque cada hook possui sua chain administrativa prÃ³pria.
+        # Compatibilidade com leitores antigos. Políticas novas NÃO usam esta
+        # chain porque cada hook possui sua chain administrativa própria.
         f"  chain {CHAIN_RULES} {{",
         "  }",
 
@@ -639,7 +639,7 @@ def _gerar_script(
             f"{CHAIN_SYSTEM} {expr}"
         )
 
-    # Emergency Ã© estado runtime e agora Ã© persistido pela listagem provida ou restaurado das regras atuais no bloco acima.
+    # Emergency é estado runtime e agora é persistido pela listagem provida ou restaurado das regras atuais no bloco acima.
 
     regras_ordenadas = sorted(
         [
@@ -659,8 +659,8 @@ def _gerar_script(
     for regra in regras_ordenadas:
         direction = str(regra.get("dir") or "in").lower()
 
-        # BOTH continua sendo uma Ãºnica regra lÃ³gica no Django, materializada
-        # em INPUT + OUTPUT. FORWARD permanece uma decisÃ£o explÃ­cita.
+        # BOTH continua sendo uma única regra lógica no Django, materializada
+        # em INPUT + OUTPUT. FORWARD permanece uma decisão explícita.
         directions = ("in", "out") if direction == "both" else (direction,)
 
         for concrete_direction in directions:
@@ -668,7 +668,7 @@ def _gerar_script(
 
             if not chain:
                 raise ValueError(
-                    f"DireÃ§Ã£o de regra sem chain correspondente: {concrete_direction!r}."
+                    f"Direção de regra sem chain correspondente: {concrete_direction!r}."
                 )
 
             regra_runtime = {
@@ -761,10 +761,10 @@ def _obter_expressoes_chain(
     chain: str,
 ) -> list[str]:
     """
-    Exporta somente expressÃµes de regras de uma chain MoonShield.
+    Exporta somente expressões de regras de uma chain MoonShield.
 
-    Usado para preservar `ms_emergency` durante um policy apply. Handles sÃ£o
-    removidos porque pertencem Ã  instÃ¢ncia atual do ruleset.
+    Usado para preservar `ms_emergency` durante um policy apply. Handles são
+    removidos porque pertencem à instância atual do ruleset.
     """
     nft = shutil.which("nft")
 
@@ -836,7 +836,7 @@ def _regra_para_expr(
             partes.append(f'oifname "{iface_fisica}"')
         elif direction == "both":
             raise ValueError(
-                "DireÃ§Ã£o 'both' deve ser expandida antes da geraÃ§Ã£o da expressÃ£o nft."
+                "Direção 'both' deve ser expandida antes da geração da expressão nft."
             )
 
     src = str(regra.get("src") or "any")
@@ -857,7 +857,7 @@ def _regra_para_expr(
         partes.append("ip6 nexthdr icmpv6")
     elif proto in {"tcp", "udp"}:
         if port != "any":
-            # `_porta_expr` jÃ¡ inclui o protocolo: `tcp dport 443`.
+            # `_porta_expr` já inclui o protocolo: `tcp dport 443`.
             partes.append(
                 _porta_expr(
                     proto,
@@ -940,8 +940,8 @@ def _endereco_expr(
         familia = "ip6" if versao == 6 else "ip"
         return f"{familia} {direcao} {item}"
 
-    # mÃºltiplos endereÃ§os -> set inline
-    # NÃ£o anexar /32 manualmente: isso quebraria hosts IPv6.
+    # múltiplos endereços -> set inline
+    # Não anexar /32 manualmente: isso quebraria hosts IPv6.
     versoes = {
         ipaddress.ip_network(
             x,
@@ -952,7 +952,7 @@ def _endereco_expr(
 
     if len(versoes) != 1:
         raise ValueError(
-            "Uma mesma regra nÃ£o pode misturar IPv4 e IPv6."
+            "Uma mesma regra não pode misturar IPv4 e IPv6."
         )
 
     familia = "ip6" if 6 in versoes else "ip"
@@ -986,7 +986,7 @@ def verificar_estado() -> dict[str, Any]:
     if not nft:
         return {
             "ok": False,
-            "erro": "nft nÃ£o encontrado.",
+            "erro": "nft não encontrado.",
         }
 
     try:
@@ -1037,7 +1037,7 @@ def verificar_estado() -> dict[str, Any]:
 
 
 def bloquear_ip(dados: dict[str, Any]) -> dict[str, Any]:
-    """Bloqueia IP serializando a mutaÃ§Ã£o com policy apply."""
+    """Bloqueia IP serializando a mutação com policy apply."""
     with _lock:
         if existe_alteracao_pendente():
             return {
@@ -1056,7 +1056,7 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
             "codigo": "ip_invalido",
-            "erro": "IP invÃ¡lido.",
+            "erro": "IP inválido.",
         }
 
     alvo, familia = endereco
@@ -1065,21 +1065,21 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
             "codigo": "ip_protegido",
-            "erro": "IP protegido nÃ£o pode ser bloqueado.",
+            "erro": "IP protegido não pode ser bloqueado.",
         }
 
     if not tabela_existe():
         return {
             "ok": False,
             "codigo": "firewall_nao_instalado",
-            "erro": "Tabela MoonShield nÃ£o existe.",
+            "erro": "Tabela MoonShield não existe.",
         }
 
     nft = shutil.which("nft")
     if not nft:
         return {
             "ok": False,
-            "erro": "nft nÃ£o encontrado.",
+            "erro": "nft não encontrado.",
         }
 
     comentario = _comentario_emergency(alvo, familia)
@@ -1115,13 +1115,13 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
             "codigo": "bloqueio_falhou",
-            "erro": r1.stderr.strip() or "Falha ao registrar regra de log de emergÃªncia.",
+            "erro": r1.stderr.strip() or "Falha ao registrar regra de log de emergência.",
         }
 
     r2 = subprocess.run(args_drop, capture_output=True, text=True, timeout=10, check=False)
     if r2.returncode != 0:
         # Tenta remover o log inserido
-        subprocess.run([nft, "delete", "rule", TABELA_FAMILIA, TABELA_NOME, CHAIN_EMERGENCY, "handle", "..."], check=False) # Ignorado, o rollback ou restore cobrirÃ¡ se o Agent possuir recovery avanÃ§ado.
+        subprocess.run([nft, "delete", "rule", TABELA_FAMILIA, TABELA_NOME, CHAIN_EMERGENCY, "handle", "..."], check=False) # Ignorado, o rollback ou restore cobrirá se o Agent possuir recovery avançado.
         return {
             "ok": False,
             "codigo": "bloqueio_falhou",
@@ -1133,7 +1133,7 @@ def _bloquear_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         "ip": alvo,
         "motivo": motivo,
         "comentario": comentario,
-        "mensagem": "IP bloqueado na chain de emergÃªncia.",
+        "mensagem": "IP bloqueado na chain de emergência.",
     }
 
 
@@ -1142,13 +1142,13 @@ def bloquear(dados: dict[str, Any]) -> dict[str, Any]:
 
 
 def liberar_ip(dados: dict[str, Any]) -> dict[str, Any]:
-    """Libera IP serializando a mutaÃ§Ã£o com policy apply."""
+    """Libera IP serializando a mutação com policy apply."""
     with _lock:
         if existe_alteracao_pendente():
             return {
                 "ok": False,
                 "codigo": "alteracao_em_andamento",
-                "erro": "LiberaÃ§Ã£o emergencial pausada durante Safe Apply do Firewall.",
+                "erro": "Liberação emergencial pausada durante Safe Apply do Firewall.",
             }
         return _liberar_ip_sem_lock(dados)
 
@@ -1160,7 +1160,7 @@ def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": False,
             "codigo": "ip_invalido",
-            "erro": "IP invÃ¡lido.",
+            "erro": "IP inválido.",
         }
 
     alvo, familia = endereco
@@ -1170,7 +1170,7 @@ def _liberar_ip_sem_lock(dados: dict[str, Any]) -> dict[str, Any]:
     if not nft:
         return {
             "ok": False,
-            "erro": "nft nÃ£o encontrado.",
+            "erro": "nft não encontrado.",
         }
 
     r = subprocess.run(

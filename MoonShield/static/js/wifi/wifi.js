@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   "use strict";
   const app = document.getElementById("wifiApp");
   if (!app) return;
@@ -6,7 +6,7 @@
   const $ = (id) => document.getElementById(id);
   const csrf = () => document.cookie.split(";").map((v) => v.trim()).find((v) => v.startsWith("csrftoken="))?.slice(10) || "";
   const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-  const dt = (value) => value ? new Date(value).toLocaleString("pt-BR") : "â€”";
+  const dt = (value) => value ? new Date(value).toLocaleString("pt-BR") : "—";
   const notice = (message, kind = "") => {
     const el = $("wifiNotice");
     el.textContent = message;
@@ -20,7 +20,7 @@
       ...options
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok || !body.ok) throw new Error(body.error || body.erro || "OperaÃ§Ã£o nÃ£o concluÃ­da.");
+    if (!response.ok || !body.ok) throw new Error(body.error || body.erro || "Operação não concluída.");
     return body;
   };
 
@@ -92,7 +92,7 @@
 
     const tdIp = document.createElement("td");
     tdIp.className = "wifi-mono";
-    tdIp.textContent = item.ip_address || "â€”";
+    tdIp.textContent = item.ip_address || "—";
     tr.appendChild(tdIp);
 
     const tdMac = document.createElement("td");
@@ -243,7 +243,7 @@
           $("diagInconsistencies").style.color = diag.diagnostics.ip_inconsistencies > 0 ? "#fb7185" : "var(--text)";
         }
       } catch (e) {
-        console.warn("Falha ao carregar diagnÃ³sticos", e);
+        console.warn("Falha ao carregar diagnósticos", e);
       }
 
     } catch (error) {
@@ -260,7 +260,7 @@
     btn.textContent = "Sincronizando...";
     try {
       await request(app.dataset.syncUrl, { method: "POST", body: "{}" });
-      notice("SincronizaÃ§Ã£o concluÃ­da com sucesso.", "ok");
+      notice("Sincronização concluída com sucesso.", "ok");
       load();
     } catch (error) {
       notice(error.message, "error");
@@ -301,14 +301,14 @@
 
   const performMassAction = async (actionStr) => {
     if (selectedIds.size === 0) return;
-    if (!confirm(`Confirmar aÃ§Ã£o em ${selectedIds.size} dispositivos permanentes?`)) return;
+    if (!confirm(`Confirmar ação em ${selectedIds.size} dispositivos permanentes?`)) return;
     try {
       await request(app.dataset.bulkActionUrl, {
         method: "POST",
         body: JSON.stringify({ device_ids: Array.from(selectedIds).map(Number), action: actionStr })
       });
       selectedIds.clear();
-      notice("AÃ§Ã£o em lote aplicada.", "ok");
+      notice("Ação em lote aplicada.", "ok");
       load();
     } catch (error) {
       notice(error.message, "error");
@@ -403,9 +403,9 @@
       if (!mac) {
         error = "MAC vazio";
       } else if (!macRegex.test(mac)) {
-        error = `MAC invÃ¡lido (${mac})`;
+        error = `MAC inválido (${mac})`;
       } else if (!name) {
-        error = "Nome nÃ£o fornecido";
+        error = "Nome não fornecido";
       }
 
       if (error) {
@@ -429,8 +429,8 @@
 
   $("wifiBulkForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (bulkParsed.length === 0) return notice("Nenhum dispositivo vÃ¡lido no lote.", "error");
-    if (bulkParsed.length > 100) return notice("O limite mÃ¡ximo Ã© de 100 dispositivos por lote.", "error");
+    if (bulkParsed.length === 0) return notice("Nenhum dispositivo válido no lote.", "error");
+    if (bulkParsed.length > 100) return notice("O limite máximo é de 100 dispositivos por lote.", "error");
 
     try {
       await request(app.dataset.bulkTrustedUrl, {

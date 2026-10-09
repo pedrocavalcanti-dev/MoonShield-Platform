@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import hmac
 import ipaddress
@@ -22,7 +22,7 @@ def _error(code: str, message: str, status: int) -> JsonResponse:
 
 
 def _source_ip(request) -> str | None:
-    """ObtÃ©m IP do cliente; sÃ³ aceita header do proxy local confiÃ¡vel (Nginx)."""
+    """Obtém IP do cliente; só aceita header do proxy local confiável (Nginx)."""
     remote = str(request.META.get("REMOTE_ADDR") or "").strip()
     candidate = request.META.get("HTTP_X_REAL_IP") if remote in {"127.0.0.1", "::1"} else remote
     try:
@@ -37,11 +37,11 @@ def _authenticate(request) -> JsonResponse | None:
     prefix, _, provided = authorization.partition(" ")
     provided = provided.strip().encode("utf-8", "surrogateescape")
     if not token or prefix.lower() != "bearer" or not provided or not hmac.compare_digest(token, provided):
-        return _error("token_invalido", "Token de API invÃ¡lido.", 401)
+        return _error("token_invalido", "Token de API inválido.", 401)
     allowed = set(getattr(settings, "WIFI_API_ALLOWED_IPS", ()) or ())
     source = _source_ip(request)
     if not allowed or source not in allowed:
-        return _error("origem_nao_permitida", "Origem da API nÃ£o permitida.", 403)
+        return _error("origem_nao_permitida", "Origem da API não permitida.", 403)
     return None
 
 
@@ -58,16 +58,16 @@ def _json_body(request, *, allowed_fields: set[str]) -> tuple[dict | None, JsonR
     try:
         body = json.loads(request.body.decode("utf-8"), object_pairs_hook=_reject_duplicates)
     except (UnicodeDecodeError, ValueError):
-        return None, _error("json_invalido", "Corpo JSON invÃ¡lido.", 400)
+        return None, _error("json_invalido", "Corpo JSON inválido.", 400)
     if not isinstance(body, dict):
         return None, _error("json_invalido", "O corpo deve ser um objeto JSON.", 400)
     fields = {str(key).strip().lower() for key in body}
     if fields & _PASSWORD_FIELDS:
-        return None, _error("campo_proibido", "Credenciais nÃ£o sÃ£o aceitas nesta API; a autenticaÃ§Ã£o Ã© feita no AUTH01.", 400)
+        return None, _error("campo_proibido", "Credenciais não são aceitas nesta API; a autenticação é feita no AUTH01.", 400)
     if fields & _MAC_FIELDS:
-        return None, _error("mac_nao_permitido", "O MAC nÃ£o deve ser enviado; o MoonShield o resolve pela prÃ³pria rede.", 400)
+        return None, _error("mac_nao_permitido", "O MAC não deve ser enviado; o MoonShield o resolve pela própria rede.", 400)
     if set(body) - allowed_fields:
-        return None, _error("campo_invalido", "A requisiÃ§Ã£o possui campos nÃ£o permitidos.", 400)
+        return None, _error("campo_invalido", "A requisição possui campos não permitidos.", 400)
     return body, None
 
 
@@ -120,7 +120,7 @@ def status(request):
     trusted = WifiTrustedDevice.objects.filter(mac_address=mac_address, active=True).exists()
     authorization = WifiAuthorization.objects.filter(mac_address=mac_address).order_by("-authorized_at", "-pk").first()
     if not trusted and authorization is None:
-        return _error("autorizacao_nao_encontrada", "Nenhuma autorizaÃ§Ã£o encontrada para este dispositivo.", 404)
+        return _error("autorizacao_nao_encontrada", "Nenhuma autorização encontrada para este dispositivo.", 404)
     login_active = bool(authorization and authorization.active and authorization.ip_address == str(ipaddress.ip_address(ip_address)))
     return JsonResponse({
         "ok": True,

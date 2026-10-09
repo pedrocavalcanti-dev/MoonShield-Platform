@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 
@@ -15,9 +15,9 @@ def normalize_mac(value: object) -> str:
     """Normaliza e valida um MAC Ethernet unicast para armazenamento."""
     mac = str(value or "").strip().upper().replace("-", ":")
     if not _MAC_RE.fullmatch(mac) or mac in _INVALID_MACS:
-        raise ValidationError("Informe um endereÃ§o MAC unicast vÃ¡lido.")
+        raise ValidationError("Informe um endereço MAC unicast válido.")
     if int(mac[:2], 16) & 1:
-        raise ValidationError("EndereÃ§os MAC multicast nÃ£o sÃ£o aceitos.")
+        raise ValidationError("Endereços MAC multicast não são aceitos.")
     return mac
 
 
@@ -34,8 +34,8 @@ class WifiTrustedDevice(models.Model):
 
     class Meta:
         ordering = ["nome", "id"]
-        verbose_name = "dispositivo Wi-Fi confiÃ¡vel"
-        verbose_name_plural = "dispositivos Wi-Fi confiÃ¡veis"
+        verbose_name = "dispositivo Wi-Fi confiável"
+        verbose_name_plural = "dispositivos Wi-Fi confiáveis"
 
     def clean(self) -> None:
         self.mac_address = normalize_mac(self.mac_address)
@@ -49,7 +49,7 @@ class WifiTrustedDevice(models.Model):
 
 
 class WifiAuthorization(models.Model):
-    """AutorizaÃ§Ã£o emitida pelo AUTH01; nunca armazena credenciais."""
+    """Autorização emitida pelo AUTH01; nunca armazena credenciais."""
 
     class Source(models.TextChoices):
         AUTH01 = "AUTH01", "AUTH01"
@@ -88,4 +88,4 @@ class WifiAuthorization(models.Model):
         return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return f"{self.username} â€” {self.ip_address}"
+        return f"{self.username} — {self.ip_address}"
